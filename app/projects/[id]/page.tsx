@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect } from 'react'
+import { useParams } from 'next/navigation'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
@@ -61,8 +62,8 @@ function fmtHours(minutes: number) {
 
 // ── Main Page ──
 
-export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: projectId } = use(params)
+export default function ProjectDetailPage() {
+  const { id: projectId } = useParams() as { id: string }
   const router = useRouter()
 
   const [project, setProject] = useState<Project | null>(null)
