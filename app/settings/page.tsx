@@ -43,6 +43,7 @@ export default function SettingsPage() {
     hours_per_day: '8',
   })
 
+  const [ownerBillable, setOwnerBillable] = useState(true)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [consumableMarkup, setConsumableMarkup] = useState('15')
   const [profitMargin, setProfitMargin] = useState('35')
@@ -75,7 +76,7 @@ export default function SettingsPage() {
   const totalMonthlyPayroll = totalAnnualPayroll / 12
   const billableEmployees = employees.filter(e => e.billable)
   const nonBillableEmployees = employees.filter(e => !e.billable)
-  const billableCount = billableEmployees.length + 1 // +1 for owner (always billable)
+  const billableCount = billableEmployees.length + (ownerBillable ? 1 : 0)
 
   const result = computeShopRate({
     monthlyRent: getNum('monthly_rent'),
@@ -150,13 +151,27 @@ export default function SettingsPage() {
               <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Owner</h3>
               <div className="flex items-center justify-between py-3">
                 <label className="text-sm text-[#6B7280]">Owner Annual Salary</label>
-                <div className="flex items-center gap-1">
-                  <span className="text-sm text-[#9CA3AF]">$</span>
-                  <input type="text" inputMode="decimal" value={rawValues.owner_salary} onChange={e => handleChange('owner_salary', e.target.value)} className={inputClass} placeholder="0" />
-                  <span className="text-xs text-[#9CA3AF]">/yr</span>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <span className="text-sm text-[#9CA3AF]">$</span>
+                    <input type="text" inputMode="decimal" value={rawValues.owner_salary} onChange={e => handleChange('owner_salary', e.target.value)} className={inputClass} placeholder="0" />
+                    <span className="text-xs text-[#9CA3AF]">/yr</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setOwnerBillable(!ownerBillable)}
+                      className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                        ownerBillable ? 'bg-[#2563EB] border-[#2563EB]' : 'border-[#D1D5DB] hover:border-[#9CA3AF]'
+                      }`}
+                    >
+                      {ownerBillable && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                      )}
+                    </button>
+                    <span className="text-xs text-[#9CA3AF]">Billable</span>
+                  </div>
                 </div>
               </div>
-              <p className="text-[10px] text-[#9CA3AF] ml-1">Owner is always counted as billable</p>
             </div>
 
             {/* Team */}
@@ -230,7 +245,7 @@ export default function SettingsPage() {
                     <span className="text-sm font-mono tabular-nums">${Math.round(totalMonthlyPayroll).toLocaleString()}/mo</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-xs text-[#9CA3AF]">Billable: {billableEmployees.length} employees + owner</span>
+                    <span className="text-xs text-[#9CA3AF]">Billable: {billableEmployees.length} employees{ownerBillable ? ' + owner' : ''}</span>
                     <span className="text-xs text-[#9CA3AF]">Non-billable: {nonBillableEmployees.length}</span>
                   </div>
                 </div>

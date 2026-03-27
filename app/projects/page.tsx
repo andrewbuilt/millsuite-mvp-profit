@@ -77,7 +77,7 @@ export default function ProjectsPage() {
   async function createProject() {
     if (!newName.trim()) return
     setCreating(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('projects')
       .insert({
         org_id: DEFAULT_ORG_ID,
@@ -89,7 +89,10 @@ export default function ProjectsPage() {
       })
       .select()
       .single()
-    if (data) {
+    if (error) {
+      console.error('Create project error:', error)
+      alert(error.message)
+    } else if (data) {
       setProjects(prev => [data, ...prev])
     }
     setNewName('')
