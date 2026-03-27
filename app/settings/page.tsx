@@ -65,10 +65,14 @@ export default function SettingsPage() {
         <div className="flex items-center gap-1">
           {prefix && <span className="text-sm text-[#9CA3AF]">{prefix}</span>}
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             value={inputs[field] || ''}
-            onChange={e => updateField(field, e.target.value)}
-            className="w-28 text-right px-3 py-1.5 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
+            onChange={e => {
+              const val = e.target.value.replace(/[^0-9.]/g, '')
+              updateField(field, val)
+            }}
+            className="w-32 text-right px-3 py-1.5 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             placeholder="0"
           />
           {suffix && <span className="text-sm text-[#9CA3AF]">{suffix}</span>}
@@ -100,7 +104,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-center gap-6 mt-4 text-xs text-[#6B7280]">
               <span>Cost: ${result.costPerHour.toFixed(2)}/hr</span>
               <span>·</span>
-              <span>Profit: ${(result.shopRate - result.costPerHour).toFixed(2)}/hr</span>
+              <span>Buffer: ${(result.shopRate - result.costPerHour).toFixed(2)}/hr</span>
               <span>·</span>
               <span>{result.productionHoursPerMonth} hrs/mo</span>
             </div>
@@ -137,7 +141,8 @@ export default function SettingsPage() {
               <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Production Capacity</h3>
               <InputRow label="Working Days / Month" field="working_days_per_month" />
               <InputRow label="Hours / Day" field="hours_per_day" />
-              <InputRow label="Target Profit" field="target_profit_pct" suffix="%" />
+              <InputRow label="Overhead Buffer" field="target_profit_pct" suffix="%" />
+              <p className="text-[10px] text-[#9CA3AF] mt-1 ml-1">Added to hourly cost to cover downtime, unbillable hours, etc. Not the same as project profit margin.</p>
             </div>
 
             {/* Breakdown */}
@@ -165,7 +170,7 @@ export default function SettingsPage() {
                   <span className="font-mono tabular-nums">${result.costPerHour.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-[#6B7280]">+ {inputs.target_profit_pct}% profit</span>
+                  <span className="text-[#6B7280]">+ {inputs.target_profit_pct}% buffer</span>
                   <span className="font-mono tabular-nums">${(result.shopRate - result.costPerHour).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-sm border-t border-[#E5E7EB] pt-2">
@@ -187,14 +192,14 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between py-3">
               <label className="text-sm text-[#6B7280]">Consumable Markup</label>
               <div className="flex items-center gap-1">
-                <input type="number" defaultValue={15} className="w-20 text-right px-3 py-1.5 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]" />
+                <input type="text" inputMode="decimal" defaultValue={15} className="w-20 text-right px-3 py-1.5 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] [appearance:textfield]" />
                 <span className="text-sm text-[#9CA3AF]">%</span>
               </div>
             </div>
             <div className="flex items-center justify-between py-3 border-t border-[#F3F4F6]">
               <label className="text-sm text-[#6B7280]">Default Profit Margin</label>
               <div className="flex items-center gap-1">
-                <input type="number" defaultValue={35} className="w-20 text-right px-3 py-1.5 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]" />
+                <input type="text" inputMode="decimal" defaultValue={35} className="w-20 text-right px-3 py-1.5 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] [appearance:textfield]" />
                 <span className="text-sm text-[#9CA3AF]">%</span>
               </div>
             </div>
