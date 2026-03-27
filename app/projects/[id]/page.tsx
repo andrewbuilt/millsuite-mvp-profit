@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeSubprojectPrice } from '@/lib/pricing'
+import { DEFAULT_ORG_ID } from '@/lib/constants'
 import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 
 // ── Types ──
@@ -108,7 +109,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     setSaving(true)
     const { data } = await supabase.from('subprojects').insert({
       project_id: projectId,
-      org_id: project?.id ? (await supabase.from('projects').select('org_id').eq('id', projectId).single()).data?.org_id : null,
+      org_id: DEFAULT_ORG_ID,
       name: newSubName.trim(),
       sort_order: subprojects.length,
       consumable_markup_pct: orgDefaults.consumable_markup_pct,

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
+import { DEFAULT_ORG_ID } from '@/lib/constants'
 
 // ── Types ──
 
@@ -79,6 +80,7 @@ export default function ProjectsPage() {
     const { data } = await supabase
       .from('projects')
       .insert({
+        org_id: DEFAULT_ORG_ID,
         name: newName.trim(),
         client_name: newClient.trim() || null,
         status: 'bidding',

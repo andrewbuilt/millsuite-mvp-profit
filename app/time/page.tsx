@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
+import { DEFAULT_ORG_ID, DEFAULT_USER_ID } from '@/lib/constants'
 import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -209,6 +210,8 @@ export default function TimePage() {
     const durationMinutes = Math.round((ended.getTime() - timerStartedAt.getTime()) / 60000)
 
     await supabase.from('time_entries').insert({
+      org_id: DEFAULT_ORG_ID,
+      user_id: DEFAULT_USER_ID,
       project_id: timerProjectId,
       subproject_id: timerSubprojectId || null,
       duration_minutes: Math.max(durationMinutes, 1),
@@ -235,6 +238,8 @@ export default function TimePage() {
     const startedAt = new Date(manualDate + 'T09:00:00')
 
     await supabase.from('time_entries').insert({
+      org_id: DEFAULT_ORG_ID,
+      user_id: DEFAULT_USER_ID,
       project_id: manualProjectId,
       subproject_id: manualSubprojectId || null,
       duration_minutes: durationMinutes,
