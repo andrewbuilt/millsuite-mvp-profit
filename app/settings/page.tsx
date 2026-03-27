@@ -1,84 +1,83 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Nav from '@/components/nav'
 import { computeShopRate } from '@/lib/pricing'
-import { supabase } from '@/lib/supabase'
 
-interface ShopRateInputs {
-  monthly_rent: number
-  monthly_utilities: number
-  monthly_insurance: number
-  monthly_equipment: number
-  monthly_misc_overhead: number
-  owner_salary: number
-  total_payroll: number
-  target_profit_pct: number
-  working_days_per_month: number
-  hours_per_day: number
-}
+const FIELD_CONFIG: { key: string; label: string; prefix?: string; suffix?: string; section: string }[] = [
+  { key: 'monthly_rent', label: 'Rent / Mortgage', prefix: '$', section: 'overhead' },
+  { key: 'monthly_utilities', label: 'Utilities', prefix: '$', section: 'overhead' },
+  { key: 'monthly_insurance', label: 'Insurance', prefix: '$', section: 'overhead' },
+  { key: 'monthly_equipment', label: 'Equipment / Leases', prefix: '$', section: 'overhead' },
+  { key: 'monthly_misc_overhead', label: 'Other Overhead', prefix: '$', section: 'overhead' },
+  { key: 'owner_salary', label: 'Owner Salary', prefix: '$', section: 'labor' },
+  { key: 'total_payroll', label: 'Total Payroll (all employees)', prefix: '$', section: 'labor' },
+  { key: 'working_days_per_month', label: 'Working Days / Month', section: 'production' },
+  { key: 'hours_per_day', label: 'Hours / Day', section: 'production' },
+  { key: 'target_profit_pct', label: 'Overhead Buffer', suffix: '%', section: 'production' },
+]
 
-const DEFAULTS: ShopRateInputs = {
-  monthly_rent: 0,
-  monthly_utilities: 0,
-  monthly_insurance: 0,
-  monthly_equipment: 0,
-  monthly_misc_overhead: 0,
-  owner_salary: 0,
-  total_payroll: 0,
-  target_profit_pct: 20,
-  working_days_per_month: 21,
-  hours_per_day: 8,
-}
-
-// TODO: Replace with actual org_id from auth
-const TEMP_ORG_ID = 'temp'
+const inputClass = "w-32 text-right px-3 py-2 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
 
 export default function SettingsPage() {
-  const [inputs, setInputs] = useState<ShopRateInputs>(DEFAULTS)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-
-  const result = computeShopRate({
-    monthlyRent: inputs.monthly_rent,
-    monthlyUtilities: inputs.monthly_utilities,
-    monthlyInsurance: inputs.monthly_insurance,
-    monthlyEquipment: inputs.monthly_equipment,
-    monthlyMisc: inputs.monthly_misc_overhead,
-    ownerSalary: inputs.owner_salary,
-    totalPayroll: inputs.total_payroll,
-    targetProfitPct: inputs.target_profit_pct,
-    workingDaysPerMonth: inputs.working_days_per_month,
-    hoursPerDay: inputs.hours_per_day,
+  // Store raw strings so typing works naturally
+  const [rawValues, setRawValues] = useState<Record<string, string>>({
+    monthly_rent: '',
+    monthly_utilities: '',
+    monthly_insurance: '',
+    monthly_equipment: '',
+    monthly_misc_overhead: '',
+    owner_salary: '',
+    total_payroll: '',
+    target_profit_pct: '0',
+    working_days_per_month: '21',
+    hours_per_day: '8',
   })
 
-  function updateField(field: keyof ShopRateInputs, value: string) {
-    const num = parseFloat(value) || 0
-    setInputs(prev => ({ ...prev, [field]: num }))
-    setSaved(false)
+  const [consumableMarkup, setConsumableMarkup] = useState('15')
+  const [profitMargin, setProfitMargin] = useState('35')
+
+  function getNum(key: string): number {
+    return parseFloat(rawValues[key]) || 0
   }
 
-  function InputRow({ label, field, prefix, suffix }: { label: string; field: keyof ShopRateInputs; prefix?: string; suffix?: string }) {
-    return (
-      <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
-        <label className="text-sm text-[#6B7280]">{label}</label>
+  function handleChange(key: string, value: string) {
+    // Allow digits, decimal point, and empty string
+    const clean = value.replace(/[^0-9.]/g, '')
+    setRawValues(prev => ({ ...prev, [key]: clean }))
+  }
+
+  const result = computeShopRate({
+    monthlyRent: getNum('monthly_rent'),
+    monthlyUtilities: getNum('monthly_utilities'),
+    monthlyInsurance: getNum('monthly_insurance'),
+    monthlyEquipment: getNum('monthly_equipment'),
+    monthlyMisc: getNum('monthly_misc_overhead'),
+    ownerSalary: getNum('owner_salary'),
+    totalPayroll: getNum('total_payroll'),
+    targetProfitPct: getNum('target_profit_pct'),
+    workingDaysPerMonth: getNum('working_days_per_month'),
+    hoursPerDay: getNum('hours_per_day'),
+  })
+
+  function renderFields(section: string) {
+    return FIELD_CONFIG.filter(f => f.section === section).map(f => (
+      <div key={f.key} className="flex items-center justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
+        <label className="text-sm text-[#6B7280]">{f.label}</label>
         <div className="flex items-center gap-1">
-          {prefix && <span className="text-sm text-[#9CA3AF]">{prefix}</span>}
+          {f.prefix && <span className="text-sm text-[#9CA3AF]">{f.prefix}</span>}
           <input
             type="text"
             inputMode="decimal"
-            value={inputs[field] || ''}
-            onChange={e => {
-              const val = e.target.value.replace(/[^0-9.]/g, '')
-              updateField(field, val)
-            }}
-            className="w-32 text-right px-3 py-1.5 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            value={rawValues[f.key]}
+            onChange={e => handleChange(f.key, e.target.value)}
+            className={inputClass}
             placeholder="0"
           />
-          {suffix && <span className="text-sm text-[#9CA3AF]">{suffix}</span>}
+          {f.suffix && <span className="text-sm text-[#9CA3AF]">{f.suffix}</span>}
         </div>
       </div>
-    )
+    ))
   }
 
   return (
@@ -114,11 +113,7 @@ export default function SettingsPage() {
             {/* Fixed Costs */}
             <div className="mb-6">
               <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Monthly Fixed Costs</h3>
-              <InputRow label="Rent / Mortgage" field="monthly_rent" prefix="$" />
-              <InputRow label="Utilities" field="monthly_utilities" prefix="$" />
-              <InputRow label="Insurance" field="monthly_insurance" prefix="$" />
-              <InputRow label="Equipment / Leases" field="monthly_equipment" prefix="$" />
-              <InputRow label="Other Overhead" field="monthly_misc_overhead" prefix="$" />
+              {renderFields('overhead')}
               <div className="flex items-center justify-between py-3 border-t border-[#E5E7EB] mt-2">
                 <span className="text-sm font-medium text-[#111]">Total Overhead</span>
                 <span className="text-sm font-mono tabular-nums font-semibold">${result.monthlyOverhead.toLocaleString()}/mo</span>
@@ -128,8 +123,7 @@ export default function SettingsPage() {
             {/* Labor */}
             <div className="mb-6">
               <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Monthly Labor</h3>
-              <InputRow label="Owner Salary" field="owner_salary" prefix="$" />
-              <InputRow label="Total Payroll (all employees)" field="total_payroll" prefix="$" />
+              {renderFields('labor')}
               <div className="flex items-center justify-between py-3 border-t border-[#E5E7EB] mt-2">
                 <span className="text-sm font-medium text-[#111]">Total Labor Cost</span>
                 <span className="text-sm font-mono tabular-nums font-semibold">${result.monthlyLaborCost.toLocaleString()}/mo</span>
@@ -139,10 +133,8 @@ export default function SettingsPage() {
             {/* Production */}
             <div className="mb-6">
               <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Production Capacity</h3>
-              <InputRow label="Working Days / Month" field="working_days_per_month" />
-              <InputRow label="Hours / Day" field="hours_per_day" />
-              <InputRow label="Overhead Buffer" field="target_profit_pct" suffix="%" />
-              <p className="text-[10px] text-[#9CA3AF] mt-1 ml-1">Added to hourly cost to cover downtime, unbillable hours, etc. Not the same as project profit margin.</p>
+              {renderFields('production')}
+              <p className="text-[10px] text-[#9CA3AF] mt-1 ml-1">Buffer covers downtime, unbillable hours, etc. Set to 0 if you don't want one.</p>
             </div>
 
             {/* Breakdown */}
@@ -169,10 +161,12 @@ export default function SettingsPage() {
                   <span className="text-[#6B7280]">Cost per hour</span>
                   <span className="font-mono tabular-nums">${result.costPerHour.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#6B7280]">+ {inputs.target_profit_pct}% buffer</span>
-                  <span className="font-mono tabular-nums">${(result.shopRate - result.costPerHour).toFixed(2)}</span>
-                </div>
+                {getNum('target_profit_pct') > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[#6B7280]">+ {getNum('target_profit_pct')}% buffer</span>
+                    <span className="font-mono tabular-nums">${(result.shopRate - result.costPerHour).toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm border-t border-[#E5E7EB] pt-2">
                   <span className="font-medium text-[#111]">Shop Rate</span>
                   <span className="font-mono tabular-nums font-semibold text-[#2563EB]">${result.shopRate.toFixed(2)}/hr</span>
@@ -186,20 +180,32 @@ export default function SettingsPage() {
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mt-6">
           <div className="px-6 py-4 border-b border-[#E5E7EB]">
             <h2 className="text-base font-semibold">Project Defaults</h2>
-            <p className="text-xs text-[#9CA3AF] mt-0.5">Applied to all new subprojects</p>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">Applied to all new subprojects — adjustable per project</p>
           </div>
           <div className="px-6 py-4">
             <div className="flex items-center justify-between py-3">
               <label className="text-sm text-[#6B7280]">Consumable Markup</label>
               <div className="flex items-center gap-1">
-                <input type="text" inputMode="decimal" defaultValue={15} className="w-20 text-right px-3 py-1.5 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] [appearance:textfield]" />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={consumableMarkup}
+                  onChange={e => setConsumableMarkup(e.target.value.replace(/[^0-9.]/g, ''))}
+                  className={inputClass}
+                />
                 <span className="text-sm text-[#9CA3AF]">%</span>
               </div>
             </div>
             <div className="flex items-center justify-between py-3 border-t border-[#F3F4F6]">
               <label className="text-sm text-[#6B7280]">Default Profit Margin</label>
               <div className="flex items-center gap-1">
-                <input type="text" inputMode="decimal" defaultValue={35} className="w-20 text-right px-3 py-1.5 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] [appearance:textfield]" />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={profitMargin}
+                  onChange={e => setProfitMargin(e.target.value.replace(/[^0-9.]/g, ''))}
+                  className={inputClass}
+                />
                 <span className="text-sm text-[#9CA3AF]">%</span>
               </div>
             </div>
