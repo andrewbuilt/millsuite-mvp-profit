@@ -6,7 +6,8 @@ import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeProjectPL } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
-import { DollarSign, FolderKanban, FileText, TrendingUp, Plus, Clock, Settings, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { DollarSign, FolderKanban, FileText, TrendingUp, Plus, Clock, Settings, AlertTriangle, CheckCircle2, Receipt, ChevronDown, ChevronUp } from 'lucide-react'
+import InvoiceParser from '@/components/invoice-parser'
 
 // ── Types ──
 
@@ -53,6 +54,7 @@ export default function DashboardPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const shopRate = org?.shop_rate || 75
   const [loading, setLoading] = useState(true)
+  const [uploadOpen, setUploadOpen] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -157,7 +159,7 @@ export default function DashboardPage() {
               <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Shop Rate</span>
             </div>
             <div className="text-3xl font-mono tabular-nums font-semibold text-[#111]">
-              ${shopRate}<span className="text-base text-[#9CA3AF] font-normal">/hr</span>
+              ${Number(shopRate).toFixed(2)}<span className="text-base text-[#9CA3AF] font-normal">/hr</span>
             </div>
           </div>
 
@@ -204,6 +206,26 @@ export default function DashboardPage() {
               {fmtMoney(overallBid - overallActual)} variance
             </div>
           </div>
+        </div>
+
+        {/* ── Quick Upload ── */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+          <button
+            onClick={() => setUploadOpen(prev => !prev)}
+            className="w-full px-6 py-4 flex items-center justify-between hover:bg-[#F9FAFB] transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-[#2563EB]" />
+              <h2 className="text-base font-semibold">Quick Upload</h2>
+              <span className="text-xs text-[#9CA3AF] ml-1">Parse a vendor invoice with AI</span>
+            </div>
+            {uploadOpen ? <ChevronUp className="w-4 h-4 text-[#9CA3AF]" /> : <ChevronDown className="w-4 h-4 text-[#9CA3AF]" />}
+          </button>
+          {uploadOpen && (
+            <div className="px-6 pb-5 border-t border-[#E5E7EB] pt-4">
+              <InvoiceParser />
+            </div>
+          )}
         </div>
 
         {/* ── MIDDLE: Projects At Risk ── */}

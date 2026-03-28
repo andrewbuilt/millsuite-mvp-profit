@@ -68,7 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data: orgData } = await supabase
         .from('orgs')
-        .select('id, name, slug, shop_rate, consumable_markup_pct, profit_margin_pct')
+        .select('id, name, slug, shop_rate, consumable_markup_pct, profit_margin_pct, business_address, business_city, business_state, business_zip, business_phone, business_email')
         .eq('id', userData.org_id)
         .single()
 
@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user?.org_id) return
     const { data: orgData } = await supabase
       .from('orgs')
-      .select('id, name, slug, shop_rate, consumable_markup_pct, profit_margin_pct')
+      .select('id, name, slug, shop_rate, consumable_markup_pct, profit_margin_pct, business_address, business_city, business_state, business_zip, business_phone, business_email')
       .eq('id', user.org_id)
       .single()
     if (orgData) setOrg(orgData)

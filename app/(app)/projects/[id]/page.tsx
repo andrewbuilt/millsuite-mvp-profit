@@ -7,7 +7,7 @@ import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeSubprojectPrice } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink } from 'lucide-react'
 
 // ── Types ──
 
@@ -47,6 +47,9 @@ interface Invoice {
   subproject_id: string | null
   total_amount: number
   vendor_name: string | null
+  invoice_number: string | null
+  invoice_date: string | null
+  file_url: string | null
 }
 
 // ── Helpers ──
@@ -98,7 +101,7 @@ export default function ProjectDetailPage() {
       supabase.from('projects').select('*').eq('id', projectId).single(),
       supabase.from('subprojects').select('*').eq('project_id', projectId).order('sort_order'),
       supabase.from('time_entries').select('id, subproject_id, duration_minutes, employee_type').eq('project_id', projectId),
-      supabase.from('invoices').select('id, subproject_id, total_amount, vendor_name').eq('project_id', projectId),
+      supabase.from('invoices').select('id, subproject_id, total_amount, vendor_name, invoice_number, invoice_date, file_url').eq('project_id', projectId),
     ])
     if (proj) setProject(proj)
     setSubprojects(subs || [])
@@ -435,7 +438,7 @@ export default function ProjectDetailPage() {
                             <span className="font-mono tabular-nums">{fmtMoney(result.materialWithConsumables)}</span>
                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-[#6B7280]">Labor ({sub.labor_hours}h × ${shopRate}/hr)</span>
+                            <span className="text-[#6B7280]">Labor ({sub.labor_hours}h × ${Number(shopRate).toFixed(2)}/hr)</span>
                             <span className="font-mono tabular-nums">{fmtMoney(result.laborCost)}</span>
                           </div>
                           <div className="flex justify-between text-xs border-t border-[#E5E7EB] pt-1.5">

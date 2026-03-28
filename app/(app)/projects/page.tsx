@@ -13,7 +13,7 @@ interface Project {
   org_id: string | null
   name: string
   client_name: string | null
-  status: 'bidding' | 'active' | 'complete'
+  status: 'bidding' | 'active' | 'complete' | 'archived'
   bid_total: number
   actual_total: number
   sold_at: string | null
@@ -34,12 +34,13 @@ interface TimeEntry {
   duration_minutes: number
 }
 
-type ColumnStatus = 'bidding' | 'active' | 'complete'
+type ColumnStatus = 'bidding' | 'active' | 'complete' | 'archived'
 
 const COLUMNS: { status: ColumnStatus; label: string }[] = [
   { status: 'bidding', label: 'Bidding' },
   { status: 'active', label: 'Active' },
   { status: 'complete', label: 'Complete' },
+  { status: 'archived', label: 'Archived' },
 ]
 
 // ── Helpers ──
@@ -317,7 +318,7 @@ export default function ProjectsPage() {
 
         {/* Kanban Board */}
         {!loading && projects.length > 0 && (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             {COLUMNS.map(col => {
               const colProjects = projectsByStatus(col.status)
               const isOver = dragOver === col.status
@@ -351,6 +352,7 @@ export default function ProjectsPage() {
                       {colProjects.map(project => {
                         const pct = profitPct(project)
                         const isDragging = dragId === project.id
+                        const isArchived = col.status === 'archived'
 
                         return (
                           <div
@@ -365,11 +367,11 @@ export default function ProjectsPage() {
                           >
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0 flex-1">
-                                <div className="text-sm font-medium text-[#111] truncate">
+                                <div className={`text-sm font-medium truncate ${isArchived ? 'text-[#9CA3AF]' : 'text-[#111]'}`}>
                                   {project.name}
                                 </div>
                                 {project.client_name && (
-                                  <div className="text-xs text-[#6B7280] truncate mt-0.5">
+                                  <div className={`text-xs truncate mt-0.5 ${isArchived ? 'text-[#9CA3AF]' : 'text-[#6B7280]'}`}>
                                     {project.client_name}
                                   </div>
                                 )}
@@ -377,7 +379,7 @@ export default function ProjectsPage() {
                               {pct !== null && (
                                 <span
                                   className={`text-xs font-mono tabular-nums font-semibold whitespace-nowrap ${
-                                    pct >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'
+                                    isArchived ? 'text-[#9CA3AF]' : pct >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'
                                   }`}
                                 >
                                   {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
@@ -385,7 +387,7 @@ export default function ProjectsPage() {
                               )}
                             </div>
                             {project.bid_total > 0 && (
-                              <div className="text-xs font-mono tabular-nums text-[#6B7280] mt-2">
+                              <div className={`text-xs font-mono tabular-nums mt-2 ${isArchived ? 'text-[#9CA3AF]' : 'text-[#6B7280]'}`}>
                                 {fmtMoney(project.bid_total)}
                               </div>
                             )}

@@ -51,6 +51,16 @@ export default function SettingsPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [consumableMarkup, setConsumableMarkup] = useState('15')
   const [profitMargin, setProfitMargin] = useState('35')
+
+  // Business Info fields
+  const [businessName, setBusinessName] = useState('')
+  const [businessAddress, setBusinessAddress] = useState('')
+  const [businessCity, setBusinessCity] = useState('')
+  const [businessState, setBusinessState] = useState('')
+  const [businessZip, setBusinessZip] = useState('')
+  const [businessPhone, setBusinessPhone] = useState('')
+  const [businessEmail, setBusinessEmail] = useState('')
+
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -89,6 +99,15 @@ export default function SettingsPage() {
       // Load org defaults for consumable markup & profit margin
       setConsumableMarkup(org!.consumable_markup_pct?.toString() || '15')
       setProfitMargin(org!.profit_margin_pct?.toString() || '35')
+
+      // Load business info from org
+      setBusinessName(org!.name || '')
+      setBusinessAddress((org as any).business_address || '')
+      setBusinessCity((org as any).business_city || '')
+      setBusinessState((org as any).business_state || '')
+      setBusinessZip((org as any).business_zip || '')
+      setBusinessPhone((org as any).business_phone || '')
+      setBusinessEmail((org as any).business_email || '')
 
       setLoaded(true)
     }
@@ -183,9 +202,16 @@ export default function SettingsPage() {
     const { error: orgError } = await supabase
       .from('orgs')
       .update({
-        shop_rate: shopRate,
+        shop_rate: Math.round(shopRate * 100) / 100,
         consumable_markup_pct: parseFloat(consumableMarkup) || 0,
         profit_margin_pct: parseFloat(profitMargin) || 0,
+        name: businessName.trim() || undefined,
+        business_address: businessAddress.trim(),
+        business_city: businessCity.trim(),
+        business_state: businessState.trim(),
+        business_zip: businessZip.trim(),
+        business_phone: businessPhone.trim(),
+        business_email: businessEmail.trim(),
       })
       .eq('id', org.id)
 
@@ -194,7 +220,7 @@ export default function SettingsPage() {
     await refreshOrg()
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-  }, [org?.id, loaded, rawValues, shopRate, ownerBillable, employees, consumableMarkup, profitMargin])
+  }, [org?.id, loaded, rawValues, shopRate, ownerBillable, employees, consumableMarkup, profitMargin, businessName, businessAddress, businessCity, businessState, businessZip, businessPhone, businessEmail])
 
   useEffect(() => {
     if (!loaded) return
@@ -419,6 +445,40 @@ export default function SettingsPage() {
                   <span className="font-mono tabular-nums font-semibold text-[#2563EB]">${shopRate.toFixed(2)}/hr</span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Business Info */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mt-6">
+          <div className="px-6 py-4 border-b border-[#E5E7EB]">
+            <h2 className="text-base font-semibold">Business Info</h2>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">Your business details for estimates and invoices</p>
+          </div>
+          <div className="px-6 py-4 space-y-3">
+            <div className="flex items-center justify-between py-2">
+              <label className="text-sm text-[#6B7280]">Business Name</label>
+              <input type="text" value={businessName} onChange={e => setBusinessName(e.target.value)} className="w-64 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="Your Business Name" />
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">Address</label>
+              <input type="text" value={businessAddress} onChange={e => setBusinessAddress(e.target.value)} className="w-64 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="123 Main St" />
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">City, State, Zip</label>
+              <div className="flex items-center gap-2">
+                <input type="text" value={businessCity} onChange={e => setBusinessCity(e.target.value)} className="w-28 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="City" />
+                <input type="text" value={businessState} onChange={e => setBusinessState(e.target.value)} className="w-16 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="ST" />
+                <input type="text" value={businessZip} onChange={e => setBusinessZip(e.target.value)} className="w-20 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="00000" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">Phone</label>
+              <input type="text" value={businessPhone} onChange={e => setBusinessPhone(e.target.value)} className="w-64 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="(555) 123-4567" />
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">Email</label>
+              <input type="text" value={businessEmail} onChange={e => setBusinessEmail(e.target.value)} className="w-64 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="info@yourbusiness.com" />
             </div>
           </div>
         </div>
