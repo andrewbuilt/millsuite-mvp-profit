@@ -75,7 +75,7 @@ export default function DashboardPage() {
   async function loadData() {
     setLoading(true)
 
-    let projectsQuery = supabase.from('projects').select('id, name, client_name, status, bid_total').in('status', ['active', 'bidding'])
+    let projectsQuery = supabase.from('projects').select('id, name, client_name, status, bid_total').in('status', ['active', 'bidding', 'complete'])
     if (org?.id) projectsQuery = projectsQuery.eq('org_id', org.id)
 
     const [
@@ -101,6 +101,13 @@ export default function DashboardPage() {
 
   const activeProjects = projects.filter(p => p.status === 'active')
   const biddingProjects = projects.filter(p => p.status === 'bidding')
+  const completedProjects = projects.filter(p => p.status === 'complete')
+
+  // "In Production" = active projects that have time logged
+  const inProductionProjects = activeProjects.filter(p =>
+    timeEntries.some(t => t.project_id === p.id)
+  )
+  const inProductionBidTotal = inProductionProjects.reduce((sum, p) => sum + (p.bid_total || 0), 0)
 
   const activeBidTotal = activeProjects.reduce((sum, p) => sum + (p.bid_total || 0), 0)
   const biddingBidTotal = biddingProjects.reduce((sum, p) => sum + (p.bid_total || 0), 0)
@@ -117,13 +124,20 @@ export default function DashboardPage() {
     return { laborCost, materialCost, total: laborCost + materialCost }
   }
 
-  // Overall margin across active projects
-  const overallBid = activeBidTotal
-  const overallActual = activeProjects.reduce((sum, p) => {
+  // Overall margin — only from completed projects (so it reflects real outcomes, not in-progress guesses)
+  const completedBid = completedProjects.reduce((sum, p) => sum + (p.bid_total || 0), 0)
+  const completedActual = completedProjects.reduce((sum, p) => {
     const actuals = getProjectActuals(p.id)
     return sum + actuals.total
   }, 0)
-  const overallMarginPct = overallBid > 0 ? ((overallBid - overallActual) / overallBid) * 100 : 0
+  const overallMarginPct = completedBid > 0 ? ((completedBid - completedActual) / completedBid) * 100 : 0
+  // If no completed projects yet, show in-production margin as a preview
+  const hasCompleted = completedProjects.length > 0
+  const inProdActual = inProductionProjects.reduce((sum, p) => sum + getProjectActuals(p.id).total, 0)
+  const inProdMarginPct = inProductionBidTotal > 0 ? ((inProductionBidTotal - inProdActual) / inProductionBidTotal) * 100 : 0
+  const displayMarginPct = hasCompleted ? overallMarginPct : inProdMarginPct
+  const displayMarginLabel = hasCompleted ? 'Completed Projects' : 'In Production (live)'
+  const displayVariance = hasCompleted ? completedBid - completedActual : inProductionBidTotal - inProdActual
 
   // Projects at risk: actual cost > 50% of bid OR any subproject over estimated hours
   const atRiskProjects: ProjectRisk[] = activeProjects
@@ -190,18 +204,18 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Active Projects */}
+          {/* In Production */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-5">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] flex items-center justify-center">
                 <FolderKanban className="w-4 h-4 text-[#2563EB]" />
               </div>
-              <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Active Projects</span>
+              <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">In Production</span>
             </div>
             <div className="text-3xl font-mono tabular-nums font-semibold text-[#111]">
-              {activeProjects.length}
+              {inProductionProjects.length}
             </div>
-            <div className="text-xs text-[#6B7280] mt-1 font-mono tabular-nums">{fmtMoney(activeBidTotal)} bid value</div>
+            <div className="text-xs text-[#6B7280] mt-1 font-mono tabular-nums">{fmtMoney(inProductionBidTotal)} bid value</div>
           </div>
 
           {/* Bidding Projects */}
@@ -221,16 +235,16 @@ export default function DashboardPage() {
           {/* Overall Margin */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-5">
             <div className="flex items-center gap-2 mb-3">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${overallMarginPct >= 0 ? 'bg-[#ECFDF5]' : 'bg-[#FEF2F2]'}`}>
-                <TrendingUp className={`w-4 h-4 ${overallMarginPct >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`} />
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${displayMarginPct >= 0 ? 'bg-[#ECFDF5]' : 'bg-[#FEF2F2]'}`}>
+                <TrendingUp className={`w-4 h-4 ${displayMarginPct >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`} />
               </div>
-              <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Overall Margin</span>
+              <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Margin</span>
             </div>
-            <div className={`text-3xl font-mono tabular-nums font-semibold ${overallMarginPct >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
-              {overallMarginPct >= 0 ? '+' : ''}{overallMarginPct.toFixed(1)}%
+            <div className={`text-3xl font-mono tabular-nums font-semibold ${displayMarginPct >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
+              {displayMarginPct >= 0 ? '+' : ''}{displayMarginPct.toFixed(1)}%
             </div>
             <div className="text-xs text-[#6B7280] mt-1 font-mono tabular-nums">
-              {fmtMoney(overallBid - overallActual)} variance
+              {fmtMoney(displayVariance)} · {displayMarginLabel}
             </div>
           </div>
         </div>

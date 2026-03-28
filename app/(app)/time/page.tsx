@@ -300,7 +300,21 @@ export default function TimePage() {
     <>
       <Nav />
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Time Tracking</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight">Time Tracking</h1>
+          <button
+            onClick={() => {
+              const url = `${window.location.origin}/time/mobile`
+              navigator.clipboard.writeText(url).catch(() => {})
+              const btn = document.getElementById('share-timer-btn')
+              if (btn) { btn.textContent = 'Link copied!'; setTimeout(() => { btn.textContent = 'Share with team' }, 2000) }
+            }}
+            id="share-timer-btn"
+            className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors"
+          >
+            Share with team
+          </button>
+        </div>
 
         {/* ────────── TIMER SECTION ────────── */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-6">
