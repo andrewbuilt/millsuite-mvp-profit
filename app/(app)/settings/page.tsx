@@ -33,7 +33,7 @@ function generateId() { return Math.random().toString(36).slice(2, 9) }
 // ── Page ──
 
 export default function SettingsPage() {
-  const { org } = useAuth()
+  const { org, refreshOrg } = useAuth()
 
   const [rawValues, setRawValues] = useState<Record<string, string>>({
     monthly_rent: '',
@@ -191,6 +191,7 @@ export default function SettingsPage() {
 
     if (orgError) console.error('Org save error:', orgError)
 
+    await refreshOrg()
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }, [org?.id, loaded, rawValues, shopRate, ownerBillable, employees, consumableMarkup, profitMargin])

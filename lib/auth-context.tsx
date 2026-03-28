@@ -29,6 +29,7 @@ interface AuthContextType {
   authUser: User | null
   loading: boolean
   signOut: () => Promise<void>
+  refreshOrg: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -37,6 +38,7 @@ const AuthContext = createContext<AuthContextType>({
   authUser: null,
   loading: true,
   signOut: async () => {},
+  refreshOrg: async () => {},
 })
 
 export function useAuth() {
@@ -108,6 +110,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [authUser, loading, pathname, isPublicPath, router])
 
+  async function refreshOrg() {
+    if (!user?.org_id) return
+    const { data: orgData } = await supabase
+      .from('orgs')
+      .select('id, name, slug, shop_rate, consumable_markup_pct, profit_margin_pct')
+      .eq('id', user.org_id)
+      .single()
+    if (orgData) setOrg(orgData)
+  }
+
   async function signOut() {
     await supabase.auth.signOut()
     setAuthUser(null)
@@ -117,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, org, authUser, loading, signOut }}>
+    <AuthContext.Provider value={{ user, org, authUser, loading, signOut, refreshOrg }}>
       {children}
     </AuthContext.Provider>
   )
