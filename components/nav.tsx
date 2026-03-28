@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, FolderKanban, Clock, Settings, LogOut } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { MLogo } from '@/components/logo'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -20,7 +21,8 @@ export default function Nav() {
       <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-14">
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-2">
-            <Link href="/dashboard" className="text-base font-semibold tracking-tight text-[#111]">
+            <Link href="/dashboard" className="flex items-center gap-2 text-base font-semibold tracking-tight text-[#111]">
+              <MLogo size={20} color="#111" />
               MillSuite
             </Link>
             {org && (

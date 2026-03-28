@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { ArrowRight, CheckCircle2, Clock, DollarSign, BarChart3, Receipt, Users, Shield } from 'lucide-react'
+import { MLogo } from '@/components/logo'
 
 // ── Nav ──
 
@@ -9,7 +10,8 @@ function MarketingNav() {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06]" style={{ background: 'rgba(13,13,15,0.8)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
       <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-16">
-        <Link href="/" className="text-lg font-semibold tracking-tight text-white">
+        <Link href="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight text-white">
+          <MLogo size={22} color="white" />
           MillSuite
         </Link>
         <div className="flex items-center gap-6">
@@ -312,6 +314,7 @@ export default function LandingPage() {
       <footer className="border-t border-white/[0.06] py-8 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <MLogo size={16} color="white" />
             <span className="text-sm font-semibold text-white">MillSuite</span>
             <span className="text-xs text-[#555]">© 2026</span>
           </div>

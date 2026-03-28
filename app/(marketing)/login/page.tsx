@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { MLogo } from '@/components/logo'
 import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
@@ -42,7 +43,7 @@ export default function LoginPage() {
     <>
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06]" style={{ background: 'rgba(13,13,15,0.8)', backdropFilter: 'blur(20px)' }}>
         <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-16">
-          <Link href="/" className="text-lg font-semibold tracking-tight text-white">MillSuite</Link>
+          <Link href="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight text-white"><MLogo size={22} color="white" /> MillSuite</Link>
           <Link href="/signup" className="px-4 py-2 bg-[#D4956A] text-white text-sm font-medium rounded-lg hover:bg-[#C4855A] transition-colors">
             Start Free Trial
           </Link>
