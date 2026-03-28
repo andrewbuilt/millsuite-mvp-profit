@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeProjectPL } from '@/lib/pricing'
+import { useAuth } from '@/lib/auth-context'
 import { DollarSign, FolderKanban, FileText, TrendingUp, Plus, Clock, Settings, AlertTriangle, CheckCircle2 } from 'lucide-react'
 
 // ── Types ──
@@ -46,25 +47,29 @@ function fmtMoney(n: number): string {
 // ── Main Page ──
 
 export default function DashboardPage() {
+  const { org } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [shopRate, setShopRate] = useState(75)
+  const shopRate = org?.shop_rate || 75
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [org?.id])
 
   async function loadData() {
     setLoading(true)
+
+    let projectsQuery = supabase.from('projects').select('id, name, client_name, status, bid_total').in('status', ['active', 'bidding'])
+    if (org?.id) projectsQuery = projectsQuery.eq('org_id', org.id)
 
     const [
       { data: projs },
       { data: entries },
       { data: invs },
     ] = await Promise.all([
-      supabase.from('projects').select('id, name, client_name, status, bid_total').in('status', ['active', 'bidding']),
+      projectsQuery,
       supabase.from('time_entries').select('project_id, duration_minutes'),
       supabase.from('invoices').select('project_id, total_amount'),
     ])

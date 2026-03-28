@@ -20,6 +20,20 @@ interface Project {
   completed_at: string | null
 }
 
+interface Subproject {
+  id: string
+  project_id: string
+  name: string
+  labor_hours: number
+}
+
+interface TimeEntry {
+  id: string
+  subproject_id: string | null
+  project_id: string
+  duration_minutes: number
+}
+
 type ColumnStatus = 'bidding' | 'active' | 'complete'
 
 const COLUMNS: { status: ColumnStatus; label: string }[] = [
@@ -48,6 +62,8 @@ export default function ProjectsPage() {
   const router = useRouter()
   const { org } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
+  const [subprojects, setSubprojects] = useState<Subproject[]>([])
+  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [newName, setNewName] = useState('')
@@ -65,11 +81,21 @@ export default function ProjectsPage() {
 
   async function loadProjects() {
     setLoading(true)
-    const { data } = await supabase
-      .from('projects')
-      .select('id, org_id, name, client_name, status, bid_total, actual_total, sold_at, completed_at')
-      .order('created_at', { ascending: false })
-    setProjects(data || [])
+    const [projectsRes, subprojectsRes, timeEntriesRes] = await Promise.all([
+      supabase
+        .from('projects')
+        .select('id, org_id, name, client_name, status, bid_total, actual_total, sold_at, completed_at')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('subprojects')
+        .select('id, project_id, name, labor_hours'),
+      supabase
+        .from('time_entries')
+        .select('id, subproject_id, project_id, duration_minutes'),
+    ])
+    setProjects(projectsRes.data || [])
+    setSubprojects(subprojectsRes.data || [])
+    setTimeEntries(timeEntriesRes.data || [])
     setLoading(false)
   }
 
@@ -363,6 +389,42 @@ export default function ProjectsPage() {
                                 {fmtMoney(project.bid_total)}
                               </div>
                             )}
+                            {/* Subproject mini dashboard for active/complete */}
+                            {(project.status === 'active' || project.status === 'complete') && (() => {
+                              const projSubs = subprojects.filter(s => s.project_id === project.id)
+                              if (projSubs.length === 0) return null
+                              return (
+                                <div className="mt-2 pt-2 border-t border-[#F3F4F6] space-y-1.5">
+                                  {projSubs.map(sub => {
+                                    const actualMinutes = timeEntries
+                                      .filter(t => t.subproject_id === sub.id)
+                                      .reduce((sum, t) => sum + t.duration_minutes, 0)
+                                    const actualHrs = actualMinutes / 60
+                                    const estHrs = sub.labor_hours || 0
+                                    const pctUsed = estHrs > 0 ? (actualHrs / estHrs) * 100 : 0
+                                    const barColor = pctUsed >= 90 ? 'bg-[#DC2626]' : pctUsed >= 70 ? 'bg-[#D97706]' : 'bg-[#2563EB]'
+                                    const barWidth = Math.min(pctUsed, 100)
+
+                                    return (
+                                      <div key={sub.id}>
+                                        <div className="flex items-center justify-between text-[10px] text-[#6B7280]">
+                                          <span className="truncate mr-2">{sub.name}</span>
+                                          <span className="whitespace-nowrap font-mono tabular-nums">
+                                            {actualHrs.toFixed(1)}/{estHrs.toFixed(1)}h
+                                          </span>
+                                        </div>
+                                        <div className="h-1.5 bg-[#E5E7EB] rounded-full mt-0.5 overflow-hidden">
+                                          <div
+                                            className={`h-full rounded-full ${barColor}`}
+                                            style={{ width: `${barWidth}%` }}
+                                          />
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )
+                            })()}
                           </div>
                         )
                       })}

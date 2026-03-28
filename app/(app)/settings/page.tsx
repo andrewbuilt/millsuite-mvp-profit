@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Nav from '@/components/nav'
 import { computeShopRate } from '@/lib/pricing'
 import { Plus, Trash2 } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { supabase } from '@/lib/supabase'
 
 // ── Field config for overhead inputs ──
 
@@ -31,6 +33,8 @@ function generateId() { return Math.random().toString(36).slice(2, 9) }
 // ── Page ──
 
 export default function SettingsPage() {
+  const { org } = useAuth()
+
   const [rawValues, setRawValues] = useState<Record<string, string>>({
     monthly_rent: '',
     monthly_utilities: '',
@@ -47,6 +51,49 @@ export default function SettingsPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [consumableMarkup, setConsumableMarkup] = useState('15')
   const [profitMargin, setProfitMargin] = useState('35')
+  const [saved, setSaved] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ── Load from Supabase on mount ──
+
+  useEffect(() => {
+    if (!org?.id) return
+    async function load() {
+      const { data } = await supabase
+        .from('shop_rate_settings')
+        .select('*')
+        .eq('org_id', org!.id)
+        .single()
+
+      if (data) {
+        setRawValues({
+          monthly_rent: data.monthly_rent?.toString() || '',
+          monthly_utilities: data.monthly_utilities?.toString() || '',
+          monthly_insurance: data.monthly_insurance?.toString() || '',
+          monthly_equipment: data.monthly_equipment?.toString() || '',
+          monthly_misc_overhead: data.monthly_misc_overhead?.toString() || '',
+          owner_salary: data.owner_salary?.toString() || '',
+          target_profit_pct: data.target_profit_pct?.toString() || '0',
+          working_days_per_month: data.working_days_per_month?.toString() || '21',
+          hours_per_day: data.hours_per_day?.toString() || '8',
+        })
+        if (data.owner_billable !== undefined) setOwnerBillable(data.owner_billable)
+        if (data.employees_json) {
+          try {
+            setEmployees(JSON.parse(data.employees_json))
+          } catch {}
+        }
+      }
+
+      // Load org defaults for consumable markup & profit margin
+      setConsumableMarkup(org!.consumable_markup_pct?.toString() || '15')
+      setProfitMargin(org!.profit_margin_pct?.toString() || '35')
+
+      setLoaded(true)
+    }
+    load()
+  }, [org?.id])
 
   function getNum(key: string): number {
     return parseFloat(rawValues[key]) || 0
@@ -99,11 +146,59 @@ export default function SettingsPage() {
   const bufferPct = getNum('target_profit_pct')
   const shopRate = costPerHour * (1 + bufferPct / 100)
 
+  // ── Auto-save with debounce ──
+
+  const doSave = useCallback(async () => {
+    if (!org?.id || !loaded) return
+
+    const settingsRow = {
+      org_id: org.id,
+      monthly_rent: parseFloat(rawValues.monthly_rent) || 0,
+      monthly_utilities: parseFloat(rawValues.monthly_utilities) || 0,
+      monthly_insurance: parseFloat(rawValues.monthly_insurance) || 0,
+      monthly_equipment: parseFloat(rawValues.monthly_equipment) || 0,
+      monthly_misc_overhead: parseFloat(rawValues.monthly_misc_overhead) || 0,
+      owner_salary: parseFloat(rawValues.owner_salary) || 0,
+      target_profit_pct: parseFloat(rawValues.target_profit_pct) || 0,
+      working_days_per_month: parseFloat(rawValues.working_days_per_month) || 21,
+      hours_per_day: parseFloat(rawValues.hours_per_day) || 8,
+      computed_shop_rate: shopRate,
+      owner_billable: ownerBillable,
+      employees_json: JSON.stringify(employees),
+    }
+
+    await supabase
+      .from('shop_rate_settings')
+      .upsert(settingsRow, { onConflict: 'org_id' })
+
+    await supabase
+      .from('orgs')
+      .update({
+        shop_rate: shopRate,
+        consumable_markup_pct: parseFloat(consumableMarkup) || 0,
+        profit_margin_pct: parseFloat(profitMargin) || 0,
+      })
+      .eq('id', org.id)
+
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }, [org?.id, loaded, rawValues, shopRate, ownerBillable, employees, consumableMarkup, profitMargin])
+
+  useEffect(() => {
+    if (!loaded) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => { doSave() }, 1000)
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  }, [doSave])
+
   return (
     <>
       <Nav />
       <div className="max-w-3xl mx-auto px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight mb-8">Settings</h1>
+        <div className="flex items-center gap-3 mb-8">
+          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+          {saved && <span className="text-xs text-[#059669] font-medium animate-pulse">Saved</span>}
+        </div>
 
         {/* Shop Rate Calculator */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">

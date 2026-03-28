@@ -11,7 +11,7 @@ export default function Footer() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!message.trim()) return
+    if (!message.trim() || !email.trim()) return
     // For now, mailto fallback — replace with API endpoint later
     const subject = encodeURIComponent('MillSuite Feedback')
     const body = encodeURIComponent(`${message}\n\n—\nFrom: ${email || 'Not provided'}`)
@@ -25,7 +25,7 @@ export default function Footer() {
       {/* Feedback button */}
       <button
         onClick={() => setShowForm(!showForm)}
-        className="fixed bottom-5 right-5 w-11 h-11 bg-[#2563EB] text-white rounded-full shadow-lg hover:bg-[#1D4ED8] transition-all flex items-center justify-center z-50"
+        className="fixed bottom-20 right-5 w-11 h-11 bg-[#2563EB] text-white rounded-full shadow-lg hover:bg-[#1D4ED8] transition-all flex items-center justify-center z-50"
         title="Send feedback"
       >
         {showForm ? <X className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
@@ -33,7 +33,7 @@ export default function Footer() {
 
       {/* Feedback form */}
       {showForm && (
-        <div className="fixed bottom-20 right-5 w-80 bg-white border border-[#E5E7EB] rounded-xl shadow-xl z-50 overflow-hidden">
+        <div className="fixed bottom-[8.5rem] right-5 w-80 bg-white border border-[#E5E7EB] rounded-xl shadow-xl z-50 overflow-hidden">
           <div className="px-4 py-3 border-b border-[#E5E7EB]">
             <div className="text-sm font-semibold text-[#111]">Send Feedback</div>
             <div className="text-[10px] text-[#9CA3AF]">Bug reports, feature requests, or questions</div>
@@ -48,7 +48,8 @@ export default function Footer() {
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="Your email (optional)"
+                placeholder="Your email"
+                required
                 className="w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
               />
               <textarea
@@ -61,7 +62,7 @@ export default function Footer() {
               />
               <button
                 type="submit"
-                disabled={!message.trim()}
+                disabled={!message.trim() || !email.trim()}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors disabled:opacity-50"
               >
                 <Send className="w-3.5 h-3.5" /> Send

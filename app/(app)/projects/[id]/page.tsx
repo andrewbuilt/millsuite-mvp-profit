@@ -71,8 +71,11 @@ export default function ProjectDetailPage() {
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [shopRate, setShopRate] = useState(75)
-  const [orgDefaults, setOrgDefaults] = useState({ consumable_markup_pct: 15, profit_margin_pct: 35 })
+  const shopRate = org?.shop_rate || 75
+  const orgDefaults = {
+    consumable_markup_pct: org?.consumable_markup_pct ?? 15,
+    profit_margin_pct: org?.profit_margin_pct ?? 35,
+  }
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set())
