@@ -21,12 +21,20 @@ interface Project {
 
 interface TimeEntry {
   project_id: string
+  subproject_id: string | null
   duration_minutes: number
 }
 
 interface Invoice {
   project_id: string
   total_amount: number
+}
+
+interface Subproject {
+  id: string
+  project_id: string
+  name: string
+  labor_hours: number
 }
 
 interface ProjectRisk {
@@ -36,6 +44,7 @@ interface ProjectRisk {
   actualTotal: number
   variancePct: number
   spentPct: number
+  overHoursSubs: { name: string; estimated: number; actual: number }[]
 }
 
 // ── Helpers ──
@@ -50,6 +59,7 @@ function fmtMoney(n: number): string {
 export default function DashboardPage() {
   const { org } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
+  const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const shopRate = org?.shop_rate || 75
@@ -70,15 +80,18 @@ export default function DashboardPage() {
 
     const [
       { data: projs },
+      { data: subs },
       { data: entries },
       { data: invs },
     ] = await Promise.all([
       projectsQuery,
-      supabase.from('time_entries').select('project_id, duration_minutes'),
+      supabase.from('subprojects').select('id, project_id, name, labor_hours'),
+      supabase.from('time_entries').select('project_id, subproject_id, duration_minutes'),
       supabase.from('invoices').select('project_id, total_amount'),
     ])
 
     setProjects(projs || [])
+    setSubprojects(subs || [])
     setTimeEntries(entries || [])
     setInvoices(invs || [])
     setLoading(false)
@@ -112,7 +125,7 @@ export default function DashboardPage() {
   }, 0)
   const overallMarginPct = overallBid > 0 ? ((overallBid - overallActual) / overallBid) * 100 : 0
 
-  // Projects at risk: actual cost > 80% of bid
+  // Projects at risk: actual cost > 50% of bid OR any subproject over estimated hours
   const atRiskProjects: ProjectRisk[] = activeProjects
     .map(p => {
       const actuals = getProjectActuals(p.id)
@@ -123,6 +136,17 @@ export default function DashboardPage() {
         actualLaborCost: actuals.laborCost,
         actualMaterialCost: actuals.materialCost,
       })
+
+      // Check per-subproject hours
+      const projSubs = subprojects.filter(s => s.project_id === p.id)
+      const overHoursSubs = projSubs
+        .map(sub => {
+          const actualMins = timeEntries.filter(t => t.subproject_id === sub.id).reduce((s, t) => s + t.duration_minutes, 0)
+          const actualHrs = actualMins / 60
+          return { name: sub.name, estimated: sub.labor_hours, actual: Math.round(actualHrs * 10) / 10 }
+        })
+        .filter(s => s.estimated > 0 && s.actual > s.estimated)
+
       return {
         id: p.id,
         name: p.name,
@@ -130,9 +154,10 @@ export default function DashboardPage() {
         actualTotal: actuals.total,
         variancePct: pl.variancePct,
         spentPct,
+        overHoursSubs,
       }
     })
-    .filter(p => p.spentPct > 80)
+    .filter(p => p.spentPct > 50 || p.overHoursSubs.length > 0)
     .sort((a, b) => b.spentPct - a.spentPct)
 
   if (loading) {
@@ -236,7 +261,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-[#D97706]" />
               <h2 className="text-base font-semibold">Projects At Risk</h2>
-              <span className="text-xs text-[#9CA3AF] ml-1">Actual cost {'>'} 80% of bid</span>
+              <span className="text-xs text-[#9CA3AF] ml-1">Over budget or over hours</span>
             </div>
           </div>
 
@@ -281,6 +306,18 @@ export default function DashboardPage() {
                           style={{ width: `${Math.min(p.spentPct, 100)}%` }}
                         />
                       </div>
+                      {/* Over-hours subprojects */}
+                      {p.overHoursSubs.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {p.overHoursSubs.map(sub => (
+                            <div key={sub.name} className="flex items-center gap-2 text-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626] flex-shrink-0" />
+                              <span className="text-[#DC2626] font-medium">{sub.name}</span>
+                              <span className="text-[#9CA3AF] font-mono tabular-nums">{sub.actual}/{sub.estimated}h over</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <svg className="w-4 h-4 text-[#9CA3AF] group-hover:text-[#6B7280] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
