@@ -159,6 +159,7 @@ export default function SettingsPage() {
       monthly_equipment: parseFloat(rawValues.monthly_equipment) || 0,
       monthly_misc_overhead: parseFloat(rawValues.monthly_misc_overhead) || 0,
       owner_salary: parseFloat(rawValues.owner_salary) || 0,
+      total_payroll: totalMonthlyPayroll * 12,
       target_profit_pct: parseFloat(rawValues.target_profit_pct) || 0,
       working_days_per_month: parseFloat(rawValues.working_days_per_month) || 21,
       hours_per_day: parseFloat(rawValues.hours_per_day) || 8,
@@ -167,11 +168,19 @@ export default function SettingsPage() {
       employees_json: JSON.stringify(employees),
     }
 
-    await supabase
+    const { error: settingsError } = await supabase
       .from('shop_rate_settings')
       .upsert(settingsRow, { onConflict: 'org_id' })
 
-    await supabase
+    if (settingsError) {
+      console.error('Settings save error:', settingsError)
+      // Fallback: try insert if upsert fails
+      if (settingsError.code === '23505' || settingsError.message?.includes('duplicate')) {
+        await supabase.from('shop_rate_settings').update(settingsRow).eq('org_id', org.id)
+      }
+    }
+
+    const { error: orgError } = await supabase
       .from('orgs')
       .update({
         shop_rate: shopRate,
@@ -179,6 +188,8 @@ export default function SettingsPage() {
         profit_margin_pct: parseFloat(profitMargin) || 0,
       })
       .eq('id', org.id)
+
+    if (orgError) console.error('Org save error:', orgError)
 
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
