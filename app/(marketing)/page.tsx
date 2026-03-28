@@ -19,7 +19,7 @@ function MarketingNav() {
           <Link href="/login" className="text-sm text-[#8B8B96] hover:text-white transition-colors">
             Log in
           </Link>
-          <Link href="/pricing" className="px-4 py-2 bg-[#D4956A] text-white text-sm font-medium rounded-lg hover:bg-[#C4855A] transition-colors">
+          <Link href="/signup" className="px-4 py-2 bg-[#D4956A] text-white text-sm font-medium rounded-lg hover:bg-[#C4855A] transition-colors">
             Start Free Trial
           </Link>
         </div>
@@ -97,7 +97,7 @@ export default function LandingPage() {
           </p>
 
           <div className="flex items-center justify-center gap-4">
-            <Link href="/pricing" className="inline-flex items-center gap-2 px-6 py-3 bg-[#D4956A] text-white font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
+            <Link href="/signup" className="inline-flex items-center gap-2 px-6 py-3 bg-[#D4956A] text-white font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
               Start free for 14 days <ArrowRight className="w-4 h-4" />
             </Link>
             <Link href="/pricing" className="px-6 py-3 text-[#8B8B96] font-medium rounded-xl border border-white/[0.08] hover:border-white/[0.15] hover:text-white transition-colors">
@@ -298,7 +298,7 @@ export default function LandingPage() {
             <span className="text-[#8B8B96]">Do you know if it's making money?</span>
           </h2>
           <div className="mt-8">
-            <Link href="/pricing" className="inline-flex items-center gap-2 px-8 py-4 bg-[#D4956A] text-white text-lg font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
+            <Link href="/signup" className="inline-flex items-center gap-2 px-8 py-4 bg-[#D4956A] text-white text-lg font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
               Start your free 14-day trial <ArrowRight className="w-5 h-5" />
             </Link>
           </div>

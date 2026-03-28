@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeSubprojectPrice } from '@/lib/pricing'
-import { DEFAULT_ORG_ID } from '@/lib/constants'
+import { useAuth } from '@/lib/auth-context'
 import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 
 // ── Types ──
@@ -65,6 +65,7 @@ function fmtHours(minutes: number) {
 export default function ProjectDetailPage() {
   const { id: projectId } = useParams() as { id: string }
   const router = useRouter()
+  const { org } = useAuth()
 
   const [project, setProject] = useState<Project | null>(null)
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
@@ -110,7 +111,7 @@ export default function ProjectDetailPage() {
     setSaving(true)
     const { data } = await supabase.from('subprojects').insert({
       project_id: projectId,
-      org_id: DEFAULT_ORG_ID,
+      org_id: org?.id,
       name: newSubName.trim(),
       sort_order: subprojects.length,
       consumable_markup_pct: orgDefaults.consumable_markup_pct,

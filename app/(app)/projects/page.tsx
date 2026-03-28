@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
-import { DEFAULT_ORG_ID } from '@/lib/constants'
+import { useAuth } from '@/lib/auth-context'
 
 // ── Types ──
 
@@ -46,6 +46,7 @@ function profitPct(project: Project): number | null {
 
 export default function ProjectsPage() {
   const router = useRouter()
+  const { org } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -80,7 +81,7 @@ export default function ProjectsPage() {
     const { data, error } = await supabase
       .from('projects')
       .insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: org?.id,
         name: newName.trim(),
         client_name: newClient.trim() || null,
         status: 'bidding',
