@@ -6,7 +6,7 @@ import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeProjectPL } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
-import { DollarSign, FolderKanban, FileText, TrendingUp, Plus, Clock, Settings, AlertTriangle, CheckCircle2, Receipt, ChevronDown, ChevronUp } from 'lucide-react'
+import { DollarSign, FolderKanban, FileText, TrendingUp, Plus, Clock, Settings, AlertTriangle, CheckCircle2, Receipt, ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
 import InvoiceParser from '@/components/invoice-parser'
 
 // ── Types ──
@@ -55,6 +55,8 @@ export default function DashboardPage() {
   const shopRate = org?.shop_rate || 75
   const [loading, setLoading] = useState(true)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [report, setReport] = useState('')
+  const [reportLoading, setReportLoading] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -286,6 +288,62 @@ export default function DashboardPage() {
                   </Link>
                 )
               })}
+            </div>
+          )}
+        </div>
+
+        {/* ── AI SHOP REPORT ── */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#D97706]" />
+              <h2 className="text-base font-semibold">AI Shop Report</h2>
+            </div>
+            <button
+              onClick={async () => {
+                if (!org?.id) return
+                setReportLoading(true)
+                try {
+                  const res = await fetch('/api/shop-report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ org_id: org.id }),
+                  })
+                  const data = await res.json()
+                  setReport(data.report || data.error || 'Failed to generate report')
+                } catch (err) {
+                  setReport('Failed to generate report')
+                }
+                setReportLoading(false)
+              }}
+              disabled={reportLoading}
+              className="px-4 py-1.5 bg-[#2563EB] text-white text-xs font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors disabled:opacity-50"
+            >
+              {reportLoading ? 'Analyzing...' : 'Generate Report'}
+            </button>
+          </div>
+          {report ? (
+            <div className="px-6 py-4 text-sm text-[#374151] leading-relaxed whitespace-pre-wrap prose prose-sm max-w-none">
+              {report.split('\n').map((line, i) => {
+                if (line.startsWith('**') && line.endsWith('**')) {
+                  return <p key={i} className="font-semibold text-[#111] mt-3 mb-1">{line.replace(/\*\*/g, '')}</p>
+                }
+                if (line.match(/^\d+\.\s\*\*/)) {
+                  const clean = line.replace(/\*\*/g, '')
+                  return <p key={i} className="font-semibold text-[#111] mt-4 mb-1">{clean}</p>
+                }
+                if (line.startsWith('- ') || line.startsWith('• ')) {
+                  return <p key={i} className="ml-4 text-[#4B5563]">{line}</p>
+                }
+                if (line.trim()) {
+                  return <p key={i} className="text-[#4B5563]">{line}</p>
+                }
+                return null
+              })}
+            </div>
+          ) : (
+            <div className="px-6 py-8 text-center text-sm text-[#9CA3AF]">
+              Click "Generate Report" for an AI-powered analysis of your shop health, project status, and actionable insights.
             </div>
           )}
         </div>

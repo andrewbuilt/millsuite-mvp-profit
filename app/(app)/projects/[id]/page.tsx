@@ -523,6 +523,61 @@ export default function ProjectDetailPage() {
           )}
         </div>
 
+        {/* Invoices */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-[#E5E7EB]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-[#2563EB]" />
+                <h2 className="text-sm font-semibold text-[#111]">Invoices</h2>
+                <span className="text-xs text-[#9CA3AF] ml-1">{invoices.length} invoice{invoices.length !== 1 ? 's' : ''}</span>
+              </div>
+              <div className="text-sm font-mono tabular-nums font-semibold">
+                {fmtMoney(actualMaterialCost)} total
+              </div>
+            </div>
+          </div>
+
+          {invoices.length === 0 ? (
+            <div className="px-6 py-8 text-center">
+              <FileText className="w-6 h-6 text-[#D1D5DB] mx-auto mb-2" />
+              <p className="text-sm text-[#9CA3AF]">No invoices yet</p>
+              <p className="text-xs text-[#D1D5DB] mt-1">Upload invoices from the dashboard</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[#F3F4F6]">
+              {invoices.map(inv => (
+                <div key={inv.id} className="px-6 py-3 flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[#111] truncate">{inv.vendor_name || 'Unknown vendor'}</span>
+                      {inv.invoice_number && (
+                        <span className="text-xs font-mono text-[#9CA3AF]">#{inv.invoice_number}</span>
+                      )}
+                    </div>
+                    {inv.invoice_date && (
+                      <div className="text-xs text-[#9CA3AF] mt-0.5">{inv.invoice_date}</div>
+                    )}
+                  </div>
+                  <div className="text-sm font-mono tabular-nums font-semibold text-[#111]">
+                    {fmtMoney(inv.total_amount)}
+                  </div>
+                  {inv.file_url && (
+                    <a
+                      href={inv.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Notes */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl px-6 py-4">
           <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Notes</label>
