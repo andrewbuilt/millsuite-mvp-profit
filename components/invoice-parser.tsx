@@ -162,7 +162,6 @@ export default function InvoiceParser() {
           invoice_number: parsed.invoice_number,
           invoice_date: parsed.invoice_date || null,
           total_amount: parsed.total_amount,
-          created_by: user?.id,
         })
         .select('id')
         .single()
