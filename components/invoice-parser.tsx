@@ -151,6 +151,8 @@ export default function InvoiceParser() {
     setError(null)
 
     try {
+      const toNum = (v: any) => parseFloat(String(v).replace(/,/g, '')) || 0
+
       // Create invoice record
       const { data: invoice, error: invErr } = await supabase
         .from('invoices')
@@ -161,7 +163,7 @@ export default function InvoiceParser() {
           vendor_name: parsed.vendor_name,
           invoice_number: parsed.invoice_number,
           invoice_date: parsed.invoice_date || null,
-          total_amount: parsed.total_amount,
+          total_amount: toNum(parsed.total_amount),
         })
         .select('id')
         .single()
@@ -173,9 +175,9 @@ export default function InvoiceParser() {
         const items = parsed.line_items.map(li => ({
           invoice_id: invoice.id,
           description: li.description,
-          quantity: li.quantity,
-          unit_price: li.unit_price,
-          total: li.total,
+          quantity: toNum(li.quantity),
+          unit_price: toNum(li.unit_price),
+          total: toNum(li.total),
         }))
 
         const { error: liErr } = await supabase.from('invoice_line_items').insert(items)
