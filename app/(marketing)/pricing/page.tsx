@@ -62,14 +62,14 @@ export default function PricingPage() {
   return (
     <>
       {/* Nav */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06]" style={{ background: 'rgba(13,13,15,0.8)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
-        <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-16">
-          <Link href="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight text-white">
-            <MLogo size={22} color="white" />
+      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06]" style={{ background: 'rgba(13,13,15,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
+        <div className="max-w-6xl mx-auto px-5 sm:px-6 flex items-center justify-between h-14 sm:h-16">
+          <Link href="/" className="flex items-center gap-2 text-base sm:text-lg font-semibold tracking-tight text-white">
+            <MLogo size={20} color="white" />
             MillSuite
           </Link>
-          <div className="flex items-center gap-6">
-            <Link href="/" className="text-sm text-[#8B8B96] hover:text-white transition-colors">
+          <div className="flex items-center gap-4 sm:gap-6">
+            <Link href="/" className="text-sm text-[#8B8B96] hover:text-white transition-colors hidden sm:inline">
               Home
             </Link>
             <Link href="/login" className="text-sm text-[#8B8B96] hover:text-white transition-colors">
@@ -80,19 +80,19 @@ export default function PricingPage() {
       </nav>
 
       {/* Hero */}
-      <section className="pt-32 pb-8 px-6 text-center">
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white mb-4">
+      <section className="pt-24 sm:pt-32 pb-6 sm:pb-8 px-5 sm:px-6 text-center">
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white mb-4">
           Simple pricing. No surprises.
         </h1>
-        <p className="text-lg text-[#8B8B96] max-w-2xl mx-auto leading-relaxed">
+        <p className="text-base sm:text-lg text-[#8B8B96] max-w-2xl mx-auto leading-relaxed">
           We're not going to charge you extra to add a team member or see your own reports.
           Start with what you need today.
         </p>
       </section>
 
       {/* Tiers */}
-      <section className="py-12 px-6">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+      <section className="py-8 sm:py-12 px-5 sm:px-6">
+        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
 
           {/* ── STARTER ── */}
           <div className="rounded-2xl border-2 border-[#D4956A]/40 bg-[#D4956A]/[0.03] p-6 relative">
@@ -214,7 +214,7 @@ export default function PricingPage() {
       </section>
 
       {/* Trial section */}
-      <section className="py-16 px-6">
+      <section className="py-12 sm:py-16 px-5 sm:px-6">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-2xl font-bold text-white mb-4">Try it free for 14 days.</h2>
           <p className="text-[#8B8B96] leading-relaxed mb-6">
@@ -228,7 +228,7 @@ export default function PricingPage() {
       </section>
 
       {/* Early adopter note */}
-      <section className="py-12 px-6 border-t border-white/[0.04]">
+      <section className="py-10 sm:py-12 px-5 sm:px-6 border-t border-white/[0.04]">
         <div className="max-w-2xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D4956A]/20 bg-[#D4956A]/5 mb-4">
             <span className="text-xs font-medium text-[#D4956A]">Early adopter pricing</span>
@@ -241,8 +241,8 @@ export default function PricingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-white/[0.06] py-8 px-6">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+      <footer className="border-t border-white/[0.06] py-6 sm:py-8 px-5 sm:px-6">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <MLogo size={16} color="white" />
             <span className="text-sm font-semibold text-white">MillSuite</span>
