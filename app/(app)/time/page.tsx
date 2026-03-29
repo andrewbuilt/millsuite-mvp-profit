@@ -92,6 +92,7 @@ export default function TimePage() {
   const [timerStartedAt, setTimerStartedAt] = useState<Date | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [saved, setSaved] = useState(false)
 
   // Manual entry state
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -227,6 +228,8 @@ export default function TimePage() {
     setTimerNotes('')
     setElapsed(0)
     localStorage.removeItem(TIMER_KEY)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 3000)
     fetchEntries()
   }
 
@@ -285,7 +288,7 @@ export default function TimePage() {
     }
   }, [timerNotes, timerActive])
 
-  // ── Shared select styles ──────────────────────────────────────────
+  // ── Shared styles ─────────────────────────────────────────────────
   const selectClass =
     'w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-xl bg-white text-[#111] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-colors'
   const inputClass = selectClass
@@ -294,26 +297,118 @@ export default function TimePage() {
 
   const grouped = groupByDate(entries)
   const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
+  const projectName = projects.find(p => p.id === timerProjectId)?.name
+  const timerSubs = subprojectsMap[timerProjectId] || []
 
   // ── Render ────────────────────────────────────────────────────────
   return (
     <>
       <Nav />
-      <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+
+      {/* ═══════ MOBILE TIMER VIEW ═══════ */}
+      <div className="md:hidden min-h-[calc(100vh-3.5rem)] bg-[#F9FAFB] flex flex-col">
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
+          {/* Timer display */}
+          <div className="text-6xl font-mono tabular-nums font-bold text-[#111] mb-8">
+            {formatElapsed(elapsed)}
+          </div>
+
+          {timerActive && (
+            <div className="flex items-center gap-2 mb-6">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+              </span>
+              <span className="text-sm text-[#6B7280]">{projectName}</span>
+            </div>
+          )}
+
+          {saved && (
+            <div className="mb-6 px-4 py-2 bg-[#ECFDF5] text-[#059669] text-sm font-medium rounded-xl">
+              Time saved!
+            </div>
+          )}
+
+          {/* Controls — shown when stopped */}
+          {!timerActive && (
+            <div className="w-full max-w-xs space-y-3 mb-8">
+              <select
+                value={timerProjectId}
+                onChange={e => { setTimerProjectId(e.target.value); setTimerSubprojectId('') }}
+                className="w-full px-4 py-3 text-base border border-[#E5E7EB] rounded-xl bg-white"
+              >
+                <option value="">Select project...</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              {timerSubs.length > 0 && (
+                <select
+                  value={timerSubprojectId}
+                  onChange={e => setTimerSubprojectId(e.target.value)}
+                  className="w-full px-4 py-3 text-base border border-[#E5E7EB] rounded-xl bg-white"
+                >
+                  <option value="">Subproject (optional)</option>
+                  {timerSubs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              )}
+              <input
+                type="text"
+                value={timerNotes}
+                onChange={e => setTimerNotes(e.target.value)}
+                placeholder="What are you working on?"
+                className="w-full px-4 py-3 text-base border border-[#E5E7EB] rounded-xl bg-white"
+              />
+            </div>
+          )}
+
+          {/* Big button */}
+          <button
+            onClick={timerActive ? handleStop : handleStart}
+            disabled={!timerActive && !timerProjectId}
+            className={`w-24 h-24 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-95 ${
+              timerActive
+                ? 'bg-red-500 text-white'
+                : timerProjectId
+                ? 'bg-[#2563EB] text-white'
+                : 'bg-[#E5E7EB] text-[#9CA3AF]'
+            }`}
+          >
+            {timerActive ? <Square className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}
+          </button>
+
+          <p className="text-xs text-[#9CA3AF] mt-4">
+            {timerActive ? 'Tap to stop' : timerProjectId ? 'Tap to start' : 'Select a project'}
+          </p>
+        </div>
+
+        {/* Mobile history — compact */}
+        {entries.length > 0 && (
+          <div className="border-t border-[#E5E7EB] bg-white px-4 py-4">
+            <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-3">Recent</h3>
+            <div className="space-y-2">
+              {entries.slice(0, 5).map(entry => (
+                <div key={entry.id} className="flex items-center justify-between py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-[#111] truncate">
+                      {(entry.project as any)?.name || 'Unknown'}
+                    </div>
+                    {entry.notes && (
+                      <div className="text-xs text-[#9CA3AF] truncate">{entry.notes}</div>
+                    )}
+                  </div>
+                  <span className="text-sm font-mono text-[#6B7280] ml-3 flex-shrink-0">
+                    {formatHours(entry.duration_minutes)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════ DESKTOP VIEW ═══════ */}
+      <div className="hidden md:block max-w-6xl mx-auto px-6 py-8 space-y-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">Time Tracking</h1>
-          <button
-            onClick={() => {
-              const url = `${window.location.origin}/time/mobile`
-              navigator.clipboard.writeText(url).catch(() => {})
-              const btn = document.getElementById('share-timer-btn')
-              if (btn) { btn.textContent = 'Link copied!'; setTimeout(() => { btn.textContent = 'Share with team' }, 2000) }
-            }}
-            id="share-timer-btn"
-            className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors"
-          >
-            Share with team
-          </button>
         </div>
 
         {/* ────────── TIMER SECTION ────────── */}
@@ -324,7 +419,7 @@ export default function TimePage() {
           </div>
 
           {/* Selects row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+          <div className="grid grid-cols-2 gap-4 mb-5">
             <div>
               <label className="block text-xs font-medium text-[#6B7280] mb-1.5">Project</label>
               <select
@@ -351,7 +446,7 @@ export default function TimePage() {
                 disabled={timerActive || !timerProjectId}
               >
                 <option value="">None</option>
-                {(subprojectsMap[timerProjectId] || []).map(s => (
+                {timerSubs.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
@@ -407,7 +502,7 @@ export default function TimePage() {
             <h2 className="text-sm font-semibold text-[#6B7280] uppercase tracking-wider">Log Hours Manually</h2>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
+          <div className="grid grid-cols-5 gap-4 mb-5">
             <div>
               <label className="block text-xs font-medium text-[#6B7280] mb-1.5">Date</label>
               <input

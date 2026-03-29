@@ -186,54 +186,54 @@ export default function DashboardPage() {
   return (
     <>
       <Nav />
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight mb-6">Dashboard</h1>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-4 sm:mb-6">Dashboard</h1>
 
         {/* ── TOP ROW: Key Metrics ── */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
           {/* Shop Rate */}
-          <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-5">
+          <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 sm:px-5 py-4 sm:py-5">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] flex items-center justify-center">
                 <DollarSign className="w-4 h-4 text-[#2563EB]" />
               </div>
               <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Shop Rate</span>
             </div>
-            <div className="text-3xl font-mono tabular-nums font-semibold text-[#111]">
+            <div className="text-2xl sm:text-3xl font-mono tabular-nums font-semibold text-[#111]">
               ${Number(shopRate).toFixed(2)}<span className="text-base text-[#9CA3AF] font-normal">/hr</span>
             </div>
           </div>
 
           {/* In Production */}
-          <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-5">
+          <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 sm:px-5 py-4 sm:py-5">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] flex items-center justify-center">
                 <FolderKanban className="w-4 h-4 text-[#2563EB]" />
               </div>
               <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">In Production</span>
             </div>
-            <div className="text-3xl font-mono tabular-nums font-semibold text-[#111]">
+            <div className="text-2xl sm:text-3xl font-mono tabular-nums font-semibold text-[#111]">
               {inProductionProjects.length}
             </div>
             <div className="text-xs text-[#6B7280] mt-1 font-mono tabular-nums">{fmtMoney(inProductionBidTotal)} bid value</div>
           </div>
 
           {/* Bidding Projects */}
-          <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-5">
+          <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 sm:px-5 py-4 sm:py-5">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-8 h-8 rounded-lg bg-[#FFFBEB] flex items-center justify-center">
                 <FileText className="w-4 h-4 text-[#D97706]" />
               </div>
               <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Bidding</span>
             </div>
-            <div className="text-3xl font-mono tabular-nums font-semibold text-[#111]">
+            <div className="text-2xl sm:text-3xl font-mono tabular-nums font-semibold text-[#111]">
               {biddingProjects.length}
             </div>
             <div className="text-xs text-[#6B7280] mt-1 font-mono tabular-nums">{fmtMoney(biddingBidTotal)} bid value</div>
           </div>
 
           {/* Overall Margin */}
-          <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-5">
+          <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 sm:px-5 py-4 sm:py-5">
             <div className="flex items-center gap-2 mb-3">
               <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${displayMarginPct >= 0 ? 'bg-[#ECFDF5]' : 'bg-[#FEF2F2]'}`}>
                 <TrendingUp className={`w-4 h-4 ${displayMarginPct >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`} />
@@ -306,7 +306,7 @@ export default function DashboardPage() {
                           {p.spentPct.toFixed(0)}% spent
                         </span>
                       </div>
-                      <div className="flex items-center gap-4 text-xs text-[#6B7280]">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#6B7280]">
                         <span className="font-mono tabular-nums">Bid {fmtMoney(p.bidTotal)}</span>
                         <span className="font-mono tabular-nums">Actual {fmtMoney(p.actualTotal)}</span>
                         <span className={`font-mono tabular-nums font-medium ${p.variancePct >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
@@ -400,7 +400,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── BOTTOM ROW: Quick Actions ── */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <Link
             href="/projects"
             className="flex items-center gap-3 bg-white border border-[#E5E7EB] rounded-xl px-5 py-4 hover:border-[#2563EB] hover:bg-[#F9FAFB] transition-colors group"

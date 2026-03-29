@@ -74,7 +74,7 @@ export default function Footer() {
 
       {/* Footer bar */}
       <footer className="border-t border-[#E5E7EB] bg-white mt-12">
-        <div className="max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <span className="text-sm font-semibold tracking-tight text-[#111]">MillSuite</span>
             <span className="text-xs text-[#9CA3AF]">Project Profit Tracker</span>
