@@ -15,26 +15,19 @@ export async function POST(req: NextRequest) {
     // Build the content array for Claude
     const content: any[] = []
 
-    if (base64_content) {
-      content.push({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: mime_type || 'image/png',
-          data: base64_content,
-        },
-      })
-    } else if (file_url) {
-      content.push({
-        type: 'image',
-        source: {
-          type: 'url',
-          url: file_url,
-        },
-      })
-    } else {
+    if (!base64_content) {
       return NextResponse.json({ error: 'No file content provided' }, { status: 400 })
     }
+
+    const isPdf = mime_type === 'application/pdf'
+    content.push({
+      type: isPdf ? 'document' : 'image',
+      source: {
+        type: 'base64',
+        media_type: mime_type || 'image/png',
+        data: base64_content,
+      },
+    })
 
     content.push({ type: 'text', text: prompt })
 
@@ -46,7 +39,7 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6-20250131',
         max_tokens: 2048,
         messages: [
           {
@@ -59,8 +52,8 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const errText = await response.text()
-      console.error('Anthropic API error:', errText)
-      return NextResponse.json({ error: 'AI extraction failed' }, { status: 502 })
+      console.error('Anthropic API error:', response.status, errText)
+      return NextResponse.json({ error: `AI extraction failed: ${response.status}` }, { status: 502 })
     }
 
     const result = await response.json()
