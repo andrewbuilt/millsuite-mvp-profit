@@ -46,11 +46,9 @@ export default function InvoiceParser() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [dragging, setDragging] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const [parsing, setParsing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [parsed, setParsed] = useState<ParsedInvoice | null>(null)
-  const [fileUrl, setFileUrl] = useState<string | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
 
   const [projects, setProjects] = useState<Project[]>([])
@@ -101,30 +99,8 @@ export default function InvoiceParser() {
     setSaved(false)
     setFileName(file.name)
 
-    // 1. Upload to Supabase Storage
-    setUploading(true)
-    const ext = file.name.split('.').pop() || 'bin'
-    const path = `${org?.id || 'default'}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-
-    const { data: uploadData, error: uploadErr } = await supabase.storage
-      .from('invoices')
-      .upload(path, file, { contentType: file.type })
-
-    if (uploadErr) {
-      setError(`Upload failed: ${uploadErr.message}`)
-      setUploading(false)
-      return
-    }
-
-    const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(path)
-    const publicUrl = urlData?.publicUrl || ''
-    setFileUrl(publicUrl)
-    setUploading(false)
-
-    // 2. Send to parse-invoice API
+    // Convert to base64 and send to parse-invoice API
     setParsing(true)
-
-    // Convert to base64 for the API
     const reader = new FileReader()
     reader.onload = async () => {
       const base64 = (reader.result as string).split(',')[1]
@@ -135,7 +111,6 @@ export default function InvoiceParser() {
           body: JSON.stringify({
             base64_content: base64,
             mime_type: file.type,
-            file_url: publicUrl,
           }),
         })
 
@@ -187,7 +162,6 @@ export default function InvoiceParser() {
           invoice_number: parsed.invoice_number,
           invoice_date: parsed.invoice_date || null,
           total_amount: parsed.total_amount,
-          file_url: fileUrl,
           created_by: user?.id,
         })
         .select('id')
@@ -221,7 +195,6 @@ export default function InvoiceParser() {
 
   function reset() {
     setParsed(null)
-    setFileUrl(null)
     setFileName(null)
     setError(null)
     setSaved(false)
@@ -231,7 +204,7 @@ export default function InvoiceParser() {
 
   // ── Render ──
 
-  const isProcessing = uploading || parsing
+  const isProcessing = parsing
 
   return (
     <div className="space-y-4">
@@ -268,7 +241,7 @@ export default function InvoiceParser() {
         <div className="border border-[#E5E7EB] rounded-xl p-8 text-center">
           <Loader2 className="w-8 h-8 text-[#2563EB] mx-auto mb-2 animate-spin" />
           <p className="text-sm font-medium text-[#6B7280]">
-            {uploading ? 'Uploading...' : 'Extracting invoice data with AI...'}
+            Extracting invoice data with AI...
           </p>
           {fileName && <p className="text-xs text-[#9CA3AF] mt-1">{fileName}</p>}
         </div>
