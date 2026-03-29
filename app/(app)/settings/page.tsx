@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Nav from '@/components/nav'
 import { computeShopRate } from '@/lib/pricing'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Copy, Check } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 
@@ -61,6 +61,7 @@ export default function SettingsPage() {
   const [businessPhone, setBusinessPhone] = useState('')
   const [businessEmail, setBusinessEmail] = useState('')
 
+  const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -480,6 +481,41 @@ export default function SettingsPage() {
               <label className="text-sm text-[#6B7280]">Email</label>
               <input type="text" value={businessEmail} onChange={e => setBusinessEmail(e.target.value)} className="w-64 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="info@yourbusiness.com" />
             </div>
+          </div>
+        </div>
+
+        {/* Team Invite Link */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mt-6">
+          <div className="px-6 py-4 border-b border-[#E5E7EB]">
+            <h2 className="text-base font-semibold">Team Invite Link</h2>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">Share this link with your team so they can create accounts and start tracking time</p>
+          </div>
+          <div className="px-6 py-4">
+            {(org as any)?.slug ? (
+              <div className="flex items-center gap-2">
+                <div className="flex-1 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl text-sm font-mono text-[#6B7280] truncate">
+                  {typeof window !== 'undefined' ? window.location.origin : 'https://millsuite.com'}/join/{(org as any).slug}
+                </div>
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/join/${(org as any).slug}`
+                    navigator.clipboard.writeText(url)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  className={`flex items-center gap-1.5 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                    copied
+                      ? 'bg-[#059669]/10 text-[#059669]'
+                      : 'bg-[#2563EB] text-white hover:bg-[#1D4ED8]'
+                  }`}
+                >
+                  {copied ? <><Check className="w-4 h-4" /> Copied</> : <><Copy className="w-4 h-4" /> Copy</>}
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-[#9CA3AF]">Loading...</p>
+            )}
+            <p className="text-xs text-[#9CA3AF] mt-3">Your team members will sign up with their own email and password. They'll automatically be added to your shop.</p>
           </div>
         </div>
 
