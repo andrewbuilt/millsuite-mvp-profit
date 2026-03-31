@@ -70,18 +70,19 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!org?.id) return
     async function load() {
-      const [{ data }, { data: users }] = await Promise.all([
-        supabase
-          .from('shop_rate_settings')
-          .select('*')
-          .eq('org_id', org!.id)
-          .single(),
-        supabase
-          .from('users')
-          .select('id, name, hourly_cost, is_billable')
-          .eq('org_id', org!.id)
-          .order('name'),
-      ])
+      // Load settings and team separately to avoid .single() killing both
+      const { data } = await supabase
+        .from('shop_rate_settings')
+        .select('*')
+        .eq('org_id', org!.id)
+        .maybeSingle()
+
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, name, hourly_cost, is_billable')
+        .eq('org_id', org!.id)
+        .neq('role', 'owner')
+        .order('name')
 
       if (data) {
         setRawValues({
@@ -297,12 +298,12 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Team (read-only, managed on Team page) */}
+            {/* Team Rollup (managed on Team page) */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">Team</h3>
                 <Link href="/team" className="flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors">
-                  Manage in Team <ArrowRight className="w-3 h-3" />
+                  Manage Team <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>
 
@@ -312,39 +313,28 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {/* Header */}
-                  <div className="grid grid-cols-[1fr_120px_80px] gap-3 px-3 py-1">
-                    <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Name</span>
-                    <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider text-right">Annual Cost</span>
-                    <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider text-center">Billable</span>
-                  </div>
-
-                  {teamMembers.map(member => (
-                    <div key={member.id} className="grid grid-cols-[1fr_120px_80px] gap-3 items-center bg-[#F9FAFB] rounded-xl px-3 py-2">
-                      <span className="text-sm text-[#111]">{member.name}</span>
-                      <span className="text-sm font-mono tabular-nums text-right text-[#6B7280]">
-                        ${(member.hourly_cost || 0).toLocaleString()}
-                      </span>
-                      <div className="flex justify-center">
-                        <span className={`text-xs font-medium ${member.is_billable !== false ? 'text-[#059669]' : 'text-[#9CA3AF]'}`}>
-                          {member.is_billable !== false ? 'Yes' : 'No'}
-                        </span>
+                  {billableMembers.length > 0 && (
+                    <div className="flex items-center justify-between bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl px-4 py-3">
+                      <div>
+                        <span className="text-sm font-medium text-[#059669]">{billableMembers.length} billable</span>
+                        {ownerBillable && <span className="text-xs text-[#059669] ml-1">+ owner</span>}
                       </div>
+                      <span className="text-sm font-mono tabular-nums font-medium text-[#059669]">
+                        ${Math.round(billableMembers.reduce((s, m) => s + (m.hourly_cost || 0), 0) / 12).toLocaleString()}/mo
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Team summary */}
-              {teamMembers.length > 0 && (
-                <div className="mt-3 space-y-1">
-                  <div className="flex items-center justify-between py-2 border-t border-[#E5E7EB]">
-                    <span className="text-sm text-[#6B7280]">Total payroll ({teamMembers.length} members)</span>
-                    <span className="text-sm font-mono tabular-nums">${Math.round(totalMonthlyPayroll).toLocaleString()}/mo</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1">
-                    <span className="text-xs text-[#9CA3AF]">Billable: {billableMembers.length} members{ownerBillable ? ' + owner' : ''}</span>
-                    <span className="text-xs text-[#9CA3AF]">Non-billable: {nonBillableMembers.length}</span>
+                  )}
+                  {nonBillableMembers.length > 0 && (
+                    <div className="flex items-center justify-between bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl px-4 py-3">
+                      <span className="text-sm font-medium text-[#6B7280]">{nonBillableMembers.length} non-billable</span>
+                      <span className="text-sm font-mono tabular-nums text-[#6B7280]">
+                        ${Math.round(nonBillableMembers.reduce((s, m) => s + (m.hourly_cost || 0), 0) / 12).toLocaleString()}/mo
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-[#9CA3AF]">Total payroll</span>
+                    <span className="text-xs font-mono tabular-nums text-[#6B7280]">${Math.round(totalMonthlyPayroll).toLocaleString()}/mo</span>
                   </div>
                 </div>
               )}
