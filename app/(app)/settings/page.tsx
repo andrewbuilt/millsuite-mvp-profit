@@ -77,12 +77,13 @@ export default function SettingsPage() {
         .eq('org_id', org!.id)
         .maybeSingle()
 
-      const { data: users } = await supabase
+      const { data: users, error: usersError } = await supabase
         .from('users')
-        .select('id, name, hourly_cost, is_billable')
+        .select('id, name, role, hourly_cost, is_billable')
         .eq('org_id', org!.id)
-        .neq('role', 'owner')
         .order('name')
+
+      if (usersError) console.warn('Users query error:', usersError.message)
 
       if (data) {
         setRawValues({
@@ -99,7 +100,9 @@ export default function SettingsPage() {
         if (data.owner_billable !== undefined) setOwnerBillable(data.owner_billable)
       }
 
-      setTeamMembers(users || [])
+      // Filter out the owner (they have their own salary field)
+      const teamOnly = (users || []).filter((u: any) => u.role !== 'owner')
+      setTeamMembers(teamOnly)
 
       // Load org defaults for consumable markup & profit margin
       setConsumableMarkup(org!.consumable_markup_pct?.toString() || '15')
