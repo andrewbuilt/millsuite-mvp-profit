@@ -1,44 +1,91 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { ChevronLeft, ChevronRight, Calendar, ZoomIn, ZoomOut } from 'lucide-react'
+
 import {
-  buildBlocks, toDateKey, parseDate, getMonday, addWorkDays, generateWorkDays, isWorkDay,
-  type ScheduleBlock,
+  DEPT_ORDER, DEPT_SHORT, PROJECT_COLORS,
+  autoPlace, buildBlocks, computeAlerts, sortProjects, cascadeMove,
+  buildDeptConfig, deptConfigToCapacity, blockDays,
+  toDateKey, parseDate,
+  type ScheduleProject, type ScheduleSub, type Allocation,
+  type PlacedBlock, type DeptCapacity, type DeptKey, type ScheduleAlert, type DeptConfig,
 } from '@/lib/schedule-engine'
+
+import Timeline from '@/components/schedule/Timeline'
+import type { ZoomLevel } from '@/components/schedule/Timeline'
+import ProjectSidebar from '@/components/schedule/ProjectSidebar'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════
 
-interface Department { id: string; name: string; color: string; display_order: number; hours_per_day: number }
-interface DeptMember { department_id: string; user_id: string }
-interface Project { id: string; name: string; client_name: string | null; status: string }
-interface Subproject { id: string; project_id: string; name: string }
-interface Allocation {
-  id: string; subproject_id: string; department_id: string
-  estimated_hours: number; actual_hours: number
-  scheduled_date: string | null; scheduled_days: number | null; completed: boolean
+interface DeptInfo {
+  key: DeptKey; name: string; color: string; id: string
 }
 
-type Zoom = 'day' | 'week'
-
 // ═══════════════════════════════════════════════════════════════════
-// CONSTANTS
+// BLOCK EDIT POPOVER
 // ═══════════════════════════════════════════════════════════════════
 
-const DAY_W = { day: 60, week: 160 }
-const ROW_H = 48
-const LABEL_W = 160
-const TODAY = toDateKey(new Date())
+function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, onUpdate, onClose }: {
+  block: PlacedBlock; rect: DOMRect; deptInfos: DeptInfo[]; capacity: DeptCapacity; deptConfig: DeptConfig
+  onUpdate: (allocationId: string, field: 'hours' | 'addDays' | 'crew', value: number) => void; onClose: () => void
+}) {
+  const [mode, setMode] = useState<'hours' | 'days' | 'crew'>('hours')
+  const [val, setVal] = useState(String(block.hours))
+  const popRef = useRef<HTMLDivElement>(null)
+  const dept = deptInfos.find(d => d.key === block.dept)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (popRef.current && !popRef.current.contains(e.target as Node)) onClose() }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [onClose])
+
+  const handleApply = () => { const num = parseInt(val) || 0; if (num > 0) onUpdate(block.allocationId, mode === 'hours' ? 'hours' : mode === 'crew' ? 'crew' : 'addDays', num) }
+  const top = Math.min(rect.bottom + 4, window.innerHeight - 300)
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - 240))
+
+  return (
+    <div ref={popRef} className="fixed z-50" style={{ top, left, width: 228, background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 8px 30px rgba(0,0,0,0.12)', padding: 14 }}>
+      <div className="flex items-center gap-2 mb-3 pb-2" style={{ borderBottom: `1px solid ${dept?.color || '#E5E7EB'}20` }}>
+        <div className="w-1 h-4 rounded-sm" style={{ background: dept?.color || '#94A3B8' }} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] font-semibold text-[#111] truncate">{block.subName}</div>
+          <div className="text-[9px] text-[#9CA3AF]">{dept?.name} · {block.projectName}</div>
+        </div>
+      </div>
+      <div className="flex gap-1.5 mb-3">
+        {[{ label: 'Hours', value: block.hours, suffix: 'h' }, { label: 'Crew', value: block.crewSize, suffix: '' }, { label: 'Days', value: block.days, suffix: 'd' }, { label: 'Done', value: block.progress, suffix: '%' }].map(s => (
+          <div key={s.label} className="flex-1 bg-[#F9FAFB] rounded-lg p-1.5 text-center">
+            <div className="text-[9px] text-[#9CA3AF] font-semibold uppercase tracking-wider">{s.label}</div>
+            <div className="text-[11px] font-mono font-semibold text-[#111]">{s.value}{s.suffix}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-1 mb-2">
+        {(['hours', 'crew', 'days'] as const).map(m => (
+          <button key={m} onClick={() => { setMode(m); setVal(String(m === 'hours' ? block.hours : m === 'crew' ? block.crewSize : block.days)) }}
+            className={`flex-1 py-1.5 text-[10px] font-medium rounded-lg transition-colors ${mode === m ? 'bg-[#2563EB] text-white' : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'}`}>
+            {m === 'hours' ? 'Set Hours' : m === 'crew' ? 'Set Crew' : 'Add Days'}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleApply() }}
+          className="flex-1 px-2.5 py-1.5 text-sm font-mono text-center border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]" autoFocus />
+        <button onClick={handleApply} className="px-3 py-1.5 bg-[#2563EB] text-white text-[10px] font-medium rounded-lg hover:bg-[#1D4ED8]">Apply</button>
+      </div>
+    </div>
+  )
+}
 
 // ═══════════════════════════════════════════════════════════════════
-// PAGE
+// MAIN PAGE
 // ═══════════════════════════════════════════════════════════════════
 
 export default function SchedulePage() {
@@ -54,351 +101,308 @@ export default function SchedulePage() {
 
 function ScheduleContent() {
   const { org } = useAuth()
-  const router = useRouter()
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [deptMembers, setDeptMembers] = useState<DeptMember[]>([])
-  const [projects, setProjects] = useState<Project[]>([])
-  const [subprojects, setSubprojects] = useState<Subproject[]>([])
-  const [allocations, setAllocations] = useState<Allocation[]>([])
   const [loading, setLoading] = useState(true)
-  const [zoom, setZoom] = useState<Zoom>('day')
 
-  // Drag state
-  const [draggingBlock, setDraggingBlock] = useState<string | null>(null)
-  const [dragOverDate, setDragOverDate] = useState<string | null>(null)
-  const [dragOverDept, setDragOverDept] = useState<string | null>(null)
+  // Raw data
+  const [rawDepts, setRawDepts] = useState<any[]>([])
+  const [projects, setProjects] = useState<ScheduleProject[]>([])
+  const [subs, setSubs] = useState<ScheduleSub[]>([])
+  const [allocations, setAllocations] = useState<Allocation[]>([])
+  const [teamMembers, setTeamMembers] = useState<any[]>([])
 
-  useEffect(() => { if (org?.id) loadData() }, [org?.id])
+  // View state
+  const [zoom, setZoom] = useState<ZoomLevel>('medium')
+  const [scrollTrigger, setScrollTrigger] = useState(0)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [editingBlock, setEditingBlock] = useState<{ block: PlacedBlock; rect: DOMRect } | null>(null)
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
 
-  async function loadData() {
-    setLoading(true)
-    const [
-      { data: depts },
-      { data: dm },
-      { data: projs },
-      { data: subs },
-      { data: allocs },
-    ] = await Promise.all([
-      supabase.from('departments').select('*').eq('org_id', org!.id).eq('active', true).order('display_order'),
-      supabase.from('department_members').select('department_id, user_id').eq('org_id', org!.id),
-      supabase.from('projects').select('id, name, client_name, status').eq('org_id', org!.id).in('status', ['active', 'bidding']),
-      supabase.from('subprojects').select('id, project_id, name').eq('org_id', org!.id),
-      supabase.from('department_allocations').select('*').eq('org_id', org!.id),
-    ])
-    setDepartments(depts || [])
-    setDeptMembers(dm || [])
-    setProjects(projs || [])
-    setSubprojects(subs || [])
-    setAllocations(allocs || [])
-    setLoading(false)
-  }
+  // ═══════════════════════════════════════════════════════════════
+  // DERIVED
+  // ═══════════════════════════════════════════════════════════════
 
-  // Build blocks from allocations
-  const blocks = useMemo(() => buildBlocks({
-    allocations, subprojects, projects, departments,
-  }), [allocations, subprojects, projects, departments])
-
-  // Generate dates — 6 weeks centered on today
-  const dates = useMemo(() => {
-    const start = getMonday(new Date())
-    // Go back 1 week
-    const adjustedStart = new Date(start)
-    adjustedStart.setDate(adjustedStart.getDate() - 7)
-    return generateWorkDays(adjustedStart, 7 * 4 * 6) // ~6 weeks of work days
-  }, [])
-
-  const dateKeys = useMemo(() => dates.map(d => toDateKey(d)), [dates])
-
-  // Week groupings for header
-  const weeks = useMemo(() => {
-    const wks: { label: string; start: string; days: string[] }[] = []
-    let currentWeek: string[] = []
-    let weekStart = ''
-
-    for (const d of dates) {
-      const dk = toDateKey(d)
-      if (d.getDay() === 1 || currentWeek.length === 0) {
-        if (currentWeek.length > 0) {
-          wks.push({ label: getWeekLabel(weekStart), start: weekStart, days: currentWeek })
-        }
-        currentWeek = [dk]
-        weekStart = dk
-      } else {
-        currentWeek.push(dk)
+  const deptInfos: DeptInfo[] = useMemo(() => {
+    return DEPT_ORDER.map(key => {
+      const dept = (rawDepts || []).find((d: any) => d.name.toLowerCase() === key)
+      return {
+        key, name: dept?.name || key.charAt(0).toUpperCase() + key.slice(1),
+        color: dept?.color || '#94A3B8', id: dept?.id || key,
       }
-    }
-    if (currentWeek.length > 0) {
-      wks.push({ label: getWeekLabel(weekStart), start: weekStart, days: currentWeek })
-    }
-    return wks
-  }, [dates])
+    })
+  }, [rawDepts])
 
-  function getWeekLabel(dk: string): string {
-    const d = parseDate(dk)
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  }
+  const deptConfig: DeptConfig = useMemo(() => {
+    const deptData = DEPT_ORDER.map(key => {
+      const dept = (rawDepts || []).find((d: any) => d.name.toLowerCase() === key)
+      const defaultCrewSize = (key === 'engineering' || key === 'cnc') ? 1 : 2
+      let headcount = 0
+      const deptId = dept?.id
+      for (const m of teamMembers) {
+        if (m.primary_department_id === deptId) headcount++
+      }
+      return { key, defaultCrewSize, headcount: Math.max(1, headcount), hoursPerPerson: 8 }
+    })
+    return buildDeptConfig(deptData)
+  }, [rawDepts, teamMembers])
 
-  // Member count per department
-  const memberCountByDept = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const dm of deptMembers) {
-      counts[dm.department_id] = (counts[dm.department_id] || 0) + 1
+  const capacity: DeptCapacity = useMemo(() => deptConfigToCapacity(deptConfig), [deptConfig])
+
+  const blocks: PlacedBlock[] = useMemo(
+    () => buildBlocks(allocations, projects, subs, capacity, deptConfig),
+    [allocations, projects, subs, capacity, deptConfig],
+  )
+
+  const unscheduledProjectIds = useMemo(() => {
+    const ids = new Set<string>()
+    const subToProject = new Map<string, string>()
+    subs.forEach(s => subToProject.set(s.id, s.project_id))
+    for (const a of allocations) {
+      const pid = subToProject.get(a.subproject_id)
+      if (pid && !a.scheduled_date && !a.completed && a.estimated_hours > 0) ids.add(pid)
     }
-    return counts
-  }, [deptMembers])
+    return ids
+  }, [allocations, subs])
 
-  // Scroll to today on mount
-  useEffect(() => {
-    if (!scrollRef.current || dates.length === 0) return
-    const todayIdx = dateKeys.indexOf(TODAY)
-    if (todayIdx >= 0) {
-      const cw = DAY_W[zoom]
-      scrollRef.current.scrollLeft = Math.max(0, todayIdx * cw - 200)
+  // ═══════════════════════════════════════════════════════════════
+  // LOAD DATA
+  // ═══════════════════════════════════════════════════════════════
+
+  const loadData = useCallback(async () => {
+    if (!org?.id) return
+    try {
+      const { data: depts } = await supabase.from('departments').select('*').eq('org_id', org.id).eq('active', true).order('display_order')
+      setRawDepts(depts || [])
+
+      const deptIdToName: Record<string, string> = {}
+      ;(depts || []).forEach((d: any) => { deptIdToName[d.id] = d.name.toLowerCase() })
+
+      const { data: projs } = await supabase
+        .from('projects')
+        .select('id, name, client_name, status, bid_total')
+        .eq('org_id', org.id)
+        .in('status', ['active', 'bidding'])
+        .order('name')
+
+      const projectList: ScheduleProject[] = []
+      const subList: ScheduleSub[] = []
+      const allSubIds: string[] = []
+
+      for (const [i, p] of (projs || []).entries()) {
+        projectList.push({
+          id: p.id, name: p.name, client: p.client_name || '',
+          color: PROJECT_COLORS[i % PROJECT_COLORS.length],
+          priority: 'medium', due: null, status: p.status,
+        })
+
+        const { data: subData } = await supabase
+          .from('subprojects')
+          .select('id, name')
+          .eq('project_id', p.id)
+          .order('sort_order')
+
+        for (const s of (subData || [])) {
+          subList.push({ id: s.id, name: s.name, project_id: p.id, sub_due_date: null, schedule_order: 0 })
+          allSubIds.push(s.id)
+        }
+      }
+
+      setProjects(projectList)
+      setSubs(subList)
+
+      if (allSubIds.length > 0) {
+        const { data: allocs } = await supabase
+          .from('department_allocations')
+          .select('id, subproject_id, department_id, scheduled_date, scheduled_days, estimated_hours, actual_hours, completed, crew_size')
+          .in('subproject_id', allSubIds)
+
+        setAllocations((allocs || []).map((a: any) => ({
+          id: a.id, subproject_id: a.subproject_id, department_id: a.department_id,
+          dept_key: (deptIdToName[a.department_id] || 'assembly') as DeptKey,
+          scheduled_date: a.scheduled_date || null, scheduled_days: a.scheduled_days || null,
+          estimated_hours: a.estimated_hours || 0, actual_hours: a.actual_hours || 0,
+          completed: a.completed || false, crew_size: a.crew_size || null,
+        })))
+      } else { setAllocations([]) }
+
+      // Load team members for headcount
+      const { data: members } = await supabase.from('users')
+        .select('id, name, hourly_cost, is_billable')
+        .eq('org_id', org.id)
+
+      // Map department_members to get primary_department_id
+      const { data: deptMembers } = await supabase.from('department_members')
+        .select('user_id, department_id, is_primary')
+        .eq('org_id', org.id)
+
+      const primaryDeptMap: Record<string, string> = {}
+      for (const dm of (deptMembers || [])) {
+        if (dm.is_primary || !primaryDeptMap[dm.user_id]) {
+          primaryDeptMap[dm.user_id] = dm.department_id
+        }
+      }
+
+      setTeamMembers((members || []).map((m: any) => ({
+        ...m, primary_department_id: primaryDeptMap[m.id] || null,
+      })))
+
+      setLoading(false)
+    } catch (err) {
+      console.error('Schedule load error:', err)
+      setLoading(false)
     }
-  }, [loading, zoom])
+  }, [org?.id])
 
-  // Drag handlers
-  async function handleDrop(dateKey: string, deptId: string) {
-    if (!draggingBlock) return
+  useEffect(() => { loadData() }, [loadData])
+
+  // ═══════════════════════════════════════════════════════════════
+  // ACTIONS
+  // ═══════════════════════════════════════════════════════════════
+
+  async function handleBlockDrop(allocationId: string, newStartDate: string) {
+    const alloc = allocations.find(a => a.id === allocationId)
+    if (!alloc) return
 
     await supabase.from('department_allocations').update({
-      scheduled_date: dateKey,
-      department_id: deptId,
-    }).eq('id', draggingBlock)
+      scheduled_date: newStartDate,
+    }).eq('id', allocationId)
 
-    setDraggingBlock(null)
-    setDragOverDate(null)
-    setDragOverDept(null)
+    setAllocations(prev => prev.map(a => a.id === allocationId ? { ...a, scheduled_date: newStartDate } : a))
+  }
+
+  async function handleBlockUpdate(allocationId: string, field: 'hours' | 'addDays' | 'crew', value: number) {
+    const alloc = allocations.find(a => a.id === allocationId)
+    if (!alloc) return
+
+    const updates: Record<string, any> = {}
+    if (field === 'hours') {
+      updates.estimated_hours = value
+    } else if (field === 'crew') {
+      updates.crew_size = value
+    } else if (field === 'addDays') {
+      updates.scheduled_days = (alloc.scheduled_days || blockDays(alloc.estimated_hours, alloc.crew_size || 1, 8)) + value
+    }
+
+    await supabase.from('department_allocations').update(updates).eq('id', allocationId)
+    setEditingBlock(null)
     loadData()
   }
 
-  // Get blocks for a department on a specific date
-  function getBlocksAt(deptId: string, dateKey: string): ScheduleBlock[] {
-    return blocks.filter(b => {
-      if (b.departmentId !== deptId) return false
-      const start = parseDate(b.startDate)
-      const end = addWorkDays(start, b.days)
-      const check = parseDate(dateKey)
-      return check >= start && check < end
-    })
-  }
+  async function handleScheduleProject(projectId: string) {
+    // Auto-place all unscheduled allocations for this project
+    const projSubs = subs.filter(s => s.project_id === projectId)
+    const projAllocIds = allocations
+      .filter(a => projSubs.some(s => s.id === a.subproject_id) && !a.scheduled_date && !a.completed)
+      .map(a => a.id)
 
-  // Is this the start date of a block?
-  function isBlockStart(block: ScheduleBlock, dateKey: string): boolean {
-    return block.startDate === dateKey
-  }
+    if (projAllocIds.length === 0) return
 
-  // Unscheduled allocations
-  const unscheduled = allocations.filter(a => !a.scheduled_date)
-  const unscheduledBySub = useMemo(() => {
-    const map = new Map<string, Allocation[]>()
-    for (const a of unscheduled) {
-      const list = map.get(a.subproject_id) || []
-      list.push(a)
-      map.set(a.subproject_id, list)
+    // Use autoPlace from engine
+    const newAllocations = autoPlace(allocations, projects, subs, deptConfig, capacity)
+    const updates = newAllocations.filter(a => projAllocIds.includes(a.id) && a.scheduled_date)
+
+    for (const alloc of updates) {
+      await supabase.from('department_allocations').update({
+        scheduled_date: alloc.scheduled_date,
+        scheduled_days: alloc.scheduled_days,
+        crew_size: alloc.crew_size,
+      }).eq('id', alloc.id)
     }
-    return map
-  }, [unscheduled])
 
-  const cw = DAY_W[zoom]
-  const gridW = dates.length * cw
+    loadData()
+  }
+
+  async function handleUpdateDue(projectId: string, newDue: string) {
+    // Not storing due dates in MVP — placeholder
+  }
+
+  async function handleUpdatePriority(projectId: string, newPriority: 'high' | 'medium' | 'low') {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, priority: newPriority } : p))
+  }
 
   if (loading) {
-    return <div className="max-w-6xl mx-auto px-6 py-16 text-center text-[#9CA3AF] text-sm">Loading...</div>
+    return <div className="flex items-center justify-center h-[calc(100vh-3.5rem)] text-sm text-[#9CA3AF]">Loading schedule...</div>
   }
 
-  if (departments.length === 0) {
+  if (rawDepts.length === 0) {
     return (
       <div className="max-w-4xl mx-auto px-6 py-16 text-center">
-        <Calendar className="w-8 h-8 text-[#9CA3AF] mx-auto mb-3" />
         <p className="text-sm text-[#9CA3AF] mb-3">Set up departments and assign team members first</p>
-        <button onClick={() => router.push('/team')} className="text-sm text-[#2563EB] hover:text-[#1D4ED8] font-medium">
-          Go to Team →
-        </button>
+        <a href="/team" className="text-sm text-[#2563EB] hover:text-[#1D4ED8] font-medium">Go to Team →</a>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-[#E5E7EB] bg-white flex-shrink-0">
-        <h1 className="text-lg font-semibold tracking-tight">Production Schedule</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              if (scrollRef.current) {
-                const todayIdx = dateKeys.indexOf(TODAY)
-                if (todayIdx >= 0) scrollRef.current.scrollTo({ left: Math.max(0, todayIdx * cw - 200), behavior: 'smooth' })
-              }
-            }}
-            className="px-3 py-1.5 text-xs font-medium text-[#2563EB] bg-[#EFF6FF] rounded-lg hover:bg-[#DBEAFE] transition-colors"
-          >
-            Today
-          </button>
-          <div className="flex border border-[#E5E7EB] rounded-lg overflow-hidden">
-            <button onClick={() => setZoom('day')}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${zoom === 'day' ? 'bg-[#2563EB] text-white' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}>
-              Day
-            </button>
-            <button onClick={() => setZoom('week')}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${zoom === 'week' ? 'bg-[#2563EB] text-white' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}>
-              Week
-            </button>
-          </div>
-        </div>
+    <div className="flex h-[calc(100vh-3.5rem)]">
+      {/* Sidebar */}
+      <div className="w-[260px] border-r border-[#E5E7EB] bg-white flex-shrink-0 overflow-y-auto">
+        <ProjectSidebar
+          projects={projects}
+          subs={subs}
+          blocks={blocks}
+          unscheduledProjectIds={unscheduledProjectIds}
+          deptInfos={deptInfos}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={setSelectedProjectId}
+          onScheduleProject={handleScheduleProject}
+          onUpdateDue={handleUpdateDue}
+          onUpdatePriority={handleUpdatePriority}
+        />
       </div>
 
-      {/* Timeline */}
-      <div ref={scrollRef} className="flex-1 overflow-auto bg-[#FAFAFA]">
-        <div style={{ width: gridW + LABEL_W, minHeight: '100%' }}>
-
-          {/* Date header */}
-          <div className="flex sticky top-0 z-20 bg-white border-b border-[#E5E7EB]">
-            <div className="flex-shrink-0 border-r border-[#E5E7EB] bg-white" style={{ width: LABEL_W, position: 'sticky', left: 0, zIndex: 30 }}>
-              <div className="h-10 flex items-center px-3">
-                <span className="text-[9px] font-medium text-[#9CA3AF] uppercase tracking-wide">Department</span>
-              </div>
+      {/* Main timeline area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Toolbar */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[#E5E7EB] bg-white flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-semibold text-[#111]">Production Schedule</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setScrollTrigger(t => t + 1)}
+              className="px-2.5 py-1 text-[10px] font-medium text-[#2563EB] bg-[#EFF6FF] rounded-md hover:bg-[#DBEAFE] transition-colors">
+              Today
+            </button>
+            <div className="flex border border-[#E5E7EB] rounded-md overflow-hidden">
+              {(['tight', 'medium', 'long'] as ZoomLevel[]).map(z => (
+                <button key={z} onClick={() => setZoom(z)}
+                  className={`px-2 py-1 text-[10px] font-medium transition-colors ${zoom === z ? 'bg-[#2563EB] text-white' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}>
+                  {z === 'tight' ? 'Day' : z === 'medium' ? 'Week' : 'Month'}
+                </button>
+              ))}
             </div>
-            {dates.map((date, i) => {
-              const dk = toDateKey(date)
-              const isToday = dk === TODAY
-              const isMon = date.getDay() === 1
-              return (
-                <div key={dk} className="flex-shrink-0 text-center border-r border-[#F3F4F6] relative"
-                  style={{ width: cw, borderLeft: isMon ? '2px solid #E5E7EB' : undefined }}>
-                  {isToday && <div className="absolute top-0 left-0 right-0 h-0.5 bg-[#2563EB]" />}
-                  <div className="h-10 flex flex-col items-center justify-center">
-                    <div className="text-[8px] text-[#9CA3AF] uppercase">
-                      {date.toLocaleDateString('en-US', { weekday: zoom === 'day' ? 'short' : 'narrow' })}
-                    </div>
-                    <div className={`text-[10px] font-mono ${isToday ? 'font-bold text-[#2563EB]' : 'text-[#6B7280]'}`}>
-                      {date.getDate()}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
           </div>
-
-          {/* Department rows */}
-          {departments.map((dept, deptIdx) => {
-            const memberCount = memberCountByDept[dept.id] || 0
-            return (
-              <div key={dept.id} className="flex border-b border-[#E5E7EB]">
-                {/* Department label */}
-                <div className="flex-shrink-0 border-r border-[#E5E7EB] bg-white flex items-center px-3 gap-2"
-                  style={{ width: LABEL_W, height: ROW_H, position: 'sticky', left: 0, zIndex: 10 }}>
-                  <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: dept.color }} />
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-[#111] truncate">{dept.name}</div>
-                    <div className="text-[9px] text-[#9CA3AF]">{memberCount} people</div>
-                  </div>
-                </div>
-
-                {/* Day cells */}
-                {dates.map((date, dayIdx) => {
-                  const dk = toDateKey(date)
-                  const isToday = dk === TODAY
-                  const isMon = date.getDay() === 1
-                  const blocksHere = getBlocksAt(dept.id, dk)
-                  const isOver = dragOverDate === dk && dragOverDept === dept.id
-
-                  return (
-                    <div
-                      key={dk}
-                      className={`flex-shrink-0 relative ${isOver ? 'bg-[#EFF6FF]' : isToday ? 'bg-[#FAFCFF]' : ''}`}
-                      style={{
-                        width: cw, height: ROW_H,
-                        borderRight: '1px solid #F3F4F6',
-                        borderLeft: isMon ? '2px solid #E5E7EB' : undefined,
-                      }}
-                      onDragOver={e => { e.preventDefault(); setDragOverDate(dk); setDragOverDept(dept.id) }}
-                      onDragLeave={() => { setDragOverDate(null); setDragOverDept(null) }}
-                      onDrop={e => { e.preventDefault(); handleDrop(dk, dept.id) }}
-                    >
-                      {isToday && <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-[#2563EB]" />}
-
-                      {/* Render blocks that START on this date */}
-                      {blocksHere.filter(b => isBlockStart(b, dk)).map(block => (
-                        <div
-                          key={block.allocationId}
-                          draggable
-                          onDragStart={() => setDraggingBlock(block.allocationId)}
-                          onDragEnd={() => { setDraggingBlock(null); setDragOverDate(null); setDragOverDept(null) }}
-                          className="absolute top-1 left-0.5 cursor-grab active:cursor-grabbing group"
-                          style={{
-                            width: block.days * cw - 4,
-                            height: ROW_H - 8,
-                            borderRadius: 6,
-                            background: block.projectColor,
-                            opacity: draggingBlock === block.allocationId ? 0.4 : 1,
-                            zIndex: 5,
-                          }}
-                          title={`${block.projectName} — ${block.subprojectName}\n${block.hours}h estimated, ${block.days} days`}
-                        >
-                          <div className="px-2 py-1 h-full flex flex-col justify-center overflow-hidden">
-                            <div className="text-[10px] font-medium text-white truncate leading-tight">
-                              {block.subprojectName}
-                            </div>
-                            {cw * block.days > 80 && (
-                              <div className="text-[8px] text-white/70 truncate">
-                                {block.projectName} · {block.hours}h
-                              </div>
-                            )}
-                            {/* Progress bar */}
-                            {block.progress > 0 && (
-                              <div className="h-0.5 bg-white/20 rounded-full mt-0.5 overflow-hidden">
-                                <div className="h-full bg-white/60 rounded-full" style={{ width: `${block.progress}%` }} />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })}
         </div>
+
+        {/* Timeline */}
+        <Timeline
+          blocks={blocks}
+          projects={projects}
+          subs={subs}
+          capacity={capacity}
+          deptInfos={deptInfos}
+          zoom={zoom}
+          scrollTrigger={scrollTrigger}
+          selectedProjectId={selectedProjectId}
+          collapsed={collapsed}
+          onToggleCollapse={id => setCollapsed(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })}
+          onBlockClick={(block, rect) => setEditingBlock({ block, rect })}
+          onDateClick={date => setSelectedDate(date)}
+          onBlockDrop={handleBlockDrop}
+        />
       </div>
 
-      {/* Unscheduled allocations */}
-      {unscheduled.length > 0 && (
-        <div className="border-t border-[#E5E7EB] bg-white px-4 sm:px-6 py-3 flex-shrink-0">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">Unscheduled</span>
-            <span className="text-[10px] bg-[#F3F4F6] text-[#6B7280] px-1.5 py-0.5 rounded-full">{unscheduled.length}</span>
-          </div>
-          <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto">
-            {Array.from(unscheduledBySub.entries()).map(([subId, allocs]) => {
-              const sub = subprojects.find(s => s.id === subId)
-              const proj = sub ? projects.find(p => p.id === sub.project_id) : null
-              if (!sub || !proj) return null
-              return allocs.map(alloc => {
-                const dept = departments.find(d => d.id === alloc.department_id)
-                return (
-                  <div
-                    key={alloc.id}
-                    draggable
-                    onDragStart={() => setDraggingBlock(alloc.id)}
-                    onDragEnd={() => { setDraggingBlock(null); setDragOverDate(null); setDragOverDept(null) }}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg cursor-grab active:cursor-grabbing hover:border-[#2563EB] transition-colors text-xs"
-                  >
-                    {dept && <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: dept.color }} />}
-                    <span className="font-medium text-[#111]">{sub.name}</span>
-                    <span className="text-[#9CA3AF]">·</span>
-                    <span className="text-[#6B7280]">{dept?.name}</span>
-                    <span className="text-[#9CA3AF] font-mono">{alloc.estimated_hours}h</span>
-                  </div>
-                )
-              })
-            })}
-          </div>
-        </div>
+      {/* Block edit popover */}
+      {editingBlock && (
+        <BlockEditPopover
+          block={editingBlock.block}
+          rect={editingBlock.rect}
+          deptInfos={deptInfos}
+          capacity={capacity}
+          deptConfig={deptConfig}
+          onUpdate={handleBlockUpdate}
+          onClose={() => setEditingBlock(null)}
+        />
       )}
     </div>
   )
