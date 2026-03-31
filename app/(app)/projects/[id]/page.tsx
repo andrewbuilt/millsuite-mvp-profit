@@ -90,7 +90,7 @@ export default function ProjectDetailPage() {
 
   // ── Load Data ──
 
-  useEffect(() => { loadData() }, [projectId])
+  useEffect(() => { loadData() }, [projectId, org?.id])
 
   async function loadData() {
     setLoading(true)
