@@ -2,17 +2,28 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FolderKanban, Clock, Settings, LogOut } from 'lucide-react'
+import { LayoutDashboard, FolderKanban, Clock, Settings, LogOut, Calendar, BarChart3, Users } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { hasAccess } from '@/lib/feature-flags'
 import { MLogo } from '@/components/logo'
 
-const OWNER_NAV = [
+interface NavItem {
+  href: string
+  label: string
+  icon: any
+  feature?: string // if set, only show when plan has this feature
+}
+
+const ALL_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/projects', label: 'Projects', icon: FolderKanban },
+  { href: '/schedule', label: 'Schedule', icon: Calendar, feature: 'schedule' },
+  { href: '/capacity', label: 'Capacity', icon: BarChart3, feature: 'capacity' },
   { href: '/time', label: 'Time', icon: Clock },
+  { href: '/team', label: 'Team', icon: Users, feature: 'team' },
 ]
 
-const MEMBER_NAV = [
+const MEMBER_NAV: NavItem[] = [
   { href: '/time', label: 'Time', icon: Clock },
 ]
 
@@ -21,7 +32,11 @@ export default function Nav() {
   const { user, org, signOut } = useAuth()
 
   const isMember = user?.role === 'member'
-  const navItems = isMember ? MEMBER_NAV : OWNER_NAV
+  const plan = org?.plan || 'starter'
+
+  const navItems = isMember
+    ? MEMBER_NAV
+    : ALL_NAV.filter(item => !item.feature || hasAccess(plan, item.feature))
 
   return (
     <nav className="bg-white border-b border-[#E5E7EB] sticky top-0 z-50">
