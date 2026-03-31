@@ -327,14 +327,12 @@ export default function SettingsPage() {
                       </span>
                     </div>
                   )}
-                  {nonBillableMembers.length > 0 && (
-                    <div className="flex items-center justify-between bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl px-4 py-3">
-                      <span className="text-sm font-medium text-[#6B7280]">{nonBillableMembers.length} non-billable</span>
-                      <span className="text-sm font-mono tabular-nums text-[#6B7280]">
-                        ${Math.round(nonBillableMembers.reduce((s, m) => s + (m.hourly_cost || 0), 0) / 12).toLocaleString()}/mo
-                      </span>
-                    </div>
-                  )}
+                  <div className="flex items-center justify-between bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl px-4 py-3">
+                    <span className="text-sm font-medium text-[#6B7280]">{nonBillableMembers.length} non-billable</span>
+                    <span className="text-sm font-mono tabular-nums text-[#6B7280]">
+                      ${Math.round(nonBillableMembers.reduce((s, m) => s + (m.hourly_cost || 0), 0) / 12).toLocaleString()}/mo
+                    </span>
+                  </div>
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-xs text-[#9CA3AF]">Total payroll</span>
                     <span className="text-xs font-mono tabular-nums text-[#6B7280]">${Math.round(totalMonthlyPayroll).toLocaleString()}/mo</span>
