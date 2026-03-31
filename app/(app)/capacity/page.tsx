@@ -6,7 +6,7 @@ import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 
 interface Department { id: string; name: string; color: string; hours_per_day: number }
 interface DeptMember { department_id: string; user_id: string }
@@ -14,6 +14,8 @@ interface Project { id: string; name: string; client_name: string | null; status
 interface Subproject { id: string; project_id: string; name: string; labor_hours: number }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
 interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number }
+
+type ZoomLevel = 'quarter' | 'half' | 'year'
 
 function fmtMoney(n: number) { return `$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` }
 
@@ -39,6 +41,12 @@ function CapacityContent() {
   const [deptAllocations, setDeptAllocations] = useState<DeptAllocation[]>([])
   const [monthAllocations, setMonthAllocations] = useState<MonthAllocation[]>([])
   const [loading, setLoading] = useState(true)
+  const [zoom, setZoom] = useState<ZoomLevel>('year')
+
+  // Drag state: source can be 'unscheduled' or 'month' (moving between months)
+  const [dragProjectId, setDragProjectId] = useState<string | null>(null)
+  const [dragSourceAllocationId, setDragSourceAllocationId] = useState<string | null>(null)
+  const [dragOverMonth, setDragOverMonth] = useState<string | null>(null)
 
   useEffect(() => { if (org?.id) loadData() }, [org?.id, year])
 
@@ -68,14 +76,27 @@ function CapacityContent() {
     setLoading(false)
   }
 
+  // Build department hours for a project
+  function buildDeptHours(projectId: string): Record<string, number> {
+    const projSubs = subprojects.filter(s => s.project_id === projectId)
+    const deptHours: Record<string, number> = {}
+    for (const sub of projSubs) {
+      const allocs = deptAllocations.filter(a => a.subproject_id === sub.id)
+      for (const alloc of allocs) {
+        deptHours[alloc.department_id] = (deptHours[alloc.department_id] || 0) + alloc.estimated_hours
+      }
+    }
+    return deptHours
+  }
+
   // Capacity per department per month
   const months = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => {
       const month = `${year}-${String(i + 1).padStart(2, '0')}`
       const label = new Date(year, i).toLocaleDateString('en-US', { month: 'short' })
-      const workingDays = 21 // simplified — could account for holidays
+      const longLabel = new Date(year, i).toLocaleDateString('en-US', { month: 'long' })
+      const workingDays = 21
 
-      // Capacity = members × hours_per_day × working days
       const deptCapacity: Record<string, number> = {}
       let totalCapacity = 0
       for (const dept of departments) {
@@ -85,7 +106,6 @@ function CapacityContent() {
         totalCapacity += cap
       }
 
-      // Allocated hours this month
       const monthAllocs = monthAllocations.filter(a => a.month_date.startsWith(month))
       let totalAllocated = 0
       const deptAllocated: Record<string, number> = {}
@@ -101,10 +121,10 @@ function CapacityContent() {
       const utilization = totalCapacity > 0 ? (totalAllocated / totalCapacity) * 100 : 0
       const projectCards = monthAllocs.map(a => {
         const proj = projects.find(p => p.id === a.project_id)
-        return proj ? { ...proj, allocationId: a.id, hours: a.hours_allocated } : null
-      }).filter(Boolean)
+        return proj ? { ...proj, allocationId: a.id, hours: a.hours_allocated, departmentHours: a.department_hours } : null
+      }).filter(Boolean) as (Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null })[]
 
-      return { month, label, totalCapacity, totalAllocated, utilization, deptCapacity, deptAllocated, projectCards }
+      return { month, label, longLabel, totalCapacity, totalAllocated, utilization, deptCapacity, deptAllocated, projectCards }
     })
   }, [departments, deptMembers, monthAllocations, projects, year])
 
@@ -112,61 +132,104 @@ function CapacityContent() {
   const scheduledProjectIds = new Set(monthAllocations.map(a => a.project_id))
   const unscheduled = projects.filter(p => !scheduledProjectIds.has(p.id))
 
-  // Drag and drop
-  const [dragProjectId, setDragProjectId] = useState<string | null>(null)
-  const [dragOverMonth, setDragOverMonth] = useState<string | null>(null)
-
-  async function handleDrop(month: string) {
+  // Drop handler — works for both unscheduled and month-to-month moves
+  async function handleDrop(targetMonth: string) {
     if (!dragProjectId || !org?.id) return
     setDragOverMonth(null)
 
-    // Get total hours for this project from subproject allocations or labor_hours
-    const projSubs = subprojects.filter(s => s.project_id === dragProjectId)
-    const totalHours = projSubs.reduce((sum, s) => sum + (s.labor_hours || 0), 0)
-
-    // Build department hours from allocations
-    const deptHours: Record<string, number> = {}
-    for (const sub of projSubs) {
-      const allocs = deptAllocations.filter(a => a.subproject_id === sub.id)
-      for (const alloc of allocs) {
-        deptHours[alloc.department_id] = (deptHours[alloc.department_id] || 0) + alloc.estimated_hours
+    if (dragSourceAllocationId) {
+      // Moving from one month to another — delete old, create new
+      const oldAlloc = monthAllocations.find(a => a.id === dragSourceAllocationId)
+      if (!oldAlloc) return
+      // Don't do anything if dropped on the same month
+      if (oldAlloc.month_date.startsWith(targetMonth)) {
+        setDragProjectId(null)
+        setDragSourceAllocationId(null)
+        return
       }
+      await supabase.from('project_month_allocations').delete().eq('id', dragSourceAllocationId)
+      await supabase.from('project_month_allocations').insert({
+        org_id: org.id,
+        project_id: dragProjectId,
+        month_date: `${targetMonth}-01`,
+        hours_allocated: oldAlloc.hours_allocated,
+        department_hours: oldAlloc.department_hours,
+      })
+    } else {
+      // New allocation from unscheduled
+      const projSubs = subprojects.filter(s => s.project_id === dragProjectId)
+      const totalHours = projSubs.reduce((sum, s) => sum + (s.labor_hours || 0), 0)
+      const deptHours = buildDeptHours(dragProjectId)
+
+      await supabase.from('project_month_allocations').insert({
+        org_id: org.id,
+        project_id: dragProjectId,
+        month_date: `${targetMonth}-01`,
+        hours_allocated: totalHours,
+        department_hours: Object.keys(deptHours).length > 0 ? deptHours : null,
+      })
     }
 
-    await supabase.from('project_month_allocations').insert({
-      org_id: org.id,
-      project_id: dragProjectId,
-      month_date: `${month}-01`,
-      hours_allocated: totalHours,
-      department_hours: Object.keys(deptHours).length > 0 ? deptHours : null,
-    })
-
     setDragProjectId(null)
+    setDragSourceAllocationId(null)
     loadData()
   }
 
-  async function removeFromMonth(allocationId: string) {
+  async function removeFromMonth(e: React.MouseEvent, allocationId: string) {
+    e.stopPropagation()
     await supabase.from('project_month_allocations').delete().eq('id', allocationId)
     loadData()
+  }
+
+  // Grid config per zoom level
+  const gridConfig = {
+    quarter: { cols: 'grid-cols-3', monthCount: 3 },
+    half: { cols: 'grid-cols-6', monthCount: 6 },
+    year: { cols: 'grid-cols-12', monthCount: 12 },
   }
 
   if (loading) {
     return <div className="max-w-6xl mx-auto px-6 py-16 text-center text-[#9CA3AF] text-sm">Loading...</div>
   }
 
+  const zoomButtons: { key: ZoomLevel; label: string }[] = [
+    { key: 'quarter', label: 'Quarter' },
+    { key: 'half', label: 'Half' },
+    { key: 'year', label: 'Year' },
+  ]
+
   return (
     <div className="max-w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Capacity</h1>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setYear(y => y - 1)} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]">
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="text-sm font-medium text-[#111] min-w-[48px] text-center">{year}</span>
-          <button onClick={() => setYear(y => y + 1)} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]">
-            <ChevronRight className="w-4 h-4" />
-          </button>
+        <div className="flex items-center gap-4">
+          {/* Zoom buttons */}
+          <div className="flex items-center bg-[#F3F4F6] rounded-lg p-0.5">
+            {zoomButtons.map(z => (
+              <button
+                key={z.key}
+                onClick={() => setZoom(z.key)}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  zoom === z.key
+                    ? 'bg-white text-[#111] shadow-sm'
+                    : 'text-[#6B7280] hover:text-[#111]'
+                }`}
+              >
+                {z.label}
+              </button>
+            ))}
+          </div>
+          {/* Year nav */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => setYear(y => y - 1)} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-sm font-medium text-[#111] min-w-[48px] text-center">{year}</span>
+            <button onClick={() => setYear(y => y + 1)} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -180,72 +243,98 @@ function CapacityContent() {
       ) : (
         <>
           {/* Month columns */}
-          <div className="grid grid-cols-12 gap-2 mb-6 overflow-x-auto">
-            {months.map(m => {
-              const isOver = dragOverMonth === m.month
-              const isCurrentMonth = m.month === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
-              return (
-                <div
-                  key={m.month}
-                  onDragOver={e => { e.preventDefault(); setDragOverMonth(m.month) }}
-                  onDragLeave={() => setDragOverMonth(null)}
-                  onDrop={e => { e.preventDefault(); handleDrop(m.month) }}
-                  className={`min-h-[300px] rounded-xl border-2 transition-colors ${
-                    isOver ? 'border-[#2563EB] bg-[#EFF6FF]' :
-                    isCurrentMonth ? 'border-[#D4956A]/30 bg-[#FFF7ED]/30' :
-                    'border-transparent bg-[#F9FAFB]'
-                  }`}
-                >
-                  {/* Month header */}
-                  <div className="px-2 py-2 text-center">
-                    <div className="text-xs font-semibold text-[#111]">{m.label}</div>
-                    <div className="text-[9px] text-[#9CA3AF] font-mono">{Math.round(m.totalAllocated)}/{Math.round(m.totalCapacity)}h</div>
-                    {/* Utilization bar */}
-                    <div className="h-1 bg-[#E5E7EB] rounded-full mt-1 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${m.utilization > 100 ? 'bg-[#DC2626]' : m.utilization > 80 ? 'bg-[#F59E0B]' : 'bg-[#2563EB]'}`}
-                        style={{ width: `${Math.min(m.utilization, 100)}%` }}
-                      />
-                    </div>
-                    <div className={`text-[9px] font-mono font-medium mt-0.5 ${
-                      m.utilization > 100 ? 'text-[#DC2626]' : m.utilization > 80 ? 'text-[#F59E0B]' : 'text-[#6B7280]'
-                    }`}>{Math.round(m.utilization)}%</div>
-                  </div>
-
-                  {/* Department breakdown */}
-                  <div className="px-1.5 space-y-0.5 mb-2">
-                    {departments.map(dept => {
-                      const cap = m.deptCapacity[dept.id] || 0
-                      const alloc = m.deptAllocated[dept.id] || 0
-                      const pct = cap > 0 ? (alloc / cap) * 100 : 0
-                      return (
-                        <div key={dept.id} className="flex items-center gap-1">
-                          <div className="w-1 h-1 rounded-sm flex-shrink-0" style={{ background: dept.color }} />
-                          <div className="flex-1 h-1 bg-[#E5E7EB] rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: dept.color }} />
-                          </div>
-                          <span className="text-[7px] font-mono text-[#9CA3AF] w-8 text-right">{Math.round(alloc)}/{Math.round(cap)}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {/* Project cards in this month */}
-                  <div className="px-1.5 space-y-1">
-                    {(m.projectCards as any[]).map((card: any) => (
-                      <div key={card.allocationId}
-                        className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-pointer hover:border-[#D1D5DB] transition-colors group"
-                        onClick={() => router.push(`/projects/${card.id}`)}
-                      >
-                        <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
-                        {card.client_name && <div className="text-[8px] text-[#9CA3AF] truncate">{card.client_name}</div>}
-                        <div className="text-[8px] font-mono text-[#6B7280]">{card.hours}h</div>
+          <div className={`overflow-x-auto pb-2`}>
+            <div className={`grid ${gridConfig[zoom].cols} gap-2 mb-6`} style={{ minWidth: zoom === 'year' ? '1200px' : zoom === 'half' ? '900px' : undefined }}>
+              {months.map(m => {
+                const isOver = dragOverMonth === m.month
+                const isCurrentMonth = m.month === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+                return (
+                  <div
+                    key={m.month}
+                    onDragOver={e => { e.preventDefault(); setDragOverMonth(m.month) }}
+                    onDragLeave={() => setDragOverMonth(null)}
+                    onDrop={e => { e.preventDefault(); handleDrop(m.month) }}
+                    className={`rounded-xl border-2 transition-colors ${
+                      zoom === 'year' ? 'min-h-[300px]' : zoom === 'half' ? 'min-h-[360px]' : 'min-h-[420px]'
+                    } ${
+                      isOver ? 'border-[#2563EB] bg-[#EFF6FF]' :
+                      isCurrentMonth ? 'border-[#D4956A]/30 bg-[#FFF7ED]/30' :
+                      'border-transparent bg-[#F9FAFB]'
+                    }`}
+                  >
+                    {/* Month header */}
+                    <div className={`text-center ${zoom === 'quarter' ? 'px-4 py-3' : 'px-2 py-2'}`}>
+                      <div className={`font-semibold text-[#111] ${zoom === 'quarter' ? 'text-sm' : 'text-xs'}`}>
+                        {zoom === 'quarter' ? m.longLabel : m.label}
                       </div>
-                    ))}
+                      <div className={`text-[#9CA3AF] font-mono tabular-nums ${zoom === 'quarter' ? 'text-xs mt-0.5' : 'text-[9px]'}`}>
+                        {Math.round(m.totalAllocated)}/{Math.round(m.totalCapacity)}h
+                      </div>
+                      {/* Utilization bar */}
+                      <div className={`bg-[#E5E7EB] rounded-full overflow-hidden ${zoom === 'quarter' ? 'h-2 mt-2' : 'h-1 mt-1'}`}>
+                        <div
+                          className={`h-full rounded-full ${m.utilization > 100 ? 'bg-[#DC2626]' : m.utilization > 80 ? 'bg-[#F59E0B]' : 'bg-[#2563EB]'}`}
+                          style={{ width: `${Math.min(m.utilization, 100)}%` }}
+                        />
+                      </div>
+                      <div className={`font-mono tabular-nums font-medium mt-0.5 ${
+                        zoom === 'quarter' ? 'text-xs' : 'text-[9px]'
+                      } ${
+                        m.utilization > 100 ? 'text-[#DC2626]' : m.utilization > 80 ? 'text-[#F59E0B]' : 'text-[#6B7280]'
+                      }`}>{Math.round(m.utilization)}%</div>
+                    </div>
+
+                    {/* Department breakdown */}
+                    <div className={`space-y-0.5 mb-2 ${zoom === 'quarter' ? 'px-3' : 'px-1.5'}`}>
+                      {departments.map(dept => {
+                        const cap = m.deptCapacity[dept.id] || 0
+                        const alloc = m.deptAllocated[dept.id] || 0
+                        const pct = cap > 0 ? (alloc / cap) * 100 : 0
+                        return (
+                          <div key={dept.id} className="flex items-center gap-1">
+                            <div className={`rounded-sm flex-shrink-0 ${zoom === 'quarter' ? 'w-2 h-2' : 'w-1 h-1'}`} style={{ background: dept.color }} />
+                            {zoom === 'quarter' && (
+                              <span className="text-[10px] text-[#6B7280] w-16 truncate">{dept.name}</span>
+                            )}
+                            <div className={`flex-1 bg-[#E5E7EB] rounded-full overflow-hidden ${zoom === 'quarter' ? 'h-1.5' : 'h-1'}`}>
+                              <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: dept.color }} />
+                            </div>
+                            <span className={`font-mono tabular-nums text-[#9CA3AF] text-right ${
+                              zoom === 'quarter' ? 'text-[10px] w-16' : zoom === 'half' ? 'text-[8px] w-10' : 'text-[7px] w-8'
+                            }`}>
+                              {Math.round(alloc)}/{Math.round(cap)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Project cards in this month */}
+                    <div className={`space-y-1 ${zoom === 'quarter' ? 'px-3' : 'px-1.5'}`}>
+                      {m.projectCards.map(card => (
+                        <ProjectCard
+                          key={card.allocationId}
+                          card={card}
+                          zoom={zoom}
+                          departments={departments}
+                          onNavigate={() => router.push(`/projects/${card.id}`)}
+                          onRemove={(e) => removeFromMonth(e, card.allocationId)}
+                          onDragStart={() => {
+                            setDragProjectId(card.id)
+                            setDragSourceAllocationId(card.allocationId)
+                          }}
+                          onDragEnd={() => {
+                            setDragProjectId(null)
+                            setDragSourceAllocationId(null)
+                            setDragOverMonth(null)
+                          }}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
 
           {/* Unscheduled projects */}
@@ -257,19 +346,122 @@ function CapacityContent() {
                   <div
                     key={proj.id}
                     draggable
-                    onDragStart={() => setDragProjectId(proj.id)}
-                    onDragEnd={() => { setDragProjectId(null); setDragOverMonth(null) }}
+                    onDragStart={() => { setDragProjectId(proj.id); setDragSourceAllocationId(null) }}
+                    onDragEnd={() => { setDragProjectId(null); setDragSourceAllocationId(null); setDragOverMonth(null) }}
                     className="bg-white border border-[#E5E7EB] rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing hover:border-[#2563EB] transition-colors"
                   >
                     <div className="text-xs font-medium text-[#111]">{proj.name}</div>
                     {proj.client_name && <div className="text-[10px] text-[#9CA3AF]">{proj.client_name}</div>}
-                    <div className="text-[10px] font-mono text-[#6B7280]">{fmtMoney(proj.bid_total)}</div>
+                    <div className="text-[10px] font-mono tabular-nums text-[#6B7280]">{fmtMoney(proj.bid_total)}</div>
                   </div>
                 ))}
               </div>
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// --------------------------------------------------
+// Project card component — adapts display to zoom level
+// --------------------------------------------------
+function ProjectCard({
+  card,
+  zoom,
+  departments,
+  onNavigate,
+  onRemove,
+  onDragStart,
+  onDragEnd,
+}: {
+  card: Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null }
+  zoom: ZoomLevel
+  departments: Department[]
+  onNavigate: () => void
+  onRemove: (e: React.MouseEvent) => void
+  onDragStart: () => void
+  onDragEnd: () => void
+}) {
+  if (zoom === 'year') {
+    // Compact: just name, truncated
+    return (
+      <div
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
+        onClick={onNavigate}
+      >
+        <button
+          onClick={onRemove}
+          className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
+        >
+          <X className="w-2 h-2 text-[#6B7280] hover:text-[#DC2626]" />
+        </button>
+        <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
+      </div>
+    )
+  }
+
+  if (zoom === 'half') {
+    // Medium: name + hours
+    return (
+      <div
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
+        onClick={onNavigate}
+      >
+        <button
+          onClick={onRemove}
+          className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
+        >
+          <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
+        </button>
+        <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
+        <div className="text-[9px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</div>
+      </div>
+    )
+  }
+
+  // Quarter: full detail — name, client, hours, bid total, dept breakdown
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className="bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
+      onClick={onNavigate}
+    >
+      <button
+        onClick={onRemove}
+        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
+      >
+        <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
+      </button>
+      <div className="text-xs font-medium text-[#111] truncate">{card.name}</div>
+      {card.client_name && <div className="text-[10px] text-[#9CA3AF] truncate">{card.client_name}</div>}
+      <div className="flex items-center gap-2 mt-1">
+        <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
+        <span className="text-[10px] font-mono tabular-nums text-[#9CA3AF]">{fmtMoney(card.bid_total)}</span>
+      </div>
+      {/* Department hour breakdown */}
+      {card.departmentHours && Object.keys(card.departmentHours).length > 0 && (
+        <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5">
+          {departments.map(dept => {
+            const hrs = card.departmentHours?.[dept.id]
+            if (!hrs) return null
+            return (
+              <div key={dept.id} className="flex items-center gap-1">
+                <div className="w-1.5 h-1.5 rounded-sm" style={{ background: dept.color }} />
+                <span className="text-[9px] font-mono tabular-nums text-[#9CA3AF]">{Math.round(hrs)}h</span>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )

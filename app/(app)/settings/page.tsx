@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Nav from '@/components/nav'
 import { computeShopRate } from '@/lib/pricing'
-import { Plus, Trash2, Copy, Check } from 'lucide-react'
+import { Plus, Trash2, Copy, Check, ArrowRight } from 'lucide-react'
+import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 
@@ -19,16 +20,14 @@ const OVERHEAD_FIELDS: { key: string; label: string }[] = [
 
 const inputClass = "w-32 text-right px-3 py-2 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
 
-// ── Employee type ──
+// ── Team member type (from users table) ──
 
-interface Employee {
+interface TeamMember {
   id: string
   name: string
-  annualCost: string // raw string for typing
-  billable: boolean
+  hourly_cost: number | null
+  is_billable: boolean
 }
-
-function generateId() { return Math.random().toString(36).slice(2, 9) }
 
 // ── Page ──
 
@@ -48,7 +47,7 @@ export default function SettingsPage() {
   })
 
   const [ownerBillable, setOwnerBillable] = useState(true)
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [consumableMarkup, setConsumableMarkup] = useState('15')
   const [profitMargin, setProfitMargin] = useState('35')
 

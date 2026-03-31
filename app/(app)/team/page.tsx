@@ -5,7 +5,8 @@ import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { Plus, Trash2, Users } from 'lucide-react'
+import { Plus, Trash2, Users, ArrowRight } from 'lucide-react'
+import Link from 'next/link'
 
 interface Department {
   id: string
@@ -22,6 +23,7 @@ interface TeamMember {
   role: string
   employee_type: string | null
   hourly_cost: number | null
+  is_billable: boolean
 }
 
 interface DeptMember {
@@ -127,6 +129,11 @@ function TeamContent() {
     loadData()
   }
 
+  async function updateMemberField(userId: string, field: string, value: any) {
+    await supabase.from('users').update({ [field]: value }).eq('id', userId)
+    setMembers(prev => prev.map(m => m.id === userId ? { ...m, [field]: value } : m))
+  }
+
   function getMembersForDept(deptId: string) {
     const memberIds = deptMembers.filter(dm => dm.department_id === deptId).map(dm => dm.user_id)
     return members.filter(m => memberIds.includes(m.id))
@@ -229,6 +236,37 @@ function TeamContent() {
                     <span className="text-xs text-[#9CA3AF] ml-2">{member.role}</span>
                   </div>
                 </div>
+                {/* Annual cost + Billable */}
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs text-[#9CA3AF]">Annual Cost</label>
+                    <span className="text-xs text-[#9CA3AF]">$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      defaultValue={member.hourly_cost?.toString() || ''}
+                      onBlur={e => {
+                        const val = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0
+                        updateMemberField(member.id, 'hourly_cost', val)
+                      }}
+                      className="w-24 text-right text-sm font-mono tabular-nums px-2 py-1 bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] transition-colors"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => updateMemberField(member.id, 'is_billable', !member.is_billable)}
+                      className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
+                        member.is_billable !== false ? 'bg-[#2563EB] border-[#2563EB]' : 'border-[#D1D5DB] hover:border-[#9CA3AF]'
+                      }`}
+                    >
+                      {member.is_billable !== false && (
+                        <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                      )}
+                    </button>
+                    <span className="text-xs text-[#9CA3AF]">Billable</span>
+                  </div>
+                </div>
                 {/* Department toggles */}
                 {departments.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
@@ -257,6 +295,15 @@ function TeamContent() {
               </div>
             )}
           </div>
+
+          {/* Link to shop rate calculator */}
+          {members.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-[#F3F4F6]">
+              <Link href="/settings" className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium">
+                View in Shop Rate Calculator <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </div>
