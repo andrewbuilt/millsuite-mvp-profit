@@ -74,6 +74,8 @@ export default function ProjectDetailPage() {
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [departments, setDepartments] = useState<{ id: string; name: string; color: string }[]>([])
+  const [deptAllocations, setDeptAllocations] = useState<{ id: string; subproject_id: string; department_id: string; estimated_hours: number }[]>([])
   const shopRate = org?.shop_rate || 75
   const orgDefaults = {
     consumable_markup_pct: org?.consumable_markup_pct ?? 15,
@@ -107,6 +109,21 @@ export default function ProjectDetailPage() {
     setSubprojects(subs || [])
     setTimeEntries(entries || [])
     setInvoices(invs || [])
+
+    // Load departments and allocations for scheduling
+    if (org?.id) {
+      const { data: depts } = await supabase.from('departments').select('id, name, color').eq('org_id', org.id).eq('active', true).order('display_order')
+      setDepartments(depts || [])
+
+      if (subs && subs.length > 0) {
+        const subIds = subs.map((s: any) => s.id)
+        const { data: allocs } = await supabase.from('department_allocations')
+          .select('id, subproject_id, department_id, estimated_hours')
+          .in('subproject_id', subIds)
+        setDeptAllocations(allocs || [])
+      }
+    }
+
     setLoading(false)
   }
 
@@ -429,6 +446,67 @@ export default function ProjectDetailPage() {
                           </div>
                         </div>
                       </div>
+
+                      {/* Department Hours — for scheduling */}
+                      {departments.length > 0 && (
+                        <div className="bg-[#F9FAFB] rounded-xl p-4 mb-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Department Hours</span>
+                            <span className="text-[9px] text-[#D1D5DB]">for production scheduling</span>
+                          </div>
+                          <div className="grid grid-cols-5 gap-2">
+                            {departments.map(dept => {
+                              const alloc = deptAllocations.find(a => a.subproject_id === sub.id && a.department_id === dept.id)
+                              return (
+                                <div key={dept.id}>
+                                  <label className="flex items-center gap-1 mb-1">
+                                    <div className="w-2 h-2 rounded-sm" style={{ background: dept.color }} />
+                                    <span className="text-[9px] text-[#6B7280] font-medium">{dept.name}</span>
+                                  </label>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    defaultValue={alloc?.estimated_hours || ''}
+                                    placeholder="0"
+                                    onBlur={async (e) => {
+                                      const hrs = parseFloat(e.target.value) || 0
+                                      if (alloc) {
+                                        if (hrs > 0) {
+                                          await supabase.from('department_allocations').update({ estimated_hours: hrs }).eq('id', alloc.id)
+                                        } else {
+                                          await supabase.from('department_allocations').delete().eq('id', alloc.id)
+                                        }
+                                      } else if (hrs > 0 && org?.id) {
+                                        await supabase.from('department_allocations').insert({
+                                          org_id: org.id,
+                                          subproject_id: sub.id,
+                                          department_id: dept.id,
+                                          estimated_hours: hrs,
+                                        })
+                                      }
+                                      // Reload allocations
+                                      const subIds = subprojects.map(s => s.id)
+                                      const { data: allocs } = await supabase.from('department_allocations')
+                                        .select('id, subproject_id, department_id, estimated_hours')
+                                        .in('subproject_id', subIds)
+                                      setDeptAllocations(allocs || [])
+                                    }}
+                                    className="w-full text-center text-xs font-mono bg-white border border-[#E5E7EB] rounded-lg py-1.5 focus:outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
+                                  />
+                                </div>
+                              )
+                            })}
+                          </div>
+                          {deptAllocations.filter(a => a.subproject_id === sub.id).length > 0 && (
+                            <div className="flex justify-between mt-2 pt-2 border-t border-[#E5E7EB]">
+                              <span className="text-[9px] text-[#9CA3AF]">Total dept hours</span>
+                              <span className="text-[9px] font-mono text-[#6B7280]">
+                                {deptAllocations.filter(a => a.subproject_id === sub.id).reduce((s, a) => s + a.estimated_hours, 0)}h
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Price Summary */}
                       <div className="bg-[#F9FAFB] rounded-xl p-4">
