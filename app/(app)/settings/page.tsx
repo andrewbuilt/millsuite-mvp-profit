@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Nav from '@/components/nav'
 import { computeShopRate } from '@/lib/pricing'
-import { Plus, Trash2, Copy, Check, ArrowRight } from 'lucide-react'
+import { Copy, Check, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
@@ -70,11 +70,18 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!org?.id) return
     async function load() {
-      const { data } = await supabase
-        .from('shop_rate_settings')
-        .select('*')
-        .eq('org_id', org!.id)
-        .single()
+      const [{ data }, { data: users }] = await Promise.all([
+        supabase
+          .from('shop_rate_settings')
+          .select('*')
+          .eq('org_id', org!.id)
+          .single(),
+        supabase
+          .from('users')
+          .select('id, name, hourly_cost, is_billable')
+          .eq('org_id', org!.id)
+          .order('name'),
+      ])
 
       if (data) {
         setRawValues({
@@ -89,12 +96,9 @@ export default function SettingsPage() {
           hours_per_day: data.hours_per_day?.toString() || '8',
         })
         if (data.owner_billable !== undefined) setOwnerBillable(data.owner_billable)
-        if (data.employees_json) {
-          try {
-            setEmployees(JSON.parse(data.employees_json))
-          } catch {}
-        }
       }
+
+      setTeamMembers(users || [])
 
       // Load org defaults for consumable markup & profit margin
       setConsumableMarkup(org!.consumable_markup_pct?.toString() || '15')
@@ -122,27 +126,13 @@ export default function SettingsPage() {
     setRawValues(prev => ({ ...prev, [key]: value.replace(/[^0-9.]/g, '') }))
   }
 
-  // ── Employee helpers ──
+  // ── Computed from team members (users table) ──
 
-  function addEmployee() {
-    setEmployees(prev => [...prev, { id: generateId(), name: '', annualCost: '', billable: true }])
-  }
-
-  function updateEmployee(id: string, changes: Partial<Employee>) {
-    setEmployees(prev => prev.map(e => e.id === id ? { ...e, ...changes } : e))
-  }
-
-  function removeEmployee(id: string) {
-    setEmployees(prev => prev.filter(e => e.id !== id))
-  }
-
-  // ── Computed from employees ──
-
-  const totalAnnualPayroll = employees.reduce((sum, e) => sum + (parseFloat(e.annualCost) || 0), 0)
+  const totalAnnualPayroll = teamMembers.reduce((sum, m) => sum + (m.hourly_cost || 0), 0)
   const totalMonthlyPayroll = totalAnnualPayroll / 12
-  const billableEmployees = employees.filter(e => e.billable)
-  const nonBillableEmployees = employees.filter(e => !e.billable)
-  const billableCount = billableEmployees.length + (ownerBillable ? 1 : 0)
+  const billableMembers = teamMembers.filter(m => m.is_billable !== false)
+  const nonBillableMembers = teamMembers.filter(m => m.is_billable === false)
+  const billableCount = billableMembers.length + (ownerBillable ? 1 : 0)
 
   const result = computeShopRate({
     monthlyRent: getNum('monthly_rent'),
@@ -184,7 +174,7 @@ export default function SettingsPage() {
       hours_per_day: parseFloat(rawValues.hours_per_day) || 8,
       computed_shop_rate: shopRate,
       owner_billable: ownerBillable,
-      employees_json: JSON.stringify(employees),
+      employees_json: JSON.stringify([]), // deprecated: team managed via users table
     }
 
     const { error: settingsError } = await supabase
@@ -220,7 +210,7 @@ export default function SettingsPage() {
     await refreshOrg()
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-  }, [org?.id, loaded, rawValues, shopRate, ownerBillable, employees, consumableMarkup, profitMargin, businessName, businessAddress, businessCity, businessState, businessZip, businessPhone, businessEmail])
+  }, [org?.id, loaded, rawValues, shopRate, ownerBillable, teamMembers, consumableMarkup, profitMargin, businessName, businessAddress, businessCity, businessState, businessZip, businessPhone, businessEmail])
 
   useEffect(() => {
     if (!loaded) return
@@ -307,79 +297,54 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Team */}
+            {/* Team (read-only, managed on Team page) */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">Team</h3>
-                <button onClick={addEmployee} className="flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors">
-                  <Plus className="w-3.5 h-3.5" /> Add Employee
-                </button>
+                <Link href="/team" className="flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors">
+                  Manage in Team <ArrowRight className="w-3 h-3" />
+                </Link>
               </div>
 
-              {employees.length === 0 ? (
+              {teamMembers.length === 0 ? (
                 <div className="text-xs text-[#9CA3AF] italic py-4 text-center border border-dashed border-[#E5E7EB] rounded-xl">
-                  No employees added — add your team to calculate accurate production hours
+                  No team members yet — <Link href="/team" className="text-[#2563EB] hover:underline">add them on the Team page</Link>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {/* Header */}
-                  <div className="grid grid-cols-[1fr_120px_80px_32px] gap-3 px-3 py-1">
+                  <div className="grid grid-cols-[1fr_120px_80px] gap-3 px-3 py-1">
                     <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Name</span>
                     <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider text-right">Annual Cost</span>
                     <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider text-center">Billable</span>
-                    <span />
                   </div>
 
-                  {employees.map(emp => (
-                    <div key={emp.id} className="grid grid-cols-[1fr_120px_80px_32px] gap-3 items-center bg-[#F9FAFB] rounded-xl px-3 py-2">
-                      <input
-                        type="text"
-                        value={emp.name}
-                        onChange={e => updateEmployee(emp.id, { name: e.target.value })}
-                        className="text-sm bg-transparent border-b border-transparent hover:border-[#E5E7EB] focus:border-[#2563EB] outline-none py-1 transition-colors"
-                        placeholder="Employee name..."
-                      />
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-[#9CA3AF]">$</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={emp.annualCost}
-                          onChange={e => updateEmployee(emp.id, { annualCost: e.target.value.replace(/[^0-9.]/g, '') })}
-                          className="w-full text-right text-sm font-mono tabular-nums bg-transparent border-b border-transparent hover:border-[#E5E7EB] focus:border-[#2563EB] outline-none py-1 transition-colors"
-                          placeholder="0"
-                        />
-                      </div>
+                  {teamMembers.map(member => (
+                    <div key={member.id} className="grid grid-cols-[1fr_120px_80px] gap-3 items-center bg-[#F9FAFB] rounded-xl px-3 py-2">
+                      <span className="text-sm text-[#111]">{member.name}</span>
+                      <span className="text-sm font-mono tabular-nums text-right text-[#6B7280]">
+                        ${(member.hourly_cost || 0).toLocaleString()}
+                      </span>
                       <div className="flex justify-center">
-                        <button
-                          onClick={() => updateEmployee(emp.id, { billable: !emp.billable })}
-                          className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                            emp.billable ? 'bg-[#2563EB] border-[#2563EB]' : 'border-[#D1D5DB] hover:border-[#9CA3AF]'
-                          }`}
-                        >
-                          {emp.billable && (
-                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                          )}
-                        </button>
+                        <span className={`text-xs font-medium ${member.is_billable !== false ? 'text-[#059669]' : 'text-[#9CA3AF]'}`}>
+                          {member.is_billable !== false ? 'Yes' : 'No'}
+                        </span>
                       </div>
-                      <button onClick={() => removeEmployee(emp.id)} className="p-1 text-[#D1D5DB] hover:text-[#DC2626] transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   ))}
                 </div>
               )}
 
               {/* Team summary */}
-              {employees.length > 0 && (
+              {teamMembers.length > 0 && (
                 <div className="mt-3 space-y-1">
                   <div className="flex items-center justify-between py-2 border-t border-[#E5E7EB]">
-                    <span className="text-sm text-[#6B7280]">Total payroll ({employees.length} employees)</span>
+                    <span className="text-sm text-[#6B7280]">Total payroll ({teamMembers.length} members)</span>
                     <span className="text-sm font-mono tabular-nums">${Math.round(totalMonthlyPayroll).toLocaleString()}/mo</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-xs text-[#9CA3AF]">Billable: {billableEmployees.length} employees{ownerBillable ? ' + owner' : ''}</span>
-                    <span className="text-xs text-[#9CA3AF]">Non-billable: {nonBillableEmployees.length}</span>
+                    <span className="text-xs text-[#9CA3AF]">Billable: {billableMembers.length} members{ownerBillable ? ' + owner' : ''}</span>
+                    <span className="text-xs text-[#9CA3AF]">Non-billable: {nonBillableMembers.length}</span>
                   </div>
                 </div>
               )}
