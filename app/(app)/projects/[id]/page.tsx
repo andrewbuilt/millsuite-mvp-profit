@@ -448,14 +448,20 @@ export default function ProjectDetailPage() {
                       </div>
 
                       {/* Department Hours — for scheduling */}
-                      {departments.length > 0 && (
+                      {departments.length > 0 && (() => {
+                        const DEPT_SORT = ['engineering', 'cnc', 'assembly', 'finish', 'install']
+                        const prodDepts = departments
+                          .filter(d => DEPT_SORT.includes(d.name.toLowerCase()))
+                          .sort((a, b) => DEPT_SORT.indexOf(a.name.toLowerCase()) - DEPT_SORT.indexOf(b.name.toLowerCase()))
+                        if (prodDepts.length === 0) return null
+                        return (
                         <div className="bg-[#F9FAFB] rounded-xl p-4 mb-4">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Department Hours</span>
-                            <span className="text-[9px] text-[#D1D5DB]">for production scheduling</span>
+                            <span className="text-[9px] text-[#D1D5DB]">rolls up to labor hours</span>
                           </div>
                           <div className="grid grid-cols-5 gap-2">
-                            {departments.map(dept => {
+                            {prodDepts.map(dept => {
                               const alloc = deptAllocations.find(a => a.subproject_id === sub.id && a.department_id === dept.id)
                               return (
                                 <div key={dept.id}>
@@ -490,6 +496,13 @@ export default function ProjectDetailPage() {
                                         .select('id, subproject_id, department_id, estimated_hours')
                                         .in('subproject_id', subIds)
                                       setDeptAllocations(allocs || [])
+
+                                      // Roll up total dept hours to labor_hours
+                                      const totalDeptHours = (allocs || [])
+                                        .filter(a => a.subproject_id === sub.id)
+                                        .reduce((s, a) => s + a.estimated_hours, 0)
+                                      await supabase.from('subprojects').update({ labor_hours: totalDeptHours }).eq('id', sub.id)
+                                      setSubprojects(prev => prev.map(s => s.id === sub.id ? { ...s, labor_hours: totalDeptHours } : s))
                                     }}
                                     className="w-full text-center text-xs font-mono bg-white border border-[#E5E7EB] rounded-lg py-1.5 focus:outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
                                   />
@@ -499,14 +512,15 @@ export default function ProjectDetailPage() {
                           </div>
                           {deptAllocations.filter(a => a.subproject_id === sub.id).length > 0 && (
                             <div className="flex justify-between mt-2 pt-2 border-t border-[#E5E7EB]">
-                              <span className="text-[9px] text-[#9CA3AF]">Total dept hours</span>
+                              <span className="text-[9px] text-[#9CA3AF]">Total dept hours → labor hours</span>
                               <span className="text-[9px] font-mono text-[#6B7280]">
                                 {deptAllocations.filter(a => a.subproject_id === sub.id).reduce((s, a) => s + a.estimated_hours, 0)}h
                               </span>
                             </div>
                           )}
                         </div>
-                      )}
+                        )
+                      })()}
 
                       {/* Price Summary */}
                       <div className="bg-[#F9FAFB] rounded-xl p-4">
