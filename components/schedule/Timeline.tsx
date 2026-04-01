@@ -50,8 +50,8 @@ const ZOOM_CW: Record<ZoomLevel, number> = {
   long: 20,
 }
 
-const LEAD_WEEKS = 1
-const TRAIL_WEEKS = 4
+const LEAD_WEEKS = 2
+const TRAIL_WEEKS = 26
 
 const LABEL_W = 140
 const ROW_H = 28

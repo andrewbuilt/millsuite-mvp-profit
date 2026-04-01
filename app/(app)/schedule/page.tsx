@@ -10,7 +10,7 @@ import {
   DEPT_ORDER, DEPT_SHORT, PROJECT_COLORS,
   autoPlace, buildBlocks, computeAlerts, sortProjects, cascadeMove,
   buildDeptConfig, deptConfigToCapacity, blockDays,
-  toDateKey, parseDate,
+  toDateKey, parseDate, addWorkDays, genWorkDays, getMonday,
   type ScheduleProject, type ScheduleSub, type Allocation,
   type PlacedBlock, type DeptCapacity, type DeptKey, type ScheduleAlert, type DeptConfig,
 } from '@/lib/schedule-engine'
