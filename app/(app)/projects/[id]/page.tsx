@@ -250,6 +250,23 @@ export default function ProjectDetailPage() {
               </span>
             </div>
           </div>
+          <button
+            onClick={async () => {
+              if (!confirm(`Delete "${project.name}"? This will delete all subprojects, time entries, and invoices for this project.`)) return
+              await supabase.from('time_entries').delete().eq('project_id', projectId)
+              await supabase.from('invoices').delete().eq('project_id', projectId)
+              await supabase.from('department_allocations').delete().in('subproject_id', subprojects.map(s => s.id))
+              await supabase.from('subprojects').delete().eq('project_id', projectId)
+              await supabase.from('project_month_allocations').delete().eq('project_id', projectId)
+              await supabase.from('cash_flow').delete().eq('project_id', projectId)
+              await supabase.from('projects').delete().eq('id', projectId)
+              router.push('/projects')
+            }}
+            className="p-2 rounded-lg text-[#D1D5DB] hover:text-[#DC2626] hover:bg-[#FEF2F2] transition-colors flex-shrink-0"
+            title="Delete project"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
 
         {/* P&L Hero Card */}
