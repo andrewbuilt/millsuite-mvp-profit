@@ -31,14 +31,18 @@ interface DeptInfo {
 // BLOCK EDIT POPOVER
 // ═══════════════════════════════════════════════════════════════════
 
-function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, onUpdate, onClose }: {
+function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, memberCountByDept, onUpdate, onClose }: {
   block: PlacedBlock; rect: DOMRect; deptInfos: DeptInfo[]; capacity: DeptCapacity; deptConfig: DeptConfig
-  onUpdate: (allocationId: string, field: 'hours' | 'addDays' | 'crew', value: number) => void; onClose: () => void
+  memberCountByDept: Record<string, number>
+  onUpdate: (allocationId: string, updates: { estimated_hours?: number; crew_size?: number; scheduled_days?: number }) => void
+  onClose: () => void
 }) {
-  const [mode, setMode] = useState<'hours' | 'days' | 'crew'>('hours')
-  const [val, setVal] = useState(String(block.hours))
+  const [hours, setHours] = useState(String(block.hours))
+  const [crew, setCrew] = useState(block.crewSize)
+  const [days, setDays] = useState(String(block.days))
   const popRef = useRef<HTMLDivElement>(null)
   const dept = deptInfos.find(d => d.key === block.dept)
+  const maxCrew = memberCountByDept[dept?.id || ''] || 5
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (popRef.current && !popRef.current.contains(e.target as Node)) onClose() }
@@ -46,12 +50,24 @@ function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, onUpda
     return () => document.removeEventListener('mousedown', handler)
   }, [onClose])
 
-  const handleApply = () => { const num = parseInt(val) || 0; if (num > 0) onUpdate(block.allocationId, mode === 'hours' ? 'hours' : mode === 'crew' ? 'crew' : 'addDays', num) }
+  // Recalculate days when hours or crew change
+  const computedDays = Math.ceil((parseFloat(hours) || block.hours) / (crew * 8))
+
+  function handleApply() {
+    const h = parseFloat(hours) || block.hours
+    const d = parseInt(days) || computedDays
+    onUpdate(block.allocationId, {
+      estimated_hours: h,
+      crew_size: crew,
+      scheduled_days: d,
+    })
+  }
+
   const top = Math.min(rect.bottom + 4, window.innerHeight - 300)
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - 240))
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - 260))
 
   return (
-    <div ref={popRef} className="fixed z-50" style={{ top, left, width: 228, background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 8px 30px rgba(0,0,0,0.12)', padding: 14 }}>
+    <div ref={popRef} className="fixed z-50" style={{ top, left, width: 250, background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 8px 30px rgba(0,0,0,0.12)', padding: 14 }}>
       <div className="flex items-center gap-2 mb-3 pb-2" style={{ borderBottom: `1px solid ${dept?.color || '#E5E7EB'}20` }}>
         <div className="w-1 h-4 rounded-sm" style={{ background: dept?.color || '#94A3B8' }} />
         <div className="flex-1 min-w-0">
@@ -59,6 +75,8 @@ function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, onUpda
           <div className="text-[9px] text-[#9CA3AF]">{dept?.name} · {block.projectName}</div>
         </div>
       </div>
+
+      {/* Current stats */}
       <div className="flex gap-1.5 mb-3">
         {[{ label: 'Hours', value: block.hours, suffix: 'h' }, { label: 'Crew', value: block.crewSize, suffix: '' }, { label: 'Days', value: block.days, suffix: 'd' }, { label: 'Done', value: block.progress, suffix: '%' }].map(s => (
           <div key={s.label} className="flex-1 bg-[#F9FAFB] rounded-lg p-1.5 text-center">
@@ -67,18 +85,37 @@ function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, onUpda
           </div>
         ))}
       </div>
-      <div className="flex gap-1 mb-2">
-        {(['hours', 'crew', 'days'] as const).map(m => (
-          <button key={m} onClick={() => { setMode(m); setVal(String(m === 'hours' ? block.hours : m === 'crew' ? block.crewSize : block.days)) }}
-            className={`flex-1 py-1.5 text-[10px] font-medium rounded-lg transition-colors ${mode === m ? 'bg-[#2563EB] text-white' : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'}`}>
-            {m === 'hours' ? 'Set Hours' : m === 'crew' ? 'Set Crew' : 'Add Days'}
-          </button>
-        ))}
+
+      {/* Edit fields */}
+      <div className="space-y-2 mb-3">
+        <div className="flex items-center justify-between">
+          <label className="text-[10px] text-[#6B7280] font-medium">Hours</label>
+          <input value={hours} onChange={e => { setHours(e.target.value); setDays(String(Math.ceil((parseFloat(e.target.value) || 1) / (crew * 8)))) }}
+            className="w-20 px-2 py-1 text-xs font-mono text-center border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]" />
+        </div>
+        <div className="flex items-center justify-between">
+          <label className="text-[10px] text-[#6B7280] font-medium">Crew ({maxCrew} available)</label>
+          <div className="flex gap-1">
+            {Array.from({ length: maxCrew }, (_, i) => i + 1).map(n => (
+              <button key={n} onClick={() => { setCrew(n); setDays(String(Math.ceil((parseFloat(hours) || 1) / (n * 8)))) }}
+                className={`w-7 h-7 text-[10px] font-medium rounded-lg transition-colors ${
+                  crew === n ? 'bg-[#2563EB] text-white' : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'
+                }`}>
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <label className="text-[10px] text-[#6B7280] font-medium">Days</label>
+          <input value={days} onChange={e => setDays(e.target.value)}
+            className="w-20 px-2 py-1 text-xs font-mono text-center border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]" />
+        </div>
       </div>
+
       <div className="flex gap-1.5">
-        <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleApply() }}
-          className="flex-1 px-2.5 py-1.5 text-sm font-mono text-center border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]" autoFocus />
-        <button onClick={handleApply} className="px-3 py-1.5 bg-[#2563EB] text-white text-[10px] font-medium rounded-lg hover:bg-[#1D4ED8]">Apply</button>
+        <button onClick={onClose} className="flex-1 px-3 py-1.5 text-[10px] font-medium text-[#6B7280] bg-[#F3F4F6] rounded-lg hover:bg-[#E5E7EB]">Cancel</button>
+        <button onClick={handleApply} className="flex-1 px-3 py-1.5 bg-[#2563EB] text-white text-[10px] font-medium rounded-lg hover:bg-[#1D4ED8]">Apply</button>
       </div>
     </div>
   )
@@ -109,6 +146,7 @@ function ScheduleContent() {
   const [subs, setSubs] = useState<ScheduleSub[]>([])
   const [allocations, setAllocations] = useState<Allocation[]>([])
   const [teamMembers, setTeamMembers] = useState<any[]>([])
+  const [deptMemberCounts, setDeptMemberCounts] = useState<Record<string, number>>({})
 
   // View state
   const [zoom, setZoom] = useState<ZoomLevel>('medium')
@@ -246,6 +284,13 @@ function ScheduleContent() {
         ...m, primary_department_id: primaryDeptMap[m.id] || null,
       })))
 
+      // Count members per department
+      const counts: Record<string, number> = {}
+      for (const dm of (deptMembers || [])) {
+        counts[dm.department_id] = (counts[dm.department_id] || 0) + 1
+      }
+      setDeptMemberCounts(counts)
+
       setLoading(false)
     } catch (err) {
       console.error('Schedule load error:', err)
@@ -270,19 +315,7 @@ function ScheduleContent() {
     setAllocations(prev => prev.map(a => a.id === allocationId ? { ...a, scheduled_date: newStartDate } : a))
   }
 
-  async function handleBlockUpdate(allocationId: string, field: 'hours' | 'addDays' | 'crew', value: number) {
-    const alloc = allocations.find(a => a.id === allocationId)
-    if (!alloc) return
-
-    const updates: Record<string, any> = {}
-    if (field === 'hours') {
-      updates.estimated_hours = value
-    } else if (field === 'crew') {
-      updates.crew_size = value
-    } else if (field === 'addDays') {
-      updates.scheduled_days = (alloc.scheduled_days || blockDays(alloc.estimated_hours, alloc.crew_size || 1, 8)) + value
-    }
-
+  async function handleBlockUpdate(allocationId: string, updates: { estimated_hours?: number; crew_size?: number; scheduled_days?: number }) {
     await supabase.from('department_allocations').update(updates).eq('id', allocationId)
     setEditingBlock(null)
     loadData()
@@ -461,6 +494,7 @@ function ScheduleContent() {
           deptInfos={deptInfos}
           capacity={capacity}
           deptConfig={deptConfig}
+          memberCountByDept={deptMemberCounts}
           onUpdate={handleBlockUpdate}
           onClose={() => setEditingBlock(null)}
         />
