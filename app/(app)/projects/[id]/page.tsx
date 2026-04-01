@@ -522,12 +522,11 @@ export default function ProjectDetailPage() {
                                         .in('subproject_id', subIds)
                                       setDeptAllocations(allocs || [])
 
-                                      // Roll up total dept hours to labor_hours
+                                      // Roll up total dept hours to labor_hours and recompute price
                                       const totalDeptHours = (allocs || [])
                                         .filter(a => a.subproject_id === sub.id)
                                         .reduce((s, a) => s + a.estimated_hours, 0)
-                                      await supabase.from('subprojects').update({ labor_hours: totalDeptHours }).eq('id', sub.id)
-                                      setSubprojects(prev => prev.map(s => s.id === sub.id ? { ...s, labor_hours: totalDeptHours } : s))
+                                      updateSubproject(sub.id, { labor_hours: totalDeptHours })
                                     }}
                                     className="w-full text-center text-xs font-mono bg-white border border-[#E5E7EB] rounded-lg py-1.5 focus:outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
                                   />
