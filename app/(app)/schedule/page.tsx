@@ -179,7 +179,7 @@ function ScheduleContent() {
 
       const { data: projs } = await supabase
         .from('projects')
-        .select('id, name, client_name, status, bid_total')
+        .select('id, name, client_name, status, bid_total, due_date')
         .eq('org_id', org.id)
         .in('status', ['active', 'bidding'])
         .order('name')
@@ -192,7 +192,7 @@ function ScheduleContent() {
         projectList.push({
           id: p.id, name: p.name, client: p.client_name || '',
           color: PROJECT_COLORS[i % PROJECT_COLORS.length],
-          priority: 'medium', due: null, status: p.status,
+          priority: 'medium', due: (p as any).due_date || null, status: p.status,
         })
 
         const { data: subData } = await supabase
@@ -295,25 +295,86 @@ function ScheduleContent() {
       .filter(a => projSubs.some(s => s.id === a.subproject_id) && !a.scheduled_date && !a.completed)
       .map(a => a.id)
 
-    if (projAllocIds.length === 0) return
+    if (projAllocIds.length === 0) {
+      // No unscheduled allocations — try simple placement starting today
+      // This handles the case where autoPlace can't find them
+      const today = toDateKey(new Date())
+      let dayOffset = 0
+      for (const deptKey of ['engineering', 'cnc', 'assembly', 'finish', 'install'] as const) {
+        const dept = rawDepts.find((d: any) => d.name.toLowerCase() === deptKey)
+        if (!dept) continue
+        for (const sub of projSubs) {
+          const alloc = allocations.find(a =>
+            a.subproject_id === sub.id && a.department_id === dept.id && !a.scheduled_date && !a.completed
+          )
+          if (!alloc || alloc.estimated_hours <= 0) continue
+          const startDate = addWorkDays(parseDate(today), dayOffset)
+          const days = Math.ceil(alloc.estimated_hours / (dept.hours_per_day || 8))
+          await supabase.from('department_allocations').update({
+            scheduled_date: toDateKey(startDate),
+            scheduled_days: days,
+          }).eq('id', alloc.id)
+          dayOffset += days
+        }
+      }
+      loadData()
+      return
+    }
 
     // Use autoPlace from engine
-    const newAllocations = autoPlace(allocations, projects, subs, deptConfig, capacity)
-    const updates = newAllocations.filter(a => projAllocIds.includes(a.id) && a.scheduled_date)
+    try {
+      const newAllocations = autoPlace(allocations, projects, subs, deptConfig, capacity)
+      const updates = newAllocations.filter(a => projAllocIds.includes(a.id) && a.scheduled_date)
 
-    for (const alloc of updates) {
-      await supabase.from('department_allocations').update({
-        scheduled_date: alloc.scheduled_date,
-        scheduled_days: alloc.scheduled_days,
-        crew_size: alloc.crew_size,
-      }).eq('id', alloc.id)
+      if (updates.length === 0) {
+        // autoPlace didn't schedule anything — fallback to simple sequential placement
+        const today = toDateKey(new Date())
+        let dayOffset = 0
+        for (const allocId of projAllocIds) {
+          const alloc = allocations.find(a => a.id === allocId)
+          if (!alloc) continue
+          const dept = rawDepts.find((d: any) => d.id === alloc.department_id)
+          const days = Math.ceil(alloc.estimated_hours / ((dept?.hours_per_day || 8)))
+          const startDate = addWorkDays(parseDate(today), dayOffset)
+          await supabase.from('department_allocations').update({
+            scheduled_date: toDateKey(startDate),
+            scheduled_days: days,
+          }).eq('id', allocId)
+          dayOffset += days
+        }
+      } else {
+        for (const alloc of updates) {
+          await supabase.from('department_allocations').update({
+            scheduled_date: alloc.scheduled_date,
+            scheduled_days: alloc.scheduled_days,
+            crew_size: alloc.crew_size,
+          }).eq('id', alloc.id)
+        }
+      }
+    } catch (err) {
+      console.error('autoPlace error, using fallback:', err)
+      // Fallback: sequential placement
+      const today = toDateKey(new Date())
+      let dayOffset = 0
+      for (const allocId of projAllocIds) {
+        const alloc = allocations.find(a => a.id === allocId)
+        if (!alloc) continue
+        const days = Math.ceil(alloc.estimated_hours / 8)
+        const startDate = addWorkDays(parseDate(today), dayOffset)
+        await supabase.from('department_allocations').update({
+          scheduled_date: toDateKey(startDate),
+          scheduled_days: days,
+        }).eq('id', allocId)
+        dayOffset += days
+      }
     }
 
     loadData()
   }
 
   async function handleUpdateDue(projectId: string, newDue: string) {
-    // Not storing due dates in MVP — placeholder
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, due: newDue || null } : p))
+    await supabase.from('projects').update({ due_date: newDue || null }).eq('id', projectId)
   }
 
   async function handleUpdatePriority(projectId: string, newPriority: 'high' | 'medium' | 'low') {
