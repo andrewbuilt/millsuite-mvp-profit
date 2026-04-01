@@ -22,7 +22,7 @@ interface DeptInfo {
   id?: string
 }
 
-export type ZoomLevel = 'tight' | 'medium' | 'long'
+export type ZoomLevel = 'tight' | 'medium' | 'quarter' | 'long'
 
 interface Props {
   blocks: PlacedBlock[]
@@ -49,6 +49,7 @@ interface Props {
 const ZOOM_CW: Record<ZoomLevel, number> = {
   tight: 52,
   medium: 32,
+  quarter: 24,
   long: 20,
 }
 

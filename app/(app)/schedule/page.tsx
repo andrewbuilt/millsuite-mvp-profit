@@ -666,10 +666,15 @@ function ScheduleContent() {
               Today
             </button>
             <div className="flex border border-[#E5E7EB] rounded-md overflow-hidden">
-              {(['tight', 'medium', 'long'] as ZoomLevel[]).map(z => (
-                <button key={z} onClick={() => setZoom(z)}
-                  className={`px-2 py-1 text-[10px] font-medium transition-colors ${zoom === z ? 'bg-[#2563EB] text-white' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}>
-                  {z === 'tight' ? 'Day' : z === 'medium' ? 'Week' : 'Month'}
+              {([
+                { key: 'tight' as ZoomLevel, label: 'Day' },
+                { key: 'medium' as ZoomLevel, label: 'Week' },
+                { key: 'quarter' as ZoomLevel, label: '3 Mo' },
+                { key: 'long' as ZoomLevel, label: '6 Mo' },
+              ]).map(z => (
+                <button key={z.key} onClick={() => setZoom(z.key)}
+                  className={`px-2 py-1 text-[10px] font-medium transition-colors ${zoom === z.key ? 'bg-[#2563EB] text-white' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}>
+                  {z.label}
                 </button>
               ))}
             </div>

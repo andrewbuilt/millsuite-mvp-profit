@@ -372,7 +372,7 @@ function CapacityContent() {
                           card={card}
                           zoom={zoom}
                           departments={departments}
-                          onNavigate={() => router.push(`/projects/${card.id}`)}
+                          subprojectNames={subprojects.filter(s => s.project_id === card.id).map(s => s.name)}
                           onRemove={(e) => removeFromMonth(e, card.allocationId)}
                           onSplit={(e) => {
                             e.stopPropagation()
@@ -461,7 +461,7 @@ function ProjectCard({
   card,
   zoom,
   departments,
-  onNavigate,
+  subprojectNames,
   onRemove,
   onSplit,
   onDragStart,
@@ -470,7 +470,7 @@ function ProjectCard({
   card: Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null }
   zoom: ZoomLevel
   departments: Department[]
-  onNavigate: () => void
+  subprojectNames: string[]
   onRemove: (e: React.MouseEvent) => void
   onSplit: (e: React.MouseEvent) => void
   onDragStart: () => void
@@ -486,7 +486,7 @@ function ProjectCard({
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
         className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
-        onClick={onNavigate}
+        onClick={onSplit}
       >
         <button
           onClick={onRemove}
@@ -495,6 +495,7 @@ function ProjectCard({
           <X className="w-2 h-2 text-[#6B7280] hover:text-[#DC2626]" />
         </button>
         <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
+        {subprojectNames.length > 0 && <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>}
         {splitLabel && <div className="text-[8px] font-mono text-[#9CA3AF]">{splitLabel}</div>}
       </div>
     )
@@ -507,7 +508,7 @@ function ProjectCard({
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
         className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
-        onClick={onNavigate}
+        onClick={onSplit}
       >
         <button
           onClick={onRemove}
@@ -516,6 +517,7 @@ function ProjectCard({
           <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
         </button>
         <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
+        {subprojectNames.length > 0 && <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>}
         <div className="flex items-center gap-1">
           <span className="text-[9px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
           {splitLabel && <span className="text-[8px] font-mono text-[#9CA3AF]">{splitLabel}</span>}
@@ -540,7 +542,10 @@ function ProjectCard({
         <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
       </button>
       <div className="text-xs font-medium text-[#111] truncate">{card.name}</div>
-      {card.client_name && <div className="text-[10px] text-[#9CA3AF] truncate">{card.client_name}</div>}
+      {subprojectNames.length > 0 && (
+        <div className="text-[10px] text-[#6B7280] mt-0.5">{subprojectNames.join(' · ')}</div>
+      )}
+      {card.client_name && <div className="text-[9px] text-[#9CA3AF] truncate">{card.client_name}</div>}
       {splitLabel && <div className="text-[9px] font-mono text-[#2563EB] mt-0.5">{splitLabel}</div>}
       <div className="flex items-center gap-2 mt-1">
         <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
