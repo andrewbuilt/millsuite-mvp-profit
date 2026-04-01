@@ -19,6 +19,7 @@ interface DeptInfo {
   key: DeptKey
   name: string
   color: string
+  id?: string
 }
 
 export type ZoomLevel = 'tight' | 'medium' | 'long'
@@ -37,6 +38,7 @@ interface Props {
   onBlockClick: (block: PlacedBlock, rect: DOMRect) => void
   onDateClick: (date: Date) => void
   onBlockDrop: (allocationId: string, newStartDate: string) => void
+  onDeptLabelClick?: (deptInfo: DeptInfo) => void
   headcountOverrides?: HeadcountOverrides
 }
 
@@ -71,6 +73,7 @@ export default function Timeline({
   blocks, projects, subs, capacity, deptInfos,
   zoom, scrollTrigger, selectedProjectId, collapsed,
   onToggleCollapse, onBlockClick, onDateClick, onBlockDrop,
+  onDeptLabelClick,
   headcountOverrides = {},
 }: Props) {
   const CW = ZOOM_CW[zoom]
@@ -341,7 +344,8 @@ export default function Timeline({
           <div className="shrink-0 border-r border-[#F3F4F6] flex items-center px-3 gap-1"
             style={{ width: LABEL_W, position: 'sticky', left: 0, zIndex: 10, background: '#FAFAFA' }}>
             {deptInfos.map(d => (
-              <div key={d.key} className="flex items-center gap-0.5">
+              <div key={d.key} className="flex items-center gap-0.5 cursor-pointer hover:opacity-70 transition-opacity"
+                onClick={e => { e.stopPropagation(); onDeptLabelClick?.(d) }}>
                 <div className="w-1.5 h-1.5 rounded-sm" style={{ background: d.color }} />
                 <span className="text-[8px] text-[#9CA3AF]">{DEPT_SHORT[d.key]}</span>
               </div>

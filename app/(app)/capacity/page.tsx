@@ -319,6 +319,33 @@ function CapacityContent() {
                           departments={departments}
                           onNavigate={() => router.push(`/projects/${card.id}`)}
                           onRemove={(e) => removeFromMonth(e, card.allocationId)}
+                          onSplit={async (e) => {
+                            e.stopPropagation()
+                            if (!org?.id) return
+                            // Split: 50% stays in current month, 50% goes to next month
+                            const currentAlloc = monthAllocations.find(a => a.id === card.allocationId)
+                            if (!currentAlloc) return
+                            const halfHours = Math.round(currentAlloc.hours_allocated / 2)
+                            const remainHours = currentAlloc.hours_allocated - halfHours
+                            // Update current month to half
+                            await supabase.from('project_month_allocations').update({ hours_allocated: halfHours }).eq('id', card.allocationId)
+                            // Create next month allocation
+                            const currentDate = new Date(currentAlloc.month_date)
+                            const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
+                            await supabase.from('project_month_allocations').insert({
+                              org_id: org.id,
+                              project_id: card.id,
+                              month_date: nextMonth.toISOString().split('T')[0],
+                              hours_allocated: remainHours,
+                              department_hours: currentAlloc.department_hours,
+                              split_index: 2,
+                              split_total: 2,
+                              split_group_id: card.allocationId,
+                            })
+                            // Mark original as split part 1
+                            await supabase.from('project_month_allocations').update({ split_index: 1, split_total: 2, split_group_id: card.allocationId }).eq('id', card.allocationId)
+                            loadData()
+                          }}
                           onDragStart={() => {
                             setDragProjectId(card.id)
                             setDragSourceAllocationId(card.allocationId)
@@ -373,6 +400,7 @@ function ProjectCard({
   departments,
   onNavigate,
   onRemove,
+  onSplit,
   onDragStart,
   onDragEnd,
 }: {
@@ -381,6 +409,7 @@ function ProjectCard({
   departments: Department[]
   onNavigate: () => void
   onRemove: (e: React.MouseEvent) => void
+  onSplit: (e: React.MouseEvent) => void
   onDragStart: () => void
   onDragEnd: () => void
 }) {
@@ -463,6 +492,13 @@ function ProjectCard({
           })}
         </div>
       )}
+      {/* Split button */}
+      <button
+        onClick={onSplit}
+        className="mt-1.5 text-[9px] text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors hidden group-hover:block"
+      >
+        Split across months
+      </button>
     </div>
   )
 }
