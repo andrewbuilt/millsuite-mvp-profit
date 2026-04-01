@@ -31,20 +31,18 @@ interface DeptInfo {
 // BLOCK EDIT POPOVER
 // ═══════════════════════════════════════════════════════════════════
 
-function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, memberCountByDept, blocks, allocations, subs, onUpdate, onMoveProject, onClose }: {
+function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, memberCountByDept, blocks, allocations, subs, onUpdate, onClose }: {
   block: PlacedBlock; rect: DOMRect; deptInfos: DeptInfo[]; capacity: DeptCapacity; deptConfig: DeptConfig
   memberCountByDept: Record<string, number>
   blocks: PlacedBlock[]
   allocations: Allocation[]
   subs: ScheduleSub[]
   onUpdate: (allocationId: string, updates: { estimated_hours?: number; crew_size?: number; scheduled_days?: number }) => void
-  onMoveProject: (projectId: string, anchorBlockStartDate: string, newStartDate: string) => void
   onClose: () => void
 }) {
   const [hours, setHours] = useState(String(block.hours))
   const [crew, setCrew] = useState(block.crewSize)
   const [days, setDays] = useState(String(block.days))
-  const [moveDate, setMoveDate] = useState('')
   const popRef = useRef<HTMLDivElement>(null)
   const dept = deptInfos.find(d => d.key === block.dept)
   const maxCrew = memberCountByDept[dept?.id || ''] || 5
@@ -73,11 +71,6 @@ function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, member
       crew_size: crew,
       scheduled_days: d,
     })
-  }
-
-  function handleMoveAll() {
-    if (!moveDate) return
-    onMoveProject(block.projectId, block.startDate, moveDate)
   }
 
   const top = Math.min(rect.bottom + 4, window.innerHeight - 400)
@@ -141,25 +134,7 @@ function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, member
         </div>
       </div>
 
-      {/* Move entire project */}
-      <div className="mb-3 pt-2" style={{ borderTop: '1px solid #F3F4F6' }}>
-        <label className="text-[10px] text-[#6B7280] font-medium block mb-1.5">Move entire project</label>
-        <div className="flex gap-1.5">
-          <input
-            type="date"
-            value={moveDate}
-            onChange={e => setMoveDate(e.target.value)}
-            className="flex-1 px-2 py-1.5 text-xs font-mono border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]"
-          />
-          <button
-            onClick={handleMoveAll}
-            disabled={!moveDate}
-            className="px-3 py-1.5 text-[10px] font-medium bg-[#7C3AED] text-white rounded-lg hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed"
-          >Move</button>
-        </div>
-      </div>
-
-      <div className="flex gap-1.5">
+      <div className="flex gap-1.5 mt-3 pt-2" style={{ borderTop: '1px solid #F3F4F6' }}>
         <button onClick={onClose} className="flex-1 px-3 py-1.5 text-[10px] font-medium text-[#6B7280] bg-[#F3F4F6] rounded-lg hover:bg-[#E5E7EB]">Cancel</button>
         <button onClick={handleApply} className="flex-1 px-3 py-1.5 bg-[#2563EB] text-white text-[10px] font-medium rounded-lg hover:bg-[#1D4ED8]">Apply</button>
       </div>
@@ -247,8 +222,6 @@ function DailyDetailPanel({ date, blocks, deptInfos, capacity, onClose }: {
   onClose: () => void
 }) {
   const dateKey = toDateKey(date)
-  const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
-  const panelRef = useRef<HTMLDivElement>(null)
 
   // Find blocks that span this date
   const dayBlocks = useMemo(() => {
@@ -272,15 +245,6 @@ function DailyDetailPanel({ date, blocks, deptInfos, capacity, onClose }: {
     }
     return map
   }, [dayBlocks])
-
-  function toggleConfirmed(allocId: string) {
-    setConfirmed(prev => {
-      const n = new Set(prev)
-      if (n.has(allocId)) n.delete(allocId)
-      else n.add(allocId)
-      return n
-    })
-  }
 
   return (
     <div className="border-t border-[#E5E7EB] bg-white flex-shrink-0" style={{ maxHeight: 320, overflowY: 'auto' }}>
@@ -317,33 +281,15 @@ function DailyDetailPanel({ date, blocks, deptInfos, capacity, onClose }: {
                 </div>
               </div>
               <div className="space-y-1">
-                {deptBlocks.map(b => {
-                  const isConf = confirmed.has(b.allocationId)
-                  return (
-                    <div key={b.allocationId} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[#F9FAFB]">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-medium text-[#111] truncate">{b.projectName}</div>
-                        <div className="text-[9px] text-[#9CA3AF] truncate">{b.subName}</div>
-                      </div>
-                      <div className="text-[9px] font-mono text-[#6B7280] shrink-0">{b.hours}h · {b.crewSize}c</div>
-                      <button
-                        onClick={() => toggleConfirmed(b.allocationId)}
-                        className="shrink-0 w-5 h-5 rounded-md border transition-colors flex items-center justify-center"
-                        style={{
-                          background: isConf ? '#10B981' : '#fff',
-                          borderColor: isConf ? '#10B981' : '#D1D5DB',
-                        }}
-                        title={isConf ? 'Confirmed' : 'Tentative'}
-                      >
-                        {isConf && (
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                            <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </button>
+                {deptBlocks.map(b => (
+                  <div key={b.allocationId} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[#F9FAFB]">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-medium text-[#111] truncate">{b.projectName}</div>
+                      <div className="text-[9px] text-[#9CA3AF] truncate">{b.subName}</div>
                     </div>
-                  )
-                })}
+                    <div className="text-[9px] font-mono text-[#6B7280] shrink-0">{b.hours}h · {b.crewSize}c</div>
+                  </div>
+                ))}
               </div>
             </div>
           )
@@ -388,6 +334,7 @@ function ScheduleContent() {
   const [editingBlock, setEditingBlock] = useState<{ block: PlacedBlock; rect: DOMRect } | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [editingDept, setEditingDept] = useState<DeptInfo | null>(null)
+  const [independentSubs, setIndependentSubs] = useState<Set<string>>(new Set())
 
   // ═══════════════════════════════════════════════════════════════
   // DERIVED
@@ -538,48 +485,53 @@ function ScheduleContent() {
   // ═══════════════════════════════════════════════════════════════
 
   async function handleBlockDrop(allocationId: string, newStartDate: string) {
-    const alloc = allocations.find(a => a.id === allocationId)
-    if (!alloc) return
+    const draggedBlock = blocks.find(b => b.allocationId === allocationId)
+    if (!draggedBlock) return
 
-    await supabase.from('department_allocations').update({
-      scheduled_date: newStartDate,
-    }).eq('id', allocationId)
+    // Check if the sub is marked as independent
+    const isIndependent = independentSubs.has(draggedBlock.subId)
 
-    setAllocations(prev => prev.map(a => a.id === allocationId ? { ...a, scheduled_date: newStartDate } : a))
+    if (isIndependent) {
+      // Only move this single block
+      await supabase.from('department_allocations').update({
+        scheduled_date: newStartDate,
+      }).eq('id', allocationId)
+      setAllocations(prev => prev.map(a => a.id === allocationId ? { ...a, scheduled_date: newStartDate } : a))
+    } else {
+      // Move ALL blocks for the same project together by the same day offset
+      const oldStart = parseDate(draggedBlock.startDate)
+      const newStart = parseDate(newStartDate)
+      const offsetMs = newStart.getTime() - oldStart.getTime()
+      const offsetDays = Math.round(offsetMs / (1000 * 60 * 60 * 24))
+
+      const projBlocks = blocks.filter(b => b.projectId === draggedBlock.projectId)
+      const updates: { id: string; newDate: string }[] = []
+
+      for (const block of projBlocks) {
+        if (!block.startDate) continue
+        const blockStart = parseDate(block.startDate)
+        const newBlockStart = new Date(blockStart)
+        newBlockStart.setDate(newBlockStart.getDate() + offsetDays)
+        // Snap to workday (skip weekends forward)
+        while (newBlockStart.getDay() === 0 || newBlockStart.getDay() === 6) {
+          newBlockStart.setDate(newBlockStart.getDate() + 1)
+        }
+        updates.push({ id: block.allocationId, newDate: toDateKey(newBlockStart) })
+      }
+
+      for (const u of updates) {
+        await supabase.from('department_allocations').update({ scheduled_date: u.newDate }).eq('id', u.id)
+      }
+
+      setAllocations(prev => prev.map(a => {
+        const upd = updates.find(u => u.id === a.id)
+        return upd ? { ...a, scheduled_date: upd.newDate } : a
+      }))
+    }
   }
 
   async function handleBlockUpdate(allocationId: string, updates: { estimated_hours?: number; crew_size?: number; scheduled_days?: number }) {
     await supabase.from('department_allocations').update(updates).eq('id', allocationId)
-    setEditingBlock(null)
-    loadData()
-  }
-
-  // Move entire project by offset
-  async function handleMoveProject(projectId: string, anchorStartDate: string, newStartDate: string) {
-    const anchorDate = parseDate(anchorStartDate)
-    const targetDate = parseDate(newStartDate)
-
-    // Calculate offset in calendar days
-    const offsetMs = targetDate.getTime() - anchorDate.getTime()
-    const offsetDays = Math.round(offsetMs / (1000 * 60 * 60 * 24))
-
-    // Find all blocks for this project
-    const projBlocks = blocks.filter(b => b.projectId === projectId)
-
-    for (const block of projBlocks) {
-      const blockStart = parseDate(block.startDate)
-      const newBlockStart = new Date(blockStart)
-      newBlockStart.setDate(newBlockStart.getDate() + offsetDays)
-      // Snap to workday (skip weekends forward)
-      while (newBlockStart.getDay() === 0 || newBlockStart.getDay() === 6) {
-        newBlockStart.setDate(newBlockStart.getDate() + 1)
-      }
-      const newDateKey = toDateKey(newBlockStart)
-      await supabase.from('department_allocations').update({
-        scheduled_date: newDateKey,
-      }).eq('id', block.allocationId)
-    }
-
     setEditingBlock(null)
     loadData()
   }
@@ -687,10 +639,17 @@ function ScheduleContent() {
           unscheduledProjectIds={unscheduledProjectIds}
           deptInfos={deptInfos}
           selectedProjectId={selectedProjectId}
+          independentSubs={independentSubs}
           onSelectProject={setSelectedProjectId}
           onScheduleProject={handleScheduleProject}
           onUpdateDue={handleUpdateDue}
           onUpdatePriority={handleUpdatePriority}
+          onToggleIndependentSub={(subId) => setIndependentSubs(prev => {
+            const next = new Set(prev)
+            if (next.has(subId)) next.delete(subId)
+            else next.add(subId)
+            return next
+          })}
         />
       </div>
 
@@ -760,7 +719,6 @@ function ScheduleContent() {
           allocations={allocations}
           subs={subs}
           onUpdate={handleBlockUpdate}
-          onMoveProject={handleMoveProject}
           onClose={() => setEditingBlock(null)}
         />
       )}

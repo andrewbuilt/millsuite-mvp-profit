@@ -28,10 +28,12 @@ interface Props {
   unscheduledProjectIds: Set<string>
   deptInfos: DeptInfo[]
   selectedProjectId: string | null
+  independentSubs: Set<string>
   onSelectProject: (id: string | null) => void
   onScheduleProject: (projectId: string) => void
   onUpdateDue: (projectId: string, newDue: string) => void
   onUpdatePriority: (projectId: string, newPriority: 'high' | 'medium' | 'low') => void
+  onToggleIndependentSub: (subId: string) => void
 }
 
 const PRIORITY_BADGE: Record<string, { bg: string; text: string; label: string }> = {
@@ -46,8 +48,9 @@ const PRIORITY_BADGE: Record<string, { bg: string; text: string; label: string }
 
 export default function ProjectSidebar({
   projects, subs, blocks, unscheduledProjectIds, deptInfos,
-  selectedProjectId, onSelectProject,
-  onScheduleProject, onUpdateDue, onUpdatePriority,
+  selectedProjectId, independentSubs,
+  onSelectProject, onScheduleProject, onUpdateDue, onUpdatePriority,
+  onToggleIndependentSub,
 }: Props) {
   const [filter, setFilter] = useState('')
   const [editingDue, setEditingDue] = useState<string | null>(null)
@@ -244,6 +247,18 @@ export default function ProjectSidebar({
                                 {subPct}%
                               </span>
                             </div>
+                            <label
+                              className="flex items-center gap-1 mt-0.5 cursor-pointer"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={independentSubs.has(sub.id)}
+                                onChange={() => onToggleIndependentSub(sub.id)}
+                                className="w-3 h-3 rounded border-[#D1D5DB] text-[#2563EB] focus:ring-[#2563EB] focus:ring-offset-0 cursor-pointer"
+                              />
+                              <span className="text-[9px] text-[#9CA3AF]">Move independently</span>
+                            </label>
                             {/* Dept progress mini-bars */}
                             <div className="flex gap-px mt-0.5">
                               {deptInfos.map(d => {

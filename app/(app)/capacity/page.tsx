@@ -13,7 +13,7 @@ interface DeptMember { department_id: string; user_id: string }
 interface Project { id: string; name: string; client_name: string | null; status: string; bid_total: number }
 interface Subproject { id: string; project_id: string; name: string; labor_hours: number }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
-interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number }
+interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number; split_index?: number; split_total?: number; split_group_id?: string }
 
 type ZoomLevel = 'quarter' | 'half' | 'year'
 
@@ -47,6 +47,9 @@ function CapacityContent() {
   const [dragProjectId, setDragProjectId] = useState<string | null>(null)
   const [dragSourceAllocationId, setDragSourceAllocationId] = useState<string | null>(null)
   const [dragOverMonth, setDragOverMonth] = useState<string | null>(null)
+
+  // Split modal state
+  const [splitModal, setSplitModal] = useState<{ projectId: string; allocationId: string; currentHours: number; projectName: string } | null>(null)
 
   useEffect(() => { if (org?.id) loadData() }, [org?.id, year])
 
@@ -121,8 +124,8 @@ function CapacityContent() {
       const utilization = totalCapacity > 0 ? (totalAllocated / totalCapacity) * 100 : 0
       const projectCards = monthAllocs.map(a => {
         const proj = projects.find(p => p.id === a.project_id)
-        return proj ? { ...proj, allocationId: a.id, hours: a.hours_allocated, departmentHours: a.department_hours } : null
-      }).filter(Boolean) as (Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null })[]
+        return proj ? { ...proj, allocationId: a.id, hours: a.hours_allocated, departmentHours: a.department_hours, splitIndex: a.split_index || 0, splitTotal: a.split_total || 0, splitGroupId: a.split_group_id || null } : null
+      }).filter(Boolean) as (Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null })[]
 
       return { month, label, longLabel, totalCapacity, totalAllocated, utilization, deptCapacity, deptAllocated, projectCards }
     })
@@ -133,28 +136,46 @@ function CapacityContent() {
   const unscheduled = projects.filter(p => !scheduledProjectIds.has(p.id))
 
   // Drop handler — works for both unscheduled and month-to-month moves
+  // When dragging a split card, ALL cards in the same split_group_id move together
   async function handleDrop(targetMonth: string) {
     if (!dragProjectId || !org?.id) return
     setDragOverMonth(null)
 
     if (dragSourceAllocationId) {
-      // Moving from one month to another — delete old, create new
       const oldAlloc = monthAllocations.find(a => a.id === dragSourceAllocationId)
       if (!oldAlloc) return
-      // Don't do anything if dropped on the same month
       if (oldAlloc.month_date.startsWith(targetMonth)) {
         setDragProjectId(null)
         setDragSourceAllocationId(null)
         return
       }
-      await supabase.from('project_month_allocations').delete().eq('id', dragSourceAllocationId)
-      await supabase.from('project_month_allocations').insert({
-        org_id: org.id,
-        project_id: dragProjectId,
-        month_date: `${targetMonth}-01`,
-        hours_allocated: oldAlloc.hours_allocated,
-        department_hours: oldAlloc.department_hours,
-      })
+
+      // Calculate month offset
+      const oldDate = new Date(oldAlloc.month_date + 'T00:00:00')
+      const targetDate = new Date(`${targetMonth}-01T00:00:00`)
+      const monthOffset = (targetDate.getFullYear() - oldDate.getFullYear()) * 12 + (targetDate.getMonth() - oldDate.getMonth())
+
+      // Check if this allocation belongs to a split group
+      if (oldAlloc.split_group_id && (oldAlloc.split_total || 1) > 1) {
+        // Move ALL allocations in the same split group by the same month offset
+        const groupAllocs = monthAllocations.filter(a => a.split_group_id === oldAlloc.split_group_id)
+        for (const alloc of groupAllocs) {
+          const allocDate = new Date(alloc.month_date + 'T00:00:00')
+          const newMonth = new Date(allocDate.getFullYear(), allocDate.getMonth() + monthOffset, 1)
+          const newMonthStr = `${newMonth.getFullYear()}-${String(newMonth.getMonth() + 1).padStart(2, '0')}-01`
+          await supabase.from('project_month_allocations').update({ month_date: newMonthStr }).eq('id', alloc.id)
+        }
+      } else {
+        // Single allocation move
+        await supabase.from('project_month_allocations').delete().eq('id', dragSourceAllocationId)
+        await supabase.from('project_month_allocations').insert({
+          org_id: org.id,
+          project_id: dragProjectId,
+          month_date: `${targetMonth}-01`,
+          hours_allocated: oldAlloc.hours_allocated,
+          department_hours: oldAlloc.department_hours,
+        })
+      }
     } else {
       // New allocation from unscheduled
       const projSubs = subprojects.filter(s => s.project_id === dragProjectId)
@@ -172,6 +193,40 @@ function CapacityContent() {
 
     setDragProjectId(null)
     setDragSourceAllocationId(null)
+    loadData()
+  }
+
+  // Split handler: creates N evenly-divided allocations
+  async function handleSplit(numMonths: number) {
+    if (!splitModal || !org?.id) return
+    const { projectId, allocationId, currentHours } = splitModal
+    const oldAlloc = monthAllocations.find(a => a.id === allocationId)
+    if (!oldAlloc) return
+
+    const hoursPerMonth = Math.round(currentHours / numMonths)
+    const groupId = crypto.randomUUID()
+    const startDate = new Date(oldAlloc.month_date + 'T00:00:00')
+
+    // Delete the current allocation
+    await supabase.from('project_month_allocations').delete().eq('id', allocationId)
+
+    // Create N new allocations
+    for (let i = 0; i < numMonths; i++) {
+      const monthDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1)
+      const hrs = i === numMonths - 1 ? currentHours - hoursPerMonth * (numMonths - 1) : hoursPerMonth
+      await supabase.from('project_month_allocations').insert({
+        org_id: org.id,
+        project_id: projectId,
+        month_date: `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}-01`,
+        hours_allocated: hrs,
+        department_hours: oldAlloc.department_hours,
+        split_group_id: groupId,
+        split_index: i + 1,
+        split_total: numMonths,
+      })
+    }
+
+    setSplitModal(null)
     loadData()
   }
 
@@ -319,32 +374,9 @@ function CapacityContent() {
                           departments={departments}
                           onNavigate={() => router.push(`/projects/${card.id}`)}
                           onRemove={(e) => removeFromMonth(e, card.allocationId)}
-                          onSplit={async (e) => {
+                          onSplit={(e) => {
                             e.stopPropagation()
-                            if (!org?.id) return
-                            // Split: 50% stays in current month, 50% goes to next month
-                            const currentAlloc = monthAllocations.find(a => a.id === card.allocationId)
-                            if (!currentAlloc) return
-                            const halfHours = Math.round(currentAlloc.hours_allocated / 2)
-                            const remainHours = currentAlloc.hours_allocated - halfHours
-                            // Update current month to half
-                            await supabase.from('project_month_allocations').update({ hours_allocated: halfHours }).eq('id', card.allocationId)
-                            // Create next month allocation
-                            const currentDate = new Date(currentAlloc.month_date)
-                            const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
-                            await supabase.from('project_month_allocations').insert({
-                              org_id: org.id,
-                              project_id: card.id,
-                              month_date: nextMonth.toISOString().split('T')[0],
-                              hours_allocated: remainHours,
-                              department_hours: currentAlloc.department_hours,
-                              split_index: 2,
-                              split_total: 2,
-                              split_group_id: card.allocationId,
-                            })
-                            // Mark original as split part 1
-                            await supabase.from('project_month_allocations').update({ split_index: 1, split_total: 2, split_group_id: card.allocationId }).eq('id', card.allocationId)
-                            loadData()
+                            setSplitModal({ projectId: card.id, allocationId: card.allocationId, currentHours: card.hours, projectName: card.name })
                           }}
                           onDragStart={() => {
                             setDragProjectId(card.id)
@@ -387,6 +419,37 @@ function CapacityContent() {
           )}
         </>
       )}
+
+      {/* Split modal */}
+      {splitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.3)' }}>
+          <div className="bg-white rounded-xl border border-[#E5E7EB] shadow-xl p-6 w-[340px]">
+            <h3 className="text-sm font-semibold text-[#111] mb-1">Split across months</h3>
+            <p className="text-xs text-[#6B7280] mb-1">{splitModal.projectName}</p>
+            <p className="text-xs font-mono text-[#9CA3AF] mb-4">{splitModal.currentHours} hours total</p>
+            <div className="flex flex-col gap-2 mb-4">
+              {[2, 3, 4].map(n => (
+                <button
+                  key={n}
+                  onClick={() => handleSplit(n)}
+                  className="w-full px-4 py-2.5 text-sm font-medium text-[#111] bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg hover:bg-[#EFF6FF] hover:border-[#2563EB] transition-colors text-left"
+                >
+                  <span className="font-semibold">{n} months</span>
+                  <span className="text-[#9CA3AF] ml-2 font-mono text-xs">
+                    ~{Math.round(splitModal.currentHours / n)}h each
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setSplitModal(null)}
+              className="w-full px-4 py-2 text-xs font-medium text-[#6B7280] bg-[#F3F4F6] rounded-lg hover:bg-[#E5E7EB] transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -404,7 +467,7 @@ function ProjectCard({
   onDragStart,
   onDragEnd,
 }: {
-  card: Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null }
+  card: Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null }
   zoom: ZoomLevel
   departments: Department[]
   onNavigate: () => void
@@ -413,8 +476,10 @@ function ProjectCard({
   onDragStart: () => void
   onDragEnd: () => void
 }) {
+  const isSplit = card.splitTotal > 1
+  const splitLabel = isSplit ? `Part ${card.splitIndex} of ${card.splitTotal}` : null
+
   if (zoom === 'year') {
-    // Compact: just name, truncated
     return (
       <div
         draggable
@@ -430,12 +495,12 @@ function ProjectCard({
           <X className="w-2 h-2 text-[#6B7280] hover:text-[#DC2626]" />
         </button>
         <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
+        {splitLabel && <div className="text-[8px] font-mono text-[#9CA3AF]">{splitLabel}</div>}
       </div>
     )
   }
 
   if (zoom === 'half') {
-    // Medium: name + hours
     return (
       <div
         draggable
@@ -451,12 +516,15 @@ function ProjectCard({
           <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
         </button>
         <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
-        <div className="text-[9px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</div>
+        <div className="flex items-center gap-1">
+          <span className="text-[9px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
+          {splitLabel && <span className="text-[8px] font-mono text-[#9CA3AF]">{splitLabel}</span>}
+        </div>
       </div>
     )
   }
 
-  // Quarter: full detail — name, client, hours, bid total, dept breakdown
+  // Quarter: full detail
   return (
     <div
       draggable
@@ -473,11 +541,11 @@ function ProjectCard({
       </button>
       <div className="text-xs font-medium text-[#111] truncate">{card.name}</div>
       {card.client_name && <div className="text-[10px] text-[#9CA3AF] truncate">{card.client_name}</div>}
+      {splitLabel && <div className="text-[9px] font-mono text-[#2563EB] mt-0.5">{splitLabel}</div>}
       <div className="flex items-center gap-2 mt-1">
         <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
         <span className="text-[10px] font-mono tabular-nums text-[#9CA3AF]">{fmtMoney(card.bid_total)}</span>
       </div>
-      {/* Department hour breakdown */}
       {card.departmentHours && Object.keys(card.departmentHours).length > 0 && (
         <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5">
           {departments.map(dept => {
@@ -492,13 +560,14 @@ function ProjectCard({
           })}
         </div>
       )}
-      {/* Split button */}
-      <button
-        onClick={onSplit}
-        className="mt-1.5 text-[9px] text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors hidden group-hover:block"
-      >
-        Split across months
-      </button>
+      {!isSplit && (
+        <button
+          onClick={onSplit}
+          className="mt-1.5 text-[9px] text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors hidden group-hover:block"
+        >
+          Split across months
+        </button>
+      )}
     </div>
   )
 }
