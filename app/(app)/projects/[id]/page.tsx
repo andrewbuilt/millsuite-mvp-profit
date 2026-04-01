@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { computeSubprojectPrice } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
 import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink } from 'lucide-react'
+import { useConfirm } from '@/components/confirm-dialog'
 
 // ── Types ──
 
@@ -69,6 +70,7 @@ export default function ProjectDetailPage() {
   const { id: projectId } = useParams() as { id: string }
   const router = useRouter()
   const { org } = useAuth()
+  const { confirm } = useConfirm()
 
   const [project, setProject] = useState<Project | null>(null)
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
@@ -252,7 +254,13 @@ export default function ProjectDetailPage() {
           </div>
           <button
             onClick={async () => {
-              if (!confirm(`Delete "${project.name}"? This will delete all subprojects, time entries, and invoices for this project.`)) return
+              const confirmed = await confirm({
+                title: 'Delete Project',
+                message: `Delete "${project.name}"? This will permanently remove all subprojects, time entries, invoices, and scheduling data.`,
+                confirmLabel: 'Delete',
+                variant: 'danger',
+              })
+              if (!confirmed) return
               await supabase.from('time_entries').delete().eq('project_id', projectId)
               await supabase.from('invoices').delete().eq('project_id', projectId)
               await supabase.from('department_allocations').delete().in('subproject_id', subprojects.map(s => s.id))
@@ -591,7 +599,10 @@ export default function ProjectDetailPage() {
                       {/* Delete */}
                       <div className="flex justify-end pt-2">
                         <button
-                          onClick={() => { if (confirm(`Delete "${sub.name}"?`)) deleteSubproject(sub.id) }}
+                          onClick={async () => {
+                            const confirmed = await confirm({ title: 'Delete Subproject', message: `Delete "${sub.name}"?`, confirmLabel: 'Delete', variant: 'danger' })
+                            if (confirmed) deleteSubproject(sub.id)
+                          }}
                           className="flex items-center gap-1.5 text-xs text-[#9CA3AF] hover:text-[#DC2626] transition-colors"
                         >
                           <Trash2 className="w-3.5 h-3.5" /> Remove
