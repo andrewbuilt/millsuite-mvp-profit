@@ -75,8 +75,7 @@ export default function DashboardPage() {
   async function loadData() {
     setLoading(true)
 
-    let projectsQuery = supabase.from('projects').select('id, name, client_name, status, bid_total').in('status', ['active', 'bidding', 'complete'])
-    if (org?.id) projectsQuery = projectsQuery.eq('org_id', org.id)
+    if (!org?.id) return
 
     const [
       { data: projs },
@@ -84,10 +83,10 @@ export default function DashboardPage() {
       { data: entries },
       { data: invs },
     ] = await Promise.all([
-      projectsQuery,
-      supabase.from('subprojects').select('id, project_id, name, labor_hours'),
-      supabase.from('time_entries').select('project_id, subproject_id, duration_minutes'),
-      supabase.from('invoices').select('project_id, total_amount'),
+      supabase.from('projects').select('id, name, client_name, status, bid_total').eq('org_id', org.id).in('status', ['active', 'bidding', 'complete']),
+      supabase.from('subprojects').select('id, project_id, name, labor_hours').eq('org_id', org.id),
+      supabase.from('time_entries').select('project_id, subproject_id, duration_minutes').eq('org_id', org.id),
+      supabase.from('invoices').select('project_id, total_amount').eq('org_id', org.id),
     ])
 
     setProjects(projs || [])

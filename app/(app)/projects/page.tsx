@@ -78,21 +78,25 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     loadProjects()
-  }, [])
+  }, [org?.id])
 
   async function loadProjects() {
     setLoading(true)
+    if (!org?.id) return
     const [projectsRes, subprojectsRes, timeEntriesRes] = await Promise.all([
       supabase
         .from('projects')
         .select('id, org_id, name, client_name, status, bid_total, actual_total, sold_at, completed_at')
+        .eq('org_id', org.id)
         .order('created_at', { ascending: false }),
       supabase
         .from('subprojects')
-        .select('id, project_id, name, labor_hours'),
+        .select('id, project_id, name, labor_hours')
+        .eq('org_id', org.id),
       supabase
         .from('time_entries')
-        .select('id, subproject_id, project_id, duration_minutes'),
+        .select('id, subproject_id, project_id, duration_minutes')
+        .eq('org_id', org.id),
     ])
     setProjects(projectsRes.data || [])
     setSubprojects(subprojectsRes.data || [])

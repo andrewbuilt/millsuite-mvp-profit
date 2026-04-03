@@ -108,12 +108,14 @@ export default function TimePage() {
 
   // ── Fetch projects ────────────────────────────────────────────────
   const fetchProjects = useCallback(async () => {
+    if (!org?.id) return
     const { data } = await supabase
       .from('projects')
       .select('id, name, status')
+      .eq('org_id', org.id)
       .order('name')
     if (data) setProjects(data)
-  }, [])
+  }, [org?.id])
 
   // ── Fetch subprojects for a project (cached) ─────────────────────
   const fetchSubprojects = useCallback(async (projectId: string) => {
@@ -131,12 +133,14 @@ export default function TimePage() {
 
   // ── Fetch recent time entries ─────────────────────────────────────
   const fetchEntries = useCallback(async () => {
+    if (!org?.id) return
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
     const { data } = await supabase
       .from('time_entries')
       .select('*, project:projects(id, name, status), subproject:subprojects(id, project_id, name)')
+      .eq('org_id', org.id)
       .gte('created_at', sevenDaysAgo.toISOString())
       .order('created_at', { ascending: false })
 

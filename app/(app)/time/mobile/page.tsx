@@ -35,10 +35,11 @@ export default function MobileTimerPage() {
 
   // Load projects
   useEffect(() => {
-    supabase.from('projects').select('id, name').in('status', ['active', 'bidding']).order('name').then(({ data }) => {
+    if (!org?.id) return
+    supabase.from('projects').select('id, name').eq('org_id', org.id).in('status', ['active', 'bidding']).order('name').then(({ data }) => {
       if (data) setProjects(data)
     })
-  }, [])
+  }, [org?.id])
 
   // Load subprojects when project changes
   useEffect(() => {
