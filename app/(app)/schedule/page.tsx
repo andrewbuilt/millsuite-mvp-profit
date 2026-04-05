@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import PlanGate from '@/components/plan-gate'
+import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 
 // =====================================================
@@ -1326,15 +1327,16 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
   // RENDER
   // =====================================================
   if (authLoading || !org) {
-    return <LoadingSkeleton />
+    return <><Nav /><LoadingSkeleton /></>
   }
 
   return (
     <PlanGate requires="schedule">
+      <Nav />
       {!dataLoaded ? (
         <LoadingSkeleton />
       ) : (
-        <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", background: '#FFF', height: '100vh', color: '#111', display: 'flex', overflow: 'hidden' }}>
+        <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", background: '#FFF', height: 'calc(100vh - 56px)', color: '#111', display: 'flex', overflow: 'hidden' }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             {/* Header */}
             <div style={{ padding: '12px 20px 0', borderBottom: '1px solid #E5E7EB', flexShrink: 0 }}>
