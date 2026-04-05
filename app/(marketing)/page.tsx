@@ -104,21 +104,23 @@ export default function LandingPage() {
           </div>
 
           <h1 className="text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-white leading-[1.1] mb-5 sm:mb-6">
-            Know if you're making money.{' '}
-            <span className="text-[#8B8B96]">Before it's too late.</span>
+            More sales won't save your shop.{' '}
+            <span className="text-[#8B8B96]">Knowing your numbers will.</span>
           </h1>
 
           <p className="text-base sm:text-lg text-[#8B8B96] max-w-2xl mx-auto mb-8 sm:mb-10 leading-relaxed">
-            Most shop owners find out a job lost money when they're already on to the next one. MillSuite gives you real-time project profitability so you can fix problems before they eat your margin.
+            Most shop owners don't know if a job made money until it's too late to do anything about it.
+            MillSuite tracks your actual costs against your bid, in real time, so you can catch problems before they eat your margin.
+            Built by a shop owner who spent 14 years figuring this out the hard way.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
             <Link href="/signup" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-[#D4956A] text-white font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
               Start free for 14 days <ArrowRight className="w-4 h-4" />
             </Link>
-            <Link href="/pricing" className="w-full sm:w-auto text-center px-6 py-3 text-[#8B8B96] font-medium rounded-xl border border-white/[0.08] hover:border-white/[0.15] hover:text-white transition-colors">
-              See pricing
-            </Link>
+            <a href="https://tools.millsuite.com" className="w-full sm:w-auto text-center px-6 py-3 text-[#8B8B96] font-medium rounded-xl border border-white/[0.08] hover:border-white/[0.15] hover:text-white transition-colors">
+              Calculate your shop rate (free)
+            </a>
           </div>
 
           <p className="text-xs text-[#555] mt-4">No credit card required. No sales call. Cancel anytime.</p>
@@ -161,6 +163,47 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* FOUNDER CREDIBILITY + LEARNING LOOP */}
+      <section className="py-14 sm:py-20 px-5 sm:px-6 border-t border-white/[0.04]">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-xs font-semibold text-[#D4956A] uppercase tracking-wider mb-4 text-center">Built by a shop owner</div>
+          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4 text-center">
+            14 years running a millwork shop. Over $10M of real projects through the system.
+          </h2>
+          <p className="text-[#8B8B96] mb-6 leading-relaxed text-center">
+            I'm Andrew Watson. I run Built LLC, a 14-person custom millwork shop in Tampa.
+            I tried spreadsheets, I tried enterprise software, I tried stitching together 4 different tools.
+            None of it could answer the one question that matters: am I making money on this job?
+          </p>
+          <p className="text-[#8B8B96] mb-6 leading-relaxed text-center">
+            So I built the answer. I ran over $10M of my own projects through MillSuite to build and prove the pricing engine.
+          </p>
+
+          {/* Learning Loop */}
+          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 sm:p-8 mt-8">
+            <h3 className="text-lg font-semibold text-white mb-3 text-center">Now every shop trains its own version.</h3>
+            <p className="text-sm text-[#8B8B96] leading-relaxed text-center mb-6">
+              MillSuite isn't a pre-trained AI that already knows your prices. It's a system that learns YOUR shop from YOUR data.
+              Every job you estimate, track costs on, and complete teaches the system what works in your specific business.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+              {[
+                { step: '1', label: 'Estimate a job' },
+                { step: '2', label: 'Track your actual costs' },
+                { step: '3', label: 'Complete the project' },
+                { step: '4', label: 'Your system gets smarter' },
+              ].map(s => (
+                <div key={s.step} className="text-center p-3 rounded-xl bg-white/[0.03]">
+                  <div className="text-lg font-bold text-[#D4956A] mb-1">{s.step}</div>
+                  <div className="text-xs text-[#8B8B96]">{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-[#555] text-center mt-4">Step by step. Job by job. The more you use it, the smarter it gets for your shop.</p>
+          </div>
+        </div>
+      </section>
+
       {/* PROBLEM → SOLUTION */}
       <section className="py-14 sm:py-20 px-5 sm:px-6 border-t border-white/[0.04]">
         <div className="max-w-3xl mx-auto">
@@ -169,24 +212,24 @@ export default function LandingPage() {
           <p className="text-[#8B8B96] mb-10 sm:mb-12 leading-relaxed">
             Every shop owner knows the feeling. You bid a job at $45,000. You think it went well.
             Then three months later you realize you spent $52,000 in labor and materials.
-            By then it's too late — you've already cashed the check and moved on.
+            By then it's too late. You've already moved on to the next one. The loss just quietly drains your account.
           </p>
 
           <div className="space-y-6 sm:space-y-8">
             <PainPoint
               number="1"
               problem="You don't know your real shop rate."
-              solution="Most shops guess. MillSuite calculates it from your actual overhead, payroll, and production hours — so every bid starts from a real number, not a feeling."
+              solution="You're pricing jobs based on a number you made up years ago. If that number is wrong, every bid you send is wrong too. MillSuite calculates it from your actual overhead, payroll, and production hours."
             />
             <PainPoint
               number="2"
-              problem="You can't see profit until the job is done."
-              solution="MillSuite tracks labor hours and material costs in real time against your bid. You'll see the margin shrinking before it's gone — not after."
+              problem="You don't know if a job's losing money until it's already done."
+              solution="MillSuite tracks labor hours and material costs in real time against your bid. You see the margin moving before it's gone, not after."
             />
             <PainPoint
               number="3"
-              problem="Your estimates are based on the last job, not data."
-              solution="Every completed project becomes data that makes your next estimate better. Over time, you're not guessing — you're pricing from your own track record."
+              problem="Your estimates don't get better over time."
+              solution="Every bid is a guess disconnected from the last one. With MillSuite, every completed project teaches your system to estimate the next one more accurately. Your pricing gets smarter with every job."
             />
           </div>
         </div>
@@ -202,34 +245,32 @@ export default function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            <FeatureCard icon={DollarSign} title="Shop Rate Calculator" description="Input your real overhead — rent, payroll, insurance, equipment. Get your true cost per production hour. Every bid starts from this number." />
-            <FeatureCard icon={BarChart3} title="Real-Time Project P&L" description="See bid vs. actual cost on every project, updated live as hours are logged and invoices come in. Green means you're good. Red means fix it now." />
-            <FeatureCard icon={Clock} title="Time Tracking" description="Start/stop timer or log hours manually. Time flows directly into project costs. Know exactly where every hour goes." />
-            <FeatureCard icon={Receipt} title="Invoice Parsing" description="Upload a vendor invoice. AI extracts the line items. Assign to a project and the material cost updates automatically." />
+            <FeatureCard icon={BarChart3} title="Real-Time Project P&L" description="See if a job's making or losing money, right now. Costs update live as hours are logged and invoices come in. No more finding out you lost money three weeks after the install." />
+            <FeatureCard icon={DollarSign} title="Shop Rate Calculator" description="Input your real overhead. Get your true cost per production hour. Every bid starts from a real number, not a feeling. Free to use at tools.millsuite.com." />
+            <FeatureCard icon={Clock} title="Time Tracking" description="Open the app, pick your project, tap start. Tap stop when you're done. That's the whole thing. Hours flow directly into project costs automatically." />
+            <FeatureCard icon={Receipt} title="Invoice Parsing" description="Snap a photo of a vendor invoice. AI reads every line item, matches it to your project. Costs update in real time across all active jobs." />
             <FeatureCard icon={Users} title="Team Cost Tracking" description="Add your team with annual costs and billable status. Your shop rate adjusts to reflect who's actually producing vs. who's overhead." />
-            <FeatureCard icon={Shield} title="Subproject Bidding" description="Break every job into subprojects — cabinets, countertops, install. Each gets its own material cost, labor hours, markup, and margin." />
+            <FeatureCard icon={Shield} title="Subproject Bidding" description="Break every job into subprojects. Cabinets, countertops, install. Each gets its own material cost, labor hours, markup, and margin. Set your target margin and see instantly if you're hitting it." />
           </div>
         </div>
       </section>
 
-      {/* SOCIAL PROOF */}
+      {/* BY THE NUMBERS */}
       <section className="py-14 sm:py-20 px-5 sm:px-6 border-t border-white/[0.04]">
-        <div className="max-w-3xl mx-auto text-center">
-          <div className="text-xs font-semibold text-[#D4956A] uppercase tracking-wider mb-4">Built for shops like yours</div>
-          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">Built inside a real shop.</h2>
-          <p className="text-[#8B8B96] leading-relaxed mb-8">
-            MillSuite was built inside Built LLC, a 14-person custom millwork shop in Tampa.
-            We didn't read about the problems in a market research deck — we lived them.
-            Every feature exists because we needed it ourselves.
-          </p>
-          <div className="inline-flex items-center gap-3 px-5 py-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-            <div className="w-10 h-10 rounded-full bg-[#D4956A]/10 flex items-center justify-center">
-              <span className="text-sm font-semibold text-[#D4956A]">AW</span>
-            </div>
-            <div className="text-left">
-              <div className="text-sm font-medium text-white">Andrew Watson</div>
-              <div className="text-xs text-[#8B8B96]">Founder, Built LLC & MillSuite</div>
-            </div>
+        <div className="max-w-4xl mx-auto">
+          <div className="text-xs font-semibold text-[#D4956A] uppercase tracking-wider mb-4 text-center">By the numbers</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
+            {[
+              { stat: '14', label: 'years running a shop' },
+              { stat: '$10M+', label: 'of real projects through the system' },
+              { stat: '$39', label: 'per month (vs. $1,400+ for competitors)' },
+              { stat: '<1hr', label: 'to get up and running' },
+            ].map(s => (
+              <div key={s.label} className="text-center">
+                <div className="text-3xl sm:text-4xl font-bold font-mono text-white mb-1">{s.stat}</div>
+                <div className="text-xs text-[#8B8B96]">{s.label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -245,10 +286,13 @@ export default function LandingPage() {
           <div>
             <FAQItem question="What happens after the 14 days?" answer="You pick a plan or you walk away. We don't auto-charge anything. We don't believe in surprise bills." />
             <FAQItem question="Is there a contract?" answer="Nope. Month-to-month. Cancel whenever. We'd rather earn your business every month than lock you in." />
-            <FAQItem question="What if my shop has 2 people? Or 15?" answer="The Starter plan works for shops of any size. As we release more advanced features — scheduling, capacity planning, AI estimating — we'll add plans that fit bigger operations." />
-            <FAQItem question="We already use QuickBooks. Does this replace it?" answer="No, and we're not trying to. MillSuite tracks project profitability — what QuickBooks can't do well. They're complementary. QuickBooks integration is on our roadmap." />
-            <FAQItem question="I've bought software before that nobody on my team ended up using." answer="Fair. Most shop software is built by people who've never run a shop. We built MillSuite inside a real millwork operation to solve problems we were living with. If your crew won't use it, that's our problem to fix." />
-            <FAQItem question="Can I get a demo?" answer="You can — email us at info@millsuite.com. But honestly, just start the trial. It's faster, and you'll learn more in 10 minutes of using it than 30 minutes of watching someone else use it." />
+            <FAQItem question="What if my data isn't perfect?" answer="It doesn't need to be. Perfect data isn't the goal. Directional data that gets better every project is. Track what you can. The system learns from whatever you give it. Every job you track makes the next estimate better." />
+            <FAQItem question="My shop is different from everyone else's." answer="We've talked to shops from $1M to $50M in revenue. Custom millwork, commercial interiors, residential cabinets. They all have the same core problem: they don't know which jobs make money. The work is unique. The problem isn't. And because MillSuite learns from YOUR projects, it adapts to your specific shop." />
+            <FAQItem question="My guys won't track their time." answer="We built the time tracker for shop floor guys, not accountants. Open the app, pick your project, tap start. Tap stop when you're done. That's the whole thing." />
+            <FAQItem question="What if MillSuite goes away? You're a small company." answer="Fair question. Your data is yours and you can export it anytime. But also: I've been running a millwork shop for 14 years. I built this software because I need it to run my own business. It's not going anywhere." />
+            <FAQItem question="We already use QuickBooks. Does this replace it?" answer="No, and we're not trying to. MillSuite tracks project profitability, which is what QuickBooks can't do well. They're complementary. QuickBooks integration is on our roadmap." />
+            <FAQItem question="I've bought software before that nobody ended up using." answer="Most shop software is built by people who've never run a shop. We built MillSuite inside a real millwork operation to solve problems we were living with every day. If your crew won't use it, that's our problem to fix." />
+            <FAQItem question="Can I get a demo?" answer="You can. Email us at info@millsuite.com. But honestly, just start the trial. It's faster, and you'll learn more in 10 minutes of using it than 30 minutes of watching someone else use it." />
           </div>
         </div>
       </section>
@@ -265,7 +309,8 @@ export default function LandingPage() {
               Start your free 14-day trial <ArrowRight className="w-5 h-5" />
             </Link>
           </div>
-          <p className="text-sm text-[#555] mt-4">No credit card. No contract. No BS.</p>
+          <p className="text-sm text-[#8B8B96] mt-4">Join the shop owners who stopped guessing and started knowing.</p>
+          <p className="text-xs text-[#555] mt-2">No credit card. No contract. No BS.</p>
         </div>
       </section>
 

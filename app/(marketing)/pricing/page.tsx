@@ -88,6 +88,9 @@ export default function PricingPage() {
           We're not going to charge you extra to add a team member or see your own reports.
           Start with what you need today.
         </p>
+        <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D4956A]/20 bg-[#D4956A]/5">
+          <span className="text-xs font-medium text-[#D4956A]">Early adopter pricing: lock in $39/mo forever, even when we raise prices later</span>
+        </div>
       </section>
 
       {/* Tiers */}
@@ -220,6 +223,9 @@ export default function PricingPage() {
           <p className="text-[#8B8B96] leading-relaxed mb-6">
             No credit card. No sales pitch. Just set up your first project and see if it clicks.
             Most shops are up and running in under an hour.
+          </p>
+          <p className="text-sm text-[#8B8B96] mb-4">
+            Most shop software starts at $500+/mo and takes months to implement. MillSuite is $39/mo and most shops are running in under an hour.
           </p>
           <p className="text-sm text-[#555]">
             After the trial, pick a plan or don't. We're not going to chase you down.
