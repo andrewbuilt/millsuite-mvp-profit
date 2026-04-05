@@ -40,7 +40,7 @@ export default function Nav() {
 
   return (
     <nav className="bg-white border-b border-[#E5E7EB] sticky top-0 z-50">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
+      <div className="px-4 sm:px-6 flex items-center justify-between h-14">
         <div className="flex items-center gap-4 sm:gap-8">
           <div className="flex items-center gap-2">
             <Link href={isMember ? '/time' : '/dashboard'} className="flex items-center gap-2 text-base font-semibold tracking-tight text-[#111]">
