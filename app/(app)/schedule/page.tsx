@@ -74,6 +74,7 @@ interface DragStateType {
   subKey: string
   startX: number
   startWeek: number
+  independent: boolean
 }
 
 // =====================================================
@@ -828,7 +829,18 @@ export default function SchedulePage() {
       .eq('active', true)
       .order('display_order')
 
-    const depts: Department[] = deptData || []
+    // Filter out management and enforce production order
+    const PROD_ORDER = ['engineering', 'cnc', 'cnc / mill', 'cnc/mill', 'assembly', 'case assembly', 'finishing', 'finish', 'install', 'installation']
+    const depts: Department[] = (deptData || [])
+      .filter(d => !d.name.toLowerCase().includes('management'))
+      .sort((a, b) => {
+        const ai = PROD_ORDER.findIndex(p => a.name.toLowerCase().includes(p))
+        const bi = PROD_ORDER.findIndex(p => b.name.toLowerCase().includes(p))
+        if (ai !== -1 && bi !== -1) return ai - bi
+        if (ai !== -1) return -1
+        if (bi !== -1) return 1
+        return a.display_order - b.display_order
+      })
     setDepartments(depts)
 
     // Load projects
@@ -943,7 +955,8 @@ export default function SchedulePage() {
   const handlePointerDown = useCallback((e: React.PointerEvent, block: Block) => {
     if (whatIfBlocks) return
     e.preventDefault(); e.stopPropagation()
-    setDragState({ blockId: block.id, subKey: getSubKey(block), startX: e.clientX, startWeek: block.week })
+    // Hold Alt/Option to move just this one department independently
+    setDragState({ blockId: block.id, subKey: getSubKey(block), startX: e.clientX, startWeek: block.week, independent: e.altKey })
   }, [whatIfBlocks])
 
   const handlePointerMove = useCallback((e: PointerEvent) => {
@@ -959,11 +972,22 @@ export default function SchedulePage() {
       if (!shift) return prev
       const di = deptIndex[db.dept] ?? 0
       const sk = getSubKey(db)
-      const updated = prev.map(b => {
-        if (getSubKey(b) !== sk) return b
-        if ((deptIndex[b.dept] ?? 0) >= di) return { ...b, week: Math.max(0, Math.min(numWeeks - 1, b.week + shift)) }
-        return b
-      })
+
+      let updated: Block[]
+      if (dragState.independent) {
+        // Alt held: move ONLY this one department block
+        updated = prev.map(b => {
+          if (b.id === dragState.blockId) return { ...b, week: Math.max(0, Math.min(numWeeks - 1, b.week + shift)) }
+          return b
+        })
+      } else {
+        // Default: move this dept and all downstream depts together
+        updated = prev.map(b => {
+          if (getSubKey(b) !== sk) return b
+          if ((deptIndex[b.dept] ?? 0) >= di) return { ...b, week: Math.max(0, Math.min(numWeeks - 1, b.week + shift)) }
+          return b
+        })
+      }
       return enforceInstallSequencing(updated)
     })
     setDragState(ds => ds ? ({ ...ds, startX: e.clientX, startWeek: ds.startWeek + Math.round((e.clientX - ds.startX) / WEEK_WIDTH) }) : null)
@@ -971,13 +995,18 @@ export default function SchedulePage() {
 
   const handlePointerUp = useCallback(() => {
     if (dragState) {
-      // Persist all moved blocks
       const movedBlock = blocks.find(b => b.id === dragState.blockId)
       if (movedBlock) {
-        const sk = getSubKey(movedBlock)
-        blocks.filter(b => getSubKey(b) === sk).forEach(b => {
-          persistBlockMove(b.id, b.week)
-        })
+        if (dragState.independent) {
+          // Only persist the single block that was moved
+          persistBlockMove(movedBlock.id, movedBlock.week)
+        } else {
+          // Persist all blocks for this subproject
+          const sk = getSubKey(movedBlock)
+          blocks.filter(b => getSubKey(b) === sk).forEach(b => {
+            persistBlockMove(b.id, b.week)
+          })
+        }
       }
     }
     setDragState(null)
@@ -1332,6 +1361,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   <p style={{ fontSize: 12, color: '#6B7280', margin: '2px 0 0' }}>
                     {projects.length} projects &middot; <span style={{ fontFamily: "'SF Mono', monospace" }}>{totalHours.toLocaleString()}h</span>
                     {overCapCount > 0 && <span style={{ color: '#DC2626', marginLeft: 8 }}>{overCapCount} over-capacity</span>}
+                    <span style={{ color: '#9CA3AF', marginLeft: 8 }}>Hold ⌥ to move dept independently</span>
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
