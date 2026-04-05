@@ -1,296 +1,531 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import Nav from '@/components/nav'
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
+import { useAuth } from '@/lib/auth-context'
 import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
-import { useAuth } from '@/lib/auth-context'
 
-import {
-  DEPT_ORDER, DEPT_SHORT, PROJECT_COLORS,
-  autoPlace, buildBlocks, computeAlerts, sortProjects, cascadeMove,
-  buildDeptConfig, deptConfigToCapacity, blockDays,
-  toDateKey, parseDate, addWorkDays, genWorkDays, getMonday,
-  type ScheduleProject, type ScheduleSub, type Allocation,
-  type PlacedBlock, type DeptCapacity, type DeptKey, type ScheduleAlert, type DeptConfig,
-} from '@/lib/schedule-engine'
-
-import Timeline from '@/components/schedule/Timeline'
-import type { ZoomLevel } from '@/components/schedule/Timeline'
-import ProjectSidebar from '@/components/schedule/ProjectSidebar'
-
-// ═══════════════════════════════════════════════════════════════════
+// =====================================================
 // TYPES
-// ═══════════════════════════════════════════════════════════════════
-
-interface DeptInfo {
-  key: DeptKey; name: string; color: string; id: string
+// =====================================================
+interface Department {
+  id: string
+  name: string
+  display_order: number
+  color: string | null
+  hours_per_day: number
+  active: boolean
+  org_id: string
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// BLOCK EDIT POPOVER
-// ═══════════════════════════════════════════════════════════════════
-
-function BlockEditPopover({ block, rect, deptInfos, capacity, deptConfig, memberCountByDept, blocks, allocations, subs, onUpdate, onClose }: {
-  block: PlacedBlock; rect: DOMRect; deptInfos: DeptInfo[]; capacity: DeptCapacity; deptConfig: DeptConfig
-  memberCountByDept: Record<string, number>
-  blocks: PlacedBlock[]
-  allocations: Allocation[]
-  subs: ScheduleSub[]
-  onUpdate: (allocationId: string, updates: { estimated_hours?: number; crew_size?: number; scheduled_days?: number }) => void
-  onClose: () => void
-}) {
-  const [hours, setHours] = useState(String(block.hours))
-  const [crew, setCrew] = useState(block.crewSize)
-  const [days, setDays] = useState(String(block.days))
-  const popRef = useRef<HTMLDivElement>(null)
-  const dept = deptInfos.find(d => d.key === block.dept)
-  const maxCrew = memberCountByDept[dept?.id || ''] || 5
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => { if (popRef.current && !popRef.current.contains(e.target as Node)) onClose() }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onClose])
-
-  // Recalculate days when hours or crew change
-  const computedDays = Math.ceil((parseFloat(hours) || block.hours) / (crew * 8))
-
-  function handleCrewChange(newCrew: number) {
-    const clamped = Math.max(1, Math.min(maxCrew, newCrew))
-    setCrew(clamped)
-    const h = parseFloat(hours) || block.hours
-    setDays(String(Math.ceil(h / (clamped * 8))))
-  }
-
-  function handleApply() {
-    const h = parseFloat(hours) || block.hours
-    const d = parseInt(days) || computedDays
-    onUpdate(block.allocationId, {
-      estimated_hours: h,
-      crew_size: crew,
-      scheduled_days: d,
-    })
-  }
-
-  const top = Math.min(rect.bottom + 4, window.innerHeight - 400)
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - 290))
-
-  return (
-    <div ref={popRef} className="fixed z-50" style={{ top, left, width: 280, background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 8px 30px rgba(0,0,0,0.12)', padding: 14 }}>
-      <div className="flex items-center gap-2 mb-3 pb-2" style={{ borderBottom: `1px solid ${dept?.color || '#E5E7EB'}20` }}>
-        <div className="w-1 h-4 rounded-sm" style={{ background: dept?.color || '#94A3B8' }} />
-        <div className="flex-1 min-w-0">
-          <div className="text-[11px] font-semibold text-[#111] truncate">{block.subName}</div>
-          <div className="text-[9px] text-[#9CA3AF]">{dept?.name} · {block.projectName}</div>
-        </div>
-      </div>
-
-      {/* Current stats */}
-      <div className="flex gap-1.5 mb-3">
-        {[{ label: 'Hours', value: block.hours, suffix: 'h' }, { label: 'Crew', value: block.crewSize, suffix: '' }, { label: 'Days', value: block.days, suffix: 'd' }, { label: 'Done', value: block.progress, suffix: '%' }].map(s => (
-          <div key={s.label} className="flex-1 bg-[#F9FAFB] rounded-lg p-1.5 text-center">
-            <div className="text-[9px] text-[#9CA3AF] font-semibold uppercase tracking-wider">{s.label}</div>
-            <div className="text-[11px] font-mono font-semibold text-[#111]">{s.value}{s.suffix}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Edit fields */}
-      <div className="space-y-2 mb-3">
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] text-[#6B7280] font-medium">Hours</label>
-          <input value={hours} onChange={e => { setHours(e.target.value); setDays(String(Math.ceil((parseFloat(e.target.value) || 1) / (crew * 8)))) }}
-            className="w-20 px-2 py-1 text-xs font-mono text-center border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]" />
-        </div>
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] text-[#6B7280] font-medium">Crew</label>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => handleCrewChange(crew - 1)}
-              disabled={crew <= 1}
-              className="w-7 h-7 text-sm font-medium rounded-lg transition-colors bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB] disabled:opacity-30 disabled:cursor-not-allowed"
-            >-</button>
-            <input
-              type="number"
-              value={crew}
-              min={1}
-              max={maxCrew}
-              onChange={e => handleCrewChange(parseInt(e.target.value) || 1)}
-              className="w-12 px-1 py-1 text-xs font-mono text-center border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]"
-            />
-            <button
-              onClick={() => handleCrewChange(crew + 1)}
-              disabled={crew >= maxCrew}
-              className="w-7 h-7 text-sm font-medium rounded-lg transition-colors bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB] disabled:opacity-30 disabled:cursor-not-allowed"
-            >+</button>
-            <span className="text-[9px] text-[#9CA3AF] whitespace-nowrap">of {maxCrew} available</span>
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] text-[#6B7280] font-medium">Days</label>
-          <input value={days} onChange={e => setDays(e.target.value)}
-            className="w-20 px-2 py-1 text-xs font-mono text-center border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]" />
-        </div>
-      </div>
-
-      <div className="flex gap-1.5 mt-3 pt-2" style={{ borderTop: '1px solid #F3F4F6' }}>
-        <button onClick={onClose} className="flex-1 px-3 py-1.5 text-[10px] font-medium text-[#6B7280] bg-[#F3F4F6] rounded-lg hover:bg-[#E5E7EB]">Cancel</button>
-        <button onClick={handleApply} className="flex-1 px-3 py-1.5 bg-[#2563EB] text-white text-[10px] font-medium rounded-lg hover:bg-[#1D4ED8]">Apply</button>
-      </div>
-    </div>
-  )
+interface Project {
+  id: string
+  name: string
+  client_name: string | null
+  status: string
+  due_date: string | null
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// DEPARTMENT EDIT MODAL
-// ═══════════════════════════════════════════════════════════════════
-
-function DeptEditModal({ dept, headcount, hoursPerDay, defaultCrewSize, onSave, onClose }: {
-  dept: { key: DeptKey; name: string; color: string; id: string }
-  headcount: number
-  hoursPerDay: number
-  defaultCrewSize: number
-  onSave: (deptId: string, updates: { hours_per_day?: number; default_crew_size?: number }) => void
-  onClose: () => void
-}) {
-  const [hpd, setHpd] = useState(String(hoursPerDay))
-  const [dcs, setDcs] = useState(String(defaultCrewSize))
-  const popRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => { if (popRef.current && !popRef.current.contains(e.target as Node)) onClose() }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onClose])
-
-  function handleSave() {
-    onSave(dept.id, {
-      hours_per_day: parseFloat(hpd) || 8,
-      default_crew_size: parseInt(dcs) || 1,
-    })
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.2)' }}>
-      <div ref={popRef} style={{ width: 280, background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 8px 30px rgba(0,0,0,0.12)', padding: 14 }}>
-        <div className="flex items-center gap-2 mb-3 pb-2" style={{ borderBottom: `1px solid ${dept.color}20` }}>
-          <div className="w-1.5 h-4 rounded-sm" style={{ background: dept.color }} />
-          <div className="text-[12px] font-semibold text-[#111]">{dept.name}</div>
-        </div>
-
-        <div className="space-y-2.5 mb-3">
-          <div className="flex items-center justify-between">
-            <label className="text-[10px] text-[#6B7280] font-medium">Headcount</label>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-mono font-semibold text-[#111]">{headcount}</span>
-              <a href="/team" className="text-[9px] text-[#2563EB] hover:text-[#1D4ED8]">change in Team</a>
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <label className="text-[10px] text-[#6B7280] font-medium">Hours per day</label>
-            <input value={hpd} onChange={e => setHpd(e.target.value)}
-              type="number" min={1} max={24}
-              className="w-16 px-2 py-1 text-xs font-mono text-center border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]" />
-          </div>
-          <div className="flex items-center justify-between">
-            <label className="text-[10px] text-[#6B7280] font-medium">Default crew size</label>
-            <input value={dcs} onChange={e => setDcs(e.target.value)}
-              type="number" min={1} max={headcount || 10}
-              className="w-16 px-2 py-1 text-xs font-mono text-center border border-[#E5E7EB] rounded-lg focus:outline-none focus:border-[#2563EB]" />
-          </div>
-        </div>
-
-        <div className="flex gap-1.5">
-          <button onClick={onClose} className="flex-1 px-3 py-1.5 text-[10px] font-medium text-[#6B7280] bg-[#F3F4F6] rounded-lg hover:bg-[#E5E7EB]">Cancel</button>
-          <button onClick={handleSave} className="flex-1 px-3 py-1.5 bg-[#2563EB] text-white text-[10px] font-medium rounded-lg hover:bg-[#1D4ED8]">Save</button>
-        </div>
-      </div>
-    </div>
-  )
+interface Subproject {
+  id: string
+  name: string
+  sort_order: number
+  project_id: string
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// DAILY DETAIL PANEL
-// ═══════════════════════════════════════════════════════════════════
+interface Allocation {
+  id: string
+  subproject_id: string
+  department_id: string
+  scheduled_date: string | null
+  scheduled_days: number
+  estimated_hours: number
+  crew_size: number
+  completed: boolean
+}
 
-function DailyDetailPanel({ date, blocks, deptInfos, capacity, onClose }: {
-  date: Date
-  blocks: PlacedBlock[]
-  deptInfos: DeptInfo[]
-  capacity: DeptCapacity
-  onClose: () => void
-}) {
-  const dateKey = toDateKey(date)
+interface Block {
+  id: string
+  project: string
+  projectName: string
+  sub: string
+  subId: string
+  dept: string
+  week: number
+  hours: number
+}
 
-  // Find blocks that span this date
-  const dayBlocks = useMemo(() => {
-    return blocks.filter(b => {
-      const start = parseDate(b.startDate)
-      const end = addWorkDays(start, b.days)
-      const d = parseDate(dateKey)
-      return d >= start && d < end
-    })
-  }, [blocks, dateKey])
+interface DiffInfo {
+  from: number
+  to: number
+  direction: 'earlier' | 'later'
+}
 
-  const dayLabel = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  text: string
+  type?: string
+  thinking?: string
+  moveCount?: number
+}
 
-  // Group by department
-  const byDept = useMemo(() => {
-    const map = new Map<DeptKey, PlacedBlock[]>()
-    for (const b of dayBlocks) {
-      const arr = map.get(b.dept) || []
-      arr.push(b)
-      map.set(b.dept, arr)
+interface DragStateType {
+  blockId: string
+  subKey: string
+  startX: number
+  startWeek: number
+}
+
+// =====================================================
+// CONSTANTS
+// =====================================================
+const WEEK_WIDTH = 164
+const ROW_HEIGHT = 140
+const SWIM_ROW = 36
+const SWIM_LABEL_WIDTH = 200
+const DEPT_LABEL_WIDTH = 150
+
+const COLOR_PALETTE = [
+  { bg: '#2563EB', light: '#DBEAFE', text: '#1E40AF', border: '#93C5FD' },
+  { bg: '#7C3AED', light: '#EDE9FE', text: '#5B21B6', border: '#C4B5FD' },
+  { bg: '#059669', light: '#D1FAE5', text: '#065F46', border: '#6EE7B7' },
+  { bg: '#DC2626', light: '#FEE2E2', text: '#991B1B', border: '#FCA5A5' },
+  { bg: '#D97706', light: '#FEF3C7', text: '#92400E', border: '#FCD34D' },
+  { bg: '#0891B2', light: '#CFFAFE', text: '#155E75', border: '#67E8F9' },
+  { bg: '#4F46E5', light: '#E0E7FF', text: '#3730A3', border: '#A5B4FC' },
+  { bg: '#BE185D', light: '#FCE7F3', text: '#831843', border: '#F9A8D4' },
+  { bg: '#EA580C', light: '#FFF7ED', text: '#9A3412', border: '#FDBA74' },
+  { bg: '#16A34A', light: '#DCFCE7', text: '#14532D', border: '#86EFAC' },
+]
+
+const DEPT_COLOR_PALETTE = [
+  { bg: '#2563EB', light: '#DBEAFE', text: '#1E40AF' },
+  { bg: '#D97706', light: '#FEF3C7', text: '#92400E' },
+  { bg: '#059669', light: '#D1FAE5', text: '#065F46' },
+  { bg: '#7C3AED', light: '#EDE9FE', text: '#5B21B6' },
+  { bg: '#DC2626', light: '#FEE2E2', text: '#991B1B' },
+  { bg: '#0891B2', light: '#CFFAFE', text: '#155E75' },
+  { bg: '#4F46E5', light: '#E0E7FF', text: '#3730A3' },
+  { bg: '#BE185D', light: '#FCE7F3', text: '#831843' },
+]
+
+const PRIORITY_LABELS: Record<number, string> = { 1: 'Critical', 2: 'High', 3: 'Normal', 4: 'Low', 5: 'Backlog' }
+const PRIORITY_COLORS: Record<number, string> = { 1: '#DC2626', 2: '#D97706', 3: '#6B7280', 4: '#9CA3AF', 5: '#D1D5DB' }
+
+const POWERED_BY = [
+  'Powered by coffee and sawdust', 'Powered by Harry Potter', 'Powered by gypsy tears',
+  'Powered by jet fuel', 'Powered by wind turbines', 'Powered by your mother-in-law',
+  'Powered by spite and determination', 'Powered by leftover pizza', 'Powered by oak shavings',
+  'Powered by 3 hours of sleep', 'Powered by CNC dust', 'Powered by sheer willpower',
+  'Powered by dad jokes', 'Powered by existential dread', 'Powered by a really long extension cord',
+  'Powered by vibes', 'Powered by the tears of project managers', 'Powered by diet coke',
+  'Powered by Florida humidity', 'Powered by whatever Elon is smoking', 'Powered by blind optimism',
+  'Powered by ramen and regret', 'Powered by a hamster wheel', 'Powered by 42 Chrome tabs',
+  'Powered by maple plywood offcuts', 'Powered by the client who keeps changing their mind',
+  'Powered by Supabase and prayers', 'Powered by Tampa tap water', 'Powered by unrealistic deadlines',
+  'Powered by a M4 Pro doing its best',
+]
+
+// =====================================================
+// HELPERS
+// =====================================================
+function getDeptShort(name: string): string {
+  const map: Record<string, string> = {
+    'engineering': 'ENG', 'cnc': 'CNC', 'cnc / mill': 'CNC', 'cnc/mill': 'CNC',
+    'assembly': 'ASSY', 'case assembly': 'ASSY',
+    'finishing': 'FIN', 'finish': 'FIN',
+    'install': 'INST', 'installation': 'INST',
+  }
+  return map[name.toLowerCase()] || name.substring(0, 4).toUpperCase()
+}
+
+function getMonday(d: Date): Date {
+  const day = d.getDay()
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+  const monday = new Date(d)
+  monday.setDate(diff)
+  monday.setHours(0, 0, 0, 0)
+  return monday
+}
+
+function getSubKey(b: Block): string {
+  return `${b.project}::${b.sub}`
+}
+
+function getPoweredBy(): string {
+  return POWERED_BY[Math.floor(Date.now() / 86400000) % POWERED_BY.length]
+}
+
+function computeDiff(oldBlocks: Block[], newBlocks: Block[]): Map<string, DiffInfo> {
+  const diff = new Map<string, DiffInfo>()
+  const oldMap = new Map(oldBlocks.map(b => [b.id, b]))
+  for (const nb of newBlocks) {
+    const ob = oldMap.get(nb.id)
+    if (ob && ob.week !== nb.week) {
+      diff.set(nb.id, { from: ob.week, to: nb.week, direction: nb.week < ob.week ? 'earlier' : 'later' })
     }
-    return map
-  }, [dayBlocks])
+  }
+  return diff
+}
+
+// =====================================================
+// STYLE HELPERS
+// =====================================================
+function btnS(bg: string, color: string): React.CSSProperties {
+  return { fontSize: 12, fontWeight: 500, padding: '5px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: bg, color, cursor: 'pointer', transition: 'all 0.15s' }
+}
+const simBtnS: React.CSSProperties = { fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4, border: '1px solid #E5E7EB', background: '#FFF', color: '#6B7280', cursor: 'pointer' }
+
+// =====================================================
+// THINKING BLOCK
+// =====================================================
+function ThinkingBlock({ thinking }: { thinking: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ marginBottom: 4, paddingLeft: 4 }}>
+      <button onClick={() => setOpen(o => !o)} style={{ fontSize: 10, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0' }}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}><path d="M9 18l6-6-6-6" /></svg>
+        reasoning
+      </button>
+      {open && <div style={{ fontSize: 11, color: '#9CA3AF', background: '#F9FAFB', border: '1px solid #F3F4F6', borderRadius: 8, padding: '8px 10px', marginTop: 2, lineHeight: 1.45, maxHeight: 200, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>{thinking}</div>}
+    </div>
+  )
+}
+
+// =====================================================
+// WEEK COLUMN HEADERS
+// =====================================================
+function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCapacity }: {
+  numWeeks: number
+  weekZero: Date
+  departments: Department[]
+  capacityMap: Record<string, number>
+  effectiveCapacity: (deptId: string) => number
+}) {
+  const getWeekLabel = (i: number): string => {
+    const d = new Date(weekZero)
+    d.setDate(d.getDate() + i * 7)
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
 
   return (
-    <div className="border-t border-[#E5E7EB] bg-white flex-shrink-0" style={{ maxHeight: 320, overflowY: 'auto' }}>
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#F3F4F6] sticky top-0 bg-white z-10">
-        <div className="text-[12px] font-semibold text-[#111]">{dayLabel}</div>
-        <button onClick={onClose} className="text-[10px] text-[#9CA3AF] hover:text-[#6B7280]">Close</button>
+    <>
+      {Array.from({ length: numWeeks }, (_, i) => {
+        const wt = departments.reduce((s, d) => s + (capacityMap[`${d.id}::${i}`] || 0), 0)
+        const wc = departments.reduce((s, d) => s + effectiveCapacity(d.id), 0)
+        const wp = wc > 0 ? Math.round((wt / wc) * 100) : 0
+        return (
+          <div key={i} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #F3F4F6', padding: '6px 0 4px', textAlign: 'center', background: i % 2 === 0 ? '#FFF' : '#FAFBFC' }}>
+            <div style={{ fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>WK {i + 1}</div>
+            <div style={{ fontSize: 11, fontWeight: 500, color: '#6B7280', marginTop: 1 }}>{getWeekLabel(i)}</div>
+            <div style={{ margin: '3px 10px 0', height: 3, background: '#F3F4F6', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ width: `${Math.min(wp, 100)}%`, height: '100%', borderRadius: 2, background: wp > 100 ? '#DC2626' : wp > 80 ? '#D97706' : wp > 50 ? '#2563EB' : '#D1D5DB', transition: 'width 0.3s' }} />
+            </div>
+            {wt > 0 && <div style={{ fontSize: 8, fontFamily: "'SF Mono', monospace", marginTop: 1, color: wp > 100 ? '#DC2626' : wp > 80 ? '#D97706' : '#9CA3AF', fontWeight: wp > 80 ? 600 : 400 }}>{wp}%</div>}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+// =====================================================
+// FLOW VIEW (departments as rows)
+// =====================================================
+function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, simMode, adjustCapacity, capacityOverrides, deptCapacities }: {
+  blocks: Block[]
+  numWeeks: number
+  weekZero: Date
+  departments: Department[]
+  deptColors: Record<string, { bg: string; light: string; text: string }>
+  projectColors: Record<string, { bg: string; light: string; text: string; border: string }>
+  capacityMap: Record<string, number>
+  effectiveCapacity: (deptId: string) => number
+  filter: string | null
+  highlightKey: string | null
+  dragState: DragStateType | null
+  whatIfDiff: Map<string, DiffInfo> | null
+  whatIfActive: boolean
+  onPointerDown: (e: React.PointerEvent, block: Block) => void
+  onHover: (block: Block) => void
+  onLeave: () => void
+  onSelect: (sk: string) => void
+  simMode: boolean
+  adjustCapacity: (deptId: string, delta: number) => void
+  capacityOverrides: Record<string, number>
+  deptCapacities: Record<string, number>
+}) {
+  const visibleCellMap = useMemo(() => {
+    const m: Record<string, Block[]> = {}
+    for (const b of blocks) {
+      if (filter && b.project !== filter) continue
+      const k = `${b.dept}::${b.week}`
+      if (!m[k]) m[k] = []
+      m[k].push(b)
+    }
+    return m
+  }, [blocks, filter])
+
+  return (
+    <div style={{ minWidth: DEPT_LABEL_WIDTH + numWeeks * WEEK_WIDTH }}>
+      {/* Column headers */}
+      <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF' }}>
+        <div style={{ width: DEPT_LABEL_WIDTH, minWidth: DEPT_LABEL_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'sticky', left: 0, background: '#FFF', zIndex: 25 }}>Dept</div>
+        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} />
+      </div>
+      {/* Rows */}
+      {departments.map(dept => {
+        const cap = effectiveCapacity(dept.id)
+        const isOverridden = capacityOverrides[dept.id] != null
+        const baseCap = deptCapacities[dept.id] || 0
+        const dc = deptColors[dept.id] || DEPT_COLOR_PALETTE[0]
+        return (
+          <div key={dept.id} style={{ display: 'flex', borderBottom: '1px solid #E5E7EB' }}>
+            <div style={{ width: DEPT_LABEL_WIDTH, minWidth: DEPT_LABEL_WIDTH, flexShrink: 0, minHeight: ROW_HEIGHT, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 12px', borderRight: '1px solid #E5E7EB', background: isOverridden ? '#F5F3FF' : '#FFF', position: 'sticky', left: 0, zIndex: 15 }}>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>{dept.name}</div>
+              <div style={{ fontSize: 10, color: isOverridden ? '#7C3AED' : '#9CA3AF', fontFamily: "'SF Mono', monospace", marginTop: 1, fontWeight: isOverridden ? 600 : 400 }}>
+                {cap}h/wk {isOverridden && <span style={{ fontSize: 8, color: '#A78BFA' }}>(was {baseCap})</span>}
+              </div>
+              {simMode && (
+                <div style={{ display: 'flex', gap: 3, marginTop: 4 }}>
+                  <button onClick={() => adjustCapacity(dept.id, -20)} style={simBtnS}>-20</button>
+                  <button onClick={() => adjustCapacity(dept.id, -10)} style={simBtnS}>-10</button>
+                  <button onClick={() => adjustCapacity(dept.id, 10)} style={simBtnS}>+10</button>
+                  <button onClick={() => adjustCapacity(dept.id, 20)} style={simBtnS}>+20</button>
+                </div>
+              )}
+            </div>
+            {Array.from({ length: numWeeks }, (_, wi) => {
+              const ck = `${dept.id}::${wi}`
+              const cellBlks = visibleCellMap[ck] || []
+              const th = capacityMap[ck] || 0
+              const oc = th > cap
+              const overflow = oc ? th - cap : 0
+              return (
+                <div key={wi} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, minHeight: ROW_HEIGHT, position: 'relative', borderRight: '1px solid #F3F4F6', background: oc ? '#FEF2F2' : wi % 2 === 0 ? '#FFF' : '#FAFBFC', padding: '14px 3px 3px', display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'flex-start', transition: 'background 0.2s' }}>
+                  {th > 0 && <div style={{ position: 'absolute', top: 2, right: 5, fontSize: 8, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: oc ? '#DC2626' : (th / cap) > 0.8 ? '#D97706' : '#C4C4C4' }}>{th}h{overflow > 0 && <span style={{ color: '#DC2626' }}> (+{overflow})</span>}</div>}
+                  {cellBlks.map(block => {
+                    const c = projectColors[block.project] || COLOR_PALETTE[0]
+                    const sk = getSubKey(block)
+                    const hl = highlightKey === sk
+                    const drag = dragState?.blockId === block.id
+                    const dim = highlightKey && !hl
+                    const n = cellBlks.length
+                    const diffInfo = whatIfDiff?.get(block.id)
+                    const isNew = diffInfo != null
+                    const diffBorder = isNew ? (diffInfo.direction === 'earlier' ? '#059669' : '#D97706') : null
+                    return (
+                      <div key={block.id} onPointerDown={e => onPointerDown(e, block)} onMouseEnter={() => onHover(block)} onMouseLeave={onLeave}
+                        onClick={e => { e.stopPropagation(); onSelect(sk) }}
+                        style={{
+                          height: n > 6 ? 18 : n > 4 ? 20 : n > 2 ? 22 : 26, width: 'calc(100% - 4px)', borderRadius: 5,
+                          background: isNew ? `${diffBorder}18` : oc && !hl ? `linear-gradient(135deg, ${c.bg}20, #DC262618)` : hl ? c.bg : `${c.bg}14`,
+                          border: isNew ? `2px dashed ${diffBorder}` : `1.5px solid ${oc && !hl ? '#FCA5A5' : hl ? c.bg : `${c.border}80`}`,
+                          cursor: whatIfActive ? 'default' : drag ? 'grabbing' : 'grab',
+                          display: 'flex', alignItems: 'center', padding: '0 6px',
+                          opacity: dim ? 0.15 : 1, transition: drag ? 'none' : 'all 0.12s',
+                          transform: drag ? 'scale(1.04)' : 'scale(1)', zIndex: drag ? 50 : hl ? 10 : 1,
+                          boxShadow: isNew ? `0 0 8px ${diffBorder}40` : drag ? `0 4px 12px ${c.bg}40` : hl ? `0 1px 4px ${c.bg}30` : 'none', flexShrink: 0,
+                        }}>
+                        <span style={{ fontSize: n > 6 ? 8 : n > 4 ? 9 : 10, fontWeight: 600, lineHeight: 1, color: hl ? '#FFF' : oc ? '#991B1B' : c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>{block.sub}</span>
+                        <span style={{ fontSize: n > 4 ? 7 : 8, fontWeight: 600, marginLeft: 'auto', paddingLeft: 3, fontFamily: "'SF Mono', monospace", flexShrink: 0, color: hl ? 'rgba(255,255,255,0.7)' : oc ? '#DC2626' : '#B0B0B0' }}>{block.hours}h</span>
+                        {isNew && <span style={{ fontSize: 7, marginLeft: 3, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
+                      </div>
+                    )
+                  })}
+                  {overflow > 0 && <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, #DC2626, #EF4444)', opacity: 0.7 }} />}
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// =====================================================
+// SWIMLANE VIEW (projects as rows, expand to subprojects)
+// =====================================================
+function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, priorities }: {
+  blocks: Block[]
+  numWeeks: number
+  weekZero: Date
+  departments: Department[]
+  deptColors: Record<string, { bg: string; light: string; text: string }>
+  projectColors: Record<string, { bg: string; light: string; text: string; border: string }>
+  projectNames: Record<string, string>
+  projectSubs: Record<string, string[]>
+  deptIndex: Record<string, number>
+  deptShortMap: Record<string, string>
+  capacityMap: Record<string, number>
+  effectiveCapacity: (deptId: string) => number
+  filter: string | null
+  highlightKey: string | null
+  dragState: DragStateType | null
+  whatIfDiff: Map<string, DiffInfo> | null
+  whatIfActive: boolean
+  onPointerDown: (e: React.PointerEvent, block: Block) => void
+  onHover: (block: Block) => void
+  onLeave: () => void
+  onSelect: (sk: string) => void
+  priorities: Record<string, number>
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {}
+    Object.keys(projectNames).forEach(k => { init[k] = true })
+    return init
+  })
+
+  const toggleExpand = useCallback((pk: string) => {
+    setExpanded(prev => ({ ...prev, [pk]: !prev[pk] }))
+  }, [])
+
+  const projectOrder = useMemo(() => {
+    return Object.keys(projectNames).sort((a, b) => (priorities[a] || 3) - (priorities[b] || 3))
+  }, [priorities, projectNames])
+
+  const filteredProjects = filter ? [filter] : projectOrder
+
+  return (
+    <div style={{ minWidth: SWIM_LABEL_WIDTH + numWeeks * WEEK_WIDTH }}>
+      {/* Column headers */}
+      <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF' }}>
+        <div style={{ width: SWIM_LABEL_WIDTH, minWidth: SWIM_LABEL_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'sticky', left: 0, background: '#FFF', zIndex: 25 }}>Project</div>
+        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} />
       </div>
 
-      {dayBlocks.length === 0 && (
-        <div className="px-4 py-6 text-center text-[11px] text-[#9CA3AF]">No work scheduled for this day</div>
-      )}
+      {/* Project rows */}
+      {filteredProjects.map(pk => {
+        const c = projectColors[pk] || COLOR_PALETTE[0]
+        const pri = priorities[pk] || 3
+        const subs = projectSubs[pk] || []
+        const isExpanded = expanded[pk]
+        const projBlocks = blocks.filter(b => b.project === pk)
+        const totalH = projBlocks.reduce((s, b) => s + b.hours, 0)
+        const minWeek = projBlocks.length > 0 ? Math.min(...projBlocks.map(b => b.week)) : 0
+        const maxWeek = projBlocks.length > 0 ? Math.max(...projBlocks.map(b => b.week)) : 0
 
-      <div className="px-4 py-2 space-y-3">
-        {DEPT_ORDER.map(deptKey => {
-          const deptBlocks = byDept.get(deptKey)
-          if (!deptBlocks || deptBlocks.length === 0) return null
-          const di = deptInfos.find(d => d.key === deptKey)
-          const capHours = capacity[deptKey] || 0
-          const usedHours = deptBlocks.reduce((sum, b) => sum + (b.hours / b.days) * b.crewSize, 0)
-          const utilPct = capHours > 0 ? Math.round((usedHours / capHours) * 100) : 0
-
-          return (
-            <div key={deptKey}>
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-sm" style={{ background: di?.color || '#94A3B8' }} />
-                  <span className="text-[10px] font-semibold text-[#111]">{di?.name || deptKey}</span>
+        return (
+          <div key={pk}>
+            {/* Project header row */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #E5E7EB', background: `${c.bg}06` }}>
+              <div onClick={() => toggleExpand(pk)} style={{
+                width: SWIM_LABEL_WIDTH, minWidth: SWIM_LABEL_WIDTH, flexShrink: 0, height: SWIM_ROW + 8,
+                display: 'flex', alignItems: 'center', padding: '0 10px', gap: 8,
+                borderRight: '1px solid #E5E7EB', position: 'sticky', left: 0, zIndex: 15,
+                background: `${c.bg}06`, cursor: 'pointer', userSelect: 'none',
+              }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2.5"
+                  style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }}>
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: c.bg, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{projectNames[pk]}</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-mono text-[#9CA3AF]">{Math.round(usedHours)}h / {capHours}h</span>
-                  <span className="text-[9px] font-mono font-semibold" style={{
-                    color: utilPct > 100 ? '#DC2626' : utilPct > 85 ? '#D97706' : '#6B7280'
-                  }}>{utilPct}%</span>
-                </div>
+                <span style={{ fontSize: 8, fontWeight: 700, color: PRIORITY_COLORS[pri], flexShrink: 0 }}>P{pri}</span>
+                <span style={{ fontSize: 9, color: '#9CA3AF', fontFamily: "'SF Mono', monospace", flexShrink: 0 }}>{totalH}h</span>
               </div>
-              <div className="space-y-1">
-                {deptBlocks.map(b => (
-                  <div key={b.allocationId} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[#F9FAFB]">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-medium text-[#111] truncate">{b.projectName}</div>
-                      <div className="text-[9px] text-[#9CA3AF] truncate">{b.subName}</div>
-                    </div>
-                    <div className="text-[9px] font-mono text-[#6B7280] shrink-0">{b.hours}h · {b.crewSize}c</div>
+              {/* Summary bar */}
+              {Array.from({ length: numWeeks }, (_, wi) => {
+                const inRange = wi >= minWeek && wi <= maxWeek && projBlocks.length > 0
+                const weekBlocks = projBlocks.filter(b => b.week === wi)
+                const weekH = weekBlocks.reduce((s, b) => s + b.hours, 0)
+                return (
+                  <div key={wi} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, height: SWIM_ROW + 8, borderRight: '1px solid #F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', background: wi % 2 === 0 ? 'transparent' : '#FAFBFC' }}>
+                    {inRange && (
+                      <div style={{
+                        width: 'calc(100% - 4px)', height: 18, borderRadius: 4,
+                        background: `${c.bg}18`, border: `1px solid ${c.border}60`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {weekH > 0 && <span style={{ fontSize: 8, fontWeight: 600, color: c.text, fontFamily: "'SF Mono', monospace" }}>{weekH}h</span>}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                )
+              })}
+            </div>
+
+            {/* Subproject rows (expanded) */}
+            {isExpanded && subs.map(sub => {
+              const sk = `${pk}::${sub}`
+              const subBlocks = blocks.filter(b => b.project === pk && b.sub === sub).sort((a, b) => (deptIndex[a.dept] ?? 0) - (deptIndex[b.dept] ?? 0))
+              const hl = highlightKey === sk
+              const dim = highlightKey && !hl
+
+              return (
+                <div key={sk} style={{ display: 'flex', borderBottom: '1px solid #F3F4F6', opacity: dim ? 0.3 : 1, transition: 'opacity 0.12s' }}>
+                  {/* Sub label */}
+                  <div style={{
+                    width: SWIM_LABEL_WIDTH, minWidth: SWIM_LABEL_WIDTH, flexShrink: 0, height: SWIM_ROW,
+                    display: 'flex', alignItems: 'center', padding: '0 10px 0 34px', gap: 6,
+                    borderRight: '1px solid #E5E7EB', position: 'sticky', left: 0, zIndex: 15,
+                    background: hl ? c.light : '#FFF',
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{sub}</div>
+                    <span style={{ fontSize: 8, color: '#B0B0B0', fontFamily: "'SF Mono', monospace", flexShrink: 0 }}>{subBlocks.reduce((s, b) => s + b.hours, 0)}h</span>
+                  </div>
+
+                  {/* Week cells with dept-colored blocks */}
+                  {Array.from({ length: numWeeks }, (_, wi) => {
+                    const cellBlocks = subBlocks.filter(b => b.week === wi)
+                    return (
+                      <div key={wi}
+                        onMouseEnter={() => cellBlocks.length > 0 && onHover(cellBlocks[0])}
+                        onMouseLeave={onLeave}
+                        onClick={e => { e.stopPropagation(); onSelect(sk) }}
+                        style={{
+                          width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, height: SWIM_ROW,
+                          borderRight: '1px solid #F3F4F6', display: 'flex', alignItems: 'center',
+                          gap: 2, padding: '0 2px',
+                          background: hl && cellBlocks.length ? `${c.bg}08` : wi % 2 === 0 ? '#FFF' : '#FAFBFC',
+                        }}>
+                        {cellBlocks.map(block => {
+                          const dc = deptColors[block.dept] || DEPT_COLOR_PALETTE[0]
+                          const diffInfo = whatIfDiff?.get(block.id)
+                          const isNew = diffInfo != null
+                          const diffBorder = isNew ? (diffInfo.direction === 'earlier' ? '#059669' : '#D97706') : null
+                          const isDragging = dragState?.blockId === block.id
+                          return (
+                            <div key={block.id}
+                              onPointerDown={e => onPointerDown(e, block)}
+                              style={{
+                                flex: 1, height: 24, borderRadius: 4,
+                                background: isNew ? `${diffBorder}18` : hl ? dc.bg : `${dc.bg}20`,
+                                border: isNew ? `2px dashed ${diffBorder}` : `1.5px solid ${hl ? dc.bg : `${dc.bg}50`}`,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
+                                padding: '0 4px', cursor: whatIfActive ? 'default' : isDragging ? 'grabbing' : 'grab',
+                                boxShadow: isNew ? `0 0 6px ${diffBorder}40` : isDragging ? `0 4px 8px ${dc.bg}40` : hl ? `0 1px 3px ${dc.bg}30` : 'none',
+                                transition: isDragging ? 'none' : 'all 0.12s',
+                                transform: isDragging ? 'scale(1.06)' : 'scale(1)',
+                                zIndex: isDragging ? 50 : 1,
+                              }}>
+                              <span style={{ fontSize: 8, fontWeight: 700, color: hl ? '#FFF' : dc.text, letterSpacing: '0.02em' }}>{deptShortMap[block.dept] || 'DEPT'}</span>
+                              <span style={{ fontSize: 8, fontWeight: 600, color: hl ? 'rgba(255,255,255,0.7)' : `${dc.text}90`, fontFamily: "'SF Mono', monospace" }}>{block.hours}h</span>
+                              {isNew && <span style={{ fontSize: 6, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+
+      {/* Dept legend for swimlane */}
+      <div style={{ display: 'flex', gap: 12, padding: '10px 16px', position: 'sticky', left: 0 }}>
+        {departments.map(d => {
+          const dc = deptColors[d.id] || DEPT_COLOR_PALETTE[0]
+          return (
+            <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: dc.bg }} />
+              <span style={{ fontSize: 10, color: '#6B7280' }}>{d.name}</span>
             </div>
           )
         })}
@@ -299,446 +534,922 @@ function DailyDetailPanel({ date, blocks, deptInfos, capacity, onClose }: {
   )
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MAIN PAGE
-// ═══════════════════════════════════════════════════════════════════
+// =====================================================
+// CHAT PANEL
+// =====================================================
+function ChatPanel({ messages, isThinking, chatInput, setChatInput, sendMessage, whatIfBlocks, whatIfDiff, acceptWhatIf, discardWhatIf, onClose }: {
+  messages: ChatMessage[]
+  isThinking: boolean
+  chatInput: string
+  setChatInput: (v: string) => void
+  sendMessage: (text: string) => void
+  whatIfBlocks: Block[] | null
+  whatIfDiff: Map<string, DiffInfo> | null
+  acceptWhatIf: () => void
+  discardWhatIf: () => void
+  onClose: () => void
+}) {
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, isThinking])
 
-export default function SchedulePage() {
   return (
-    <>
-      <Nav />
-      <PlanGate requires="schedule">
-        <ScheduleContent />
-      </PlanGate>
-    </>
+    <div style={{ width: 400, flexShrink: 0, borderLeft: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', background: '#FAFBFC', height: '100vh' }}>
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid #E5E7EB', background: '#FFF', flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" /></svg>
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Schedule AI</div>
+              <div style={{ fontSize: 10, color: '#9CA3AF' }}>{getPoweredBy()}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 4 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 8px' }}>
+        {messages.map((msg, i) => (
+          <div key={i} style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+            {msg.thinking && <ThinkingBlock thinking={msg.thinking} />}
+            <div style={{
+              maxWidth: '94%', padding: '10px 14px', borderRadius: 12,
+              fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap',
+              background: msg.role === 'user' ? '#111' : '#FFF',
+              color: msg.role === 'user' ? '#FFF' : '#111',
+              border: msg.role === 'user' ? 'none' : '1px solid #E5E7EB',
+              boxShadow: msg.role === 'user' ? 'none' : '0 1px 3px rgba(0,0,0,0.04)',
+            }}>
+              {msg.text}
+            </div>
+            {msg.type === 'applied' && (
+              <div style={{ fontSize: 10, color: '#059669', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 4 }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6L9 17l-5-5" /></svg>
+                {msg.moveCount || 0} move{msg.moveCount !== 1 ? 's' : ''} applied
+              </div>
+            )}
+            {msg.type === 'proposal' && whatIfBlocks && i === messages.length - 1 && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, paddingLeft: 4 }}>
+                <button onClick={acceptWhatIf} style={{ fontSize: 12, fontWeight: 600, padding: '6px 16px', borderRadius: 8, border: 'none', background: '#059669', color: '#FFF', cursor: 'pointer' }}>
+                  Apply {whatIfDiff?.size || 0} move{whatIfDiff?.size !== 1 ? 's' : ''}
+                </button>
+                <button onClick={discardWhatIf} style={{ fontSize: 12, fontWeight: 500, padding: '6px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#FFF', color: '#6B7280', cursor: 'pointer' }}>
+                  Nevermind
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+        {isThinking && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ padding: '12px 16px', borderRadius: 12, background: '#FFF', border: '1px solid #E5E7EB', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <style>{`@keyframes pulse2{0%,100%{opacity:.3}50%{opacity:1}}`}</style>
+              {[0, 0.2, 0.4].map((d, i) => <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: '#111', animation: `pulse2 1.2s infinite ${d}s` }} />)}
+              <span style={{ fontSize: 12, color: '#9CA3AF', marginLeft: 4 }}>Working through it...</span>
+            </div>
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+      <div style={{ padding: '10px 12px 14px', borderTop: '1px solid #E5E7EB', background: '#FFF', flexShrink: 0 }}>
+        <textarea
+          ref={inputRef} value={chatInput}
+          onChange={e => setChatInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(chatInput) } }}
+          placeholder={whatIfBlocks ? 'Apply or discard the preview first...' : "Tell me what's going on with the schedule..."}
+          disabled={isThinking || !!whatIfBlocks}
+          rows={3}
+          style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #E5E7EB', fontSize: 13, outline: 'none', background: (isThinking || whatIfBlocks) ? '#F9FAFB' : '#FFF', color: '#111', resize: 'none', lineHeight: 1.4, fontFamily: 'inherit' }}
+        />
+        <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: '#C4C4C4' }}>Shift+Enter for new line</span>
+          <button onClick={() => sendMessage(chatInput)} disabled={isThinking || !chatInput.trim() || !!whatIfBlocks}
+            style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: chatInput.trim() && !whatIfBlocks ? '#111' : '#E5E7EB', color: chatInput.trim() && !whatIfBlocks ? '#FFF' : '#9CA3AF', cursor: chatInput.trim() && !whatIfBlocks ? 'pointer' : 'default', fontSize: 13, fontWeight: 600 }}>
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
-function ScheduleContent() {
-  const { org } = useAuth()
-  const [loading, setLoading] = useState(true)
-
-  // Raw data
-  const [rawDepts, setRawDepts] = useState<any[]>([])
-  const [projects, setProjects] = useState<ScheduleProject[]>([])
-  const [subs, setSubs] = useState<ScheduleSub[]>([])
-  const [allocations, setAllocations] = useState<Allocation[]>([])
-  const [teamMembers, setTeamMembers] = useState<any[]>([])
-  const [deptMemberCounts, setDeptMemberCounts] = useState<Record<string, number>>({})
-
-  // View state
-  const [zoom, setZoom] = useState<ZoomLevel>('medium')
-  const [scrollTrigger, setScrollTrigger] = useState(0)
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const [editingBlock, setEditingBlock] = useState<{ block: PlacedBlock; rect: DOMRect } | null>(null)
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
-  const [editingDept, setEditingDept] = useState<DeptInfo | null>(null)
-  const [independentSubs, setIndependentSubs] = useState<Set<string>>(new Set())
-
-  // ═══════════════════════════════════════════════════════════════
-  // DERIVED
-  // ═══════════════════════════════════════════════════════════════
-
-  const deptInfos: DeptInfo[] = useMemo(() => {
-    return DEPT_ORDER.map(key => {
-      const dept = (rawDepts || []).find((d: any) => d.name.toLowerCase() === key)
-      return {
-        key, name: dept?.name || key.charAt(0).toUpperCase() + key.slice(1),
-        color: dept?.color || '#94A3B8', id: dept?.id || key,
-      }
-    })
-  }, [rawDepts])
-
-  const deptConfig: DeptConfig = useMemo(() => {
-    const deptData = DEPT_ORDER.map(key => {
-      const dept = (rawDepts || []).find((d: any) => d.name.toLowerCase() === key)
-      const defaultCrewSize = dept?.default_crew_size || ((key === 'engineering' || key === 'cnc') ? 1 : 2)
-      let headcount = 0
-      const deptId = dept?.id
-      for (const m of teamMembers) {
-        if (m.primary_department_id === deptId) headcount++
-      }
-      return { key, defaultCrewSize, headcount: Math.max(1, headcount), hoursPerPerson: dept?.hours_per_day || 8 }
-    })
-    return buildDeptConfig(deptData)
-  }, [rawDepts, teamMembers])
-
-  const capacity: DeptCapacity = useMemo(() => deptConfigToCapacity(deptConfig), [deptConfig])
-
-  const blocks: PlacedBlock[] = useMemo(
-    () => buildBlocks(allocations, projects, subs, capacity, deptConfig),
-    [allocations, projects, subs, capacity, deptConfig],
-  )
-
-  const unscheduledProjectIds = useMemo(() => {
-    const ids = new Set<string>()
-    const subToProject = new Map<string, string>()
-    subs.forEach(s => subToProject.set(s.id, s.project_id))
-    for (const a of allocations) {
-      const pid = subToProject.get(a.subproject_id)
-      if (pid && !a.scheduled_date && !a.completed && a.estimated_hours > 0) ids.add(pid)
-    }
-    return ids
-  }, [allocations, subs])
-
-  // ═══════════════════════════════════════════════════════════════
-  // LOAD DATA
-  // ═══════════════════════════════════════════════════════════════
-
-  const loadData = useCallback(async () => {
-    if (!org?.id) return
-    try {
-      const { data: depts } = await supabase.from('departments').select('*').eq('org_id', org.id).eq('active', true).order('display_order')
-      setRawDepts(depts || [])
-
-      const deptIdToName: Record<string, string> = {}
-      ;(depts || []).forEach((d: any) => { deptIdToName[d.id] = d.name.toLowerCase() })
-
-      const { data: projs } = await supabase
-        .from('projects')
-        .select('id, name, client_name, status, bid_total, due_date')
-        .eq('org_id', org.id)
-        .in('status', ['active', 'bidding'])
-        .order('name')
-
-      const projectList: ScheduleProject[] = []
-      const subList: ScheduleSub[] = []
-      const allSubIds: string[] = []
-
-      for (const [i, p] of (projs || []).entries()) {
-        projectList.push({
-          id: p.id, name: p.name, client: p.client_name || '',
-          color: PROJECT_COLORS[i % PROJECT_COLORS.length],
-          priority: 'medium', due: (p as any).due_date || null, status: p.status,
-        })
-
-        const { data: subData } = await supabase
-          .from('subprojects')
-          .select('id, name')
-          .eq('project_id', p.id)
-          .order('sort_order')
-
-        for (const s of (subData || [])) {
-          subList.push({ id: s.id, name: s.name, project_id: p.id, sub_due_date: null, schedule_order: 0 })
-          allSubIds.push(s.id)
-        }
-      }
-
-      setProjects(projectList)
-      setSubs(subList)
-
-      if (allSubIds.length > 0) {
-        const { data: allocs } = await supabase
-          .from('department_allocations')
-          .select('id, subproject_id, department_id, scheduled_date, scheduled_days, estimated_hours, actual_hours, completed, crew_size')
-          .in('subproject_id', allSubIds)
-
-        setAllocations((allocs || []).map((a: any) => ({
-          id: a.id, subproject_id: a.subproject_id, department_id: a.department_id,
-          dept_key: (deptIdToName[a.department_id] || 'assembly') as DeptKey,
-          scheduled_date: a.scheduled_date || null, scheduled_days: a.scheduled_days || null,
-          estimated_hours: a.estimated_hours || 0, actual_hours: a.actual_hours || 0,
-          completed: a.completed || false, crew_size: a.crew_size || null,
-        })))
-      } else { setAllocations([]) }
-
-      // Load team members for headcount
-      const { data: members } = await supabase.from('users')
-        .select('id, name, hourly_cost, is_billable')
-        .eq('org_id', org.id)
-
-      // Map department_members to get primary_department_id
-      const { data: deptMembers } = await supabase.from('department_members')
-        .select('user_id, department_id, is_primary')
-        .eq('org_id', org.id)
-
-      const primaryDeptMap: Record<string, string> = {}
-      for (const dm of (deptMembers || [])) {
-        if (dm.is_primary || !primaryDeptMap[dm.user_id]) {
-          primaryDeptMap[dm.user_id] = dm.department_id
-        }
-      }
-
-      setTeamMembers((members || []).map((m: any) => ({
-        ...m, primary_department_id: primaryDeptMap[m.id] || null,
-      })))
-
-      // Count members per department
-      const counts: Record<string, number> = {}
-      for (const dm of (deptMembers || [])) {
-        counts[dm.department_id] = (counts[dm.department_id] || 0) + 1
-      }
-      setDeptMemberCounts(counts)
-
-      setLoading(false)
-    } catch (err) {
-      console.error('Schedule load error:', err)
-      setLoading(false)
-    }
-  }, [org?.id])
-
-  useEffect(() => { loadData() }, [loadData])
-
-  // ═══════════════════════════════════════════════════════════════
-  // ACTIONS
-  // ═══════════════════════════════════════════════════════════════
-
-  async function handleBlockDrop(allocationId: string, newStartDate: string) {
-    const draggedBlock = blocks.find(b => b.allocationId === allocationId)
-    if (!draggedBlock) return
-
-    // Check if the sub is marked as independent
-    const isIndependent = independentSubs.has(draggedBlock.subId)
-
-    if (isIndependent) {
-      // Only move this single block
-      await supabase.from('department_allocations').update({
-        scheduled_date: newStartDate,
-      }).eq('id', allocationId)
-      setAllocations(prev => prev.map(a => a.id === allocationId ? { ...a, scheduled_date: newStartDate } : a))
-    } else {
-      // Move ALL blocks for the same project together by the same day offset
-      const oldStart = parseDate(draggedBlock.startDate)
-      const newStart = parseDate(newStartDate)
-      const offsetMs = newStart.getTime() - oldStart.getTime()
-      const offsetDays = Math.round(offsetMs / (1000 * 60 * 60 * 24))
-
-      const projBlocks = blocks.filter(b => b.projectId === draggedBlock.projectId)
-      const updates: { id: string; newDate: string }[] = []
-
-      for (const block of projBlocks) {
-        if (!block.startDate) continue
-        const blockStart = parseDate(block.startDate)
-        const newBlockStart = new Date(blockStart)
-        newBlockStart.setDate(newBlockStart.getDate() + offsetDays)
-        // Snap to workday (skip weekends forward)
-        while (newBlockStart.getDay() === 0 || newBlockStart.getDay() === 6) {
-          newBlockStart.setDate(newBlockStart.getDate() + 1)
-        }
-        updates.push({ id: block.allocationId, newDate: toDateKey(newBlockStart) })
-      }
-
-      for (const u of updates) {
-        await supabase.from('department_allocations').update({ scheduled_date: u.newDate }).eq('id', u.id)
-      }
-
-      setAllocations(prev => prev.map(a => {
-        const upd = updates.find(u => u.id === a.id)
-        return upd ? { ...a, scheduled_date: upd.newDate } : a
-      }))
-    }
-  }
-
-  async function handleBlockUpdate(allocationId: string, updates: { estimated_hours?: number; crew_size?: number; scheduled_days?: number }) {
-    await supabase.from('department_allocations').update(updates).eq('id', allocationId)
-    setEditingBlock(null)
-    loadData()
-  }
-
-  // Smarter scheduling: respect department dependency chain per subproject
-  async function handleScheduleProject(projectId: string) {
-    const projSubs = subs.filter(s => s.project_id === projectId)
-    const today = toDateKey(new Date())
-    const deptSequence: DeptKey[] = ['engineering', 'cnc', 'assembly', 'finish', 'install']
-
-    // For each subproject, schedule departments sequentially (eng -> cnc -> asm -> fin -> ins)
-    // Different subprojects can run in parallel
-    for (const sub of projSubs) {
-      let prevEndDate: Date | null = null
-
-      for (const deptKey of deptSequence) {
-        const dept = rawDepts.find((d: any) => d.name.toLowerCase() === deptKey)
-        if (!dept) continue
-
-        const alloc = allocations.find(a =>
-          a.subproject_id === sub.id && a.department_id === dept.id && !a.completed
-        )
-        if (!alloc || alloc.estimated_hours <= 0) continue
-
-        // If already scheduled, track its end date and continue
-        if (alloc.scheduled_date) {
-          const start = parseDate(alloc.scheduled_date)
-          const days = alloc.scheduled_days || Math.ceil(alloc.estimated_hours / ((alloc.crew_size || deptConfig[deptKey]?.defaultCrewSize || 1) * (deptConfig[deptKey]?.hoursPerPerson || 8)))
-          prevEndDate = addWorkDays(start, days)
-          continue
-        }
-
-        // Calculate crew and days
-        const crewSize = alloc.crew_size || deptConfig[deptKey]?.defaultCrewSize || 1
-        const hpd = deptConfig[deptKey]?.hoursPerPerson || 8
-        const days = Math.ceil(alloc.estimated_hours / (crewSize * hpd))
-
-        // Start date: day after previous department ends, or today
-        let startDate: Date
-        if (prevEndDate) {
-          startDate = addWorkDays(prevEndDate, 0) // start the next workday after previous ends
-          // If prevEndDate is already a workday, start the day after
-          const prevEndKey = toDateKey(prevEndDate)
-          startDate = addWorkDays(prevEndDate, 1)
-        } else {
-          startDate = parseDate(today)
-        }
-
-        const startDateKey = toDateKey(startDate)
-
-        await supabase.from('department_allocations').update({
-          scheduled_date: startDateKey,
-          scheduled_days: days,
-          crew_size: crewSize,
-        }).eq('id', alloc.id)
-
-        // Track end date for dependency chain
-        prevEndDate = addWorkDays(startDate, days)
-      }
-    }
-
-    loadData()
-  }
-
-  async function handleUpdateDue(projectId: string, newDue: string) {
-    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, due: newDue || null } : p))
-    await supabase.from('projects').update({ due_date: newDue || null }).eq('id', projectId)
-  }
-
-  async function handleUpdatePriority(projectId: string, newPriority: 'high' | 'medium' | 'low') {
-    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, priority: newPriority } : p))
-  }
-
-  async function handleDeptSave(deptId: string, updates: { hours_per_day?: number; default_crew_size?: number }) {
-    await supabase.from('departments').update(updates).eq('id', deptId)
-    setEditingDept(null)
-    loadData()
-  }
-
-  function handleDeptClick(deptInfo: DeptInfo) {
-    setEditingDept(deptInfo)
-  }
-
-  if (loading) {
-    return <div className="flex items-center justify-center h-[calc(100vh-3.5rem)] text-sm text-[#9CA3AF]">Loading schedule...</div>
-  }
-
-  if (rawDepts.length === 0) {
-    return (
-      <div className="max-w-4xl mx-auto px-6 py-16 text-center">
-        <p className="text-sm text-[#9CA3AF] mb-3">Set up departments and assign team members first</p>
-        <a href="/team" className="text-sm text-[#2563EB] hover:text-[#1D4ED8] font-medium">Go to Team →</a>
+// =====================================================
+// LOADING SKELETON
+// =====================================================
+function LoadingSkeleton() {
+  return (
+    <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", background: '#FFF', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: '#F3F4F6', margin: '0 auto 12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" /></svg>
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 500, color: '#6B7280' }}>Loading schedule...</div>
+        <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Fetching projects, departments, and allocations</div>
       </div>
-    )
+    </div>
+  )
+}
+
+// =====================================================
+// PARENT COMPONENT
+// =====================================================
+export default function SchedulePage() {
+  const { user, org, loading: authLoading } = useAuth()
+
+  // --- Data state ---
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [subprojectsByProject, setSubprojectsByProject] = useState<Record<string, Subproject[]>>({})
+  const [blocks, setBlocks] = useState<Block[]>([])
+  const [dataLoaded, setDataLoaded] = useState(false)
+  const [headcountByDept, setHeadcountByDept] = useState<Record<string, number>>({})
+
+  // --- UI state ---
+  const [dragState, setDragState] = useState<DragStateType | null>(null)
+  const [hoveredBlock, setHoveredBlock] = useState<Block | null>(null)
+  const [selectedSub, setSelectedSub] = useState<string | null>(null)
+  const [filter, setFilter] = useState<string | null>(null)
+  const [history, setHistory] = useState<Block[][]>([])
+  const [viewMode, setViewMode] = useState<'flow' | 'swimlane'>('flow')
+
+  const [priorities, setPriorities] = useState<Record<string, number>>({})
+  const [showPriorityPanel, setShowPriorityPanel] = useState(false)
+  const [capacityOverrides, setCapacityOverrides] = useState<Record<string, number>>({})
+  const [simMode, setSimMode] = useState(false)
+
+  const [whatIfBlocks, setWhatIfBlocks] = useState<Block[] | null>(null)
+  const [whatIfDiff, setWhatIfDiff] = useState<Map<string, DiffInfo> | null>(null)
+
+  const [chatOpen, setChatOpen] = useState(true)
+  const [chatInput, setChatInput] = useState('')
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: 'assistant', text: "What's on your mind? Tell me what's going on with the schedule and I'll figure out the moves.", type: 'greeting' }
+  ])
+  const [isThinking, setIsThinking] = useState(false)
+  const [pendingMoves, setPendingMoves] = useState<any[] | null>(null)
+
+  const gridRef = useRef<HTMLDivElement>(null)
+
+  // --- Derived data ---
+  const weekZero = useMemo(() => getMonday(new Date()), [])
+
+  const projectColors = useMemo(() => {
+    const colors: Record<string, { bg: string; light: string; text: string; border: string }> = {}
+    projects.forEach((p, i) => {
+      colors[p.id] = COLOR_PALETTE[i % COLOR_PALETTE.length]
+    })
+    return colors
+  }, [projects])
+
+  const deptColors = useMemo(() => {
+    const colors: Record<string, { bg: string; light: string; text: string }> = {}
+    departments.forEach((d, i) => {
+      colors[d.id] = DEPT_COLOR_PALETTE[i % DEPT_COLOR_PALETTE.length]
+    })
+    return colors
+  }, [departments])
+
+  const deptOrder = useMemo(() => departments.map(d => d.id), [departments])
+  const deptIndex = useMemo(() => Object.fromEntries(deptOrder.map((id, i) => [id, i])), [deptOrder])
+  const deptShortMap = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const d of departments) { m[d.id] = getDeptShort(d.name) }
+    return m
+  }, [departments])
+
+  const projectNames = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const p of projects) { m[p.id] = p.name }
+    return m
+  }, [projects])
+
+  const projectSubs = useMemo(() => {
+    const m: Record<string, string[]> = {}
+    for (const p of projects) {
+      m[p.id] = (subprojectsByProject[p.id] || []).map(s => s.name)
+    }
+    return m
+  }, [projects, subprojectsByProject])
+
+  const deptCapacities = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const d of departments) {
+      const headcount = headcountByDept[d.id] || 1
+      m[d.id] = d.hours_per_day * headcount * 5
+    }
+    return m
+  }, [departments, headcountByDept])
+
+  const numWeeks = useMemo(() => {
+    if (blocks.length === 0) return 18
+    const maxWeek = Math.max(...blocks.map(b => b.week))
+    return Math.max(18, maxWeek + 4)
+  }, [blocks])
+
+  const displayBlocks = whatIfBlocks || blocks
+
+  const effectiveCapacity = useCallback((deptId: string) => {
+    if (capacityOverrides[deptId] != null) return capacityOverrides[deptId]
+    return deptCapacities[deptId] || 0
+  }, [capacityOverrides, deptCapacities])
+
+  const capacityMap = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const b of displayBlocks) { const k = `${b.dept}::${b.week}`; m[k] = (m[k] || 0) + b.hours }
+    return m
+  }, [displayBlocks])
+
+  const highlightKey = useMemo(() => selectedSub || (hoveredBlock ? getSubKey(hoveredBlock) : null), [selectedSub, hoveredBlock])
+
+  // --- Week <-> Date helpers ---
+  const dateToWeekIndex = useCallback((dateStr: string | null): number => {
+    if (!dateStr) return 0
+    const d = new Date(dateStr + 'T00:00:00')
+    const diffMs = d.getTime() - weekZero.getTime()
+    return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000))
+  }, [weekZero])
+
+  const weekIndexToDate = useCallback((week: number): string => {
+    const d = new Date(weekZero)
+    d.setDate(d.getDate() + week * 7)
+    return d.toISOString().split('T')[0]
+  }, [weekZero])
+
+  // --- Install sequencing ---
+  const enforceInstallSequencing = useCallback((blks: Block[]): Block[] => {
+    // Find the last department in the order (install-like)
+    if (departments.length === 0) return blks
+    const lastDeptId = departments[departments.length - 1]?.id
+    if (!lastDeptId) return blks
+
+    const byProject: Record<string, Block[]> = {}
+    for (const b of blks) {
+      if (b.dept !== lastDeptId) continue
+      if (!byProject[b.project]) byProject[b.project] = []
+      byProject[b.project].push(b)
+    }
+    let updated = [...blks]
+    for (const [proj, installs] of Object.entries(byProject)) {
+      if (installs.length <= 1) continue
+      const subOrder = projectSubs[proj] || []
+      const sorted = [...installs].sort((a, b) => {
+        if (a.week !== b.week) return a.week - b.week
+        return subOrder.indexOf(a.sub) - subOrder.indexOf(b.sub)
+      })
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].week <= sorted[i - 1].week) {
+          const nw = Math.min(sorted[i - 1].week + 1, numWeeks - 1)
+          updated = updated.map(b => b.id === sorted[i].id ? { ...b, week: nw } : b)
+          sorted[i] = { ...sorted[i], week: nw }
+        }
+      }
+    }
+    return updated
+  }, [departments, projectSubs, numWeeks])
+
+  // --- Data Loading ---
+  useEffect(() => {
+    if (authLoading || !org) return
+    loadData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, org?.id])
+
+  async function loadData() {
+    if (!org) return
+
+    // Load departments
+    const { data: deptData } = await supabase
+      .from('departments')
+      .select('*')
+      .eq('org_id', org.id)
+      .eq('active', true)
+      .order('display_order')
+
+    const depts: Department[] = deptData || []
+    setDepartments(depts)
+
+    // Load projects
+    const { data: projData } = await supabase
+      .from('projects')
+      .select('id, name, client_name, status, due_date')
+      .eq('org_id', org.id)
+      .in('status', ['active', 'bidding'])
+      .order('name')
+
+    const projs: Project[] = projData || []
+    setProjects(projs)
+
+    // Set default priorities
+    const defaultPri: Record<string, number> = {}
+    projs.forEach(p => { defaultPri[p.id] = 3 })
+    setPriorities(defaultPri)
+
+    // Load subprojects for all projects
+    const subsMap: Record<string, Subproject[]> = {}
+    const allSubIds: string[] = []
+
+    for (const p of projs) {
+      const { data: subs } = await supabase
+        .from('subprojects')
+        .select('id, name, sort_order')
+        .eq('project_id', p.id)
+        .order('sort_order')
+
+      const subList: Subproject[] = (subs || []).map(s => ({ ...s, project_id: p.id }))
+      subsMap[p.id] = subList
+      subList.forEach(s => allSubIds.push(s.id))
+    }
+    setSubprojectsByProject(subsMap)
+
+    // Load department members for headcount
+    const { data: members } = await supabase
+      .from('department_members')
+      .select('user_id, department_id')
+      .eq('org_id', org.id)
+
+    const hcMap: Record<string, number> = {}
+    for (const m of (members || [])) {
+      hcMap[m.department_id] = (hcMap[m.department_id] || 0) + 1
+    }
+    setHeadcountByDept(hcMap)
+
+    // Load allocations
+    if (allSubIds.length === 0) {
+      setBlocks([])
+      setDataLoaded(true)
+      return
+    }
+
+    // Supabase IN filter has a limit, batch if needed
+    const BATCH_SIZE = 100
+    let allAllocations: Allocation[] = []
+    for (let i = 0; i < allSubIds.length; i += BATCH_SIZE) {
+      const batch = allSubIds.slice(i, i + BATCH_SIZE)
+      const { data: allocData } = await supabase
+        .from('department_allocations')
+        .select('id, subproject_id, department_id, scheduled_date, scheduled_days, estimated_hours, crew_size, completed')
+        .in('subproject_id', batch)
+
+      if (allocData) allAllocations = allAllocations.concat(allocData)
+    }
+
+    // Build lookup maps
+    const subToProject: Record<string, string> = {}
+    const subToName: Record<string, string> = {}
+    for (const [projId, subs] of Object.entries(subsMap)) {
+      for (const s of subs) {
+        subToProject[s.id] = projId
+        subToName[s.id] = s.name
+      }
+    }
+    const projNameMap: Record<string, string> = {}
+    for (const p of projs) { projNameMap[p.id] = p.name }
+
+    // Convert allocations to blocks
+    const wz = getMonday(new Date())
+    const newBlocks: Block[] = allAllocations.map(a => {
+      const projId = subToProject[a.subproject_id] || ''
+      const diffMs = a.scheduled_date ? new Date(a.scheduled_date + 'T00:00:00').getTime() - wz.getTime() : 0
+      const weekIdx = a.scheduled_date ? Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) : 0
+      return {
+        id: a.id,
+        project: projId,
+        projectName: projNameMap[projId] || 'Unknown',
+        sub: subToName[a.subproject_id] || 'Unknown',
+        subId: a.subproject_id,
+        dept: a.department_id,
+        week: weekIdx,
+        hours: a.estimated_hours,
+      }
+    })
+
+    setBlocks(newBlocks)
+    setDataLoaded(true)
+  }
+
+  // --- Persistence ---
+  const persistBlockMove = useCallback(async (blockId: string, newWeek: number) => {
+    const dateStr = weekIndexToDate(newWeek)
+    await supabase
+      .from('department_allocations')
+      .update({ scheduled_date: dateStr })
+      .eq('id', blockId)
+  }, [weekIndexToDate])
+
+  // --- FLOW VIEW DRAG ---
+  const handlePointerDown = useCallback((e: React.PointerEvent, block: Block) => {
+    if (whatIfBlocks) return
+    e.preventDefault(); e.stopPropagation()
+    setDragState({ blockId: block.id, subKey: getSubKey(block), startX: e.clientX, startWeek: block.week })
+  }, [whatIfBlocks])
+
+  const handlePointerMove = useCallback((e: PointerEvent) => {
+    if (!dragState) return
+    const wd = Math.round((e.clientX - dragState.startX) / WEEK_WIDTH)
+    if (wd === 0) return
+    setBlocks(prev => {
+      const db = prev.find(b => b.id === dragState.blockId)
+      if (!db) return prev
+      const nw = dragState.startWeek + wd
+      if (nw < 0 || nw >= numWeeks) return prev
+      const shift = nw - db.week
+      if (!shift) return prev
+      const di = deptIndex[db.dept] ?? 0
+      const sk = getSubKey(db)
+      const updated = prev.map(b => {
+        if (getSubKey(b) !== sk) return b
+        if ((deptIndex[b.dept] ?? 0) >= di) return { ...b, week: Math.max(0, Math.min(numWeeks - 1, b.week + shift)) }
+        return b
+      })
+      return enforceInstallSequencing(updated)
+    })
+    setDragState(ds => ds ? ({ ...ds, startX: e.clientX, startWeek: ds.startWeek + Math.round((e.clientX - ds.startX) / WEEK_WIDTH) }) : null)
+  }, [dragState, numWeeks, deptIndex, enforceInstallSequencing])
+
+  const handlePointerUp = useCallback(() => {
+    if (dragState) {
+      // Persist all moved blocks
+      const movedBlock = blocks.find(b => b.id === dragState.blockId)
+      if (movedBlock) {
+        const sk = getSubKey(movedBlock)
+        blocks.filter(b => getSubKey(b) === sk).forEach(b => {
+          persistBlockMove(b.id, b.week)
+        })
+      }
+    }
+    setDragState(null)
+  }, [dragState, blocks, persistBlockMove])
+
+  useEffect(() => {
+    if (!dragState) return
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [dragState, handlePointerMove, handlePointerUp])
+
+  // --- APPLY MOVES ---
+  const applyMoves = useCallback((moves: any[], currentBlocks: Block[]) => {
+    let updated = [...currentBlocks]
+    for (const move of moves) {
+      // The AI uses project keys — we need to find the matching project ID
+      // The move.project could be the project ID or a short key; handle both
+      const matchProject = (b: Block) => {
+        if (b.project === move.project) return true
+        // Try matching by project name lowercased
+        if (b.projectName.toLowerCase().includes(move.project.toLowerCase())) return true
+        return false
+      }
+
+      if (move.dept === 'ALL') {
+        updated = updated.map(b => {
+          if (matchProject(b) && b.sub === move.sub) {
+            return { ...b, week: Math.max(0, Math.min(numWeeks - 1, move.toWeek + (deptIndex[b.dept] ?? 0))) }
+          }
+          return b
+        })
+      } else {
+        const di = deptIndex[move.dept] ?? 0
+        const target = updated.find(b => matchProject(b) && b.sub === move.sub && b.dept === move.dept)
+        if (target) {
+          const shift = move.toWeek - target.week
+          updated = updated.map(b => {
+            if (matchProject(b) && b.sub === move.sub && (deptIndex[b.dept] ?? 0) >= di) {
+              return { ...b, week: Math.max(0, Math.min(numWeeks - 1, b.week + shift)) }
+            }
+            return b
+          })
+        }
+      }
+    }
+    return enforceInstallSequencing(updated)
+  }, [numWeeks, deptIndex, enforceInstallSequencing])
+
+  // --- WHAT-IF ---
+  const acceptWhatIf = useCallback(() => {
+    if (!whatIfBlocks) return
+    setHistory(prev => [...prev, blocks])
+    setBlocks(whatIfBlocks)
+    // Persist all changed blocks
+    const diff = whatIfDiff
+    if (diff) {
+      whatIfBlocks.forEach(b => {
+        if (diff.has(b.id)) {
+          persistBlockMove(b.id, b.week)
+        }
+      })
+    }
+    setWhatIfBlocks(null); setWhatIfDiff(null); setPendingMoves(null)
+    setMessages(prev => [...prev, { role: 'assistant', text: 'Done. Schedule updated.', type: 'applied', moveCount: whatIfDiff?.size || 0 }])
+  }, [whatIfBlocks, whatIfDiff, blocks, persistBlockMove])
+
+  const discardWhatIf = useCallback(() => {
+    setWhatIfBlocks(null); setWhatIfDiff(null); setPendingMoves(null)
+    setMessages(prev => [...prev, { role: 'assistant', text: 'Got it, left everything as-is. What else?', type: 'info' }])
+  }, [])
+
+  // --- SYSTEM PROMPT ---
+  const buildSystemPrompt = useCallback((currentBlocks: Block[], currentPriorities: Record<string, number>, currentOverrides: Record<string, number>) => {
+    const getWeekLabel = (i: number): string => {
+      const d = new Date(weekZero)
+      d.setDate(d.getDate() + i * 7)
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+
+    const scheduleLines: string[] = []
+    projects.forEach(p => {
+      const pri = currentPriorities[p.id] || 3
+      const subs = projectSubs[p.id] || []
+      subs.forEach(sub => {
+        const subBlocks = currentBlocks.filter(b => b.project === p.id && b.sub === sub).sort((a, b) => (deptIndex[a.dept] ?? 0) - (deptIndex[b.dept] ?? 0))
+        const deptWeeks = subBlocks.map(b => `${deptShortMap[b.dept] || b.dept}:wk${b.week + 1}`).join(', ')
+        const totalH = subBlocks.reduce((s, b) => s + b.hours, 0)
+        scheduleLines.push(`${p.name} / ${sub} (${totalH}h, P${pri}): ${deptWeeks}`)
+      })
+    })
+
+    const effectiveCap = (deptId: string) => currentOverrides[deptId] != null ? currentOverrides[deptId] : (deptCapacities[deptId] || 0)
+
+    const deptCaps = departments.map(d => {
+      const baseCap = deptCapacities[d.id] || 0
+      const override = currentOverrides[d.id]
+      const cap = override != null ? override : baseCap
+      const label = override != null ? `${cap}h/wk (SIM, was ${baseCap}h)` : `${cap}h/wk`
+      return `${d.name}("${d.id}"):${label}`
+    })
+
+    const overCap: string[] = []
+    for (const dept of departments) {
+      for (let w = 0; w < numWeeks; w++) {
+        const cap = effectiveCap(dept.id)
+        const total = currentBlocks.filter(b => b.dept === dept.id && b.week === w).reduce((s, b) => s + b.hours, 0)
+        if (total > cap) {
+          const who = currentBlocks.filter(b => b.dept === dept.id && b.week === w).map(b => `${b.projectName}/${b.sub}(${b.hours}h)`).join(', ')
+          overCap.push(`${dept.name} Wk${w + 1}: ${total}/${cap}h - ${who}`)
+        }
+      }
+    }
+
+    const priLines = Object.entries(currentPriorities).sort((a, b) => a[1] - b[1]).map(([k, v]) => `P${v}: ${projectNames[k] || k}`).join(', ')
+
+    const deptFlow = departments.map(d => d.name).join(' > ')
+    const projectList = projects.map(p => `"${p.id}"=${p.name}`).join(', ')
+
+    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+
+    return `You are the production scheduling assistant for a custom millwork shop. Think like a sharp production manager.
+
+TODAY: ${today}. Weeks are 0-indexed internally (week 1 = index 0).
+
+SHOP FLOW: ${deptFlow}. Each dept must follow the previous.
+
+INSTALL RULE: The last department (${departments[departments.length - 1]?.name || 'Install'}) is SEQUENTIAL for same-project subprojects. No two subs from the same project in that dept the same week.
+
+"Keep tight" = minimize gaps. "Prioritize" = pull earlier, push lower-priority later.
+
+PRIORITIES (1=critical, 5=backlog): ${priLines}
+
+DEPTS: ${deptCaps.join(' | ')}
+
+WEEKS: ${Array.from({ length: numWeeks }, (_, i) => `Wk${i + 1}=${getWeekLabel(i)}(idx${i})`).join(', ')}
+
+CURRENT SCHEDULE:
+${scheduleLines.join('\n')}
+
+${overCap.length > 0 ? `OVER-CAPACITY:\n${overCap.join('\n')}` : 'No over-capacity.'}
+
+PROJECTS: ${projectList}
+
+RESPONSE FORMAT -- ONLY a JSON object. No markdown. No backticks. Start with { end with }.
+
+{
+  "message": "2-5 sentences. Conversational. Reference dates and names.",
+  "moves": [{"project": "projectId", "sub": "Name", "dept": "ALL", "toWeek": 0}],
+  "needsConfirmation": true,
+  "thinking": "Brief reasoning. Under 100 words."
+}
+
+RULES FOR MOVES:
+- PREFER "dept": "ALL" over individual dept moves. "ALL" moves entire chain so first dept starts at toWeek, each subsequent dept +1.
+- Only use individual dept moves when moving one department without the others.
+- For individual dept moves, use the department UUID as the dept value.
+- toWeek is 0-indexed.
+- Return ALL moves needed in one response.
+- ALWAYS respect install sequencing.
+- Flag new over-capacity briefly.
+
+WHEN TO SET needsConfirmation:
+- TRUE for 3+ projects affected or meaningful tradeoffs.
+- FALSE for simple moves, status questions, exact instructions.
+
+PERSONALITY: Sharp production manager. Short sentences. Numbers and dates. No filler. Flag consequences. Keep "message" SHORT. Keep "thinking" under 100 words.
+
+CRITICAL: Start with { end with }. No markdown. No backticks.`
+  }, [weekZero, projects, projectSubs, deptIndex, deptShortMap, deptCapacities, departments, numWeeks, projectNames])
+
+  // --- JSON PARSER ---
+  const parseAIResponse = useCallback((raw: string) => {
+    if (!raw || !raw.trim()) return null
+    let cleaned = raw.trim()
+    cleaned = cleaned.replace(/^```(?:json)?\s*/gi, '').replace(/\s*```\s*$/gi, '').trim()
+    cleaned = cleaned.replace(/^`+|`+$/g, '').trim()
+    const firstBrace = cleaned.indexOf('{')
+    const lastBrace = cleaned.lastIndexOf('}')
+    if (firstBrace !== -1 && lastBrace > firstBrace) cleaned = cleaned.substring(firstBrace, lastBrace + 1)
+    try { return JSON.parse(cleaned) } catch (e) { /* continue */ }
+    try { return JSON.parse(cleaned.replace(/,\s*([\]}])/g, '$1')) } catch (e) { /* continue */ }
+    try {
+      let t = cleaned
+      const ob = (t.match(/\{/g) || []).length, cb = (t.match(/\}/g) || []).length
+      const oB = (t.match(/\[/g) || []).length, cB = (t.match(/\]/g) || []).length
+      if (oB > cB) { const lc = t.lastIndexOf(','); if (lc > 0) t = t.substring(0, lc) }
+      for (let i = 0; i < oB - cB; i++) t += ']'
+      t = t.replace(/,\s*$/, '')
+      for (let i = 0; i < ob - cb; i++) t += '}'
+      t = t.replace(/,\s*([\]}])/g, '$1')
+      return JSON.parse(t)
+    } catch (e) { /* continue */ }
+    const msgMatch = raw.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/s)
+    const movesMatch = raw.match(/"moves"\s*:\s*(\[[\s\S]*?\])/)
+    const confirmMatch = raw.match(/"needsConfirmation"\s*:\s*(true|false)/)
+    const thinkMatch = raw.match(/"thinking"\s*:\s*"((?:[^"\\]|\\.)*)"/s)
+    if (msgMatch) {
+      const result: any = { message: msgMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\'), moves: [], needsConfirmation: confirmMatch ? confirmMatch[1] === 'true' : false, thinking: thinkMatch ? thinkMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') : undefined }
+      if (movesMatch) { try { result.moves = JSON.parse(movesMatch[1].replace(/,\s*\]/g, ']')) } catch (e) { /* continue */ } }
+      return result
+    }
+    return null
+  }, [])
+
+  // --- SEND MESSAGE ---
+  const sendMessage = useCallback(async (text: string) => {
+    if (!text.trim() || isThinking) return
+    const userMsg: ChatMessage = { role: 'user', text: text.trim() }
+    setMessages(prev => [...prev, userMsg])
+    setChatInput('')
+    setIsThinking(true)
+    try {
+      const validMsgs = messages.filter(m => (m.role === 'user' || m.role === 'assistant') && m.type !== 'error' && m.type !== 'greeting' && m.text && m.text !== 'Undone.' && !m.text.startsWith('Let me try') && !m.text.startsWith('Got it, left everything'))
+      const recent = [...validMsgs, userMsg].slice(-10)
+      const apiMessages = recent.map(m => ({ role: m.role === 'assistant' ? 'assistant' as const : 'user' as const, content: m.text }))
+
+      const sysPrompt = buildSystemPrompt(blocks, priorities, capacityOverrides)
+      const response = await fetch('/api/schedule-ai', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system: sysPrompt, messages: apiMessages }),
+      })
+      if (!response.ok) {
+        const e = await response.text()
+        console.error('API HTTP error:', response.status, e)
+        setMessages(prev => [...prev, { role: 'assistant', text: `API returned ${response.status}. Check console.`, type: 'error' }])
+        setIsThinking(false)
+        return
+      }
+      const result = await response.json()
+      console.log('API result:', result)
+      if (result.error) {
+        setMessages(prev => [...prev, { role: 'assistant', text: `API error: ${result.error.message || JSON.stringify(result.error)}`, type: 'error' }])
+        setIsThinking(false)
+        return
+      }
+      if (result.stop_reason === 'max_tokens') console.warn('Response truncated')
+      const raw = (result.content || []).map((c: any) => c.text || '').join('')
+      console.log('Raw AI:', raw.substring(0, 500))
+      if (!raw.trim()) {
+        setMessages(prev => [...prev, { role: 'assistant', text: 'Empty response from API.', type: 'error' }])
+        setIsThinking(false)
+        return
+      }
+
+      const data = parseAIResponse(raw)
+      if (!data || !data.message) {
+        console.error('Raw:', raw)
+        setMessages(prev => [...prev, { role: 'assistant', text: `Parse failed. Preview:\n\n${raw.substring(0, 200)}...`, type: 'error' }])
+        setIsThinking(false)
+        return
+      }
+
+      const hasMoves = data.moves && data.moves.length > 0
+      if (hasMoves && data.needsConfirmation) {
+        const proposed = applyMoves(data.moves, blocks)
+        const diff = computeDiff(blocks, proposed)
+        setWhatIfBlocks(proposed); setWhatIfDiff(diff); setPendingMoves(data.moves)
+        setMessages(prev => [...prev, { role: 'assistant', text: data.message, thinking: data.thinking, type: 'proposal', moveCount: diff.size }])
+      } else if (hasMoves) {
+        const newBlocks = applyMoves(data.moves, blocks)
+        setHistory(prev => [...prev, blocks])
+        setBlocks(newBlocks)
+        // Persist
+        const diff = computeDiff(blocks, newBlocks)
+        newBlocks.forEach(b => { if (diff.has(b.id)) persistBlockMove(b.id, b.week) })
+        setMessages(prev => [...prev, { role: 'assistant', text: data.message, thinking: data.thinking, type: 'applied', moveCount: data.moves.length }])
+      } else {
+        setMessages(prev => [...prev, { role: 'assistant', text: data.message, thinking: data.thinking, type: 'info' }])
+      }
+    } catch (err: any) {
+      console.error('sendMessage:', err)
+      setMessages(prev => [...prev, { role: 'assistant', text: `Connection error: ${err.message}`, type: 'error' }])
+    }
+    setIsThinking(false)
+  }, [blocks, messages, isThinking, applyMoves, priorities, capacityOverrides, parseAIResponse, buildSystemPrompt, persistBlockMove])
+
+  const undo = useCallback(() => {
+    if (history.length === 0) return
+    const prevBlocks = history[history.length - 1]
+    // Persist the undo changes
+    const diff = computeDiff(blocks, prevBlocks)
+    prevBlocks.forEach(b => { if (diff.has(b.id)) persistBlockMove(b.id, b.week) })
+    setBlocks(prevBlocks)
+    setHistory(prev => prev.slice(0, -1))
+    setWhatIfBlocks(null); setWhatIfDiff(null); setPendingMoves(null)
+    setMessages(prev => [...prev, { role: 'assistant', text: 'Undone.', type: 'info' }])
+  }, [history, blocks, persistBlockMove])
+
+  const adjustCapacity = useCallback((deptId: string, delta: number) => {
+    setCapacityOverrides(prev => {
+      const base = deptCapacities[deptId] || 0
+      const current = prev[deptId] != null ? prev[deptId] : base
+      const next = Math.max(0, current + delta)
+      if (next === base) { const copy = { ...prev }; delete copy[deptId]; return copy }
+      return { ...prev, [deptId]: next }
+    })
+  }, [deptCapacities])
+
+  const resetSim = useCallback(() => { setCapacityOverrides({}); setSimMode(false) }, [])
+
+  const totalHours = useMemo(() => displayBlocks.reduce((s, b) => s + b.hours, 0), [displayBlocks])
+  const overCapCount = useMemo(() => {
+    let c = 0
+    for (const d of departments) { const cap = effectiveCapacity(d.id); for (let w = 0; w < numWeeks; w++) if ((capacityMap[`${d.id}::${w}`] || 0) > cap) c++ }
+    return c
+  }, [capacityMap, effectiveCapacity, departments, numWeeks])
+
+  const handleHover = useCallback((block: Block) => { if (!dragState) setHoveredBlock(block) }, [dragState])
+  const handleLeave = useCallback(() => { if (!dragState) setHoveredBlock(null) }, [dragState])
+  const handleSelect = useCallback((sk: string) => { setSelectedSub(p => p === sk ? null : sk) }, [])
+
+  // =====================================================
+  // RENDER
+  // =====================================================
+  if (authLoading || !org) {
+    return <LoadingSkeleton />
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
-      {/* Sidebar */}
-      <div className="w-[260px] border-r border-[#E5E7EB] bg-white flex-shrink-0 overflow-y-auto">
-        <ProjectSidebar
-          projects={projects}
-          subs={subs}
-          blocks={blocks}
-          unscheduledProjectIds={unscheduledProjectIds}
-          deptInfos={deptInfos}
-          selectedProjectId={selectedProjectId}
-          independentSubs={independentSubs}
-          onSelectProject={setSelectedProjectId}
-          onScheduleProject={handleScheduleProject}
-          onUpdateDue={handleUpdateDue}
-          onUpdatePriority={handleUpdatePriority}
-          onToggleIndependentSub={(subId) => setIndependentSubs(prev => {
-            const next = new Set(prev)
-            if (next.has(subId)) next.delete(subId)
-            else next.add(subId)
-            return next
-          })}
-        />
-      </div>
+    <PlanGate requires="schedule">
+      {!dataLoaded ? (
+        <LoadingSkeleton />
+      ) : (
+        <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", background: '#FFF', height: '100vh', color: '#111', display: 'flex', overflow: 'hidden' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            {/* Header */}
+            <div style={{ padding: '12px 20px 0', borderBottom: '1px solid #E5E7EB', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.025em', margin: 0 }}>Production</h1>
+                    {/* View toggle */}
+                    <div style={{ display: 'flex', borderRadius: 8, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+                      <button onClick={() => setViewMode('flow')} style={{
+                        fontSize: 11, fontWeight: 600, padding: '4px 12px', border: 'none', cursor: 'pointer',
+                        background: viewMode === 'flow' ? '#111' : '#FFF', color: viewMode === 'flow' ? '#FFF' : '#6B7280',
+                        transition: 'all 0.15s',
+                      }}>Dept Flow</button>
+                      <button onClick={() => setViewMode('swimlane')} style={{
+                        fontSize: 11, fontWeight: 600, padding: '4px 12px', border: 'none', borderLeft: '1px solid #E5E7EB', cursor: 'pointer',
+                        background: viewMode === 'swimlane' ? '#111' : '#FFF', color: viewMode === 'swimlane' ? '#FFF' : '#6B7280',
+                        transition: 'all 0.15s',
+                      }}>Swimlane</button>
+                    </div>
+                    {whatIfBlocks && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D' }}>WHAT-IF</span>}
+                    {simMode && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: '#EDE9FE', color: '#5B21B6', border: '1px solid #C4B5FD' }}>SIM</span>}
+                  </div>
+                  <p style={{ fontSize: 12, color: '#6B7280', margin: '2px 0 0' }}>
+                    {projects.length} projects &middot; <span style={{ fontFamily: "'SF Mono', monospace" }}>{totalHours.toLocaleString()}h</span>
+                    {overCapCount > 0 && <span style={{ color: '#DC2626', marginLeft: 8 }}>{overCapCount} over-capacity</span>}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                  <button onClick={undo} disabled={history.length === 0 || !!whatIfBlocks} title="Undo last change" style={{
+                    ...btnS('#FFF', history.length > 0 && !whatIfBlocks ? '#374151' : '#D1D5DB'),
+                    padding: '5px 8px', cursor: history.length > 0 && !whatIfBlocks ? 'pointer' : 'default',
+                    opacity: history.length > 0 && !whatIfBlocks ? 1 : 0.4,
+                  }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 10h13a4 4 0 0 1 0 8H7" /><path d="M3 10l4-4" /><path d="M3 10l4 4" /></svg>
+                  </button>
+                  {filter && <button onClick={() => setFilter(null)} style={btnS('#FEF3C7', '#92400E')}>Show All</button>}
+                  <button onClick={() => setShowPriorityPanel(p => !p)} style={btnS(showPriorityPanel ? '#111' : '#FFF', showPriorityPanel ? '#FFF' : '#111')}>Priority</button>
+                  {viewMode === 'flow' && <button onClick={() => { if (simMode) resetSim(); else setSimMode(true) }} style={btnS(simMode ? '#EDE9FE' : '#FFF', simMode ? '#5B21B6' : '#6B7280')}>{simMode ? 'Exit Sim' : 'Capacity Sim'}</button>}
+                  <button onClick={() => setChatOpen(o => !o)} style={{ ...btnS(chatOpen ? '#111' : '#FFF', chatOpen ? '#FFF' : '#111'), display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                    AI
+                  </button>
+                </div>
+              </div>
 
-      {/* Main timeline area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Toolbar */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[#E5E7EB] bg-white flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold text-[#111]">Production Schedule</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setScrollTrigger(t => t + 1)}
-              className="px-2.5 py-1 text-[10px] font-medium text-[#2563EB] bg-[#EFF6FF] rounded-md hover:bg-[#DBEAFE] transition-colors">
-              Today
-            </button>
-            <div className="flex border border-[#E5E7EB] rounded-md overflow-hidden">
-              {([
-                { key: 'tight' as ZoomLevel, label: 'Day' },
-                { key: 'medium' as ZoomLevel, label: 'Week' },
-                { key: 'quarter' as ZoomLevel, label: '3 Mo' },
-                { key: 'long' as ZoomLevel, label: '6 Mo' },
-              ]).map(z => (
-                <button key={z.key} onClick={() => setZoom(z.key)}
-                  className={`px-2 py-1 text-[10px] font-medium transition-colors ${zoom === z.key ? 'bg-[#2563EB] text-white' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}>
-                  {z.label}
-                </button>
-              ))}
+              {/* Priority Panel */}
+              {showPriorityPanel && (
+                <div style={{ padding: '8px 0 10px', borderTop: '1px solid #F3F4F6', marginTop: 4 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Project Priority</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {Object.entries(priorities).sort((a, b) => a[1] - b[1]).map(([pk, pri]) => {
+                      const c = projectColors[pk] || COLOR_PALETTE[0]
+                      return (
+                        <div key={pk} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', borderRadius: 6, background: '#FAFBFC' }}>
+                          <div style={{ width: 22, fontSize: 11, fontWeight: 700, color: PRIORITY_COLORS[pri], textAlign: 'center' }}>P{pri}</div>
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: c.bg }} />
+                          <div style={{ flex: 1, fontSize: 12, fontWeight: 500, color: '#374151' }}>{projectNames[pk] || pk}</div>
+                          <div style={{ fontSize: 10, color: '#9CA3AF', marginRight: 4 }}>{PRIORITY_LABELS[pri]}</div>
+                          <button onClick={() => setPriorities(p => ({ ...p, [pk]: Math.max(1, pri - 1) }))} disabled={pri <= 1} style={{ background: 'none', border: 'none', cursor: pri > 1 ? 'pointer' : 'default', color: pri > 1 ? '#6B7280' : '#E5E7EB', fontSize: 14, padding: '0 2px', lineHeight: 1 }}>{'\u25B2'}</button>
+                          <button onClick={() => setPriorities(p => ({ ...p, [pk]: Math.min(5, pri + 1) }))} disabled={pri >= 5} style={{ background: 'none', border: 'none', cursor: pri < 5 ? 'pointer' : 'default', color: pri < 5 ? '#6B7280' : '#E5E7EB', fontSize: 14, padding: '0 2px', lineHeight: 1 }}>{'\u25BC'}</button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Project filter chips */}
+              <div style={{ display: 'flex', gap: 5, paddingBottom: 8, flexWrap: 'wrap' }}>
+                {projects.map(p => {
+                  const c = projectColors[p.id] || COLOR_PALETTE[0]
+                  const on = !filter || filter === p.id
+                  const pri = priorities[p.id] || 3
+                  return (
+                    <button key={p.id} onClick={() => setFilter(f => f === p.id ? null : p.id)} style={{
+                      display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 7,
+                      border: `1.5px solid ${on ? c.bg : '#E5E7EB'}`, background: filter === p.id ? c.light : '#FFF',
+                      cursor: 'pointer', opacity: on ? 1 : 0.35, transition: 'all 0.15s',
+                    }}>
+                      <div style={{ width: 7, height: 7, borderRadius: 2, background: c.bg }} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: c.text, whiteSpace: 'nowrap' }}>{p.name}</span>
+                      <span style={{ fontSize: 8, fontWeight: 700, color: PRIORITY_COLORS[pri], marginLeft: 2 }}>P{pri}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* What-If bar */}
+            {whatIfBlocks && (
+              <div style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #FFFBEB, #FEF3C7)', borderBottom: '1px solid #FCD34D', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#92400E" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>Previewing {whatIfDiff?.size || 0} block move{whatIfDiff?.size !== 1 ? 's' : ''}</span>
+                  <span style={{ fontSize: 11, color: '#B45309' }}>{(() => { if (!whatIfDiff) return ''; let e = 0, l = 0; whatIfDiff.forEach(d => { if (d.direction === 'earlier') e++; else l++ }); const p: string[] = []; if (e) p.push(`${e} earlier`); if (l) p.push(`${l} later`); return p.join(', ') })()}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={discardWhatIf} style={{ fontSize: 12, fontWeight: 500, padding: '6px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#FFF', color: '#6B7280', cursor: 'pointer' }}>Discard</button>
+                  <button onClick={acceptWhatIf} style={{ fontSize: 12, fontWeight: 600, padding: '6px 20px', borderRadius: 8, border: 'none', background: '#059669', color: '#FFF', cursor: 'pointer' }}>Apply Changes</button>
+                </div>
+              </div>
+            )}
+
+            {/* Grid area */}
+            <div ref={gridRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', userSelect: 'none' }}>
+              {viewMode === 'flow' ? (
+                <FlowView
+                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero}
+                  departments={departments} deptColors={deptColors} projectColors={projectColors}
+                  capacityMap={capacityMap} effectiveCapacity={effectiveCapacity}
+                  filter={filter} highlightKey={highlightKey} dragState={dragState}
+                  whatIfDiff={whatIfDiff} whatIfActive={!!whatIfBlocks}
+                  onPointerDown={handlePointerDown} onHover={handleHover} onLeave={handleLeave} onSelect={handleSelect}
+                  simMode={simMode} adjustCapacity={adjustCapacity} capacityOverrides={capacityOverrides}
+                  deptCapacities={deptCapacities}
+                />
+              ) : (
+                <SwimlaneView
+                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero}
+                  departments={departments} deptColors={deptColors} projectColors={projectColors}
+                  projectNames={projectNames} projectSubs={projectSubs}
+                  deptIndex={deptIndex} deptShortMap={deptShortMap}
+                  capacityMap={capacityMap} effectiveCapacity={effectiveCapacity}
+                  filter={filter} highlightKey={highlightKey} dragState={dragState}
+                  whatIfDiff={whatIfDiff} whatIfActive={!!whatIfBlocks}
+                  onPointerDown={handlePointerDown} onHover={handleHover} onLeave={handleLeave} onSelect={handleSelect}
+                  priorities={priorities}
+                />
+              )}
             </div>
           </div>
+
+          {/* Chat */}
+          {chatOpen && (
+            <ChatPanel
+              messages={messages} isThinking={isThinking} chatInput={chatInput} setChatInput={setChatInput}
+              sendMessage={sendMessage} whatIfBlocks={whatIfBlocks} whatIfDiff={whatIfDiff}
+              acceptWhatIf={acceptWhatIf} discardWhatIf={discardWhatIf}
+              onClose={() => setChatOpen(false)}
+            />
+          )}
         </div>
-
-        {/* Timeline */}
-        <Timeline
-          blocks={blocks}
-          projects={projects}
-          subs={subs}
-          capacity={capacity}
-          deptInfos={deptInfos}
-          zoom={zoom}
-          scrollTrigger={scrollTrigger}
-          selectedProjectId={selectedProjectId}
-          collapsed={collapsed}
-          onToggleCollapse={id => setCollapsed(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })}
-          onBlockClick={(block, rect) => setEditingBlock({ block, rect })}
-          onDateClick={date => setSelectedDate(date)}
-          onBlockDrop={handleBlockDrop}
-          onDeptLabelClick={handleDeptClick}
-        />
-
-        {/* Daily detail panel */}
-        {selectedDate && (
-          <DailyDetailPanel
-            date={selectedDate}
-            blocks={blocks}
-            deptInfos={deptInfos}
-            capacity={capacity}
-            onClose={() => setSelectedDate(null)}
-          />
-        )}
-      </div>
-
-      {/* Block edit popover */}
-      {editingBlock && (
-        <BlockEditPopover
-          block={editingBlock.block}
-          rect={editingBlock.rect}
-          deptInfos={deptInfos}
-          capacity={capacity}
-          deptConfig={deptConfig}
-          memberCountByDept={deptMemberCounts}
-          blocks={blocks}
-          allocations={allocations}
-          subs={subs}
-          onUpdate={handleBlockUpdate}
-          onClose={() => setEditingBlock(null)}
-        />
       )}
-
-      {/* Department edit modal */}
-      {editingDept && (
-        <DeptEditModal
-          dept={editingDept}
-          headcount={deptMemberCounts[editingDept.id] || 0}
-          hoursPerDay={rawDepts.find((d: any) => d.id === editingDept.id)?.hours_per_day || 8}
-          defaultCrewSize={rawDepts.find((d: any) => d.id === editingDept.id)?.default_crew_size || (editingDept.key === 'engineering' || editingDept.key === 'cnc' ? 1 : 2)}
-          onSave={handleDeptSave}
-          onClose={() => setEditingDept(null)}
-        />
-      )}
-    </div>
+    </PlanGate>
   )
 }
