@@ -1004,20 +1004,24 @@ export default function SchedulePage() {
 
   const handlePointerUp = useCallback(() => {
     if (dragState) {
-      // Save pre-drag state to history for undo
-      if (preDragBlocks.current) {
+      // Only save to history and persist if blocks actually changed
+      const didChange = preDragBlocks.current && preDragBlocks.current.some((old, i) => old.week !== blocks[i]?.week)
+      if (didChange && preDragBlocks.current) {
         setHistory(prev => [...prev, preDragBlocks.current!])
-        preDragBlocks.current = null
       }
-      const movedBlock = blocks.find(b => b.id === dragState.blockId)
-      if (movedBlock) {
-        if (dragState.independent) {
-          persistBlockMove(movedBlock.id, movedBlock.week)
-        } else {
-          const sk = getSubKey(movedBlock)
-          blocks.filter(b => getSubKey(b) === sk).forEach(b => {
-            persistBlockMove(b.id, b.week)
-          })
+      preDragBlocks.current = null
+
+      if (didChange) {
+        const movedBlock = blocks.find(b => b.id === dragState.blockId)
+        if (movedBlock) {
+          if (dragState.independent) {
+            persistBlockMove(movedBlock.id, movedBlock.week)
+          } else {
+            const sk = getSubKey(movedBlock)
+            blocks.filter(b => getSubKey(b) === sk).forEach(b => {
+              persistBlockMove(b.id, b.week)
+            })
+          }
         }
       }
     }
