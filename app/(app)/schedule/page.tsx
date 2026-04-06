@@ -559,7 +559,7 @@ function ChatPanel({ messages, isThinking, chatInput, setChatInput, sendMessage,
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, isThinking])
 
   return (
-    <div style={{ width: 400, flexShrink: 0, borderLeft: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', background: '#FAFBFC', height: '100vh' }}>
+    <div style={{ width: 400, flexShrink: 0, borderLeft: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', background: '#FAFBFC', height: '100%' }}>
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #E5E7EB', background: '#FFF', flexShrink: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1338,16 +1338,17 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
   // RENDER
   // =====================================================
   if (authLoading || !org) {
-    return <><Nav /><LoadingSkeleton /></>
+    return <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}><Nav /><LoadingSkeleton /></div>
   }
 
   return (
     <PlanGate requires="schedule">
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Nav />
       {!dataLoaded ? (
         <LoadingSkeleton />
       ) : (
-        <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", background: '#FFF', position: 'fixed', top: 57, left: 0, right: 0, bottom: 0, color: '#111', display: 'flex', overflow: 'hidden', zIndex: 40 }}>
+        <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", background: '#FFF', flex: 1, color: '#111', display: 'flex', overflow: 'hidden' }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             {/* Header */}
             <div style={{ padding: '12px 20px 0', borderBottom: '1px solid #E5E7EB', flexShrink: 0 }}>
@@ -1589,6 +1590,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
           )}
         </div>
       )}
+      </div>
     </PlanGate>
   )
 }
