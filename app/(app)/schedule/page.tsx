@@ -698,6 +698,8 @@ export default function SchedulePage() {
   const [pendingMoves, setPendingMoves] = useState<any[] | null>(null)
 
   const gridRef = useRef<HTMLDivElement>(null)
+  const blocksRef = useRef<Block[]>(blocks)
+  useEffect(() => { blocksRef.current = blocks }, [blocks])
 
   // --- Derived data ---
   const weekZero = useMemo(() => getMonday(new Date()), [])
@@ -1004,29 +1006,34 @@ export default function SchedulePage() {
 
   const handlePointerUp = useCallback(() => {
     if (dragState) {
-      // Only save to history and persist if blocks actually changed
-      const didChange = preDragBlocks.current && preDragBlocks.current.some((old, i) => old.week !== blocks[i]?.week)
-      if (didChange && preDragBlocks.current) {
-        setHistory(prev => [...prev, preDragBlocks.current!])
-      }
-      preDragBlocks.current = null
+      const currentBlocks = blocksRef.current
+      const preBlocks = preDragBlocks.current
 
-      if (didChange) {
-        const movedBlock = blocks.find(b => b.id === dragState.blockId)
-        if (movedBlock) {
-          if (dragState.independent) {
-            persistBlockMove(movedBlock.id, movedBlock.week)
-          } else {
-            const sk = getSubKey(movedBlock)
-            blocks.filter(b => getSubKey(b) === sk).forEach(b => {
-              persistBlockMove(b.id, b.week)
-            })
+      // Check if anything actually moved
+      if (preBlocks) {
+        const preMap = new Map(preBlocks.map(b => [b.id, b.week]))
+        const didChange = currentBlocks.some(b => preMap.get(b.id) !== b.week)
+
+        if (didChange) {
+          setHistory(prev => [...prev, preBlocks])
+          // Persist moved blocks
+          const movedBlock = currentBlocks.find(b => b.id === dragState.blockId)
+          if (movedBlock) {
+            if (dragState.independent) {
+              persistBlockMove(movedBlock.id, movedBlock.week)
+            } else {
+              const sk = getSubKey(movedBlock)
+              currentBlocks.filter(b => getSubKey(b) === sk).forEach(b => {
+                persistBlockMove(b.id, b.week)
+              })
+            }
           }
         }
       }
+      preDragBlocks.current = null
     }
     setDragState(null)
-  }, [dragState, blocks, persistBlockMove])
+  }, [dragState, persistBlockMove])
 
   useEffect(() => {
     if (!dragState) return
@@ -1308,10 +1315,10 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
     const prevBlocks = history[history.length - 1]
     if (!Array.isArray(prevBlocks)) return
 
-    // Find which blocks changed and persist them
+    const currentBlocks = blocksRef.current
     const prevMap = new Map(prevBlocks.map(b => [b.id, b]))
     let revertCount = 0
-    for (const curr of blocks) {
+    for (const curr of currentBlocks) {
       const prev = prevMap.get(curr.id)
       if (prev && prev.week !== curr.week) {
         persistBlockMove(prev.id, prev.week)
@@ -1323,7 +1330,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
     setHistory(h => h.slice(0, -1))
     setWhatIfBlocks(null); setWhatIfDiff(null); setPendingMoves(null)
     setMessages(prev => [...prev, { role: 'assistant', text: `Undone. Reverted ${revertCount} block(s).`, type: 'info' }])
-  }, [history, blocks, persistBlockMove])
+  }, [history, persistBlockMove])
 
   const adjustCapacity = useCallback((deptId: string, delta: number) => {
     setCapacityOverrides(prev => {
