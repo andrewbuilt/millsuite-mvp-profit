@@ -1336,7 +1336,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
       {!dataLoaded ? (
         <LoadingSkeleton />
       ) : (
-        <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", background: '#FFF', position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, color: '#111', display: 'flex', overflow: 'hidden', zIndex: 40 }}>
+        <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", background: '#FFF', position: 'fixed', top: 57, left: 0, right: 0, bottom: 0, color: '#111', display: 'flex', overflow: 'hidden', zIndex: 40 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             {/* Header */}
             <div style={{ padding: '12px 20px 0', borderBottom: '1px solid #E5E7EB', flexShrink: 0 }}>
