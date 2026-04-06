@@ -1383,12 +1383,19 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-                  <button onClick={undo} disabled={history.length === 0 || !!whatIfBlocks} title="Undo last change" style={{
-                    ...btnS('#FFF', history.length > 0 && !whatIfBlocks ? '#374151' : '#D1D5DB'),
-                    padding: '5px 8px', cursor: history.length > 0 && !whatIfBlocks ? 'pointer' : 'default',
-                    opacity: history.length > 0 && !whatIfBlocks ? 1 : 0.4,
-                  }}>
+                  <button
+                    onPointerDown={e => { e.stopPropagation() }}
+                    onClick={e => { e.stopPropagation(); e.preventDefault(); undo() }}
+                    title={`Undo last change (${history.length} in history)`}
+                    style={{
+                      ...btnS('#FFF', history.length > 0 && !whatIfBlocks ? '#374151' : '#D1D5DB'),
+                      padding: '5px 10px', cursor: history.length > 0 && !whatIfBlocks ? 'pointer' : 'default',
+                      opacity: history.length > 0 && !whatIfBlocks ? 1 : 0.4,
+                      pointerEvents: history.length > 0 && !whatIfBlocks ? 'auto' : 'none',
+                      display: 'flex', alignItems: 'center', gap: 4,
+                    }}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 10h13a4 4 0 0 1 0 8H7" /><path d="M3 10l4-4" /><path d="M3 10l4 4" /></svg>
+                    <span style={{ fontSize: 11 }}>Undo</span>
                   </button>
                   {filter && <button onClick={() => setFilter(null)} style={btnS('#FEF3C7', '#92400E')}>Show All</button>}
                   <button onClick={() => setShowPriorityPanel(p => !p)} style={btnS(showPriorityPanel ? '#111' : '#FFF', showPriorityPanel ? '#FFF' : '#111')}>Priority</button>
