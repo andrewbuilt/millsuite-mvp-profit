@@ -1304,20 +1304,25 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
   }, [blocks, messages, isThinking, applyMoves, priorities, capacityOverrides, parseAIResponse, buildSystemPrompt, persistBlockMove])
 
   const undo = useCallback(() => {
-    console.log('UNDO called, history length:', history.length)
-    if (history.length === 0) {
-      alert('Nothing to undo — history is empty')
-      return
-    }
+    if (history.length === 0) return
     const prevBlocks = history[history.length - 1]
-    // Persist the undo changes
-    const diff = computeDiff(blocks, prevBlocks)
-    console.log('UNDO diff size:', diff.size)
-    prevBlocks.forEach(b => { if (diff.has(b.id)) persistBlockMove(b.id, b.week) })
+    if (!Array.isArray(prevBlocks)) return
+
+    // Find which blocks changed and persist them
+    const prevMap = new Map(prevBlocks.map(b => [b.id, b]))
+    let revertCount = 0
+    for (const curr of blocks) {
+      const prev = prevMap.get(curr.id)
+      if (prev && prev.week !== curr.week) {
+        persistBlockMove(prev.id, prev.week)
+        revertCount++
+      }
+    }
+
     setBlocks(prevBlocks)
-    setHistory(prev => prev.slice(0, -1))
+    setHistory(h => h.slice(0, -1))
     setWhatIfBlocks(null); setWhatIfDiff(null); setPendingMoves(null)
-    setMessages(prev => [...prev, { role: 'assistant', text: `Undone. Reverted ${diff.size} block(s).`, type: 'info' }])
+    setMessages(prev => [...prev, { role: 'assistant', text: `Undone. Reverted ${revertCount} block(s).`, type: 'info' }])
   }, [history, blocks, persistBlockMove])
 
   const adjustCapacity = useCallback((deptId: string, delta: number) => {
