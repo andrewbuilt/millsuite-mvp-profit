@@ -1304,15 +1304,20 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
   }, [blocks, messages, isThinking, applyMoves, priorities, capacityOverrides, parseAIResponse, buildSystemPrompt, persistBlockMove])
 
   const undo = useCallback(() => {
-    if (history.length === 0) return
+    console.log('UNDO called, history length:', history.length)
+    if (history.length === 0) {
+      alert('Nothing to undo — history is empty')
+      return
+    }
     const prevBlocks = history[history.length - 1]
     // Persist the undo changes
     const diff = computeDiff(blocks, prevBlocks)
+    console.log('UNDO diff size:', diff.size)
     prevBlocks.forEach(b => { if (diff.has(b.id)) persistBlockMove(b.id, b.week) })
     setBlocks(prevBlocks)
     setHistory(prev => prev.slice(0, -1))
     setWhatIfBlocks(null); setWhatIfDiff(null); setPendingMoves(null)
-    setMessages(prev => [...prev, { role: 'assistant', text: 'Undone.', type: 'info' }])
+    setMessages(prev => [...prev, { role: 'assistant', text: `Undone. Reverted ${diff.size} block(s).`, type: 'info' }])
   }, [history, blocks, persistBlockMove])
 
   const adjustCapacity = useCallback((deptId: string, delta: number) => {
