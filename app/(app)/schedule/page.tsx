@@ -141,6 +141,13 @@ function getDeptShort(name: string): string {
   return map[name.toLowerCase()] || name.substring(0, 4).toUpperCase()
 }
 
+function getDeptDisplayName(name: string): string {
+  const map: Record<string, string> = {
+    'case assembly': 'Assembly',
+  }
+  return map[name.toLowerCase()] || name
+}
+
 function getMonday(d: Date): Date {
   const day = d.getDay()
   const diff = d.getDate() - day + (day === 0 ? -6 : 1)
@@ -286,7 +293,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
         return (
           <div key={dept.id} style={{ display: 'flex', borderBottom: '1px solid #E5E7EB' }}>
             <div style={{ width: DEPT_LABEL_WIDTH, minWidth: DEPT_LABEL_WIDTH, flexShrink: 0, minHeight: ROW_HEIGHT, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 12px', borderRight: '1px solid #E5E7EB', background: isOverridden ? '#F5F3FF' : '#FFF', position: 'sticky', left: 0, zIndex: 15 }}>
-              <div style={{ fontSize: 12, fontWeight: 600 }}>{dept.name}</div>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>{getDeptDisplayName(dept.name)}</div>
               <div style={{ fontSize: 10, color: isOverridden ? '#7C3AED' : '#9CA3AF', fontFamily: "'SF Mono', monospace", marginTop: 1, fontWeight: isOverridden ? 600 : 400 }}>
                 {cap}h/wk {isOverridden && <span style={{ fontSize: 8, color: '#A78BFA' }}>(was {baseCap})</span>}
               </div>
@@ -530,7 +537,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
           return (
             <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <div style={{ width: 8, height: 8, borderRadius: 2, background: dc.bg }} />
-              <span style={{ fontSize: 10, color: '#6B7280' }}>{d.name}</span>
+              <span style={{ fontSize: 10, color: '#6B7280' }}>{getDeptDisplayName(d.name)}</span>
             </div>
           )
         })}
@@ -1513,22 +1520,13 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
             </div>
           </div>
 
-          {/* Week Detail Panel */}
+          {/* Week Detail Panel — organized by department */}
           {selectedWeek !== null && (() => {
             const weekBlocks = displayBlocks.filter(b => b.week === selectedWeek)
             const weekDate = new Date(weekZero)
             weekDate.setDate(weekDate.getDate() + selectedWeek * 7)
             const weekLabel = weekDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
             const totalH = weekBlocks.reduce((s, b) => s + b.hours, 0)
-
-            // Group by project then sub
-            const byProject: Record<string, { name: string; color: any; subs: Record<string, { blocks: Block[]; totalH: number }> }> = {}
-            for (const b of weekBlocks) {
-              if (!byProject[b.project]) byProject[b.project] = { name: b.projectName, color: projectColors[b.project] || COLOR_PALETTE[0], subs: {} }
-              if (!byProject[b.project].subs[b.sub]) byProject[b.project].subs[b.sub] = { blocks: [], totalH: 0 }
-              byProject[b.project].subs[b.sub].blocks.push(b)
-              byProject[b.project].subs[b.sub].totalH += b.hours
-            }
 
             return (
               <div style={{ width: 340, flexShrink: 0, borderLeft: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', background: '#FFF', overflow: 'hidden' }}>
@@ -1547,58 +1545,40 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   </div>
                 </div>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-                  {Object.keys(byProject).length === 0 && (
+                  {weekBlocks.length === 0 && (
                     <div style={{ padding: '20px 16px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No work scheduled this week</div>
                   )}
-                  {Object.entries(byProject).map(([projId, proj]) => {
-                    const projH = Object.values(proj.subs).reduce((s, sub) => s + sub.totalH, 0)
-                    return (
-                      <div key={projId} style={{ marginBottom: 2 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: '#FAFBFC' }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 2, background: proj.color.bg, flexShrink: 0 }} />
-                          <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#111' }}>{proj.name}</div>
-                          <span style={{ fontSize: 11, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: '#6B7280' }}>{projH}h</span>
-                        </div>
-                        {Object.entries(proj.subs).map(([subName, sub]) => (
-                          <div key={subName} style={{ padding: '6px 16px 6px 32px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                              <span style={{ fontSize: 11, fontWeight: 500, color: '#374151' }}>{subName}</span>
-                              <span style={{ fontSize: 10, fontFamily: "'SF Mono', monospace", color: '#9CA3AF' }}>{sub.totalH}h</span>
-                            </div>
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                              {sub.blocks.map(b => {
-                                const dc = deptColors[b.dept] || DEPT_COLOR_PALETTE[0]
-                                return (
-                                  <div key={b.id} style={{
-                                    display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px',
-                                    borderRadius: 5, background: `${dc.bg}15`, border: `1px solid ${dc.bg}30`,
-                                  }}>
-                                    <span style={{ fontSize: 9, fontWeight: 700, color: dc.text }}>{deptShortMap[b.dept] || '?'}</span>
-                                    <span style={{ fontSize: 9, fontFamily: "'SF Mono', monospace", color: `${dc.text}90` }}>{b.hours}h</span>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  })}
-                </div>
-                {/* Dept breakdown */}
-                <div style={{ padding: '10px 16px', borderTop: '1px solid #E5E7EB', flexShrink: 0 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>By Department</div>
                   {departments.map(dept => {
-                    const deptH = weekBlocks.filter(b => b.dept === dept.id).reduce((s, b) => s + b.hours, 0)
-                    if (deptH === 0) return null
+                    const deptBlocks = weekBlocks.filter(b => b.dept === dept.id)
+                    if (deptBlocks.length === 0) return null
+                    const deptH = deptBlocks.reduce((s, b) => s + b.hours, 0)
                     const cap = effectiveCapacity(dept.id)
                     const pct = cap > 0 ? Math.round((deptH / cap) * 100) : 0
                     const dc = deptColors[dept.id] || DEPT_COLOR_PALETTE[0]
+
                     return (
-                      <div key={dept.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <div style={{ width: 6, height: 6, borderRadius: 2, background: dc.bg, flexShrink: 0 }} />
-                        <span style={{ fontSize: 11, color: '#374151', flex: 1 }}>{dept.name}</span>
-                        <span style={{ fontSize: 10, fontFamily: "'SF Mono', monospace", color: pct > 100 ? '#DC2626' : '#6B7280', fontWeight: pct > 100 ? 600 : 400 }}>{deptH}/{cap}h ({pct}%)</span>
+                      <div key={dept.id} style={{ marginBottom: 2 }}>
+                        {/* Dept header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: '#FAFBFC', borderBottom: '1px solid #F3F4F6' }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: dc.bg, flexShrink: 0 }} />
+                          <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#111' }}>{getDeptDisplayName(dept.name)}</div>
+                          <span style={{ fontSize: 10, fontFamily: "'SF Mono', monospace", color: pct > 100 ? '#DC2626' : '#6B7280', fontWeight: pct > 100 ? 600 : 400 }}>{deptH}/{cap}h</span>
+                          <span style={{ fontSize: 9, fontWeight: 600, color: pct > 100 ? '#DC2626' : pct > 80 ? '#D97706' : '#9CA3AF' }}>{pct}%</span>
+                        </div>
+                        {/* Projects in this dept this week */}
+                        {deptBlocks.map(b => {
+                          const pc = projectColors[b.project] || COLOR_PALETTE[0]
+                          return (
+                            <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px 6px 32px', borderBottom: '1px solid #F9FAFB' }}>
+                              <div style={{ width: 6, height: 6, borderRadius: 2, background: pc.bg, flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 11, fontWeight: 500, color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.projectName}</div>
+                                <div style={{ fontSize: 10, color: '#9CA3AF' }}>{b.sub}</div>
+                              </div>
+                              <span style={{ fontSize: 11, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: '#6B7280', flexShrink: 0 }}>{b.hours}h</span>
+                            </div>
+                          )
+                        })}
                       </div>
                     )
                   })}
