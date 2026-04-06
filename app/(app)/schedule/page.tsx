@@ -197,12 +197,13 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
 // =====================================================
 // WEEK COLUMN HEADERS
 // =====================================================
-function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCapacity }: {
+function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCapacity, onWeekClick }: {
   numWeeks: number
   weekZero: Date
   departments: Department[]
   capacityMap: Record<string, number>
   effectiveCapacity: (deptId: string) => number
+  onWeekClick?: (weekIndex: number) => void
 }) {
   const getWeekLabel = (i: number): string => {
     const d = new Date(weekZero)
@@ -217,7 +218,7 @@ function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCa
         const wc = departments.reduce((s, d) => s + effectiveCapacity(d.id), 0)
         const wp = wc > 0 ? Math.round((wt / wc) * 100) : 0
         return (
-          <div key={i} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #F3F4F6', padding: '6px 0 4px', textAlign: 'center', background: i % 2 === 0 ? '#FFF' : '#FAFBFC' }}>
+          <div key={i} onClick={() => onWeekClick?.(i)} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #F3F4F6', padding: '6px 0 4px', textAlign: 'center', background: i % 2 === 0 ? '#FFF' : '#FAFBFC', cursor: 'pointer' }}>
             <div style={{ fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>WK {i + 1}</div>
             <div style={{ fontSize: 11, fontWeight: 500, color: '#6B7280', marginTop: 1 }}>{getWeekLabel(i)}</div>
             <div style={{ margin: '3px 10px 0', height: 3, background: '#F3F4F6', borderRadius: 2, overflow: 'hidden' }}>
@@ -234,7 +235,7 @@ function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCa
 // =====================================================
 // FLOW VIEW (departments as rows)
 // =====================================================
-function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, simMode, adjustCapacity, capacityOverrides, deptCapacities }: {
+function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
@@ -256,6 +257,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
   adjustCapacity: (deptId: string, delta: number) => void
   capacityOverrides: Record<string, number>
   deptCapacities: Record<string, number>
+  onWeekClick: (weekIndex: number) => void
 }) {
   const visibleCellMap = useMemo(() => {
     const m: Record<string, Block[]> = {}
@@ -273,7 +275,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
       {/* Column headers */}
       <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF' }}>
         <div style={{ width: DEPT_LABEL_WIDTH, minWidth: DEPT_LABEL_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'sticky', left: 0, background: '#FFF', zIndex: 25 }}>Dept</div>
-        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} />
+        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} onWeekClick={onWeekClick} />
       </div>
       {/* Rows */}
       {departments.map(dept => {
@@ -349,7 +351,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
 // =====================================================
 // SWIMLANE VIEW (projects as rows, expand to subprojects)
 // =====================================================
-function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, priorities }: {
+function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, priorities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
@@ -372,6 +374,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
   onLeave: () => void
   onSelect: (sk: string) => void
   priorities: Record<string, number>
+  onWeekClick: (weekIndex: number) => void
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {}
@@ -394,7 +397,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
       {/* Column headers */}
       <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF' }}>
         <div style={{ width: SWIM_LABEL_WIDTH, minWidth: SWIM_LABEL_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'sticky', left: 0, background: '#FFF', zIndex: 25 }}>Project</div>
-        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} />
+        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} onWeekClick={onWeekClick} />
       </div>
 
       {/* Project rows */}
@@ -416,7 +419,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
                 width: SWIM_LABEL_WIDTH, minWidth: SWIM_LABEL_WIDTH, flexShrink: 0, height: SWIM_ROW + 8,
                 display: 'flex', alignItems: 'center', padding: '0 10px', gap: 8,
                 borderRight: '1px solid #E5E7EB', position: 'sticky', left: 0, zIndex: 15,
-                background: `${c.bg}06`, cursor: 'pointer', userSelect: 'none',
+                background: '#FAFBFC', cursor: 'pointer', userSelect: 'none',
               }}>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2.5"
                   style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }}>
@@ -684,6 +687,7 @@ export default function SchedulePage() {
 
   const [whatIfBlocks, setWhatIfBlocks] = useState<Block[] | null>(null)
   const [whatIfDiff, setWhatIfDiff] = useState<Map<string, DiffInfo> | null>(null)
+  const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
 
   const [chatOpen, setChatOpen] = useState(true)
   const [chatInput, setChatInput] = useState('')
@@ -956,9 +960,10 @@ export default function SchedulePage() {
   const handlePointerDown = useCallback((e: React.PointerEvent, block: Block) => {
     if (whatIfBlocks) return
     e.preventDefault(); e.stopPropagation()
-    // Hold Alt/Option to move just this one department independently
+    // Snapshot blocks before drag so undo works
+    preDragBlocks.current = [...blocks]
     setDragState({ blockId: block.id, subKey: getSubKey(block), startX: e.clientX, startWeek: block.week, independent: e.altKey })
-  }, [whatIfBlocks])
+  }, [whatIfBlocks, blocks])
 
   const handlePointerMove = useCallback((e: PointerEvent) => {
     if (!dragState) return
@@ -994,15 +999,21 @@ export default function SchedulePage() {
     setDragState(ds => ds ? ({ ...ds, startX: e.clientX, startWeek: ds.startWeek + Math.round((e.clientX - ds.startX) / WEEK_WIDTH) }) : null)
   }, [dragState, numWeeks, deptIndex, enforceInstallSequencing])
 
+  // Store pre-drag state so undo works
+  const preDragBlocks = useRef<Block[] | null>(null)
+
   const handlePointerUp = useCallback(() => {
     if (dragState) {
+      // Save pre-drag state to history for undo
+      if (preDragBlocks.current) {
+        setHistory(prev => [...prev, preDragBlocks.current!])
+        preDragBlocks.current = null
+      }
       const movedBlock = blocks.find(b => b.id === dragState.blockId)
       if (movedBlock) {
         if (dragState.independent) {
-          // Only persist the single block that was moved
           persistBlockMove(movedBlock.id, movedBlock.week)
         } else {
-          // Persist all blocks for this subproject
           const sk = getSubKey(movedBlock)
           blocks.filter(b => getSubKey(b) === sk).forEach(b => {
             persistBlockMove(b.id, b.week)
@@ -1454,6 +1465,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   onPointerDown={handlePointerDown} onHover={handleHover} onLeave={handleLeave} onSelect={handleSelect}
                   simMode={simMode} adjustCapacity={adjustCapacity} capacityOverrides={capacityOverrides}
                   deptCapacities={deptCapacities}
+                  onWeekClick={(wi: number) => setSelectedWeek(sw => sw === wi ? null : wi)}
                 />
               ) : (
                 <SwimlaneView
@@ -1466,10 +1478,105 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   whatIfDiff={whatIfDiff} whatIfActive={!!whatIfBlocks}
                   onPointerDown={handlePointerDown} onHover={handleHover} onLeave={handleLeave} onSelect={handleSelect}
                   priorities={priorities}
+                  onWeekClick={(wi: number) => setSelectedWeek(sw => sw === wi ? null : wi)}
                 />
               )}
             </div>
           </div>
+
+          {/* Week Detail Panel */}
+          {selectedWeek !== null && (() => {
+            const weekBlocks = displayBlocks.filter(b => b.week === selectedWeek)
+            const weekDate = new Date(weekZero)
+            weekDate.setDate(weekDate.getDate() + selectedWeek * 7)
+            const weekLabel = weekDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+            const totalH = weekBlocks.reduce((s, b) => s + b.hours, 0)
+
+            // Group by project then sub
+            const byProject: Record<string, { name: string; color: any; subs: Record<string, { blocks: Block[]; totalH: number }> }> = {}
+            for (const b of weekBlocks) {
+              if (!byProject[b.project]) byProject[b.project] = { name: b.projectName, color: projectColors[b.project] || COLOR_PALETTE[0], subs: {} }
+              if (!byProject[b.project].subs[b.sub]) byProject[b.project].subs[b.sub] = { blocks: [], totalH: 0 }
+              byProject[b.project].subs[b.sub].blocks.push(b)
+              byProject[b.project].subs[b.sub].totalH += b.hours
+            }
+
+            return (
+              <div style={{ width: 340, flexShrink: 0, borderLeft: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', background: '#FFF', overflow: 'hidden' }}>
+                <div style={{ padding: '14px 16px', borderBottom: '1px solid #E5E7EB', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>Week {selectedWeek + 1}</div>
+                      <div style={{ fontSize: 11, color: '#6B7280' }}>{weekLabel}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: '#374151' }}>{totalH}h total</span>
+                      <button onClick={() => setSelectedWeek(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 4 }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+                  {Object.keys(byProject).length === 0 && (
+                    <div style={{ padding: '20px 16px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No work scheduled this week</div>
+                  )}
+                  {Object.entries(byProject).map(([projId, proj]) => {
+                    const projH = Object.values(proj.subs).reduce((s, sub) => s + sub.totalH, 0)
+                    return (
+                      <div key={projId} style={{ marginBottom: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: '#FAFBFC' }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: proj.color.bg, flexShrink: 0 }} />
+                          <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#111' }}>{proj.name}</div>
+                          <span style={{ fontSize: 11, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: '#6B7280' }}>{projH}h</span>
+                        </div>
+                        {Object.entries(proj.subs).map(([subName, sub]) => (
+                          <div key={subName} style={{ padding: '6px 16px 6px 32px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ fontSize: 11, fontWeight: 500, color: '#374151' }}>{subName}</span>
+                              <span style={{ fontSize: 10, fontFamily: "'SF Mono', monospace", color: '#9CA3AF' }}>{sub.totalH}h</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {sub.blocks.map(b => {
+                                const dc = deptColors[b.dept] || DEPT_COLOR_PALETTE[0]
+                                return (
+                                  <div key={b.id} style={{
+                                    display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px',
+                                    borderRadius: 5, background: `${dc.bg}15`, border: `1px solid ${dc.bg}30`,
+                                  }}>
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: dc.text }}>{deptShortMap[b.dept] || '?'}</span>
+                                    <span style={{ fontSize: 9, fontFamily: "'SF Mono', monospace", color: `${dc.text}90` }}>{b.hours}h</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+                {/* Dept breakdown */}
+                <div style={{ padding: '10px 16px', borderTop: '1px solid #E5E7EB', flexShrink: 0 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>By Department</div>
+                  {departments.map(dept => {
+                    const deptH = weekBlocks.filter(b => b.dept === dept.id).reduce((s, b) => s + b.hours, 0)
+                    if (deptH === 0) return null
+                    const cap = effectiveCapacity(dept.id)
+                    const pct = cap > 0 ? Math.round((deptH / cap) * 100) : 0
+                    const dc = deptColors[dept.id] || DEPT_COLOR_PALETTE[0]
+                    return (
+                      <div key={dept.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: 2, background: dc.bg, flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, color: '#374151', flex: 1 }}>{dept.name}</span>
+                        <span style={{ fontSize: 10, fontFamily: "'SF Mono', monospace", color: pct > 100 ? '#DC2626' : '#6B7280', fontWeight: pct > 100 ? 600 : 400 }}>{deptH}/{cap}h ({pct}%)</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Chat */}
           {chatOpen && (
