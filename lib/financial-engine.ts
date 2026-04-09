@@ -219,26 +219,35 @@ export function computeWaterfall(outcome: ProjectOutcome): WaterfallItem[] {
     detail: `${materialOverUnder > 0 ? '+' : ''}$${Math.round(Math.abs(materialOverUnder)).toLocaleString()} ${materialOverUnder > 0 ? 'over' : 'under'} budget`,
   })
 
-  // Change order impact
-  if (outcome.change_order_revenue > 0) {
-    const coImpact = outcome.estimated_price > 0 ? (outcome.change_order_revenue / outcome.estimated_price) * 100 : 0
-    items.push({
-      label: 'Change Orders',
-      value: coImpact,
-      type: 'positive',
-      detail: `$${Math.round(outcome.change_order_revenue).toLocaleString()} added revenue (${outcome.change_order_count} CO${outcome.change_order_count !== 1 ? 's' : ''})`,
-    })
-  }
-
-  // Revenue variance (if actual revenue differs from estimate — e.g. discounts, extras)
-  const revenueGap = outcome.actual_revenue - outcome.estimated_price - outcome.change_order_revenue
+  // Revenue variance — the net difference between what was estimated and what was collected.
+  // This captures everything: change orders, discounts, partial payments, extras.
+  // We show it as one clear line rather than splitting CO revenue and "adjustment"
+  // separately (which made COs look like they cancelled themselves out).
+  const revenueGap = outcome.actual_revenue - outcome.estimated_price
   if (Math.abs(revenueGap) > 1) {
     const revenueImpact = outcome.estimated_price > 0 ? (revenueGap / outcome.estimated_price) * 100 : 0
+
+    // Build a descriptive detail line
+    let detail = ''
+    if (outcome.change_order_revenue > 0 && Math.abs(revenueGap) > 1) {
+      const coCount = outcome.change_order_count || 1
+      const otherGap = revenueGap - outcome.change_order_revenue
+      if (Math.abs(otherGap) <= 1) {
+        // Revenue change is fully explained by change orders
+        detail = `${coCount} change order${coCount !== 1 ? 's' : ''} added $${Math.round(outcome.change_order_revenue).toLocaleString()}`
+      } else {
+        // Change orders plus other adjustments
+        detail = `${coCount} CO${coCount !== 1 ? 's' : ''} ($${Math.round(outcome.change_order_revenue).toLocaleString()}) ${otherGap > 0 ? '+' : ''}${otherGap <= -1 ? `$${Math.round(Math.abs(otherGap)).toLocaleString()} discount/shortfall` : `$${Math.round(otherGap).toLocaleString()} other`}`
+      }
+    } else {
+      detail = `${revenueGap > 0 ? '+' : '-'}$${Math.round(Math.abs(revenueGap)).toLocaleString()} vs estimate`
+    }
+
     items.push({
-      label: 'Revenue Adjustment',
+      label: revenueGap >= 0 ? 'Revenue Gained' : 'Revenue Lost',
       value: revenueImpact,
       type: revenueImpact >= 0 ? 'positive' : 'negative',
-      detail: `${revenueGap > 0 ? '+' : ''}$${Math.round(Math.abs(revenueGap)).toLocaleString()}`,
+      detail,
     })
   }
 

@@ -106,8 +106,12 @@ export default function DiagnosticsPage() {
         driverText = primary.value >= 0
           ? 'materials came in under budget'
           : 'materials exceeded budget'
-      } else if (primary.label === 'Change Orders') {
-        driverText = `change orders added ${fmtMoney(selected.change_order_revenue)} in revenue`
+      } else if (primary.label === 'Revenue Gained' || primary.label === 'Revenue Lost') {
+        if (selected.change_order_revenue > 0) {
+          driverText = `a change order brought in ${fmtMoney(selected.change_order_revenue)} in additional revenue`
+        } else {
+          driverText = primary.label === 'Revenue Gained' ? 'collected more than estimated' : 'collected less than estimated'
+        }
       } else {
         driverText = primary.detail
       }

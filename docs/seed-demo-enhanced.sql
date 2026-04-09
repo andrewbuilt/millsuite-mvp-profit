@@ -51,8 +51,10 @@ WHERE id = 'b0000000-0000-0000-0000-bb0000000002';
 -- 3. PROJECT OUTCOMES (locked snapshots for completed projects)
 -- ═══════════════════════════════════════════════════════════════
 
--- Davis Island Residence — bid $275k, came in slightly under budget
--- Estimated 480h total labor, actual 510h (6.25% over — normal variance)
+-- Davis Island Residence — bid $155k, came in slightly over on hours and materials
+-- Cost basis: 480h × $85 = $40,800 labor + $72k materials = $112,800 → bid at 27% margin
+-- Actual: 510h × $85 = $43,350 + $74,200 = $117,550 → collected $152k → 22.7% margin
+-- Story: normal variance, hours and materials both crept up, margin compressed but still green
 INSERT INTO project_outcomes (
   org_id, project_id,
   estimated_hours, estimated_materials, estimated_price,
@@ -62,23 +64,27 @@ INSERT INTO project_outcomes (
   material_variance, material_variance_pct,
   dept_hours_estimated, dept_hours_actual,
   shop_rate_at_completion, utilization_at_completion, headcount_at_completion,
+  change_order_count, change_order_revenue,
   completed_at
 ) VALUES (
   'd0000000-0000-0000-0000-da0000000001',
   'b0000000-0000-0000-0000-bb0000000004',
-  480, 72000, 275000,
-  510, 43350, 74200, 268500,
-  50450, 18.8,
+  480, 72000, 155000,
+  510, 43350, 74200, 152000,
+  34450, 22.7,
   30, 6.25,
   2200, 3.06,
   '{"Engineering": 50, "CNC / Mill": 68, "Case Assembly": 88, "Finishing": 52, "Install": 30}',
   '{"Engineering": 54, "CNC / Mill": 75, "Case Assembly": 96, "Finishing": 58, "Install": 32}',
   85, 74, 27,
+  0, 0,
   '2026-03-28T17:00:00Z'
 );
 
--- Westshore Law Office — bid $220k, came in on budget, slightly over on hours
--- Estimated 400h, actual 420h (5% over)
+-- Westshore Law Office — bid $118k, slightly over on hours, but a $4,500 CO saved it
+-- Cost basis: 400h × $85 = $34,000 labor + $49k materials = $83,000 → bid at 30% margin
+-- Actual: 420h × $85 = $35,700 + $51,200 = $86,900 → collected $122,500 (incl $4,500 CO) → 29.1% margin
+-- Story: went over on hours and materials, but a change order brought in extra revenue — net margin held
 INSERT INTO project_outcomes (
   org_id, project_id,
   estimated_hours, estimated_materials, estimated_price,
@@ -88,18 +94,20 @@ INSERT INTO project_outcomes (
   material_variance, material_variance_pct,
   dept_hours_estimated, dept_hours_actual,
   shop_rate_at_completion, utilization_at_completion, headcount_at_completion,
+  change_order_count, change_order_revenue,
   completed_at
 ) VALUES (
   'd0000000-0000-0000-0000-da0000000001',
   'b0000000-0000-0000-0000-bb0000000002',
-  400, 49000, 220000,
-  420, 35700, 51200, 215800,
-  42300, 19.6,
+  400, 49000, 118000,
+  420, 35700, 51200, 122500,
+  35600, 29.1,
   20, 5.0,
   2200, 4.49,
   '{"Engineering": 42, "CNC / Mill": 56, "Case Assembly": 72, "Finishing": 42, "Install": 30}',
   '{"Engineering": 44, "CNC / Mill": 60, "Case Assembly": 78, "Finishing": 46, "Install": 32}',
   85, 76, 27,
+  1, 4500,
   '2026-04-04T17:00:00Z'
 );
 
