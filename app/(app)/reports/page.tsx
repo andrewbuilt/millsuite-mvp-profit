@@ -349,14 +349,14 @@ function OutcomesView({
           <div className="flex-1 min-w-0 w-full">
             <h2 className="text-lg font-semibold text-[#111] mb-1">Shop Grade</h2>
             <p className="text-xs text-[#9CA3AF] mb-4">
-              Composite score: {grade.overallScore}/100
+              How well your shop is running overall
             </p>
 
             {/* Project Execution */}
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium text-[#374151]">Project Execution</span>
-                <span className={`text-sm font-semibold ${pgc.text}`}>{grade.projectGrade} ({grade.projectScore})</span>
+                <span className={`text-sm font-semibold ${pgc.text}`}>{grade.projectGrade}</span>
               </div>
               <div className="w-full h-2 bg-[#F3F4F6] rounded-full overflow-hidden">
                 <div
@@ -364,17 +364,16 @@ function OutcomesView({
                   style={{ width: `${Math.min(grade.projectScore, 100)}%` }}
                 />
               </div>
-              <div className="flex items-center gap-4 mt-1 text-xs text-[#9CA3AF]">
-                <span>Hit rate: {grade.estimateHitRate}%</span>
-                <span>Avg margin: {grade.avgMargin}%</span>
-              </div>
+              <p className="mt-1 text-xs text-[#9CA3AF]">
+                {grade.estimateHitRate}% of projects shipped at or under estimate &middot; {grade.avgMargin}% avg margin
+              </p>
             </div>
 
             {/* Shop Efficiency */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium text-[#374151]">Shop Efficiency</span>
-                <span className={`text-sm font-semibold ${sgc.text}`}>{grade.shopGrade} ({grade.shopScore})</span>
+                <span className={`text-sm font-semibold ${sgc.text}`}>{grade.shopGrade}</span>
               </div>
               <div className="w-full h-2 bg-[#F3F4F6] rounded-full overflow-hidden">
                 <div
@@ -382,12 +381,14 @@ function OutcomesView({
                   style={{ width: `${Math.min(grade.shopScore, 100)}%` }}
                 />
               </div>
-              <div className="flex items-center gap-4 mt-1 text-xs text-[#9CA3AF]">
-                <span>Utilization gap: {grade.utilizationGap > 0 ? '+' : ''}{grade.utilizationGap}pts</span>
-                {grade.marginOverstatement > 0 && (
-                  <span>Margin overstatement: ~{grade.marginOverstatement}pts</span>
-                )}
-              </div>
+              <p className="mt-1 text-xs text-[#9CA3AF]">
+                {confidence
+                  ? confidence.status === 'healthy'
+                    ? `Utilization is on track at ${confidence.actual.toFixed(0)}%`
+                    : `Utilization is ${confidence.actual.toFixed(0)}% — your rate assumes ${confidence.assumed}%`
+                  : 'Take a snapshot to measure utilization'
+                }
+              </p>
             </div>
           </div>
         </div>
@@ -563,13 +564,20 @@ function ConfidenceBanner({ confidence }: { confidence: NonNullable<ReturnType<t
     </svg>
   )
 
+  // Plain English message based on status
+  let message = ''
+  if (confidence.status === 'healthy') {
+    message = `Your shop is running at ${confidence.actual.toFixed(0)}% utilization, right in line with the ${confidence.assumed}% your rate assumes. The margins below are solid.`
+  } else if (confidence.status === 'warning') {
+    message = `Your shop ran at ${confidence.actual.toFixed(0)}% utilization — slightly below the ${confidence.assumed}% your rate assumes. Margins below may be about ${confidence.marginAdjustment.toFixed(0)}% lower than shown.`
+  } else {
+    message = `Your shop ran at ${confidence.actual.toFixed(0)}% utilization vs the ${confidence.assumed}% your rate assumes. Margins below are likely about ${confidence.marginAdjustment.toFixed(0)}% lower than shown.`
+  }
+
   return (
     <div className={`${style.bg} border ${style.border} rounded-xl px-5 py-3.5 flex items-start gap-3`}>
       {icon}
-      <div>
-        <span className={`text-sm font-medium ${style.text}`}>Utilization Confidence</span>
-        <p className={`text-sm ${style.text} mt-0.5`}>{confidence.message}</p>
-      </div>
+      <p className={`text-sm ${style.text}`}>{message}</p>
     </div>
   )
 }

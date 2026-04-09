@@ -114,8 +114,8 @@ export default function DiagnosticsPage() {
     }
 
     const headline = exceeded
-      ? `This project exceeded its margin target by ${Math.abs(marginDelta).toFixed(1)} points.`
-      : `This project missed its margin target by ${Math.abs(marginDelta).toFixed(1)} points.`
+      ? `This project beat its estimated margin by ${Math.abs(marginDelta).toFixed(1)}%.`
+      : `This project came in ${Math.abs(marginDelta).toFixed(1)}% below its estimated margin.`
 
     const driver = driverText ? `Primary driver: ${driverText}.` : ''
 

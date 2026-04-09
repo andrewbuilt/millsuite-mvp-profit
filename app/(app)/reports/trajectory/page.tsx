@@ -95,7 +95,7 @@ function TrajectoryContent() {
   const [loading, setLoading] = useState(true)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; idx: number } | null>(null)
   const [headcountTooltip, setHeadcountTooltip] = useState<{ x: number; y: number; idx: number } | null>(null)
-  const [utilTooltip, setUtilTooltip] = useState<{ x: number; y: number; idx: number } | null>(null)
+  // utilTooltip removed — combined into capacity chart
   const [showEventForm, setShowEventForm] = useState(false)
   const [eventForm, setEventForm] = useState({
     event_date: new Date().toISOString().slice(0, 10),
@@ -465,189 +465,169 @@ function TrajectoryContent() {
         )}
       </div>
 
-      {/* ── Small Charts Row ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-        {/* Headcount Chart */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Users className="w-4 h-4 text-[#6B7280]" />
-            <h2 className="text-sm font-semibold text-[#111]">Headcount</h2>
-          </div>
-          <div className="relative w-full" style={{ aspectRatio: '400/160' }}>
-            <svg
-              viewBox={`0 0 ${smallW} ${smallH}`}
-              className="w-full h-full"
-              onMouseMove={(e) => {
-                const svg = e.currentTarget
-                const rect = svg.getBoundingClientRect()
-                const mouseX = ((e.clientX - rect.left) / rect.width) * smallW
-                const stepX = snapshots.length > 1 ? (smallW - sPadX * 2) / (snapshots.length - 1) : 0
-                const idx = Math.round((mouseX - sPadX) / (stepX || 1))
-                if (idx < 0 || idx >= snapshots.length) { setHeadcountTooltip(null); return }
-                setHeadcountTooltip({ x: e.clientX, y: e.clientY - 10, idx })
-              }}
-              onMouseLeave={() => setHeadcountTooltip(null)}
-            >
-              {/* Grid */}
-              {niceAxisTicks(hcMinSafe, hcMaxSafe, 4).map((tick, i) => {
-                const y = normalize(tick, hcMinSafe, hcMaxSafe, smallH - sPadY * 2, sPadY)
-                return (
-                  <g key={`hc-grid-${i}`}>
-                    <line x1={sPadX} y1={y} x2={smallW - 10} y2={y} stroke="#F3F4F6" strokeWidth="1" />
-                    <text x={sPadX - 4} y={y + 3} textAnchor="end" className="text-[9px]" fill="#9CA3AF">{Math.round(tick)}</text>
-                  </g>
-                )
-              })}
-
-              {/* Stepped line for headcount */}
-              {(() => {
-                const stepX = snapshots.length > 1 ? (smallW - sPadX * 2) / (snapshots.length - 1) : 0
-                const pts: string[] = []
-                headcounts.forEach((h, i) => {
-                  const x = sPadX + i * stepX
-                  const y = normalize(h, hcMinSafe, hcMaxSafe, smallH - sPadY * 2, sPadY)
-                  if (i > 0) {
-                    // Stepped: horizontal then vertical
-                    const prevY = normalize(headcounts[i - 1], hcMinSafe, hcMaxSafe, smallH - sPadY * 2, sPadY)
-                    pts.push(`${x},${prevY}`)
-                  }
-                  pts.push(`${x},${y}`)
-                })
-                return <polyline points={pts.join(' ')} fill="none" stroke="#6366F1" strokeWidth="2" />
-              })()}
-
-              {/* Fill area */}
-              {(() => {
-                const stepX = snapshots.length > 1 ? (smallW - sPadX * 2) / (snapshots.length - 1) : 0
-                const baseY = smallH - sPadY
-                const pts: string[] = [`${sPadX},${baseY}`]
-                headcounts.forEach((h, i) => {
-                  const x = sPadX + i * stepX
-                  const y = normalize(h, hcMinSafe, hcMaxSafe, smallH - sPadY * 2, sPadY)
-                  if (i > 0) {
-                    const prevY = normalize(headcounts[i - 1], hcMinSafe, hcMaxSafe, smallH - sPadY * 2, sPadY)
-                    pts.push(`${x},${prevY}`)
-                  }
-                  pts.push(`${x},${y}`)
-                })
-                pts.push(`${sPadX + (snapshots.length - 1) * stepX},${baseY}`)
-                return <polygon points={pts.join(' ')} fill="#6366F1" fillOpacity="0.08" />
-              })()}
-
-              <line x1={sPadX} y1={sPadY} x2={sPadX} y2={smallH - sPadY} stroke="#E5E7EB" strokeWidth="1" />
-              <line x1={sPadX} y1={smallH - sPadY} x2={smallW - 10} y2={smallH - sPadY} stroke="#E5E7EB" strokeWidth="1" />
-            </svg>
-
-            {headcountTooltip && snapshots[headcountTooltip.idx] && (
-              <div
-                className="fixed z-50 bg-white border border-[#E5E7EB] rounded-lg shadow-lg px-3 py-2 pointer-events-none"
-                style={{ left: headcountTooltip.x + 12, top: headcountTooltip.y - 40 }}
-              >
-                <p className="text-xs text-[#9CA3AF]">{fmtWeek(snapshots[headcountTooltip.idx].week_start)}</p>
-                <p className="text-sm font-semibold text-[#111]">{snapshots[headcountTooltip.idx].headcount} people</p>
-              </div>
-            )}
+      {/* ── Shop Capacity Chart ── */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#6B7280]" />
+              <h2 className="text-sm font-semibold text-[#111]">Shop Capacity</h2>
+            </div>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">The gap between these lines is idle time — ramp periods, untracked hours, downtime</p>
           </div>
         </div>
-
-        {/* Utilization Trend Chart */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity className="w-4 h-4 text-[#6B7280]" />
-            <h2 className="text-sm font-semibold text-[#111]">Utilization Trend</h2>
+        <div className="flex items-center gap-5 mb-3">
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-0.5 bg-[#6366F1] inline-block rounded" />
+            <span className="text-[10px] text-[#6B7280]">Available Hours (headcount × 40)</span>
           </div>
-          <div className="flex items-center gap-4 mb-3">
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-emerald-500 inline-block rounded" />
-              <span className="text-[10px] text-[#6B7280]">Actual</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-gray-400 inline-block rounded border-dashed" style={{ borderTop: '1px dashed #9CA3AF', height: 0 }} />
-              <span className="text-[10px] text-[#6B7280]">Assumed</span>
-            </div>
-          </div>
-          <div className="relative w-full" style={{ aspectRatio: '400/160' }}>
-            <svg
-              viewBox={`0 0 ${smallW} ${smallH}`}
-              className="w-full h-full"
-              onMouseMove={(e) => {
-                const svg = e.currentTarget
-                const rect = svg.getBoundingClientRect()
-                const mouseX = ((e.clientX - rect.left) / rect.width) * smallW
-                const stepX = snapshots.length > 1 ? (smallW - sPadX * 2) / (snapshots.length - 1) : 0
-                const idx = Math.round((mouseX - sPadX) / (stepX || 1))
-                if (idx < 0 || idx >= snapshots.length) { setUtilTooltip(null); return }
-                setUtilTooltip({ x: e.clientX, y: e.clientY - 10, idx })
-              }}
-              onMouseLeave={() => setUtilTooltip(null)}
-            >
-              {/* Grid */}
-              {niceAxisTicks(utilMinSafe, utilMaxSafe, 4).map((tick, i) => {
-                const y = normalize(tick, utilMinSafe, utilMaxSafe, smallH - sPadY * 2, sPadY)
-                return (
-                  <g key={`util-grid-${i}`}>
-                    <line x1={sPadX} y1={y} x2={smallW - 10} y2={y} stroke="#F3F4F6" strokeWidth="1" />
-                    <text x={sPadX - 4} y={y + 3} textAnchor="end" className="text-[9px]" fill="#9CA3AF">{Math.round(tick)}%</text>
-                  </g>
-                )
-              })}
-
-              {/* Assumed line (dashed) */}
-              <polyline
-                points={buildPolyline(utilAssumed, utilMinSafe, utilMaxSafe, smallW, smallH, sPadX, sPadY, snapshots.length)}
-                fill="none"
-                stroke="#9CA3AF"
-                strokeWidth="1.5"
-                strokeDasharray="6 3"
-                strokeLinejoin="round"
-              />
-
-              {/* Actual line */}
-              <polyline
-                points={buildPolyline(utilActual, utilMinSafe, utilMaxSafe, smallW, smallH, sPadX, sPadY, snapshots.length)}
-                fill="none"
-                stroke="#10B981"
-                strokeWidth="2"
-                strokeLinejoin="round"
-              />
-
-              {/* Fill between lines */}
-              {(() => {
-                const stepX = snapshots.length > 1 ? (smallW - sPadX * 2) / (snapshots.length - 1) : 0
-                const ptsTop: string[] = []
-                const ptsBot: string[] = []
-                snapshots.forEach((s, i) => {
-                  const x = sPadX + i * stepX
-                  const yActual = s.utilization_actual !== null
-                    ? normalize(s.utilization_actual, utilMinSafe, utilMaxSafe, smallH - sPadY * 2, sPadY)
-                    : null
-                  const yAssumed = normalize(s.utilization_assumed, utilMinSafe, utilMaxSafe, smallH - sPadY * 2, sPadY)
-                  if (yActual !== null) {
-                    ptsTop.push(`${x},${yActual}`)
-                    ptsBot.unshift(`${x},${yAssumed}`)
-                  }
-                })
-                if (ptsTop.length < 2) return null
-                return <polygon points={[...ptsTop, ...ptsBot].join(' ')} fill="#10B981" fillOpacity="0.06" />
-              })()}
-
-              <line x1={sPadX} y1={sPadY} x2={sPadX} y2={smallH - sPadY} stroke="#E5E7EB" strokeWidth="1" />
-              <line x1={sPadX} y1={smallH - sPadY} x2={smallW - 10} y2={smallH - sPadY} stroke="#E5E7EB" strokeWidth="1" />
-            </svg>
-
-            {utilTooltip && snapshots[utilTooltip.idx] && (
-              <div
-                className="fixed z-50 bg-white border border-[#E5E7EB] rounded-lg shadow-lg px-3 py-2 pointer-events-none"
-                style={{ left: utilTooltip.x + 12, top: utilTooltip.y - 50 }}
-              >
-                <p className="text-xs text-[#9CA3AF] mb-1">{fmtWeek(snapshots[utilTooltip.idx].week_start)}</p>
-                <p className="text-xs"><span className="text-[#6B7280]">Actual:</span> <span className="font-semibold text-emerald-600">{snapshots[utilTooltip.idx].utilization_actual !== null ? fmtPct(snapshots[utilTooltip.idx].utilization_actual!) : '—'}</span></p>
-                <p className="text-xs"><span className="text-[#6B7280]">Assumed:</span> <span className="font-semibold text-[#111]">{fmtPct(snapshots[utilTooltip.idx].utilization_assumed)}</span></p>
-              </div>
-            )}
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-0.5 bg-[#10B981] inline-block rounded" />
+            <span className="text-[10px] text-[#6B7280]">Billable Hours (tracked to projects)</span>
           </div>
         </div>
+        {(() => {
+          const capW = 800
+          const capH = 220
+          const cPadX = 60
+          const cPadY = 24
+
+          const paidArr = snapshots.map(s => s.paid_hours)
+          const billArr = snapshots.map(s => s.billable_hours)
+          const allVals = [...paidArr, ...billArr]
+          const capMin = 0
+          const capMax = Math.max(...allVals) * 1.1 || 400
+
+          const stepX = snapshots.length > 1 ? (capW - cPadX * 2) / (snapshots.length - 1) : 0
+
+          // Build stepped line for paid hours (capacity)
+          const paidPts: string[] = []
+          paidArr.forEach((h, i) => {
+            const x = cPadX + i * stepX
+            const y = normalize(h, capMin, capMax, capH - cPadY * 2, cPadY)
+            if (i > 0) {
+              const prevY = normalize(paidArr[i - 1], capMin, capMax, capH - cPadY * 2, cPadY)
+              paidPts.push(`${x},${prevY}`)
+            }
+            paidPts.push(`${x},${y}`)
+          })
+
+          // Build smooth line for billable hours
+          const billLine = buildPolyline(billArr, capMin, capMax, capW, capH, cPadX, cPadY, snapshots.length)
+
+          // Gap fill polygon (between paid and billable)
+          const gapTop: string[] = []
+          const gapBot: string[] = []
+          snapshots.forEach((s, i) => {
+            const x = cPadX + i * stepX
+            const yPaid = normalize(s.paid_hours, capMin, capMax, capH - cPadY * 2, cPadY)
+            const yBill = normalize(s.billable_hours, capMin, capMax, capH - cPadY * 2, cPadY)
+            // Stepped paid line
+            if (i > 0) {
+              const prevYPaid = normalize(paidArr[i - 1], capMin, capMax, capH - cPadY * 2, cPadY)
+              gapTop.push(`${x},${prevYPaid}`)
+            }
+            gapTop.push(`${x},${yPaid}`)
+            gapBot.unshift(`${x},${yBill}`)
+          })
+
+          const ticks = niceAxisTicks(capMin, capMax, 5)
+          const xLblInterval = Math.max(1, Math.floor(snapshots.length / 8))
+
+          return (
+            <div className="relative w-full" style={{ aspectRatio: '800/220' }}>
+              <svg
+                viewBox={`0 0 ${capW} ${capH}`}
+                className="w-full h-full"
+                onMouseMove={(e) => {
+                  const svg = e.currentTarget
+                  const rect = svg.getBoundingClientRect()
+                  const mouseX = ((e.clientX - rect.left) / rect.width) * capW
+                  const idx = Math.round((mouseX - cPadX) / (stepX || 1))
+                  if (idx < 0 || idx >= snapshots.length) { setHeadcountTooltip(null); return }
+                  setHeadcountTooltip({ x: e.clientX, y: e.clientY - 10, idx })
+                }}
+                onMouseLeave={() => setHeadcountTooltip(null)}
+              >
+                {/* Grid lines + Y labels */}
+                {ticks.map((tick, i) => {
+                  const y = normalize(tick, capMin, capMax, capH - cPadY * 2, cPadY)
+                  return (
+                    <g key={`cap-grid-${i}`}>
+                      <line x1={cPadX} y1={y} x2={capW - 10} y2={y} stroke="#F3F4F6" strokeWidth="1" />
+                      <text x={cPadX - 6} y={y + 3} textAnchor="end" className="text-[10px]" fill="#9CA3AF">{Math.round(tick)}h</text>
+                    </g>
+                  )
+                })}
+
+                {/* X-axis labels */}
+                {weeks.map((w, i) => {
+                  if (i % xLblInterval !== 0 && i !== weeks.length - 1) return null
+                  const x = cPadX + i * stepX
+                  return (
+                    <text key={`cap-x-${i}`} x={x} y={capH - 4} textAnchor="middle" className="text-[10px]" fill="#9CA3AF">
+                      {fmtWeek(w)}
+                    </text>
+                  )
+                })}
+
+                {/* Gap fill — the idle/ramp area */}
+                {gapTop.length > 1 && (
+                  <polygon points={[...gapTop, ...gapBot].join(' ')} fill="#EF4444" fillOpacity="0.06" />
+                )}
+
+                {/* Axes */}
+                <line x1={cPadX} y1={cPadY} x2={cPadX} y2={capH - cPadY} stroke="#E5E7EB" strokeWidth="1" />
+                <line x1={cPadX} y1={capH - cPadY} x2={capW - 10} y2={capH - cPadY} stroke="#E5E7EB" strokeWidth="1" />
+
+                {/* Paid hours — stepped line (capacity ceiling) */}
+                <polyline points={paidPts.join(' ')} fill="none" stroke="#6366F1" strokeWidth="2" />
+
+                {/* Billable hours — smooth curve (actual productive) */}
+                {billLine && <polyline points={billLine} fill="none" stroke="#10B981" strokeWidth="2" strokeLinejoin="round" />}
+
+                {/* Hover vertical line */}
+                {headcountTooltip && (() => {
+                  const x = cPadX + headcountTooltip.idx * stepX
+                  return <line x1={x} y1={cPadY} x2={x} y2={capH - cPadY} stroke="#6B7280" strokeWidth="1" strokeDasharray="3 2" />
+                })()}
+              </svg>
+
+              {/* Capacity tooltip */}
+              {headcountTooltip && snapshots[headcountTooltip.idx] && (() => {
+                const s = snapshots[headcountTooltip.idx]
+                const util = s.paid_hours > 0 ? (s.billable_hours / s.paid_hours) * 100 : 0
+                const gap = s.paid_hours - s.billable_hours
+                return (
+                  <div
+                    className="fixed z-50 bg-white border border-[#E5E7EB] rounded-xl shadow-lg px-4 py-3 pointer-events-none"
+                    style={{ left: headcountTooltip.x + 12, top: headcountTooltip.y - 90 }}
+                  >
+                    <p className="text-xs font-medium text-[#111] mb-1.5">{fmtWeek(s.week_start)}</p>
+                    <div className="space-y-1 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-[#6366F1] inline-block" />
+                        <span className="text-[#6B7280]">Available:</span>
+                        <span className="font-medium text-[#111]">{s.paid_hours}h</span>
+                        <span className="text-[#9CA3AF]">({s.headcount} people)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-[#10B981] inline-block" />
+                        <span className="text-[#6B7280]">Billable:</span>
+                        <span className="font-medium text-[#111]">{s.billable_hours.toFixed(1)}h</span>
+                      </div>
+                      <div className="flex items-center gap-2 pt-1 border-t border-[#F3F4F6]">
+                        <span className="text-[#6B7280]">Utilization:</span>
+                        <span className={`font-semibold ${util >= 80 ? 'text-[#059669]' : util >= 70 ? 'text-[#D97706]' : 'text-[#DC2626]'}`}>{util.toFixed(0)}%</span>
+                        <span className="text-[#9CA3AF]">({gap.toFixed(0)}h idle)</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )
+        })()}
       </div>
 
       {/* ── Event Log Table ── */}
