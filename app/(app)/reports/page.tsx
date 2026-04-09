@@ -17,7 +17,7 @@ import { Camera, Lock } from 'lucide-react'
 
 // ── Types ──
 
-type OutcomeRow = ProjectOutcome & { projects: { project_name: string } }
+type OutcomeRow = ProjectOutcome & { projects: { name: string } }
 
 type Period = '90d' | '6m' | '1y'
 
@@ -96,7 +96,7 @@ export default function ReportsPage() {
     const [outcomesRes, snapshotRes] = await Promise.all([
       supabase
         .from('project_outcomes')
-        .select('*, projects!inner(project_name)')
+        .select('*, projects!inner(name)')
         .eq('org_id', org!.id)
         .gte('completed_at', startDate)
         .order('completed_at', { ascending: false }),
@@ -133,7 +133,7 @@ export default function ReportsPage() {
   // Computed
   const outcomesWithName = outcomes.map(o => ({
     ...o,
-    project_name: o.projects?.project_name || 'Unknown',
+    project_name: o.projects?.name || 'Unknown',
   }))
 
   const grade = computeShopGrade(outcomesWithName, snapshot)

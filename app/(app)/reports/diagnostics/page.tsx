@@ -11,7 +11,7 @@ import { ChevronDown, Activity, TrendingUp, TrendingDown, Lightbulb } from 'luci
 // ── Types ──
 
 interface OutcomeWithProject extends ProjectOutcome {
-  projects: { project_name: string }
+  projects: { name: string }
 }
 
 // ── Helpers ──
@@ -44,7 +44,7 @@ export default function DiagnosticsPage() {
 
     const { data } = await supabase
       .from('project_outcomes')
-      .select('*, projects!inner(project_name)')
+      .select('*, projects!inner(name)')
       .eq('org_id', org.id)
       .order('completed_at', { ascending: false })
 
@@ -206,7 +206,7 @@ export default function DiagnosticsPage() {
                   >
                     {outcomes.map(o => (
                       <option key={o.id} value={o.id}>
-                        {o.projects.project_name} ({o.actual_margin_pct.toFixed(1)}% margin)
+                        {o.projects.name} ({o.actual_margin_pct.toFixed(1)}% margin)
                       </option>
                     ))}
                   </select>
