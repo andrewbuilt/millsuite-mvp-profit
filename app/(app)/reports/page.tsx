@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
@@ -78,6 +79,7 @@ export default function ReportsPage() {
   const { org } = useAuth()
   const plan = org?.plan || 'starter'
 
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('outcomes')
   const [period, setPeriod] = useState<Period>('90d')
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([])
@@ -234,7 +236,15 @@ export default function ReportsPage() {
               return (
                 <button
                   key={tab}
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => {
+                    if (tab === 'diagnostics' && hasAccess(plan, 'diagnostics')) {
+                      router.push('/reports/diagnostics')
+                    } else if (tab === 'trajectory' && hasAccess(plan, 'trajectory')) {
+                      router.push('/reports/trajectory')
+                    } else {
+                      setActiveTab(tab)
+                    }
+                  }}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-[#F3F4F6] text-[#111]'
@@ -265,17 +275,8 @@ export default function ReportsPage() {
             </PlanGate>
           )}
 
-          {activeTab === 'diagnostics' && (
-            <PlanGate requires="diagnostics">
-              <div />
-            </PlanGate>
-          )}
-
-          {activeTab === 'trajectory' && (
-            <PlanGate requires="trajectory">
-              <div />
-            </PlanGate>
-          )}
+          {activeTab === 'diagnostics' && null}
+          {activeTab === 'trajectory' && null}
         </div>
       </div>
     </>

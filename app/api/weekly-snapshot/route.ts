@@ -94,10 +94,38 @@ export async function POST(req: NextRequest) {
       totalRevenue = (weekPayments || []).reduce((s, p) => s + (p.received_amount || p.amount || 0), 0)
     }
 
-    // 6. Labor cost this week = billable hours * shop rate
+    // 6. Material cost this week from invoices
+    let totalMaterialCost = 0
+    if (projectIds.length > 0) {
+      const { data: weekInvoices } = await supabase
+        .from('invoices')
+        .select('total_amount')
+        .in('project_id', projectIds)
+        .gte('created_at', `${weekStart}T00:00:00`)
+        .lte('created_at', `${weekEndStr}T23:59:59`)
+
+      totalMaterialCost = (weekInvoices || []).reduce((s, inv) => s + (inv.total_amount || 0), 0)
+    }
+
+    // 7. Overhead from shop rate settings
+    let totalOverhead = 0
+    const { data: shopSettings } = await supabase
+      .from('shop_rate_settings')
+      .select('monthly_rent, monthly_utilities, monthly_insurance, monthly_equipment, monthly_misc_overhead, owner_salary')
+      .eq('org_id', org_id)
+      .maybeSingle()
+
+    if (shopSettings) {
+      const monthlyOverhead = (shopSettings.monthly_rent || 0) + (shopSettings.monthly_utilities || 0) +
+        (shopSettings.monthly_insurance || 0) + (shopSettings.monthly_equipment || 0) +
+        (shopSettings.monthly_misc_overhead || 0) + (shopSettings.owner_salary || 0)
+      totalOverhead = Math.round(monthlyOverhead / 4.33) // Weekly portion of monthly overhead
+    }
+
+    // 8. Labor cost this week = billable hours * shop rate
     const totalLaborCost = billableHours * (shopRate || 75)
 
-    // 7. Project counts
+    // 9. Project counts
     const { count: activeCount } = await supabase
       .from('projects')
       .select('id', { count: 'exact', head: true })
@@ -125,8 +153,8 @@ export async function POST(req: NextRequest) {
       utilization_actual: Math.round(utilizationActual * 10) / 10,
       total_revenue: Math.round(totalRevenue * 100) / 100,
       total_labor_cost: Math.round(totalLaborCost * 100) / 100,
-      total_material_cost: 0, // TODO: pull from parsed invoices
-      total_overhead: 0, // TODO: pull from shop rate calculator breakdown
+      total_material_cost: Math.round(totalMaterialCost * 100) / 100,
+      total_overhead: Math.round(totalOverhead * 100) / 100,
       gross_margin_pct: grossMarginPct ? Math.round(grossMarginPct * 10) / 10 : null,
       headcount: headcount || 0,
       billable_hours: Math.round(billableHours * 10) / 10,
