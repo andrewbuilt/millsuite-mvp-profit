@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { computeWaterfall, type ProjectOutcome, type WaterfallItem } from '@/lib/financial-engine'
 import { ChevronDown, Activity, TrendingUp, TrendingDown, Lightbulb } from 'lucide-react'
+import ReportTabs from '@/components/report-tabs'
 
 // ── Types ──
 
@@ -184,8 +185,10 @@ export default function DiagnosticsPage() {
       <Nav />
       <PlanGate requires="diagnostics">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-1">Project Diagnostics</h1>
-          <p className="text-sm text-[#6B7280] mb-6">Why or why not? Margin gap analysis for completed projects.</p>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-1">Reports</h1>
+          <p className="text-sm text-[#6B7280] mb-4">Why or why not? Margin gap analysis for completed projects.</p>
+
+          <ReportTabs />
 
           {outcomes.length === 0 ? (
             <div className="bg-white border border-[#E5E7EB] rounded-xl px-6 py-16 text-center">
@@ -332,7 +335,7 @@ export default function DiagnosticsPage() {
                                 >
                                   {bar.type === 'neutral' || bar.type === 'total'
                                     ? `${bar.value.toFixed(1)}%`
-                                    : `${bar.value >= 0 ? '+' : ''}${bar.value.toFixed(1)}pp`
+                                    : `${bar.value >= 0 ? '+' : ''}${bar.value.toFixed(1)}%`
                                   }
                                 </div>
                               </div>

@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import type { WeeklySnapshot, ShopEvent } from '@/lib/financial-engine'
 import { Plus, X, TrendingUp, Users, Activity, Calendar, ChevronDown } from 'lucide-react'
+import ReportTabs from '@/components/report-tabs'
 
 // ── Helpers ──
 
@@ -264,8 +265,9 @@ function TrajectoryContent() {
   if (snapshots.length === 0) {
     return (
       <div className="max-w-6xl mx-auto px-6 py-12">
-        <h1 className="text-2xl font-semibold text-[#111] mb-2">Trajectory</h1>
-        <p className="text-sm text-[#6B7280] mb-8">Where are we heading?</p>
+        <h1 className="text-2xl font-semibold text-[#111] mb-2">Reports</h1>
+        <p className="text-sm text-[#6B7280] mb-4">Where are we heading?</p>
+        <ReportTabs />
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-12 text-center">
           <div className="w-14 h-14 rounded-2xl bg-[#F3F4F6] flex items-center justify-center mx-auto mb-4">
             <TrendingUp className="w-6 h-6 text-[#9CA3AF]" />
@@ -293,8 +295,9 @@ function TrajectoryContent() {
     <div className="max-w-6xl mx-auto px-6 py-12 space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold text-[#111] mb-1">Trajectory</h1>
-        <p className="text-sm text-[#6B7280]">Where are we heading? &mdash; Shop performance over time</p>
+        <h1 className="text-2xl font-semibold text-[#111] mb-1">Reports</h1>
+        <p className="text-sm text-[#6B7280] mb-4">Where are we heading? &mdash; Shop performance over time</p>
+        <ReportTabs />
       </div>
 
       {/* ── Main Three-Line Chart ── */}

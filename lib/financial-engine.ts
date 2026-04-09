@@ -252,9 +252,15 @@ export function computeWaterfall(outcome: ProjectOutcome): WaterfallItem[] {
   }
 
   // Final: actual margin
+  // Use the running total of waterfall steps so the bar visually aligns.
+  // The detail text still shows the true actual margin percentage.
+  const waterfallRunningTotal = items.reduce((sum, item) => {
+    return item.type === 'neutral' ? item.value : sum + item.value
+  }, 0)
+
   items.push({
     label: 'Actual Margin',
-    value: outcome.actual_margin_pct,
+    value: waterfallRunningTotal,
     type: 'total',
     detail: `$${Math.round(outcome.actual_margin).toLocaleString()} (${outcome.actual_margin_pct.toFixed(1)}%)`,
   })

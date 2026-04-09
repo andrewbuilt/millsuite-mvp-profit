@@ -15,6 +15,7 @@ import {
   type WeeklySnapshot,
 } from '@/lib/financial-engine'
 import { Camera, Lock } from 'lucide-react'
+import ReportTabs from '@/components/report-tabs'
 
 // ── Types ──
 
@@ -227,36 +228,7 @@ export default function ReportsPage() {
           </div>
 
           {/* ── Tabs ── */}
-          <div className="flex gap-1 mb-6 bg-white border border-[#E5E7EB] rounded-xl p-1 w-fit">
-            {(['outcomes', 'diagnostics', 'trajectory'] as Tab[]).map(tab => {
-              const label = tab.charAt(0).toUpperCase() + tab.slice(1)
-              const isActive = activeTab === tab
-              const isLocked = tab !== 'outcomes' && !hasAccess(plan, tab)
-
-              return (
-                <button
-                  key={tab}
-                  onClick={() => {
-                    if (tab === 'diagnostics' && hasAccess(plan, 'diagnostics')) {
-                      router.push('/reports/diagnostics')
-                    } else if (tab === 'trajectory' && hasAccess(plan, 'trajectory')) {
-                      router.push('/reports/trajectory')
-                    } else {
-                      setActiveTab(tab)
-                    }
-                  }}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-[#F3F4F6] text-[#111]'
-                      : 'text-[#6B7280] hover:text-[#111] hover:bg-[#F9FAFB]'
-                  }`}
-                >
-                  {isLocked && <Lock className="w-3 h-3 text-[#9CA3AF]" />}
-                  {label}
-                </button>
-              )
-            })}
-          </div>
+          <ReportTabs />
 
           {/* ── Tab Content ── */}
           {activeTab === 'outcomes' && (
@@ -352,10 +324,10 @@ function OutcomesView({
               How well your shop is running overall
             </p>
 
-            {/* Project Execution */}
+            {/* Estimating Accuracy */}
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-[#374151]">Project Execution</span>
+                <span className="text-sm font-medium text-[#374151]">Estimating Accuracy</span>
                 <span className={`text-sm font-semibold ${pgc.text}`}>{grade.projectGrade}</span>
               </div>
               <div className="w-full h-2 bg-[#F3F4F6] rounded-full overflow-hidden">
@@ -365,14 +337,14 @@ function OutcomesView({
                 />
               </div>
               <p className="mt-1 text-xs text-[#9CA3AF]">
-                {grade.estimateHitRate}% of projects shipped at or under estimate &middot; {grade.avgMargin}% avg margin
+                {grade.estimateHitRate}% of projects hit their estimate &middot; {grade.avgMargin}% avg margin
               </p>
             </div>
 
-            {/* Shop Efficiency */}
+            {/* Crew Utilization */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-[#374151]">Shop Efficiency</span>
+                <span className="text-sm font-medium text-[#374151]">Crew Utilization</span>
                 <span className={`text-sm font-semibold ${sgc.text}`}>{grade.shopGrade}</span>
               </div>
               <div className="w-full h-2 bg-[#F3F4F6] rounded-full overflow-hidden">
@@ -384,8 +356,8 @@ function OutcomesView({
               <p className="mt-1 text-xs text-[#9CA3AF]">
                 {confidence
                   ? confidence.status === 'healthy'
-                    ? `Utilization is on track at ${confidence.actual.toFixed(0)}%`
-                    : `Utilization is ${confidence.actual.toFixed(0)}% — your rate assumes ${confidence.assumed}%`
+                    ? `Your crew is billing ${confidence.actual.toFixed(0)}% of paid hours — on target`
+                    : `Your crew is billing ${confidence.actual.toFixed(0)}% of paid hours — your rate assumes ${confidence.assumed}%`
                   : 'Take a snapshot to measure utilization'
                 }
               </p>
