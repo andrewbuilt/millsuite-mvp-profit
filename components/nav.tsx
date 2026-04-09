@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FolderKanban, Clock, Settings, LogOut, Calendar, BarChart3, Users } from 'lucide-react'
+import { LayoutDashboard, FolderKanban, Clock, Settings, LogOut, Calendar, BarChart3, Users, TrendingUp } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
 import { MLogo } from '@/components/logo'
@@ -21,6 +21,7 @@ const ALL_NAV: NavItem[] = [
   { href: '/capacity', label: 'Capacity', icon: BarChart3, feature: 'capacity' },
   { href: '/time', label: 'Time', icon: Clock },
   { href: '/team', label: 'Team', icon: Users, feature: 'team' },
+  { href: '/reports', label: 'Reports', icon: TrendingUp, feature: 'outcomes' },
 ]
 
 const MEMBER_NAV: NavItem[] = [

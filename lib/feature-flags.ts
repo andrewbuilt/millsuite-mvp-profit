@@ -20,6 +20,7 @@ const STARTER_FEATURES = [
   'invoices',
   'shop-rate',
   'ai-report',
+  'outcomes',
 ] as const
 
 const PRO_FEATURES = [
@@ -29,6 +30,7 @@ const PRO_FEATURES = [
   'capacity',
   'schedule',
   'production-calendar',
+  'diagnostics',
 ] as const
 
 const TEAM_FEATURES = [
@@ -44,6 +46,8 @@ const TEAM_FEATURES = [
 
 const ENTERPRISE_FEATURES = [
   ...TEAM_FEATURES,
+  'trajectory',
+  'shop-grade',
   'custom-reporting',
   'api-access',
   'sso',
