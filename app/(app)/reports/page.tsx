@@ -13,6 +13,7 @@ import ShopGrade from './components/ShopGrade'
 import CompletedProjects from './components/CompletedProjects'
 import OutlookSection from './components/OutlookSection'
 import KpiCard from './components/KpiCard'
+import DiagnosticDrawer from './components/DiagnosticDrawer'
 
 // ── Period selector ──
 
@@ -36,16 +37,16 @@ function fmtMoney(n: number): string {
 // ── Seed data for demo ──
 
 const DEMO_COMPLETED: CompletedProject[] = [
-  { id: 'demo-1', name: 'UES Penthouse Kitchen', completionDate: '2026-01-15', estimatedHours: 1020, actualHours: 1005, revenue: 420000, profit: 133170, marginPct: 31.7 },
-  { id: 'demo-2', name: 'Tribeca Loft Full Custom', completionDate: '2026-02-05', estimatedHours: 850, actualHours: 870, revenue: 340000, profit: 92580, marginPct: 27.2 },
-  { id: 'demo-3', name: 'Greenwich Estate Library', completionDate: '2025-12-18', estimatedHours: 680, actualHours: 641, revenue: 280000, profit: 89594, marginPct: 32.0 },
-  { id: 'demo-4', name: 'SoHo Restaurant Bar', completionDate: '2025-11-20', estimatedHours: 510, actualHours: 525, revenue: 195000, profit: 44850, marginPct: 23.0 },
-  { id: 'demo-5', name: 'West Village Kitchen', completionDate: '2026-03-10', estimatedHours: 390, actualHours: 400, revenue: 165000, profit: 50600, marginPct: 30.7 },
-  { id: 'demo-6', name: 'Hamptons Pool House', completionDate: '2025-10-28', estimatedHours: 960, actualHours: 1007, revenue: 380000, profit: 77838, marginPct: 20.5 },
-  { id: 'demo-7', name: 'Midtown Office Reception', completionDate: '2026-03-25', estimatedHours: 280, actualHours: 275, revenue: 120000, profit: 39350, marginPct: 32.8 },
-  { id: 'demo-8', name: 'Brooklyn Heights Bath', completionDate: '2025-11-08', estimatedHours: 200, actualHours: 348, revenue: 85000, profit: -6768, marginPct: -8.0 },
-  { id: 'demo-9', name: 'Park Avenue Wine Room', completionDate: '2026-02-20', estimatedHours: 340, actualHours: 350, revenue: 150000, profit: 47900, marginPct: 31.9 },
-  { id: 'demo-10', name: 'Chelsea Gallery', completionDate: '2026-01-30', estimatedHours: 235, actualHours: 242, revenue: 95000, profit: 23828, marginPct: 25.1 },
+  { id: 'demo-1', name: 'UES Penthouse Kitchen', completionDate: '2026-01-15', estimatedHours: 1020, actualHours: 1005, revenue: 420000, profit: 133170, marginPct: 31.7, estimatedMaterials: 118000, actualMaterials: 120000, estimatedPrice: 420000, changeOrderCount: 0, changeOrderRevenue: 0, shopRate: 166 },
+  { id: 'demo-2', name: 'Tribeca Loft Full Custom', completionDate: '2026-02-05', estimatedHours: 850, actualHours: 870, revenue: 340000, profit: 92580, marginPct: 27.2, estimatedMaterials: 100000, actualMaterials: 103000, estimatedPrice: 340000, changeOrderCount: 1, changeOrderRevenue: 0, shopRate: 166 },
+  { id: 'demo-3', name: 'Greenwich Estate Library', completionDate: '2026-01-20', estimatedHours: 680, actualHours: 641, revenue: 280000, profit: 89594, marginPct: 32.0, estimatedMaterials: 88000, actualMaterials: 84000, estimatedPrice: 280000, changeOrderCount: 0, changeOrderRevenue: 0, shopRate: 166 },
+  { id: 'demo-4', name: 'SoHo Restaurant Bar', completionDate: '2026-02-25', estimatedHours: 510, actualHours: 525, revenue: 195000, profit: 44850, marginPct: 23.0, estimatedMaterials: 60000, actualMaterials: 63000, estimatedPrice: 195000, changeOrderCount: 0, changeOrderRevenue: 0, shopRate: 166 },
+  { id: 'demo-5', name: 'West Village Kitchen', completionDate: '2026-03-10', estimatedHours: 390, actualHours: 400, revenue: 165000, profit: 50600, marginPct: 30.7, estimatedMaterials: 46000, actualMaterials: 48000, estimatedPrice: 165000, changeOrderCount: 0, changeOrderRevenue: 0, shopRate: 166 },
+  { id: 'demo-6', name: 'Hamptons Pool House', completionDate: '2026-02-10', estimatedHours: 960, actualHours: 1007, revenue: 380000, profit: 77838, marginPct: 20.5, estimatedMaterials: 130000, actualMaterials: 135000, estimatedPrice: 380000, changeOrderCount: 0, changeOrderRevenue: 0, shopRate: 166 },
+  { id: 'demo-7', name: 'Midtown Office Reception', completionDate: '2026-03-25', estimatedHours: 280, actualHours: 275, revenue: 120000, profit: 39350, marginPct: 32.8, estimatedMaterials: 34000, actualMaterials: 35000, estimatedPrice: 120000, changeOrderCount: 0, changeOrderRevenue: 0, shopRate: 166 },
+  { id: 'demo-8', name: 'Brooklyn Heights Bath', completionDate: '2026-03-01', estimatedHours: 200, actualHours: 348, revenue: 85000, profit: -6768, marginPct: -8.0, estimatedMaterials: 26000, actualMaterials: 34000, estimatedPrice: 85000, changeOrderCount: 0, changeOrderRevenue: 0, shopRate: 166 },
+  { id: 'demo-9', name: 'Park Avenue Wine Room', completionDate: '2026-02-20', estimatedHours: 340, actualHours: 350, revenue: 150000, profit: 47900, marginPct: 31.9, estimatedMaterials: 42000, actualMaterials: 44000, estimatedPrice: 150000, changeOrderCount: 0, changeOrderRevenue: 0, shopRate: 166 },
+  { id: 'demo-10', name: 'Chelsea Gallery', completionDate: '2026-01-30', estimatedHours: 235, actualHours: 242, revenue: 95000, profit: 23828, marginPct: 25.1, estimatedMaterials: 30000, actualMaterials: 31000, estimatedPrice: 95000, changeOrderCount: 0, changeOrderRevenue: 0, shopRate: 166 },
 ]
 
 const DEMO_BOOKED: BookedProject[] = [
@@ -84,6 +85,7 @@ export default function ReportsPage() {
   const [bookedProjects, setBookedProjects] = useState<BookedProject[]>([])
   const [shopConfig, setShopConfig] = useState(DEMO_CONFIG)
   const [loading, setLoading] = useState(true)
+  const [selectedProject, setSelectedProject] = useState<CompletedProject | null>(null)
 
   const monthKeys = useMemo(() => getNextMonthKeys(8), [])
 
@@ -129,6 +131,12 @@ export default function ReportsPage() {
           revenue: o.actual_revenue,
           profit: o.actual_margin,
           marginPct: o.actual_margin_pct,
+          estimatedMaterials: o.estimated_materials,
+          actualMaterials: o.actual_materials,
+          estimatedPrice: o.estimated_price,
+          changeOrderCount: o.change_order_count,
+          changeOrderRevenue: o.change_order_revenue,
+          shopRate: o.shop_rate_at_completion,
         })))
       } else {
         setCompletedProjects(DEMO_COMPLETED)
@@ -226,6 +234,7 @@ export default function ReportsPage() {
           <CompletedProjects
             projects={completedProjects}
             marginTarget={shopConfig.marginTarget}
+            onProjectClick={setSelectedProject}
           />
 
           {/* ═══ DIVIDER ═══ */}
@@ -241,6 +250,12 @@ export default function ReportsPage() {
           />
         </div>
       </div>
+
+      {/* Diagnostic drawer */}
+      <DiagnosticDrawer
+        project={selectedProject}
+        onClose={() => setSelectedProject(null)}
+      />
     </>
   )
 }

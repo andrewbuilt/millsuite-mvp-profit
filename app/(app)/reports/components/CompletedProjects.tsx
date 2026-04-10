@@ -11,9 +11,11 @@ function fmtMoney(n: number): string {
 export default function CompletedProjects({
   projects,
   marginTarget = 25,
+  onProjectClick,
 }: {
   projects: CompletedProject[]
   marginTarget?: number
+  onProjectClick?: (project: CompletedProject) => void
 }) {
   if (projects.length === 0) return null
 
@@ -31,6 +33,7 @@ export default function CompletedProjects({
           return (
             <div
               key={project.id}
+              onClick={() => onProjectClick?.(project)}
               className="flex items-center gap-3 py-2.5 cursor-pointer hover:bg-[#F9FAFB] -mx-2 px-2 rounded-lg transition-colors"
             >
               {/* Name + date */}

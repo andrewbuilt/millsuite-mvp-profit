@@ -57,6 +57,106 @@ export interface CompletedProject {
   revenue: number
   profit: number
   marginPct: number
+  // Diagnostic fields
+  estimatedMaterials?: number
+  actualMaterials?: number
+  estimatedPrice?: number
+  changeOrderCount?: number
+  changeOrderRevenue?: number
+  shopRate?: number
+}
+
+// ── Waterfall Diagnostic ──
+
+export interface WaterfallItem {
+  label: string
+  value: number          // % points contributed to margin
+  dollarValue: number    // $ impact
+  type: 'start' | 'positive' | 'negative' | 'total'
+  detail: string
+}
+
+export function computeWaterfall(project: CompletedProject): WaterfallItem[] {
+  const items: WaterfallItem[] = []
+  const rate = project.shopRate || 166
+  const estMat = project.estimatedMaterials || 0
+  const actMat = project.actualMaterials || estMat
+  const estPrice = project.estimatedPrice || project.revenue
+
+  // Start: estimated margin
+  const estLaborCost = project.estimatedHours * rate
+  const estimatedCost = estLaborCost + estMat
+  const estimatedMargin = estPrice - estimatedCost
+  const estimatedMarginPct = estPrice > 0 ? (estimatedMargin / estPrice) * 100 : 0
+
+  items.push({
+    label: 'Estimated margin',
+    value: estimatedMarginPct,
+    dollarValue: estimatedMargin,
+    type: 'start',
+    detail: `$${Math.round(estimatedMargin).toLocaleString()} on $${Math.round(estPrice).toLocaleString()} estimate`,
+  })
+
+  // Hours variance impact
+  const hoursOverUnder = project.actualHours - project.estimatedHours
+  const hoursCostImpact = hoursOverUnder * rate
+  const hoursMarginImpact = estPrice > 0 ? -(hoursCostImpact / estPrice) * 100 : 0
+
+  if (Math.abs(hoursOverUnder) >= 1) {
+    items.push({
+      label: 'Hours variance',
+      value: hoursMarginImpact,
+      dollarValue: -hoursCostImpact,
+      type: hoursMarginImpact >= 0 ? 'positive' : 'negative',
+      detail: `${hoursOverUnder > 0 ? '+' : ''}${Math.round(hoursOverUnder)}h ${hoursOverUnder > 0 ? 'over' : 'under'} estimate`,
+    })
+  }
+
+  // Material variance impact
+  const materialOverUnder = actMat - estMat
+  const materialMarginImpact = estPrice > 0 ? -(materialOverUnder / estPrice) * 100 : 0
+
+  if (Math.abs(materialOverUnder) >= 100) {
+    items.push({
+      label: 'Material variance',
+      value: materialMarginImpact,
+      dollarValue: -materialOverUnder,
+      type: materialMarginImpact >= 0 ? 'positive' : 'negative',
+      detail: `${materialOverUnder > 0 ? '+' : ''}$${Math.round(Math.abs(materialOverUnder)).toLocaleString()} ${materialOverUnder > 0 ? 'over' : 'under'} budget`,
+    })
+  }
+
+  // Revenue variance (change orders, discounts)
+  const revenueGap = project.revenue - estPrice
+  if (Math.abs(revenueGap) > 1) {
+    const revenueImpact = estPrice > 0 ? (revenueGap / estPrice) * 100 : 0
+    const coCount = project.changeOrderCount || 0
+    let detail = ''
+    if (coCount > 0 && project.changeOrderRevenue) {
+      detail = `${coCount} change order${coCount !== 1 ? 's' : ''} added $${Math.round(project.changeOrderRevenue).toLocaleString()}`
+    } else {
+      detail = `${revenueGap > 0 ? '+' : '-'}$${Math.round(Math.abs(revenueGap)).toLocaleString()} vs estimate`
+    }
+
+    items.push({
+      label: revenueGap >= 0 ? 'Revenue gained' : 'Revenue lost',
+      value: revenueImpact,
+      dollarValue: revenueGap,
+      type: revenueImpact >= 0 ? 'positive' : 'negative',
+      detail,
+    })
+  }
+
+  // Final: actual margin
+  items.push({
+    label: 'Actual margin',
+    value: project.marginPct,
+    dollarValue: project.profit,
+    type: 'total',
+    detail: `$${Math.round(project.profit).toLocaleString()} on $${Math.round(project.revenue).toLocaleString()} final`,
+  })
+
+  return items
 }
 
 // ── Estimating Accuracy ──
