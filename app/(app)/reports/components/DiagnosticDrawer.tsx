@@ -140,22 +140,12 @@ export default function DiagnosticDrawer({
               return (
                 <div key={i}>
                   <div className="flex items-baseline justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[#111]">{step.label}</span>
-                      {!isStart && !isTotal && (
-                        <span
-                          className="text-xs font-mono tabular-nums"
-                          style={{ color }}
-                        >
-                          {step.value >= 0 ? '+' : ''}{step.value.toFixed(1)}pp
-                        </span>
-                      )}
-                    </div>
+                    <span className="text-sm font-medium text-[#111]">{step.label}</span>
                     <span
                       className="text-sm font-mono tabular-nums font-medium"
                       style={{ color }}
                     >
-                      {isTotal || isStart ? `${step.value >= 0 ? '+' : ''}${step.value.toFixed(1)}%` : fmtMoney(step.dollarValue)}
+                      {step.value >= 0 ? '+' : ''}{step.value.toFixed(1)}%
                     </span>
                   </div>
 
