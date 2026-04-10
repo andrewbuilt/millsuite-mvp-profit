@@ -79,7 +79,7 @@ export default function OutlookSection({
         <KpiCard
           label="Avg utilization"
           value={`${outlook.avgUtil}%`}
-          sub="6-month avg"
+          sub="Projected avg"
           valueColor={outlook.avgUtil >= 75 ? '#059669' : outlook.avgUtil >= 55 ? '#D97706' : '#DC2626'}
         />
         <KpiCard

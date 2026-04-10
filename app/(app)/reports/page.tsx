@@ -36,42 +36,43 @@ function fmtMoney(n: number): string {
 // ── Seed data for demo ──
 
 const DEMO_COMPLETED: CompletedProject[] = [
-  {
-    id: 'demo-1',
-    name: 'Westshore Law Office',
-    completionDate: '2026-04-04',
-    estimatedHours: 400,
-    actualHours: 420,
-    revenue: 122500,
-    profit: 35600,
-    marginPct: 29.1,
-  },
-  {
-    id: 'demo-2',
-    name: 'Davis Island Residence',
-    completionDate: '2026-03-28',
-    estimatedHours: 580,
-    actualHours: 640,
-    revenue: 152000,
-    profit: 34450,
-    marginPct: 22.7,
-  },
+  { id: 'demo-1', name: 'UES Penthouse Kitchen', completionDate: '2026-01-15', estimatedHours: 1020, actualHours: 1005, revenue: 420000, profit: 133170, marginPct: 31.7 },
+  { id: 'demo-2', name: 'Tribeca Loft Full Custom', completionDate: '2026-02-05', estimatedHours: 850, actualHours: 870, revenue: 340000, profit: 92580, marginPct: 27.2 },
+  { id: 'demo-3', name: 'Greenwich Estate Library', completionDate: '2025-12-18', estimatedHours: 680, actualHours: 641, revenue: 280000, profit: 89594, marginPct: 32.0 },
+  { id: 'demo-4', name: 'SoHo Restaurant Bar', completionDate: '2025-11-20', estimatedHours: 510, actualHours: 525, revenue: 195000, profit: 44850, marginPct: 23.0 },
+  { id: 'demo-5', name: 'West Village Kitchen', completionDate: '2026-03-10', estimatedHours: 390, actualHours: 400, revenue: 165000, profit: 50600, marginPct: 30.7 },
+  { id: 'demo-6', name: 'Hamptons Pool House', completionDate: '2025-10-28', estimatedHours: 960, actualHours: 1007, revenue: 380000, profit: 77838, marginPct: 20.5 },
+  { id: 'demo-7', name: 'Midtown Office Reception', completionDate: '2026-03-25', estimatedHours: 280, actualHours: 275, revenue: 120000, profit: 39350, marginPct: 32.8 },
+  { id: 'demo-8', name: 'Brooklyn Heights Bath', completionDate: '2025-11-08', estimatedHours: 200, actualHours: 348, revenue: 85000, profit: -6768, marginPct: -8.0 },
+  { id: 'demo-9', name: 'Park Avenue Wine Room', completionDate: '2026-02-20', estimatedHours: 340, actualHours: 350, revenue: 150000, profit: 47900, marginPct: 31.9 },
+  { id: 'demo-10', name: 'Chelsea Gallery', completionDate: '2026-01-30', estimatedHours: 235, actualHours: 242, revenue: 95000, profit: 23828, marginPct: 25.1 },
 ]
 
 const DEMO_BOOKED: BookedProject[] = [
-  { name: 'Bayshore Condos (3 units)', estimatedHours: 1800, startMonth: '2026-03', endMonth: '2026-06' },
-  { name: 'Hyde Park Kitchen Remodel', estimatedHours: 320, startMonth: '2026-04', endMonth: '2026-05' },
-  { name: 'Channel District Office', estimatedHours: 640, startMonth: '2026-05', endMonth: '2026-07' },
-  { name: 'Harbour Island Master Bath', estimatedHours: 180, startMonth: '2026-06', endMonth: '2026-06' },
+  { name: 'Scarsdale Whole House', estimatedHours: 1050, startMonth: '2026-04', endMonth: '2026-07' },
+  { name: 'UES Duplex Renovation', estimatedHours: 560, startMonth: '2026-04', endMonth: '2026-06' },
+  { name: 'Williamsburg Hotel Lobby', estimatedHours: 440, startMonth: '2026-04', endMonth: '2026-06' },
+  { name: 'Tribeca Condo Kitchen', estimatedHours: 320, startMonth: '2026-04', endMonth: '2026-06' },
+  { name: 'Connecticut Beach House', estimatedHours: 760, startMonth: '2026-04', endMonth: '2026-07' },
+  { name: 'Gramercy Park Library', estimatedHours: 240, startMonth: '2026-05', endMonth: '2026-06' },
+  { name: 'NoHo Artist Loft', estimatedHours: 380, startMonth: '2026-05', endMonth: '2026-07' },
+  { name: 'Westport Colonial', estimatedHours: 880, startMonth: '2026-06', endMonth: '2026-09' },
+  { name: 'UWS Pre-War Kitchen', estimatedHours: 290, startMonth: '2026-06', endMonth: '2026-08' },
+  { name: 'Midtown Medical Office', estimatedHours: 400, startMonth: '2026-07', endMonth: '2026-09' },
+  { name: 'Montclair Modern Kitchen', estimatedHours: 320, startMonth: '2026-07', endMonth: '2026-09' },
+  { name: 'Tribeca Restaurant Ph 2', estimatedHours: 480, startMonth: '2026-08', endMonth: '2026-11' },
+  { name: 'Greenwich Guesthouse', estimatedHours: 580, startMonth: '2026-08', endMonth: '2026-12' },
+  { name: 'Park Slope Brownstone', estimatedHours: 260, startMonth: '2026-09', endMonth: '2026-10' },
+  { name: 'Hoboken Condo', estimatedHours: 360, startMonth: '2026-09', endMonth: '2026-11' },
 ]
 
 const DEMO_CONFIG = {
-  crewSize: 14,
-  overhead: 45000,
-  avgWage: 28,
+  crewSize: 38,
+  overhead: 72000,
+  avgWage: 32,
   utilizationTarget: 80,
   marginTarget: 25,
-  utilizationPct: 78,
+  utilizationPct: 84,
 }
 
 // ── Main page ──
@@ -84,7 +85,7 @@ export default function ReportsPage() {
   const [shopConfig, setShopConfig] = useState(DEMO_CONFIG)
   const [loading, setLoading] = useState(true)
 
-  const monthKeys = useMemo(() => getNextMonthKeys(6), [])
+  const monthKeys = useMemo(() => getNextMonthKeys(8), [])
 
   useEffect(() => {
     if (org?.id) loadData()
