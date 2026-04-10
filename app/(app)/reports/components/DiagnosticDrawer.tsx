@@ -30,33 +30,9 @@ export default function DiagnosticDrawer({
 
   const waterfall = computeWaterfall(project)
 
-  // Compute cascade positions: each variance step floats at the running total
-  let running = 0
-  const rawSteps = waterfall.map(item => {
-    if (item.type === 'start') {
-      running = item.value
-      return { ...item, from: 0, to: item.value }
-    }
-    if (item.type === 'total') {
-      return { ...item, from: 0, to: item.value }
-    }
-    const from = running
-    running += item.value
-    return { ...item, from, to: running }
-  })
-
-  // Scale the chart so the larger of start/total margin fills ~70% of the track,
-  // leaving headroom for deductions that might dip below and bars above the total
-  const startVal = rawSteps.find(s => s.type === 'start')?.value || 0
-  const totalVal = rawSteps.find(s => s.type === 'total')?.value || 0
-  const maxMargin = Math.max(Math.abs(startVal), Math.abs(totalVal), 10)
-  const allValues = rawSteps.flatMap(s => [s.from, s.to])
-  const chartMin = Math.min(0, ...allValues)
-  const chartMax = Math.max(maxMargin * 1.1, ...allValues)
-  const chartRange = chartMax - chartMin
-
-  // Helper to convert a percentage value to a position on the track (0-100%)
-  const toPos = (v: number) => ((v - chartMin) / chartRange) * 100
+  // Scale bars so the largest absolute value (usually est or actual margin) fills the track
+  const maxAbs = Math.max(...waterfall.map(w => Math.abs(w.value)), 10)
+  const marginTarget = 25
 
   return (
     <>
@@ -119,23 +95,23 @@ export default function DiagnosticDrawer({
           </div>
 
           <div className="space-y-3">
-            {rawSteps.map((step, i) => {
+            {waterfall.map((step, i) => {
               const isStart = step.type === 'start'
               const isTotal = step.type === 'total'
-              const isPos = step.type === 'positive'
 
-              const color = isStart ? '#9CA3AF'
-                : isTotal ? (step.value >= 25 ? '#059669' : step.value >= 15 ? '#D97706' : '#DC2626')
-                : isPos ? '#059669'
-                : '#DC2626'
+              // Color rules:
+              // - Start (est margin): green
+              // - Total (actual margin): green if at/above target, amber if within 5 below, red if worse
+              // - Variance: green if positive, red if negative
+              const color = isStart
+                ? '#059669'
+                : isTotal
+                  ? (step.value >= marginTarget ? '#059669' : step.value >= marginTarget - 5 ? '#D97706' : '#DC2626')
+                  : (step.value >= 0 ? '#059669' : '#DC2626')
 
-              // For start/total: solid bar from 0 to value
-              // For variance: floating bar from `from` to `to`
-              const low = Math.min(step.from, step.to)
-              const high = Math.max(step.from, step.to)
-              const leftPct = toPos(low)
-              const widthPct = Math.max(toPos(high) - toPos(low), 0.8)
-              const zeroPct = toPos(0)
+              // All bars anchored left; length proportional to |value|
+              const widthPct = Math.max((Math.abs(step.value) / maxAbs) * 100, 1)
+              const targetLeftPct = (marginTarget / maxAbs) * 100
 
               return (
                 <div key={i}>
@@ -150,29 +126,20 @@ export default function DiagnosticDrawer({
                   </div>
 
                   {/* Bar track */}
-                  <div className="relative h-7 bg-[#F9FAFB] rounded">
-                    {/* Zero baseline */}
+                  <div className="relative h-6 bg-[#F3F4F6] rounded">
+                    {/* Bar from left */}
                     <div
-                      className="absolute top-0 bottom-0 w-px bg-[#E5E7EB]"
-                      style={{ left: `${zeroPct}%` }}
-                    />
-                    {/* Step bar */}
-                    <div
-                      className="absolute top-1 bottom-1 rounded transition-all"
+                      className="absolute top-0 bottom-0 left-0 rounded transition-all"
                       style={{
-                        left: `${leftPct}%`,
-                        width: `${widthPct}%`,
+                        width: `${Math.min(widthPct, 100)}%`,
                         background: color,
                       }}
                     />
-                    {/* Connector line from end of this bar to start of next */}
-                    {i < rawSteps.length - 1 && !isTotal && (
+                    {/* Target line at 25% (only on start/total bars) */}
+                    {(isStart || isTotal) && targetLeftPct <= 100 && (
                       <div
-                        className="absolute -bottom-3 w-px bg-[#D1D5DB]"
-                        style={{
-                          left: `${toPos(step.to)}%`,
-                          height: '12px',
-                        }}
+                        className="absolute top-[-4px] bottom-[-4px] w-[1.5px] opacity-40"
+                        style={{ left: `${targetLeftPct}%`, background: '#111' }}
                       />
                     )}
                   </div>
