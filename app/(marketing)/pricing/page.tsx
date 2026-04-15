@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, Check, ArrowLeft } from 'lucide-react'
+import { ArrowRight, Check, Users } from 'lucide-react'
 import { MLogo } from '@/components/logo'
 
 function WaitlistForm({ tier, onClose }: { tier: string; onClose: () => void }) {
@@ -14,7 +14,6 @@ function WaitlistForm({ tier, onClose }: { tier: string; onClose: () => void }) 
     e.preventDefault()
     if (!email.trim()) return
     setSaving(true)
-    // TODO: Save to Supabase waitlist table + Klaviyo
     try {
       await fetch('/api/waitlist', {
         method: 'POST',
@@ -30,7 +29,7 @@ function WaitlistForm({ tier, onClose }: { tier: string; onClose: () => void }) 
     return (
       <div className="text-center py-4">
         <div className="text-sm font-medium text-[#D4956A] mb-1">You're on the list.</div>
-        <p className="text-xs text-[#555]">We'll email you when {tier} is ready.</p>
+        <p className="text-xs text-[#555]">We'll email you when it's ready.</p>
       </div>
     )
   }
@@ -56,25 +55,53 @@ function WaitlistForm({ tier, onClose }: { tier: string; onClose: () => void }) 
   )
 }
 
+function SeatCalculator({ pricePerSeat, minSeats }: { pricePerSeat: number; minSeats: number }) {
+  const [seats, setSeats] = useState(minSeats)
+  const total = seats * pricePerSeat
+
+  return (
+    <div className="mt-4 p-4 bg-white/[0.03] border border-white/[0.06] rounded-xl">
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-xs text-[#8B8B96] flex items-center gap-1.5">
+          <Users className="w-3.5 h-3.5" /> Team size
+        </label>
+        <span className="text-xs text-[#555]">{minSeats} seat minimum</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          type="range"
+          min={minSeats}
+          max={50}
+          value={seats}
+          onChange={e => setSeats(parseInt(e.target.value))}
+          className="flex-1 accent-[#D4956A]"
+        />
+        <span className="text-sm font-mono text-white w-8 text-right">{seats}</span>
+      </div>
+      <div className="mt-3 text-center">
+        <span className="text-2xl font-bold font-mono text-white">${total}</span>
+        <span className="text-[#8B8B96]">/mo</span>
+        <span className="text-xs text-[#555] ml-2">({seats} seats &times; ${pricePerSeat})</span>
+      </div>
+    </div>
+  )
+}
+
 export default function PricingPage() {
   const [showWaitlist, setShowWaitlist] = useState<string | null>(null)
 
   return (
     <>
       {/* Nav */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06]" style={{ background: 'rgba(13,13,15,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
+      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06]" style={{ background: 'rgba(10,10,10,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
         <div className="max-w-6xl mx-auto px-5 sm:px-6 flex items-center justify-between h-14 sm:h-16">
           <Link href="/" className="flex items-center gap-2 text-base sm:text-lg font-semibold tracking-tight text-white">
             <MLogo size={20} color="white" />
             MillSuite
           </Link>
           <div className="flex items-center gap-4 sm:gap-6">
-            <Link href="/" className="text-sm text-[#8B8B96] hover:text-white transition-colors hidden sm:inline">
-              Home
-            </Link>
-            <Link href="/login" className="text-sm text-[#8B8B96] hover:text-white transition-colors">
-              Log in
-            </Link>
+            <Link href="/" className="text-sm text-[#8B8B96] hover:text-white transition-colors hidden sm:inline">Home</Link>
+            <Link href="/login" className="text-sm text-[#8B8B96] hover:text-white transition-colors">Log in</Link>
           </div>
         </div>
       </nav>
@@ -82,45 +109,42 @@ export default function PricingPage() {
       {/* Hero */}
       <section className="pt-24 sm:pt-32 pb-6 sm:pb-8 px-5 sm:px-6 text-center">
         <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white mb-4">
-          Simple pricing. No surprises.
+          Per-seat pricing. Scales with your shop.
         </h1>
         <p className="text-base sm:text-lg text-[#8B8B96] max-w-2xl mx-auto leading-relaxed">
-          We're not going to charge you extra to add a team member or see your own reports.
-          Start with what you need today.
+          Less than what most shops spend per person on software that doesn't even talk to each other.
         </p>
-        <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D4956A]/20 bg-[#D4956A]/5">
-          <span className="text-xs font-medium text-[#D4956A]">Early adopter pricing: lock in $39/mo forever, even when we raise prices later</span>
-        </div>
       </section>
 
       {/* Tiers */}
       <section className="py-8 sm:py-12 px-5 sm:px-6">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-5">
 
           {/* ── STARTER ── */}
           <div className="rounded-2xl border-2 border-[#D4956A]/40 bg-[#D4956A]/[0.03] p-6 relative">
             <div className="absolute -top-3 left-6 px-3 py-0.5 bg-[#D4956A] text-white text-[10px] font-semibold uppercase tracking-wider rounded-full">
               Available now
             </div>
-            <div className="mb-6 pt-2">
+            <div className="mb-5 pt-2">
               <h3 className="text-xl font-bold text-white mb-1">Starter</h3>
-              <p className="text-sm text-[#8B8B96]">For shops that need to know their numbers.</p>
+              <p className="text-sm text-[#8B8B96]">Know your numbers on every job.</p>
             </div>
-            <div className="mb-6">
-              <span className="text-4xl font-bold font-mono text-white">$39</span>
-              <span className="text-[#8B8B96]">/month</span>
+            <div className="mb-2">
+              <span className="text-4xl font-bold font-mono text-white">$12</span>
+              <span className="text-[#8B8B96]">/seat/mo</span>
             </div>
+            <p className="text-xs text-[#555] mb-4">1 seat minimum. Solo owner: $12/mo.</p>
 
-            <ul className="space-y-3 mb-8">
+            <ul className="space-y-2.5 mb-6">
               {[
-                'Shop rate calculator',
-                'Unlimited projects',
-                'Real-time project P&L',
-                'Subproject bidding with margin controls',
-                'Time tracking — timer + manual',
+                'Project profit tracking (real-time P&L)',
+                'Time tracking with start/stop timer',
                 'Invoice parsing (AI-powered)',
-                'Team cost tracking (billable/non-billable)',
-                'Unlimited team members',
+                'Basic reporting and outcomes',
+                'Shop rate calculator (unlimited)',
+                '3 takeoff parses/seat/mo',
+                '2 AI reports/seat/mo',
+                'Unlimited projects and team members',
               ].map(f => (
                 <li key={f} className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-[#D4956A] flex-shrink-0 mt-0.5" />
@@ -136,36 +160,44 @@ export default function PricingPage() {
               Start free for 14 days
             </Link>
             <p className="text-[10px] text-[#555] text-center mt-2">No credit card required</p>
+
+            <SeatCalculator pricePerSeat={12} minSeats={1} />
           </div>
 
           {/* ── PRO ── */}
           <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6">
-            <div className="mb-6">
+            <div className="mb-5">
               <h3 className="text-xl font-bold text-white mb-1">Pro</h3>
-              <p className="text-sm text-[#8B8B96]">For shops with crews to manage and margin to protect.</p>
+              <p className="text-sm text-[#8B8B96]">Schedule work. Manage crews. Protect margin.</p>
             </div>
-            <div className="mb-6">
-              <span className="text-lg font-semibold text-[#8B8B96]">Coming soon</span>
+            <div className="mb-2">
+              <span className="text-4xl font-bold font-mono text-white">$24</span>
+              <span className="text-[#8B8B96]">/seat/mo</span>
             </div>
+            <p className="text-xs text-[#555] mb-4">3 seat minimum. 5-person shop: $120/mo.</p>
 
-            <ul className="space-y-3 mb-8">
+            <ul className="space-y-2.5 mb-6">
               {[
                 'Everything in Starter',
                 'Production scheduling',
-                'Capacity planning',
-                'Change order tracking',
-                'QuickBooks sync',
+                'Capacity planning (drag-and-drop)',
+                'Department-level tracking',
+                'Team management',
+                'Unlimited takeoff parses',
+                '10 AI reports/seat/mo',
+                'Client portal',
                 'Pre-production approvals',
+                'QuickBooks + Google Drive sync',
               ].map(f => (
                 <li key={f} className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-[#555] flex-shrink-0 mt-0.5" />
-                  <span className="text-sm text-[#8B8B96]">{f}</span>
+                  <Check className="w-4 h-4 text-[#D4956A] flex-shrink-0 mt-0.5" />
+                  <span className="text-sm text-[#C8C8D0]">{f}</span>
                 </li>
               ))}
             </ul>
 
             {showWaitlist === 'pro' ? (
-              <WaitlistForm tier="Pro" onClose={() => setShowWaitlist(null)} />
+              <WaitlistForm tier="pro" onClose={() => setShowWaitlist(null)} />
             ) : (
               <button
                 onClick={() => setShowWaitlist('pro')}
@@ -174,75 +206,96 @@ export default function PricingPage() {
                 Join the waitlist
               </button>
             )}
+
+            <SeatCalculator pricePerSeat={24} minSeats={3} />
           </div>
 
-          {/* ── TEAM ── */}
+          {/* ── PRO + AI ── */}
           <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6">
-            <div className="mb-6">
-              <h3 className="text-xl font-bold text-white mb-1">Team</h3>
-              <p className="text-sm text-[#8B8B96]">For shops running at scale that need everything in one place.</p>
+            <div className="mb-5">
+              <h3 className="text-xl font-bold text-white mb-1">Pro + AI</h3>
+              <p className="text-sm text-[#8B8B96]">The full system. AI that learns your shop.</p>
             </div>
-            <div className="mb-6">
-              <span className="text-lg font-semibold text-[#8B8B96]">Coming soon</span>
+            <div className="mb-2">
+              <span className="text-4xl font-bold font-mono text-white">$32</span>
+              <span className="text-[#8B8B96]">/seat/mo</span>
             </div>
+            <p className="text-xs text-[#555] mb-4">5 seat minimum. 14-person shop: $448/mo.</p>
 
-            <ul className="space-y-3 mb-8">
+            <ul className="space-y-2.5 mb-6">
               {[
                 'Everything in Pro',
-                'AI estimating from drawings',
-                'Client-facing portal',
+                'AI estimating engine',
+                'Learning loop (system learns YOUR shop)',
+                'Unlimited AI reports',
+                'Financial dashboards + cash flow',
                 'Custom reporting',
-                'Google Drive integration',
                 'Priority support',
               ].map(f => (
                 <li key={f} className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-[#555] flex-shrink-0 mt-0.5" />
-                  <span className="text-sm text-[#8B8B96]">{f}</span>
+                  <Check className="w-4 h-4 text-[#D4956A] flex-shrink-0 mt-0.5" />
+                  <span className="text-sm text-[#C8C8D0]">{f}</span>
                 </li>
               ))}
             </ul>
 
-            {showWaitlist === 'team' ? (
-              <WaitlistForm tier="Team" onClose={() => setShowWaitlist(null)} />
+            {showWaitlist === 'pro-ai' ? (
+              <WaitlistForm tier="pro-ai" onClose={() => setShowWaitlist(null)} />
             ) : (
               <button
-                onClick={() => setShowWaitlist('team')}
+                onClick={() => setShowWaitlist('pro-ai')}
                 className="block w-full text-center px-6 py-3 bg-white/[0.06] border border-white/[0.1] text-white font-medium rounded-xl hover:bg-white/[0.1] transition-colors"
               >
                 Join the waitlist
               </button>
             )}
+
+            <SeatCalculator pricePerSeat={32} minSeats={5} />
           </div>
         </div>
       </section>
 
-      {/* Trial section */}
-      <section className="py-12 sm:py-16 px-5 sm:px-6">
-        <div className="max-w-2xl mx-auto text-center">
-          <h2 className="text-2xl font-bold text-white mb-4">Try it free for 14 days.</h2>
-          <p className="text-[#8B8B96] leading-relaxed mb-6">
-            No credit card. No sales pitch. Just set up your first project and see if it clicks.
-            Most shops are up and running in under an hour.
-          </p>
-          <p className="text-sm text-[#8B8B96] mb-4">
-            Most shop software starts at $500+/mo and takes months to implement. MillSuite is $39/mo and most shops are running in under an hour.
-          </p>
-          <p className="text-sm text-[#555]">
-            After the trial, pick a plan or don't. We're not going to chase you down.
-          </p>
+      {/* Comparison vs status quo */}
+      <section className="py-10 sm:py-14 px-5 sm:px-6 border-t border-white/[0.04]">
+        <div className="max-w-3xl mx-auto text-center">
+          <h2 className="text-xl font-bold text-white mb-6">You're already paying more for less</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
+              <div className="text-xs text-[#555] uppercase tracking-wide mb-2">Typical 10-person shop today</div>
+              <div className="text-sm text-[#8B8B96] space-y-1">
+                <div className="flex justify-between"><span>GSuite</span><span className="font-mono text-white">$144/mo</span></div>
+                <div className="flex justify-between"><span>Harvest</span><span className="font-mono text-white">$108/mo</span></div>
+                <div className="flex justify-between"><span>QuickBooks</span><span className="font-mono text-white">$80/mo</span></div>
+                <div className="flex justify-between"><span>Spreadsheets</span><span className="font-mono text-white">$0 + your sanity</span></div>
+                <div className="flex justify-between border-t border-white/[0.06] pt-1 mt-1"><span className="font-medium text-white">Total</span><span className="font-mono font-bold text-white">$332+/mo</span></div>
+              </div>
+              <p className="text-xs text-[#555] mt-3">None of these tools talk to each other. No profit tracking. No learning loop.</p>
+            </div>
+            <div className="rounded-xl border border-[#D4956A]/20 bg-[#D4956A]/[0.03] p-5">
+              <div className="text-xs text-[#D4956A] uppercase tracking-wide mb-2">MillSuite Pro (10 seats)</div>
+              <div className="text-3xl font-bold font-mono text-white mb-1">$240<span className="text-lg text-[#8B8B96]">/mo</span></div>
+              <p className="text-sm text-[#C8C8D0]">Everything in one system. Real-time P&L. Scheduling. Time tracking. Integrations.</p>
+              <p className="text-xs text-[#D4956A] mt-3">Replaces your entire stack for less.</p>
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* Early adopter note */}
+      {/* Free tools */}
       <section className="py-10 sm:py-12 px-5 sm:px-6 border-t border-white/[0.04]">
         <div className="max-w-2xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D4956A]/20 bg-[#D4956A]/5 mb-4">
-            <span className="text-xs font-medium text-[#D4956A]">Early adopter pricing</span>
-          </div>
-          <p className="text-sm text-[#8B8B96] leading-relaxed">
-            Sign up now and your $39/mo rate is locked in — even when we raise prices later.
-            Early adopters keep their price forever.
+          <h2 className="text-xl font-bold text-white mb-4">Not ready to pay? Start free.</h2>
+          <p className="text-sm text-[#8B8B96] leading-relaxed mb-6">
+            Calculate your real shop rate. Parse a few drawings. No account needed for the basics.
           </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <a href="https://tools.millsuite.com" className="px-5 py-2.5 bg-white/[0.06] border border-white/[0.1] text-sm font-medium text-white rounded-xl hover:bg-white/[0.1] transition-colors">
+              Shop Rate Calculator
+            </a>
+            <a href="https://takeoff.millsuite.com" className="px-5 py-2.5 bg-white/[0.06] border border-white/[0.1] text-sm font-medium text-white rounded-xl hover:bg-white/[0.1] transition-colors">
+              PDF Takeoff (3 free parses)
+            </a>
+          </div>
         </div>
       </section>
 
@@ -252,7 +305,7 @@ export default function PricingPage() {
           <div className="flex items-center gap-3">
             <MLogo size={16} color="white" />
             <span className="text-sm font-semibold text-white">MillSuite</span>
-            <span className="text-xs text-[#555]">© 2026</span>
+            <span className="text-xs text-[#555]">&copy; 2026</span>
           </div>
           <div className="flex items-center gap-6 text-xs text-[#555]">
             <a href="mailto:info@millsuite.com" className="hover:text-[#8B8B96] transition-colors">info@millsuite.com</a>
