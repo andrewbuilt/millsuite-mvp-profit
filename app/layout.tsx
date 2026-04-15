@@ -1,6 +1,21 @@
 import type { Metadata, Viewport } from 'next'
+import { DM_Sans, DM_Mono } from 'next/font/google'
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-dm-sans',
+  display: 'swap',
+})
+
+const dmMono = DM_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-dm-mono',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'MillSuite — Project Profit Tracker',
@@ -25,8 +40,8 @@ export const viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="antialiased min-h-screen">
+    <html lang="en" className={`${dmSans.variable} ${dmMono.variable}`}>
+      <body className="antialiased min-h-screen" style={{ fontFamily: 'var(--font-dm-sans), -apple-system, BlinkMacSystemFont, sans-serif' }}>
         <AuthProvider>
           {children}
         </AuthProvider>

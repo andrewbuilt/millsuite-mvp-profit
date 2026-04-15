@@ -73,6 +73,11 @@ export default function Nav() {
           </div>
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
+          {/* Cross-tool links */}
+          <div className="hidden lg:flex items-center gap-3 mr-2 text-xs text-[#9CA3AF]">
+            <a href="https://tools.millsuite.com/dashboard" className="hover:text-[#111] transition-colors">Shop Rate</a>
+            <a href="https://takeoff.millsuite.com" className="hover:text-[#111] transition-colors">Takeoff</a>
+          </div>
           {!isMember && (
             <Link
               href="/settings"
