@@ -263,7 +263,7 @@ export default function LandingPage() {
             {[
               { stat: '14', label: 'years running a shop' },
               { stat: '$10M+', label: 'of real projects through the system' },
-              { stat: '$12', label: 'per seat/mo (vs. $1,400+ for competitors)' },
+              { stat: '1', label: 'system to replace them all' },
               { stat: '<1hr', label: 'to get up and running' },
             ].map(s => (
               <div key={s.label} className="text-center">

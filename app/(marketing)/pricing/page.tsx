@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, Check, Users } from 'lucide-react'
+import { ArrowRight, Check } from 'lucide-react'
 import { MLogo } from '@/components/logo'
 
 function WaitlistForm({ tier, onClose }: { tier: string; onClose: () => void }) {
@@ -55,37 +55,6 @@ function WaitlistForm({ tier, onClose }: { tier: string; onClose: () => void }) 
   )
 }
 
-function SeatCalculator({ pricePerSeat, minSeats }: { pricePerSeat: number; minSeats: number }) {
-  const [seats, setSeats] = useState(minSeats)
-  const total = seats * pricePerSeat
-
-  return (
-    <div className="mt-4 p-4 bg-white/[0.03] border border-white/[0.06] rounded-xl">
-      <div className="flex items-center justify-between mb-2">
-        <label className="text-xs text-[#8B8B96] flex items-center gap-1.5">
-          <Users className="w-3.5 h-3.5" /> Team size
-        </label>
-        <span className="text-xs text-[#555]">{minSeats} seat minimum</span>
-      </div>
-      <div className="flex items-center gap-3">
-        <input
-          type="range"
-          min={minSeats}
-          max={50}
-          value={seats}
-          onChange={e => setSeats(parseInt(e.target.value))}
-          className="flex-1 accent-[#D4956A]"
-        />
-        <span className="text-sm font-mono text-white w-8 text-right">{seats}</span>
-      </div>
-      <div className="mt-3 text-center">
-        <span className="text-2xl font-bold font-mono text-white">${total}</span>
-        <span className="text-[#8B8B96]">/mo</span>
-        <span className="text-xs text-[#555] ml-2">({seats} seats &times; ${pricePerSeat})</span>
-      </div>
-    </div>
-  )
-}
 
 export default function PricingPage() {
   const [showWaitlist, setShowWaitlist] = useState<string | null>(null)
@@ -109,10 +78,10 @@ export default function PricingPage() {
       {/* Hero */}
       <section className="pt-24 sm:pt-32 pb-6 sm:pb-8 px-5 sm:px-6 text-center">
         <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white mb-4">
-          Per-seat pricing. Scales with your shop.
+          Simple pricing. Scales with your shop.
         </h1>
         <p className="text-base sm:text-lg text-[#8B8B96] max-w-2xl mx-auto leading-relaxed">
-          Less than what most shops spend per person on software that doesn't even talk to each other.
+          One system that replaces the tools that don't talk to each other.
         </p>
       </section>
 
@@ -129,11 +98,9 @@ export default function PricingPage() {
               <h3 className="text-xl font-bold text-white mb-1">Starter</h3>
               <p className="text-sm text-[#8B8B96]">Know your numbers on every job.</p>
             </div>
-            <div className="mb-2">
-              <span className="text-4xl font-bold font-mono text-white">$12</span>
-              <span className="text-[#8B8B96]">/seat/mo</span>
+            <div className="mb-4">
+              <span className="text-sm font-medium text-[#D4956A]">Pricing coming soon</span>
             </div>
-            <p className="text-xs text-[#555] mb-4">1 seat minimum. Solo owner: $12/mo.</p>
 
             <ul className="space-y-2.5 mb-6">
               {[
@@ -142,8 +109,8 @@ export default function PricingPage() {
                 'Invoice parsing (AI-powered)',
                 'Basic reporting and outcomes',
                 'Shop rate calculator (unlimited)',
-                '3 takeoff parses/seat/mo',
-                '2 AI reports/seat/mo',
+                'Takeoff parsing (limited)',
+                'AI reports (limited)',
                 'Unlimited projects and team members',
               ].map(f => (
                 <li key={f} className="flex items-start gap-2">
@@ -161,7 +128,6 @@ export default function PricingPage() {
             </Link>
             <p className="text-[10px] text-[#555] text-center mt-2">No credit card required</p>
 
-            <SeatCalculator pricePerSeat={12} minSeats={1} />
           </div>
 
           {/* ── PRO ── */}
@@ -170,11 +136,9 @@ export default function PricingPage() {
               <h3 className="text-xl font-bold text-white mb-1">Pro</h3>
               <p className="text-sm text-[#8B8B96]">Schedule work. Manage crews. Protect margin.</p>
             </div>
-            <div className="mb-2">
-              <span className="text-4xl font-bold font-mono text-white">$24</span>
-              <span className="text-[#8B8B96]">/seat/mo</span>
+            <div className="mb-4">
+              <span className="text-sm font-medium text-[#D4956A]">Pricing coming soon</span>
             </div>
-            <p className="text-xs text-[#555] mb-4">3 seat minimum. 5-person shop: $120/mo.</p>
 
             <ul className="space-y-2.5 mb-6">
               {[
@@ -184,7 +148,7 @@ export default function PricingPage() {
                 'Department-level tracking',
                 'Team management',
                 'Unlimited takeoff parses',
-                '10 AI reports/seat/mo',
+                'Expanded AI reports',
                 'Client portal',
                 'Pre-production approvals',
                 'QuickBooks + Google Drive sync',
@@ -207,7 +171,6 @@ export default function PricingPage() {
               </button>
             )}
 
-            <SeatCalculator pricePerSeat={24} minSeats={3} />
           </div>
 
           {/* ── PRO + AI ── */}
@@ -216,11 +179,9 @@ export default function PricingPage() {
               <h3 className="text-xl font-bold text-white mb-1">Pro + AI</h3>
               <p className="text-sm text-[#8B8B96]">The full system. AI that learns your shop.</p>
             </div>
-            <div className="mb-2">
-              <span className="text-4xl font-bold font-mono text-white">$32</span>
-              <span className="text-[#8B8B96]">/seat/mo</span>
+            <div className="mb-4">
+              <span className="text-sm font-medium text-[#D4956A]">Pricing coming soon</span>
             </div>
-            <p className="text-xs text-[#555] mb-4">5 seat minimum. 14-person shop: $448/mo.</p>
 
             <ul className="space-y-2.5 mb-6">
               {[
@@ -250,7 +211,6 @@ export default function PricingPage() {
               </button>
             )}
 
-            <SeatCalculator pricePerSeat={32} minSeats={5} />
           </div>
         </div>
       </section>
@@ -272,8 +232,7 @@ export default function PricingPage() {
               <p className="text-xs text-[#555] mt-3">None of these tools talk to each other. No profit tracking. No learning loop.</p>
             </div>
             <div className="rounded-xl border border-[#D4956A]/20 bg-[#D4956A]/[0.03] p-5">
-              <div className="text-xs text-[#D4956A] uppercase tracking-wide mb-2">MillSuite Pro (10 seats)</div>
-              <div className="text-3xl font-bold font-mono text-white mb-1">$240<span className="text-lg text-[#8B8B96]">/mo</span></div>
+              <div className="text-xs text-[#D4956A] uppercase tracking-wide mb-2">MillSuite</div>
               <p className="text-sm text-[#C8C8D0]">Everything in one system. Real-time P&L. Scheduling. Time tracking. Integrations.</p>
               <p className="text-xs text-[#D4956A] mt-3">Replaces your entire stack for less.</p>
             </div>
