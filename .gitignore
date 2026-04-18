@@ -29,3 +29,10 @@ npm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local scripts with hardcoded secrets — never commit
+introspect.mjs
+introspect2.mjs
+probe-sql-exec.mjs
+probe-*.mjs
+*-local-key.mjs

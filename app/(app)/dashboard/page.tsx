@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import Nav from '@/components/nav'
@@ -59,6 +59,16 @@ function fmtMoney(n: number): string {
 // ── Main Page ──
 
 export default function DashboardPage() {
+  // useSearchParams() requires a Suspense boundary during static generation.
+  // Wrap the client body so Vercel's build export can prerender the shell.
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
+  )
+}
+
+function DashboardContent() {
   const { org } = useAuth()
   const searchParams = useSearchParams()
   const isWelcome = searchParams?.get('welcome') === 'true'
@@ -283,6 +293,54 @@ export default function DashboardPage() {
             </div>
           )
         })()}
+
+        {/* ── Empty state: no projects yet (and not showing welcome) ── */}
+        {projects.length === 0 && !(isWelcome && !welcomeDismissed) && (
+          <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 sm:p-10 mb-6 text-center">
+            <div className="w-12 h-12 rounded-xl bg-[#EFF6FF] flex items-center justify-center mx-auto mb-4">
+              <Target className="w-6 h-6 text-[#2563EB]" />
+            </div>
+            <h2 className="text-lg font-semibold text-[#111] mb-1">
+              {hasAccess(org?.plan, 'leads') ? 'Start with a lead or a project' : 'Create your first project'}
+            </h2>
+            <p className="text-sm text-[#6B7280] max-w-lg mx-auto mb-5">
+              {hasAccess(org?.plan, 'leads')
+                ? 'Leads sit in the bidding pipeline until they convert. Projects are live jobs you can log time against. Either way, the bid-vs-actual loop turns on the moment you track an hour.'
+                : 'A project tracks bid vs. actual so you can see profit the day it changes — not months later. Set a bid amount, log time, and watch the margin.'}
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              {hasAccess(org?.plan, 'leads') ? (
+                <>
+                  <Link
+                    href="/leads"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors"
+                  >
+                    <Plus className="w-4 h-4" /> New lead
+                  </Link>
+                  <Link
+                    href="/projects"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-[#E5E7EB] text-[#111] text-sm font-medium rounded-lg hover:bg-[#F9FAFB] transition-colors"
+                  >
+                    New project
+                  </Link>
+                </>
+              ) : (
+                <Link
+                  href="/projects"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors"
+                >
+                  <Plus className="w-4 h-4" /> New project
+                </Link>
+              )}
+              <Link
+                href="/settings"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm text-[#6B7280] hover:text-[#111] transition-colors"
+              >
+                <Settings className="w-4 h-4" /> Set shop rate first
+              </Link>
+            </div>
+          </div>
+        )}
 
         {/* ── TOP ROW: Key Metrics ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">

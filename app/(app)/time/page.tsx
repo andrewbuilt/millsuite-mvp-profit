@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen } from 'lucide-react'
+import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen, Download } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────
 interface Project {
@@ -424,6 +424,57 @@ export default function TimePage() {
       <div className="hidden md:block max-w-6xl mx-auto px-6 py-8 space-y-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">Time Tracking</h1>
+          <button
+            onClick={async () => {
+              if (!org?.id) return
+              // Pull last 90 days server-side — broader than the 7-day window shown on page
+              const ninetyDaysAgo = new Date()
+              ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
+              const { data, error } = await supabase
+                .from('time_entries')
+                .select('*, project:projects(name), subproject:subprojects(name), user:users(name, email)')
+                .eq('org_id', org.id)
+                .gte('created_at', ninetyDaysAgo.toISOString())
+                .order('created_at', { ascending: false })
+              if (error || !data) {
+                alert('Export failed — please try again')
+                return
+              }
+              const csvEscape = (v: any) => {
+                if (v == null) return ''
+                const s = String(v).replace(/"/g, '""')
+                return /[",\n]/.test(s) ? `"${s}"` : s
+              }
+              const header = ['Date', 'User', 'Project', 'Subproject', 'Hours', 'Notes', 'Started', 'Ended']
+              const rows = (data as any[]).map(e => {
+                const date = e.started_at ? new Date(e.started_at) : new Date(e.created_at)
+                return [
+                  date.toISOString().slice(0, 10),
+                  e.user?.name || e.user?.email || '',
+                  e.project?.name || '',
+                  e.subproject?.name || '',
+                  ((e.duration_minutes || 0) / 60).toFixed(2),
+                  e.notes || '',
+                  e.started_at || '',
+                  e.ended_at || '',
+                ].map(csvEscape).join(',')
+              })
+              const csv = [header.join(','), ...rows].join('\n')
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+              const url = URL.createObjectURL(blob)
+              const link = document.createElement('a')
+              link.href = url
+              const today = new Date().toISOString().slice(0, 10)
+              link.download = `time-entries-${today}.csv`
+              link.click()
+              URL.revokeObjectURL(url)
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[#6B7280] hover:text-[#111] border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] transition-colors"
+            title="Export last 90 days as CSV"
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
+          </button>
         </div>
 
         {/* ────────── TIMER SECTION ────────── */}

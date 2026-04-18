@@ -1,6 +1,7 @@
 // /portal/[slug] — Public client portal. Password-gated, reads data via
 // supabaseAdmin, shows project status stepper, selections with client sign-off,
-// latest drawings, and a timeline of events.
+// and a timeline of events. Drawings are NOT surfaced in the portal —
+// drawing approvals happen in person or over email, direct from shop to client.
 
 import { cookies } from 'next/headers'
 import { notFound } from 'next/navigation'
@@ -55,7 +56,6 @@ export default async function PortalPage({
       slug={slug}
       project={data.project}
       selections={data.selections as any[]}
-      drawings={data.drawings as any[]}
       timeline={data.timeline as any[]}
       portalSteps={[...PORTAL_STEPS]}
       stepLabels={PORTAL_STEP_LABELS}

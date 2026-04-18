@@ -120,6 +120,25 @@ function LeadDetailInner() {
     projectName: string
     portalSlug: string | null
   } | null>(null)
+  const [aiWaitlist, setAiWaitlist] = useState<'idle' | 'saving' | 'joined'>('idle')
+
+  async function joinAIWaitlist() {
+    if (!org || aiWaitlist !== 'idle') return
+    setAiWaitlist('saving')
+    // Best-effort: pull the owner's email off the org, fall back to a generic tag.
+    const email = (org as any).business_email || `${org.slug}@millsuite-waitlist.internal`
+    try {
+      await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, tier: 'ai-drawing-parser' }),
+      })
+      setAiWaitlist('joined')
+    } catch {
+      setAiWaitlist('idle')
+      alert('Could not join waitlist — please try again')
+    }
+  }
 
   // ── Load ──
 
@@ -354,12 +373,21 @@ function LeadDetailInner() {
             <div className="flex items-center gap-2">
               {hasAI && (
                 <button
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#7C3AED] bg-[#F5F3FF] border border-[#DDD6FE] rounded-lg hover:bg-[#EDE9FE] transition-colors"
-                  disabled
-                  title="AI drawing parser — coming soon"
+                  onClick={joinAIWaitlist}
+                  disabled={aiWaitlist !== 'idle'}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                    aiWaitlist === 'joined'
+                      ? 'bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0]'
+                      : 'bg-[#F5F3FF] border border-[#DDD6FE] text-[#7C3AED] hover:bg-[#EDE9FE] disabled:opacity-60'
+                  }`}
+                  title="AI drawing parser — join the early access list"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  Parse drawings
+                  {aiWaitlist === 'joined'
+                    ? "You're on the list"
+                    : aiWaitlist === 'saving'
+                    ? 'Adding...'
+                    : 'Parse drawings (early access)'}
                 </button>
               )}
               <button

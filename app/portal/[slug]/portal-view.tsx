@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { MLogo } from '@/components/logo'
-import { CheckCircle2, Circle, Clock, FileText, ExternalLink } from 'lucide-react'
+import { CheckCircle2, Circle, Clock } from 'lucide-react'
 
 interface PortalProject {
   id: string
@@ -27,15 +27,6 @@ interface PortalSelection {
   client_signed_off_by?: string | null
 }
 
-interface PortalDrawing {
-  id: string
-  revision_number: number
-  status: string
-  drive_file_url: string | null
-  created_at: string
-  client_signed_off_at?: string | null
-}
-
 interface PortalTimelineEvent {
   id: string
   created_at: string
@@ -57,7 +48,6 @@ export default function PortalView({
   slug,
   project,
   selections,
-  drawings,
   timeline,
   portalSteps,
   stepLabels,
@@ -65,18 +55,15 @@ export default function PortalView({
   slug: string
   project: PortalProject
   selections: PortalSelection[]
-  drawings: PortalDrawing[]
   timeline: PortalTimelineEvent[]
   portalSteps: string[]
   stepLabels: Record<string, string>
 }) {
   const [signoffId, setSignoffId] = useState<string | null>(null)
-  const [signoffKind, setSignoffKind] = useState<'selection' | 'drawing'>('selection')
   const [signerName, setSignerName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [localSelections, setLocalSelections] = useState(selections)
-  const [localDrawings, setLocalDrawings] = useState(drawings)
 
   // De-duplicate portal steps for the stepper (down_payment appears as 3 triggers)
   const displaySteps = ['down_payment', 'approvals', 'scheduling', 'in_production', 'assembly', 'ready_for_install', 'complete']
@@ -84,8 +71,7 @@ export default function PortalView({
     ? displaySteps.findIndex(s => s === project.portalStep)
     : 0
 
-  function openSignoff(kind: 'selection' | 'drawing', id: string) {
-    setSignoffKind(kind)
+  function openSignoff(id: string) {
     setSignoffId(id)
     setSignerName('')
     setError(null)
@@ -99,30 +85,20 @@ export default function PortalView({
       const res = await fetch(`/api/portal/${slug}/signoff`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: signoffKind, id: signoffId, signerName: signerName.trim() }),
+        body: JSON.stringify({ kind: 'selection', id: signoffId, signerName: signerName.trim() }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data?.error || 'Sign-off failed')
       }
       const now = new Date().toISOString()
-      if (signoffKind === 'selection') {
-        setLocalSelections(prev =>
-          prev.map(s =>
-            s.id === signoffId
-              ? { ...s, status: 'confirmed', client_signed_off_at: now, client_signed_off_by: signerName.trim(), confirmed_date: now }
-              : s
-          )
+      setLocalSelections(prev =>
+        prev.map(s =>
+          s.id === signoffId
+            ? { ...s, status: 'confirmed', client_signed_off_at: now, client_signed_off_by: signerName.trim(), confirmed_date: now }
+            : s
         )
-      } else {
-        setLocalDrawings(prev =>
-          prev.map(d =>
-            d.id === signoffId
-              ? { ...d, status: 'approved', client_signed_off_at: now }
-              : d
-          )
-        )
-      }
+      )
       setSignoffId(null)
     } catch (err: any) {
       setError(err?.message || 'Something went wrong')
@@ -278,7 +254,7 @@ export default function PortalView({
                           </div>
                           {!signedOff && (
                             <button
-                              onClick={() => openSignoff('selection', sel.id)}
+                              onClick={() => openSignoff(sel.id)}
                               className="px-3 py-1.5 text-xs font-medium bg-[#2563EB] text-white rounded-lg hover:bg-[#1D4ED8] transition-colors whitespace-nowrap"
                             >
                               Approve
@@ -293,55 +269,6 @@ export default function PortalView({
             </div>
           )}
         </section>
-
-        {/* Drawings */}
-        {localDrawings.length > 0 && (
-          <section className="bg-white border border-[#E5E7EB] rounded-2xl p-6 mb-6">
-            <div className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-4">
-              Drawings
-            </div>
-            <div className="space-y-2">
-              {localDrawings.map(dr => {
-                const approved = !!dr.client_signed_off_at || dr.status === 'approved'
-                return (
-                  <div
-                    key={dr.id}
-                    className="flex items-center gap-3 px-4 py-3 border border-[#E5E7EB] rounded-lg"
-                  >
-                    <FileText className="w-5 h-5 text-[#6B7280] flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-[#111]">
-                        Revision {dr.revision_number}
-                      </div>
-                      <div className="text-xs text-[#6B7280] mt-0.5">
-                        {new Date(dr.created_at).toLocaleDateString()}
-                        {approved && <span className="text-[#059669] ml-2">· Approved</span>}
-                      </div>
-                    </div>
-                    {dr.drive_file_url && (
-                      <a
-                        href={dr.drive_file_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
-                      >
-                        View <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
-                    {!approved && (
-                      <button
-                        onClick={() => openSignoff('drawing', dr.id)}
-                        className="px-3 py-1.5 text-xs font-medium bg-[#2563EB] text-white rounded-lg hover:bg-[#1D4ED8] transition-colors"
-                      >
-                        Approve
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-        )}
 
         {/* Timeline */}
         {timeline.length > 0 && (
@@ -385,7 +312,7 @@ export default function PortalView({
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
             <h3 className="text-lg font-semibold text-[#111] mb-2">Confirm approval</h3>
             <p className="text-sm text-[#6B7280] mb-4">
-              Type your name to approve this {signoffKind}. Your name will be recorded with the approval.
+              Type your name to approve this selection. Your name will be recorded with the approval.
             </p>
             <input
               autoFocus

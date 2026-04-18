@@ -10,6 +10,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { firePortalStepEmail } from '@/lib/portal'
 import type {
   Lead,
   LeadStatus,
@@ -483,6 +484,9 @@ export async function checkAndAdvanceProductionPhase(
       triggered_by: 'system',
     })
 
+    // Fire Klaviyo email to the homeowner announcing scheduling has started.
+    await firePortalStepEmail(projectId, 'scheduling')
+
     return 'scheduling'
   }
 
@@ -500,6 +504,8 @@ export async function checkAndAdvanceProductionPhase(
       .from('projects')
       .update({ production_phase: 'in_production', portal_step: 'in_production' })
       .eq('id', projectId)
+
+    await firePortalStepEmail(projectId, 'in_production')
 
     return 'in_production'
   }

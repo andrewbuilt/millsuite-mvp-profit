@@ -6,6 +6,7 @@
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import type { PortalStep } from '@/lib/types'
 import { PORTAL_STEPS } from '@/lib/types'
+import { upsertProfile, trackEvent, extractFirstName } from '@/lib/klaviyo'
 
 // Re-export for callers that only need portal types
 export { PORTAL_STEPS }
@@ -153,6 +154,142 @@ export async function verifyPortalToken(
   }
 }
 
+// ── Klaviyo email helpers ──
+//
+// Two — and only two — events fire from the MillSuite portal:
+//   1. "Portal Created"        → on setupPortal + on password reset (re-sends creds)
+//   2. "Project Status Changed" → on transitions to scheduling, in_production,
+//                                  or ready_for_install (the 3 step changes the
+//                                  homeowner actually cares about). Other step
+//                                  changes are noise — they don't email.
+//
+// All multi-tenant context (shop name + reply email) rides on the event
+// properties so a single Klaviyo flow template can render any shop's branding.
+// "Source: 'millsuite'" is added by trackEvent() so flows can filter origin.
+
+const STEPS_THAT_EMAIL: PortalStep[] = ['scheduling', 'in_production', 'ready_for_install']
+
+function getAppUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    'https://app.millsuite.com'
+  ).replace(/\/+$/, '')
+}
+
+interface PortalEmailContext {
+  email: string
+  firstName: string
+  projectName: string
+  shopName: string
+  shopReplyEmail: string
+  portalUrl: string
+}
+
+// Pull everything Klaviyo needs in one query. Returns null if the homeowner
+// has no email on file — without an address there's nothing to send to and we
+// silently skip rather than blowing up the caller.
+async function loadPortalEmailContext(
+  projectId: string
+): Promise<PortalEmailContext | null> {
+  const { data: project, error } = await supabase
+    .from('projects')
+    .select(
+      `
+      id,
+      name,
+      portal_slug,
+      org:orgs(name, business_email),
+      client:clients(name, email),
+      contact:contacts(name, email)
+    `
+    )
+    .eq('id', projectId)
+    .single()
+
+  if (error || !project) return null
+
+  const contact = (project.contact as any) || {}
+  const client = (project.client as any) || {}
+  const org = (project.org as any) || {}
+
+  const email = String(contact.email || client.email || '').trim().toLowerCase()
+  if (!email) return null
+
+  return {
+    email,
+    firstName: extractFirstName(contact.name || client.name),
+    projectName: project.name || 'your project',
+    shopName: org.name || 'your shop',
+    shopReplyEmail: org.business_email || '',
+    portalUrl: project.portal_slug
+      ? `${getAppUrl()}/portal/${project.portal_slug}`
+      : '',
+  }
+}
+
+// Fire "Portal Created" — used for both initial setup and password rotation.
+// Always includes the current plaintext password so the email itself is
+// self-contained: clients never need to look it up elsewhere.
+export async function firePortalCreatedEvent(
+  projectId: string,
+  plaintextPassword: string
+): Promise<void> {
+  const ctx = await loadPortalEmailContext(projectId)
+  if (!ctx) return
+
+  await upsertProfile({
+    email: ctx.email,
+    firstName: ctx.firstName,
+    properties: {
+      shop_name: ctx.shopName,
+      latest_project_name: ctx.projectName,
+    },
+  })
+
+  await trackEvent(ctx.email, 'Portal Created', {
+    project_name: ctx.projectName,
+    shop_name: ctx.shopName,
+    portal_url: ctx.portalUrl,
+    portal_password: plaintextPassword,
+    client_first_name: ctx.firstName,
+    shop_reply_email: ctx.shopReplyEmail,
+  })
+}
+
+// Fire "Project Status Changed" — only for the 3 transitions the homeowner
+// cares about. Other portal_step writes are silent. Exported so the
+// auto-advance engine in lib/leads.ts can call it directly when it bypasses
+// updatePortalStep().
+export async function firePortalStepEmail(
+  projectId: string,
+  newStep: PortalStep
+): Promise<void> {
+  if (!STEPS_THAT_EMAIL.includes(newStep)) return
+
+  const ctx = await loadPortalEmailContext(projectId)
+  if (!ctx) return
+
+  await upsertProfile({
+    email: ctx.email,
+    firstName: ctx.firstName,
+    properties: {
+      shop_name: ctx.shopName,
+      latest_project_name: ctx.projectName,
+    },
+  })
+
+  await trackEvent(ctx.email, 'Project Status Changed', {
+    project_name: ctx.projectName,
+    shop_name: ctx.shopName,
+    portal_url: ctx.portalUrl,
+    new_step: newStep,
+    new_step_label: PORTAL_STEP_LABELS[newStep] || newStep,
+    client_first_name: ctx.firstName,
+    shop_reply_email: ctx.shopReplyEmail,
+  })
+}
+
 // ── Setup ──
 
 export async function setupPortal(
@@ -187,6 +324,12 @@ export async function setupPortal(
     actor_type: 'system',
     triggered_by: 'system',
   })
+
+  // Fire Klaviyo "Portal Created" event so the homeowner gets their access
+  // email. Failures here are swallowed inside firePortalCreatedEvent — the
+  // portal itself was created successfully and we'd rather log a Klaviyo
+  // error than fail the whole setup call.
+  await firePortalCreatedEvent(projectId, password)
 
   return { slug, password }
 }
@@ -227,6 +370,12 @@ export async function updatePortalStep(
     actor_type: triggeredBy === 'system' ? 'system' : 'shop',
     triggered_by: triggeredBy,
   })
+
+  // Fire the Klaviyo email (no-ops for steps that aren't in
+  // STEPS_THAT_EMAIL — see firePortalStepEmail).
+  if (project.portal_step !== newStep) {
+    await firePortalStepEmail(projectId, newStep)
+  }
 
   return true
 }

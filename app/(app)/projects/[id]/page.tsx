@@ -7,7 +7,7 @@ import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeSubprojectPrice } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink, ClipboardCheck } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink, ClipboardCheck, Link2, Copy, Check, RefreshCw, Printer, Download } from 'lucide-react'
 import { useConfirm } from '@/components/confirm-dialog'
 import { hasAccess } from '@/lib/feature-flags'
 import Link from 'next/link'
@@ -24,6 +24,7 @@ interface Project {
   production_phase: 'pre_production' | 'scheduling' | 'in_production' | null
   bid_total: number
   notes: string | null
+  portal_slug: string | null
 }
 
 interface Subproject {
@@ -96,6 +97,9 @@ export default function ProjectDetailPage() {
   const [addingSubproject, setAddingSubproject] = useState(false)
   const [newSubName, setNewSubName] = useState('')
   const [editingField, setEditingField] = useState<string | null>(null)
+  const [portalPassword, setPortalPassword] = useState<string | null>(null)
+  const [portalCopied, setPortalCopied] = useState(false)
+  const [portalBusy, setPortalBusy] = useState(false)
 
   // ── Load Data ──
 
@@ -195,6 +199,54 @@ export default function ProjectDetailPage() {
     recalcBidTotal(newSubs)
   }
 
+  async function enablePortal() {
+    if (!project || portalBusy) return
+    setPortalBusy(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/enable-portal`, { method: 'POST' })
+      if (res.ok) {
+        const json = await res.json()
+        setProject(prev => prev ? { ...prev, portal_slug: json.slug } : prev)
+        setPortalPassword(json.password)
+      } else {
+        const json = await res.json().catch(() => ({}))
+        alert(json.error || 'Failed to enable portal')
+      }
+    } finally {
+      setPortalBusy(false)
+    }
+  }
+
+  async function resetPortalPassword() {
+    if (!project || portalBusy) return
+    const ok = await confirm({
+      title: 'Reset Portal Password',
+      message: 'Generate a new password? The old password will stop working immediately.',
+      confirmLabel: 'Reset',
+    })
+    if (!ok) return
+    setPortalBusy(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/reset-portal-password`, { method: 'POST' })
+      if (res.ok) {
+        const json = await res.json()
+        setPortalPassword(json.password)
+      } else {
+        alert('Failed to reset password')
+      }
+    } finally {
+      setPortalBusy(false)
+    }
+  }
+
+  function copyPortalLink() {
+    if (!project?.portal_slug) return
+    const url = `${window.location.origin}/portal/${project.portal_slug}`
+    navigator.clipboard.writeText(url)
+    setPortalCopied(true)
+    setTimeout(() => setPortalCopied(false), 2000)
+  }
+
   async function recalcBidTotal(subs: Subproject[]) {
     // Optimistic local update…
     const total = subs.reduce((sum, s) => sum + (s.price || 0), 0)
@@ -279,6 +331,59 @@ export default function ProjectDetailPage() {
               )}
             </div>
           </div>
+          <button
+            onClick={() => {
+              if (!project) return
+              const csvEscape = (v: any) => {
+                if (v == null) return ''
+                const s = String(v).replace(/"/g, '""')
+                return /[",\n]/.test(s) ? `"${s}"` : s
+              }
+              const subRows = subprojects.map(s => {
+                const price = s.price || 0
+                return ['SUBPROJECT', s.name, s.activity_type || '', s.material_finish || '', s.dimensions || '', s.labor_hours || 0, s.material_cost || 0, price].map(csvEscape).join(',')
+              })
+              const timeRows = timeEntries.map(t => {
+                const subName = subprojects.find(s => s.id === t.subproject_id)?.name || ''
+                return ['TIME', subName, '', '', '', (t.duration_minutes / 60).toFixed(2), '', ''].map(csvEscape).join(',')
+              })
+              const invoiceRows = invoices.map(i => {
+                const subName = subprojects.find(s => s.id === i.subproject_id)?.name || ''
+                return ['INVOICE', subName, i.vendor_name || '', i.invoice_number || '', i.invoice_date || '', '', i.total_amount, ''].map(csvEscape).join(',')
+              })
+              const header = ['Type', 'Name / Subproject', 'Activity / Vendor', 'Material / Invoice #', 'Dimensions / Date', 'Hours', 'Cost', 'Price']
+              const csv = [
+                `Project,${csvEscape(project.name)}`,
+                `Client,${csvEscape(project.client_name || '')}`,
+                '',
+                header.join(','),
+                ...subRows,
+                ...timeRows,
+                ...invoiceRows,
+              ].join('\n')
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+              const url = URL.createObjectURL(blob)
+              const link = document.createElement('a')
+              link.href = url
+              const safeName = (project.name || 'project').replace(/[^a-z0-9]+/gi, '-').slice(0, 40)
+              link.download = `${safeName}-export-${new Date().toISOString().slice(0, 10)}.csv`
+              link.click()
+              URL.revokeObjectURL(url)
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors"
+            title="Export project data as CSV"
+          >
+            <Download className="w-4 h-4" />
+            Export
+          </button>
+          <Link
+            href={`/projects/${projectId}/estimate`}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors"
+            title="Print estimate"
+          >
+            <Printer className="w-4 h-4" />
+            Estimate
+          </Link>
           {hasAccess(org?.plan, 'pre-production') && project.status === 'active' && (
             <Link
               href={`/projects/${projectId}/pre-production`}
@@ -389,6 +494,91 @@ export default function ProjectDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Client Portal (Pro tier) */}
+        {hasAccess(org?.plan, 'portal') && (
+          <div className="bg-white border border-[#E5E7EB] rounded-xl px-6 py-4 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-[#6B7280]" />
+                <h2 className="text-sm font-semibold text-[#111]">Client Portal</h2>
+              </div>
+              {project.portal_slug && (
+                <button
+                  onClick={resetPortalPassword}
+                  disabled={portalBusy}
+                  className="inline-flex items-center gap-1 text-xs text-[#6B7280] hover:text-[#111] transition-colors disabled:opacity-50"
+                  title="Generate a new password — the client will get an email with the new link"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Reset &amp; re-send
+                </button>
+              )}
+            </div>
+
+            {!project.portal_slug ? (
+              <div className="flex items-center justify-between bg-[#F9FAFB] border border-dashed border-[#E5E7EB] rounded-xl px-4 py-4">
+                <div>
+                  <div className="text-sm font-medium text-[#111]">No portal yet</div>
+                  <div className="text-xs text-[#9CA3AF] mt-0.5">Give your client a password-protected page to see progress, approve selections, and sign off drawings.</div>
+                </div>
+                <button
+                  onClick={enablePortal}
+                  disabled={portalBusy}
+                  className="px-3 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 flex-shrink-0 ml-4"
+                >
+                  {portalBusy ? 'Enabling...' : 'Enable Portal'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg text-sm font-mono text-[#6B7280] truncate">
+                    {typeof window !== 'undefined' ? window.location.origin : ''}/portal/{project.portal_slug}
+                  </div>
+                  <a
+                    href={`/portal/${project.portal_slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium text-[#6B7280] hover:text-[#111] border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Open
+                  </a>
+                  <button
+                    onClick={copyPortalLink}
+                    className={`inline-flex items-center gap-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                      portalCopied
+                        ? 'bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0]'
+                        : 'bg-[#2563EB] text-white hover:bg-[#1D4ED8]'
+                    }`}
+                  >
+                    {portalCopied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy Link</>}
+                  </button>
+                </div>
+                {portalPassword && (
+                  <div className="flex items-center justify-between bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-4 py-3">
+                    <div>
+                      <div className="text-xs font-medium text-[#92400E] mb-0.5">New password — save it now, we won't show it again</div>
+                      <div className="text-xl font-mono tabular-nums font-bold text-[#92400E] tracking-widest">{portalPassword}</div>
+                    </div>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(portalPassword); setPortalPassword(portalPassword) }}
+                      className="px-3 py-1.5 bg-white border border-[#FDE68A] text-xs font-medium text-[#92400E] rounded-lg hover:bg-[#FEF3C7] transition-colors"
+                    >
+                      <Copy className="w-3.5 h-3.5 inline mr-1" /> Copy
+                    </button>
+                  </div>
+                )}
+                {!portalPassword && (
+                  <p className="text-[11px] text-[#9CA3AF]">
+                    Your client was emailed the portal link and password when this was created. Click "Reset &amp; re-send" to rotate the password.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Subprojects */}
         <div className="mb-6">

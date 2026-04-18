@@ -242,21 +242,41 @@ export default function SettingsPage() {
           const currentPlan = ((org?.plan as Plan) || 'starter') as Plan
           const seatPrice = PLAN_SEAT_PRICE[currentPlan] ?? 12
           const monthlyCost = seatPrice * Math.max(seatCount, PLAN_SEAT_MINIMUM[currentPlan] ?? 1)
-          const tiers: { key: Plan; tagline: string; unlocks: string[] }[] = [
+          const tiers: { key: Plan; tagline: string; unlocks: string[]; coming?: string[] }[] = [
             {
               key: 'starter',
               tagline: 'Profit-first basics',
-              unlocks: ['Shop rate calculator', 'Projects + subproject pricing', 'Time tracking', 'Invoice parsing', 'Outcomes dashboard'],
+              unlocks: [
+                'Shop rate calculator',
+                'Projects + subproject pricing',
+                'Time tracking (desktop + mobile)',
+                'Printable estimates',
+                'Invoice parsing',
+                '2 AI shop reports / seat / mo',
+              ],
             },
             {
               key: 'pro',
               tagline: 'Run the whole shop',
-              unlocks: ['Leads Kanban + sold handoff', 'Pre-production selections', 'Client portal w/ sign-off', 'Department scheduling + capacity', 'Team roles + rate book'],
+              unlocks: [
+                'Everything in Starter',
+                'Leads Kanban + sold handoff',
+                'Pre-production selections',
+                'Client portal w/ sign-off',
+                'Department scheduling + capacity',
+                'Team roles + rate book',
+              ],
             },
             {
               key: 'pro-ai',
-              tagline: 'Estimate + learn faster',
-              unlocks: ['AI estimating', 'Learning loop (actuals → rates)', 'Advanced financials', 'Custom reporting'],
+              tagline: 'Early access to AI',
+              unlocks: [
+                'Everything in Pro',
+                'Unlimited AI shop reports',
+                'Priority support',
+                'Early access: AI estimating',
+              ],
+              coming: ['Drawing parser', 'Learning loop', 'Custom AI reports'],
             },
           ]
           const planIndex = tiers.findIndex(t => t.key === currentPlan)
@@ -331,9 +351,19 @@ export default function SettingsPage() {
                             </li>
                           ))}
                         </ul>
+                        {t.coming && t.coming.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-dashed border-[#E5E7EB]">
+                            <div className="text-[9px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1">Coming Later</div>
+                            <ul className="space-y-0.5">
+                              {t.coming.map(f => (
+                                <li key={f} className="text-[10px] text-[#9CA3AF]">· {f}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                         {isUpgrade && (
                           <a
-                            href={`mailto:hello@millsuite.com?subject=Upgrade%20to%20${encodeURIComponent(PLAN_LABELS[t.key])}`}
+                            href={`/api/checkout?plan=${t.key}&seats=${seatCount}`}
                             className="mt-3 w-full block text-center px-3 py-1.5 bg-[#111] text-white text-xs font-medium rounded-lg hover:bg-[#2563EB] transition-colors"
                           >
                             Upgrade
