@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Nav from '@/components/nav'
 import { computeShopRate } from '@/lib/pricing'
-import { Copy, Check, ArrowRight } from 'lucide-react'
+import { Copy, Check, ArrowRight, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
+import { PLAN_LABELS, PLAN_SEAT_PRICE, PLAN_SEAT_MINIMUM, type Plan } from '@/lib/feature-flags'
 
 // ── Field config for overhead inputs ──
 
@@ -48,6 +49,7 @@ export default function SettingsPage() {
 
   const [ownerBillable, setOwnerBillable] = useState(true)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [seatCount, setSeatCount] = useState(1)
   const [consumableMarkup, setConsumableMarkup] = useState('15')
   const [profitMargin, setProfitMargin] = useState('35')
 
@@ -103,6 +105,9 @@ export default function SettingsPage() {
       // Filter out the owner (they have their own salary field)
       const teamOnly = (users || []).filter((u: any) => u.role !== 'owner')
       setTeamMembers(teamOnly)
+
+      // Total seat count = all users (owner + team). Every user is a seat.
+      setSeatCount((users || []).length || 1)
 
       // Load org defaults for consumable markup & profit margin
       setConsumableMarkup(org!.consumable_markup_pct?.toString() || '15')
@@ -231,6 +236,125 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           {saved && <span className="text-xs text-[#059669] font-medium animate-pulse">Saved</span>}
         </div>
+
+        {/* Plan & Billing */}
+        {(() => {
+          const currentPlan = ((org?.plan as Plan) || 'starter') as Plan
+          const seatPrice = PLAN_SEAT_PRICE[currentPlan] ?? 12
+          const monthlyCost = seatPrice * Math.max(seatCount, PLAN_SEAT_MINIMUM[currentPlan] ?? 1)
+          const tiers: { key: Plan; tagline: string; unlocks: string[] }[] = [
+            {
+              key: 'starter',
+              tagline: 'Profit-first basics',
+              unlocks: ['Shop rate calculator', 'Projects + subproject pricing', 'Time tracking', 'Invoice parsing', 'Outcomes dashboard'],
+            },
+            {
+              key: 'pro',
+              tagline: 'Run the whole shop',
+              unlocks: ['Leads Kanban + sold handoff', 'Pre-production selections', 'Client portal w/ sign-off', 'Department scheduling + capacity', 'Team roles + rate book'],
+            },
+            {
+              key: 'pro-ai',
+              tagline: 'Estimate + learn faster',
+              unlocks: ['AI estimating', 'Learning loop (actuals → rates)', 'Advanced financials', 'Custom reporting'],
+            },
+          ]
+          const planIndex = tiers.findIndex(t => t.key === currentPlan)
+          return (
+            <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+              <div className="px-6 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-semibold">Plan &amp; Billing</h2>
+                  <p className="text-xs text-[#9CA3AF] mt-0.5">What you're on, what you're paying, what you could unlock</p>
+                </div>
+                <a
+                  href="mailto:hello@millsuite.com?subject=MillSuite%20billing"
+                  className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+                >
+                  Contact billing →
+                </a>
+              </div>
+
+              {/* Current plan hero */}
+              <div className="px-6 py-5 bg-[#F9FAFB] border-b border-[#E5E7EB] flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider mb-1">Current Plan</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl font-semibold text-[#111]">{PLAN_LABELS[currentPlan]}</span>
+                    {currentPlan === 'pro-ai' && <Sparkles className="w-4 h-4 text-[#2563EB]" />}
+                  </div>
+                  <div className="text-xs text-[#6B7280] mt-1">
+                    {seatCount} {seatCount === 1 ? 'seat' : 'seats'} × ${seatPrice}/mo
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider mb-1">Est. Monthly</div>
+                  <div className="text-3xl font-mono tabular-nums font-semibold text-[#111]">
+                    ${monthlyCost.toLocaleString()}
+                    <span className="text-sm text-[#9CA3AF] font-normal">/mo</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tier comparison */}
+              <div className="px-6 py-4">
+                <div className="grid grid-cols-3 gap-3">
+                  {tiers.map((t, i) => {
+                    const isCurrent = t.key === currentPlan
+                    const isDowngrade = i < planIndex
+                    const isUpgrade = i > planIndex
+                    return (
+                      <div
+                        key={t.key}
+                        className={`rounded-xl border p-4 ${
+                          isCurrent ? 'border-[#2563EB] bg-[#EFF6FF]' : 'border-[#E5E7EB] bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-sm font-semibold ${isCurrent ? 'text-[#2563EB]' : 'text-[#111]'}`}>
+                            {PLAN_LABELS[t.key]}
+                          </span>
+                          {isCurrent && (
+                            <span className="text-[10px] font-medium text-[#2563EB] uppercase tracking-wider">Current</span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-[#6B7280] mb-2">{t.tagline}</div>
+                        <div className="text-lg font-mono tabular-nums font-semibold text-[#111]">
+                          ${PLAN_SEAT_PRICE[t.key]}
+                          <span className="text-[11px] text-[#9CA3AF] font-normal">/seat/mo</span>
+                        </div>
+                        <ul className="mt-3 space-y-1">
+                          {t.unlocks.map(f => (
+                            <li key={f} className="text-[11px] text-[#6B7280] flex items-start gap-1.5">
+                              <Check className="w-3 h-3 text-[#059669] mt-0.5 flex-shrink-0" />
+                              <span>{f}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {isUpgrade && (
+                          <a
+                            href={`mailto:hello@millsuite.com?subject=Upgrade%20to%20${encodeURIComponent(PLAN_LABELS[t.key])}`}
+                            className="mt-3 w-full block text-center px-3 py-1.5 bg-[#111] text-white text-xs font-medium rounded-lg hover:bg-[#2563EB] transition-colors"
+                          >
+                            Upgrade
+                          </a>
+                        )}
+                        {isDowngrade && (
+                          <a
+                            href={`mailto:hello@millsuite.com?subject=Downgrade%20to%20${encodeURIComponent(PLAN_LABELS[t.key])}`}
+                            className="mt-3 w-full block text-center px-3 py-1.5 bg-white border border-[#E5E7EB] text-[#6B7280] text-xs font-medium rounded-lg hover:bg-[#F9FAFB] transition-colors"
+                          >
+                            Downgrade
+                          </a>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Shop Rate Calculator */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">

@@ -7,8 +7,10 @@ import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeSubprojectPrice } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink, ClipboardCheck } from 'lucide-react'
 import { useConfirm } from '@/components/confirm-dialog'
+import { hasAccess } from '@/lib/feature-flags'
+import Link from 'next/link'
 
 // ── Types ──
 
@@ -19,6 +21,7 @@ interface Project {
   client_email: string | null
   client_phone: string | null
   status: string
+  production_phase: 'pre_production' | 'scheduling' | 'in_production' | null
   bid_total: number
   notes: string | null
 }
@@ -34,6 +37,10 @@ interface Subproject {
   profit_margin_pct: number | null
   price: number
   manual_price: number | null
+  // Pro-tier v2 fields (pre-production detail)
+  activity_type: string | null
+  material_finish: string | null
+  dimensions: string | null
 }
 
 interface TimeEntry {
@@ -189,9 +196,22 @@ export default function ProjectDetailPage() {
   }
 
   async function recalcBidTotal(subs: Subproject[]) {
+    // Optimistic local update…
     const total = subs.reduce((sum, s) => sum + (s.price || 0), 0)
-    await supabase.from('projects').update({ bid_total: total }).eq('id', projectId)
     setProject(prev => prev ? { ...prev, bid_total: total } : prev)
+    // …then let the server recompute authoritative totals (bid + actual).
+    try {
+      const res = await fetch(`/api/projects/${projectId}/rollup`, { method: 'POST' })
+      if (res.ok) {
+        const json = await res.json()
+        if (typeof json.bid_total === 'number') {
+          setProject(prev => prev ? { ...prev, bid_total: json.bid_total } : prev)
+        }
+      }
+    } catch {
+      // Fallback to local-only persist if the API is unavailable
+      await supabase.from('projects').update({ bid_total: total }).eq('id', projectId)
+    }
   }
 
   // ── Project Field Updates ──
@@ -250,8 +270,24 @@ export default function ProjectDetailPage() {
               }`}>
                 {project.status.charAt(0).toUpperCase() + project.status.slice(1)}
               </span>
+              {project.production_phase && hasAccess(org?.plan, 'pre-production') && (
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#F3F4F6] text-[#6B7280]">
+                  {project.production_phase === 'pre_production' ? 'Pre-Production' :
+                   project.production_phase === 'scheduling' ? 'Scheduling' :
+                   'In Production'}
+                </span>
+              )}
             </div>
           </div>
+          {hasAccess(org?.plan, 'pre-production') && project.status === 'active' && (
+            <Link
+              href={`/projects/${projectId}/pre-production`}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+            >
+              <ClipboardCheck className="w-4 h-4" />
+              Pre-Production
+            </Link>
+          )}
           <button
             onClick={async () => {
               const confirmed = await confirm({
@@ -471,6 +507,60 @@ export default function ProjectDetailPage() {
                           </div>
                         </div>
                       </div>
+
+                      {/* Pro-tier v2 fields — activity type, material/finish, dimensions */}
+                      {hasAccess(org?.plan, 'pre-production') && (
+                        <div className="bg-[#F9FAFB] rounded-xl p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Pre-Production Detail</span>
+                            <span className="text-[9px] text-[#D1D5DB]">Pro</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3">
+                            <div>
+                              <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Activity Type</label>
+                              <input
+                                type="text"
+                                value={sub.activity_type ?? ''}
+                                onChange={e => {
+                                  const val = e.target.value
+                                  setSubprojects(prev => prev.map(s => s.id === sub.id ? { ...s, activity_type: val } : s))
+                                }}
+                                onBlur={e => updateSubproject(sub.id, { activity_type: e.target.value || null })}
+                                placeholder="e.g., Kitchen cabinets"
+                                className="mt-1 w-full text-xs bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Material / Finish</label>
+                              <input
+                                type="text"
+                                value={sub.material_finish ?? ''}
+                                onChange={e => {
+                                  const val = e.target.value
+                                  setSubprojects(prev => prev.map(s => s.id === sub.id ? { ...s, material_finish: val } : s))
+                                }}
+                                onBlur={e => updateSubproject(sub.id, { material_finish: e.target.value || null })}
+                                placeholder="e.g., Maple / painted"
+                                className="mt-1 w-full text-xs bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Dimensions</label>
+                              <input
+                                type="text"
+                                value={sub.dimensions ?? ''}
+                                onChange={e => {
+                                  const val = e.target.value
+                                  setSubprojects(prev => prev.map(s => s.id === sub.id ? { ...s, dimensions: val } : s))
+                                }}
+                                onBlur={e => updateSubproject(sub.id, { dimensions: e.target.value || null })}
+                                placeholder='e.g., 24" x 36" x 30"'
+                                className="mt-1 w-full text-xs bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Department Hours — for scheduling */}
                       {departments.length > 0 && (() => {

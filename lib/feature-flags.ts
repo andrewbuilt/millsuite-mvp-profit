@@ -56,6 +56,7 @@ const PRO_FEATURES = [
   'portal',
   'quickbooks',
   'google-drive',
+  'rate-book',
 ] as const
 
 const PRO_AI_FEATURES = [

@@ -98,6 +98,11 @@ export default function MobileTimerPage() {
       ended_at: ended.toISOString(),
     })
 
+    if (projectId) {
+      fetch(`/api/projects/${projectId}/rollup`, { method: 'POST' }).catch(() => {})
+      fetch(`/api/projects/${projectId}/advance-phase`, { method: 'POST' }).catch(() => {})
+    }
+
     setTimerActive(false)
     setStartedAt(null)
     setNotes('')

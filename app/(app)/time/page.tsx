@@ -226,6 +226,12 @@ export default function TimePage() {
       ended_at: ended.toISOString(),
     })
 
+    // Fire-and-forget: recompute project actuals + try to advance phase.
+    if (timerProjectId) {
+      fetch(`/api/projects/${timerProjectId}/rollup`, { method: 'POST' }).catch(() => {})
+      fetch(`/api/projects/${timerProjectId}/advance-phase`, { method: 'POST' }).catch(() => {})
+    }
+
     // Reset
     setTimerActive(false)
     setTimerStartedAt(null)
@@ -255,6 +261,11 @@ export default function TimePage() {
       started_at: startedAt.toISOString(),
       ended_at: new Date(startedAt.getTime() + durationMinutes * 60000).toISOString(),
     })
+
+    if (manualProjectId) {
+      fetch(`/api/projects/${manualProjectId}/rollup`, { method: 'POST' }).catch(() => {})
+      fetch(`/api/projects/${manualProjectId}/advance-phase`, { method: 'POST' }).catch(() => {})
+    }
 
     setManualHours('')
     setManualNotes('')

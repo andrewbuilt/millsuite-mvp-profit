@@ -5,15 +5,20 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { hasAccess } from '@/lib/feature-flags'
 
 // ── Types ──
+
+type ProjectStatus = 'bidding' | 'active' | 'complete' | 'archived'
+type ProductionPhase = 'pre_production' | 'scheduling' | 'in_production' | null
 
 interface Project {
   id: string
   org_id: string | null
   name: string
   client_name: string | null
-  status: 'bidding' | 'active' | 'complete' | 'archived'
+  status: ProjectStatus
+  production_phase: ProductionPhase
   bid_total: number
   actual_total: number
   sold_at: string | null
@@ -34,13 +39,38 @@ interface TimeEntry {
   duration_minutes: number
 }
 
-type ColumnStatus = 'bidding' | 'active' | 'complete' | 'archived'
+// Columns are keyed by a composite id. Starter uses status only.
+// Pro splits 'active' into three phase sub-columns.
+type ColumnKey =
+  | 'bidding'
+  | 'active'
+  | 'active:pre_production'
+  | 'active:scheduling'
+  | 'active:in_production'
+  | 'complete'
+  | 'archived'
 
-const COLUMNS: { status: ColumnStatus; label: string }[] = [
-  { status: 'bidding', label: 'Bidding' },
-  { status: 'active', label: 'Active' },
-  { status: 'complete', label: 'Complete' },
-  { status: 'archived', label: 'Archived' },
+interface ColumnDef {
+  key: ColumnKey
+  label: string
+  status: ProjectStatus
+  phase: ProductionPhase | undefined // undefined = phase-agnostic (Starter), null = explicitly null
+}
+
+const STARTER_COLUMNS: ColumnDef[] = [
+  { key: 'bidding', label: 'Bidding', status: 'bidding', phase: undefined },
+  { key: 'active', label: 'Active', status: 'active', phase: undefined },
+  { key: 'complete', label: 'Complete', status: 'complete', phase: undefined },
+  { key: 'archived', label: 'Archived', status: 'archived', phase: undefined },
+]
+
+const PRO_COLUMNS: ColumnDef[] = [
+  { key: 'bidding', label: 'Bidding', status: 'bidding', phase: undefined },
+  { key: 'active:pre_production', label: 'Pre-Production', status: 'active', phase: 'pre_production' },
+  { key: 'active:scheduling', label: 'Scheduling', status: 'active', phase: 'scheduling' },
+  { key: 'active:in_production', label: 'In Production', status: 'active', phase: 'in_production' },
+  { key: 'complete', label: 'Complete', status: 'complete', phase: undefined },
+  { key: 'archived', label: 'Archived', status: 'archived', phase: undefined },
 ]
 
 // ── Helpers ──
@@ -62,6 +92,10 @@ function profitPct(project: Project): number | null {
 export default function ProjectsPage() {
   const router = useRouter()
   const { org } = useAuth()
+  const plan = org?.plan || 'starter'
+  const hasPreProd = hasAccess(plan, 'pre-production')
+  const COLUMNS: ColumnDef[] = hasPreProd ? PRO_COLUMNS : STARTER_COLUMNS
+
   const [projects, setProjects] = useState<Project[]>([])
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
@@ -71,7 +105,7 @@ export default function ProjectsPage() {
   const [newClient, setNewClient] = useState('')
   const [creating, setCreating] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
-  const [dragOver, setDragOver] = useState<ColumnStatus | null>(null)
+  const [dragOver, setDragOver] = useState<ColumnKey | null>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
 
   // ── Load Projects ──
@@ -86,7 +120,7 @@ export default function ProjectsPage() {
     const [projectsRes, subprojectsRes, timeEntriesRes] = await Promise.all([
       supabase
         .from('projects')
-        .select('id, org_id, name, client_name, status, bid_total, actual_total, sold_at, completed_at')
+        .select('id, org_id, name, client_name, status, production_phase, bid_total, actual_total, sold_at, completed_at')
         .eq('org_id', org.id)
         .order('created_at', { ascending: false }),
       supabase
@@ -116,6 +150,7 @@ export default function ProjectsPage() {
         name: newName.trim(),
         client_name: newClient.trim() || null,
         status: 'bidding',
+        production_phase: null,
         bid_total: 0,
         actual_total: 0,
       })
@@ -141,30 +176,54 @@ export default function ProjectsPage() {
     e.dataTransfer.setData('text/plain', projectId)
   }
 
-  function handleDragOver(e: React.DragEvent, status: ColumnStatus) {
+  function handleDragOver(e: React.DragEvent, key: ColumnKey) {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
-    setDragOver(status)
+    setDragOver(key)
   }
 
   function handleDragLeave() {
     setDragOver(null)
   }
 
-  async function handleDrop(e: React.DragEvent, targetStatus: ColumnStatus) {
+  async function handleDrop(e: React.DragEvent, targetCol: ColumnDef) {
     e.preventDefault()
     setDragOver(null)
     const projectId = e.dataTransfer.getData('text/plain')
     if (!projectId) return
 
     const project = projects.find(p => p.id === projectId)
-    if (!project || project.status === targetStatus) {
+    if (!project) {
+      setDragId(null)
+      return
+    }
+
+    const targetStatus = targetCol.status
+    // Resolve target phase: Pro columns carry explicit phase; Starter columns use undefined.
+    // - Dropping onto Starter 'active' keeps whatever phase project already had (or null).
+    // - Dropping onto Pro 'active:*' sets explicit phase.
+    // - Dropping onto non-active columns always clears phase to null.
+    let targetPhase: ProductionPhase
+    if (targetStatus !== 'active') {
+      targetPhase = null
+    } else if (targetCol.phase !== undefined) {
+      targetPhase = targetCol.phase
+    } else {
+      // Starter 'active' column — preserve existing phase, or default to null
+      targetPhase = project.production_phase ?? null
+    }
+
+    // No-op if status + phase are already aligned
+    if (project.status === targetStatus && project.production_phase === targetPhase) {
       setDragId(null)
       return
     }
 
     // Build the update payload
-    const updates: Partial<Project> & { status: string } = { status: targetStatus }
+    const updates: Partial<Project> & { status: string } = {
+      status: targetStatus,
+      production_phase: targetPhase,
+    }
 
     // Set sold_at when moving to active (from bidding)
     if (targetStatus === 'active' && project.status === 'bidding') {
@@ -204,8 +263,14 @@ export default function ProjectsPage() {
 
   // ── Grouped projects ──
 
-  function projectsByStatus(status: ColumnStatus): Project[] {
-    return projects.filter(p => p.status === status)
+  function projectsForColumn(col: ColumnDef): Project[] {
+    return projects.filter(p => {
+      if (p.status !== col.status) return false
+      if (col.phase === undefined) return true
+      // Pro active sub-columns: treat null phase as pre_production (legacy pre-conversion projects)
+      const effective: ProductionPhase = p.production_phase ?? 'pre_production'
+      return effective === col.phase
+    })
   }
 
   const isEmpty = !loading && projects.length === 0 && !showForm
@@ -322,13 +387,16 @@ export default function ProjectsPage() {
 
         {/* Kanban Board */}
         {!loading && projects.length > 0 && (
-          <div className="grid grid-cols-4 gap-4">
+          <div
+            className="grid gap-4"
+            style={{ gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0, 1fr))` }}
+          >
             {COLUMNS.map(col => {
-              const colProjects = projectsByStatus(col.status)
-              const isOver = dragOver === col.status
+              const colProjects = projectsForColumn(col)
+              const isOver = dragOver === col.key
 
               return (
-                <div key={col.status}>
+                <div key={col.key}>
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">
                       {col.label}
@@ -338,9 +406,9 @@ export default function ProjectsPage() {
                     </span>
                   </div>
                   <div
-                    onDragOver={e => handleDragOver(e, col.status)}
+                    onDragOver={e => handleDragOver(e, col.key)}
                     onDragLeave={handleDragLeave}
-                    onDrop={e => handleDrop(e, col.status)}
+                    onDrop={e => handleDrop(e, col)}
                     className={`rounded-xl p-2 min-h-[400px] transition-colors ${
                       isOver
                         ? 'bg-[#EFF6FF] border-2 border-dashed border-[#2563EB]'
@@ -356,7 +424,7 @@ export default function ProjectsPage() {
                       {colProjects.map(project => {
                         const pct = profitPct(project)
                         const isDragging = dragId === project.id
-                        const isArchived = col.status === 'archived'
+                        const isArchived = project.status === 'archived'
 
                         return (
                           <div

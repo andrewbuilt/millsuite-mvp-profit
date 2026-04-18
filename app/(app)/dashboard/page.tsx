@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeProjectPL } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
-import { DollarSign, FolderKanban, FileText, TrendingUp, Plus, Clock, Settings, AlertTriangle, CheckCircle2, Receipt, ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
+import { hasAccess } from '@/lib/feature-flags'
+import { DollarSign, FolderKanban, FileText, TrendingUp, Plus, Clock, Settings, AlertTriangle, CheckCircle2, Receipt, ChevronDown, ChevronUp, Sparkles, X, Target } from 'lucide-react'
 import InvoiceParser from '@/components/invoice-parser'
 
 // ── Types ──
@@ -58,6 +60,8 @@ function fmtMoney(n: number): string {
 
 export default function DashboardPage() {
   const { org } = useAuth()
+  const searchParams = useSearchParams()
+  const isWelcome = searchParams?.get('welcome') === 'true'
   const [projects, setProjects] = useState<Project[]>([])
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
@@ -67,6 +71,7 @@ export default function DashboardPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [report, setReport] = useState('')
   const [reportLoading, setReportLoading] = useState(false)
+  const [welcomeDismissed, setWelcomeDismissed] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -187,6 +192,97 @@ export default function DashboardPage() {
       <Nav />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-4 sm:mb-6">Dashboard</h1>
+
+        {/* ── Onboarding checklist (post-signup) ── */}
+        {(() => {
+          if (!isWelcome || welcomeDismissed) return null
+          const hasShopRate = !!org?.shop_rate && org.shop_rate !== 75
+          const hasProject = projects.length > 0
+          const hasTime = timeEntries.length > 0
+          const leadsUnlocked = hasAccess(org?.plan, 'leads')
+          const steps = [
+            {
+              done: hasShopRate,
+              label: 'Set your shop rate',
+              hint: 'Every hour logged becomes a dollar figure. Start with an honest estimate — you can tune it later.',
+              cta: 'Open settings',
+              href: '/settings',
+            },
+            {
+              done: hasProject,
+              label: leadsUnlocked ? 'Create your first lead or project' : 'Create your first project',
+              hint: leadsUnlocked
+                ? 'Leads sit in the bidding pipeline. Drag to "Sold" and they convert into projects automatically.'
+                : 'A project tracks bid vs. actual so you can see profit the day it changes — not months later.',
+              cta: leadsUnlocked ? 'Go to leads' : 'Go to projects',
+              href: leadsUnlocked ? '/leads' : '/projects',
+            },
+            {
+              done: hasTime,
+              label: 'Log time on a subproject',
+              hint: "The moment you log time, profit tracking turns on. Bar charts go green, yellow, or red based on where the hours actually land.",
+              cta: 'Track time',
+              href: '/time',
+            },
+          ]
+          const completed = steps.filter(s => s.done).length
+          if (completed === steps.length) return null
+          return (
+            <div className="relative bg-gradient-to-br from-[#EFF6FF] to-[#DBEAFE] border border-[#BFDBFE] rounded-2xl p-5 sm:p-6 mb-6">
+              <button
+                onClick={() => setWelcomeDismissed(true)}
+                className="absolute top-3 right-3 p-1.5 rounded-lg text-[#6B7280] hover:text-[#111] hover:bg-white/50 transition-colors"
+                aria-label="Dismiss welcome"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="w-4 h-4 text-[#2563EB]" />
+                <span className="text-xs font-semibold text-[#2563EB] uppercase tracking-wider">
+                  Welcome to MillSuite
+                </span>
+              </div>
+              <h2 className="text-lg font-semibold text-[#111] mb-1">
+                Three steps to your first profit read
+              </h2>
+              <p className="text-sm text-[#6B7280] mb-4">
+                {completed} of {steps.length} complete
+              </p>
+              <div className="space-y-2">
+                {steps.map((s, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-start gap-3 p-3 rounded-xl border ${
+                      s.done ? 'bg-white/40 border-transparent' : 'bg-white border-[#E5E7EB]'
+                    }`}
+                  >
+                    {s.done ? (
+                      <CheckCircle2 className="w-5 h-5 text-[#059669] flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full border-2 border-[#CBD5E1] flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-medium ${s.done ? 'text-[#6B7280] line-through' : 'text-[#111]'}`}>
+                        {s.label}
+                      </div>
+                      {!s.done && (
+                        <p className="text-xs text-[#6B7280] mt-0.5 leading-relaxed">{s.hint}</p>
+                      )}
+                    </div>
+                    {!s.done && (
+                      <Link
+                        href={s.href}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#2563EB] text-white text-xs font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors whitespace-nowrap"
+                      >
+                        {s.cta}
+                      </Link>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* ── TOP ROW: Key Metrics ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
