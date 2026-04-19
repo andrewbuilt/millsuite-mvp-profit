@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifyPortalToken } from '@/lib/portal'
-import { checkAndAdvanceProductionPhase } from '@/lib/leads'
+import { checkAndAdvanceProductionPhase } from '@/lib/phase'
 
 export const dynamic = 'force-dynamic'
 

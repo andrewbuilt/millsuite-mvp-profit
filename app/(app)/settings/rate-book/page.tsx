@@ -307,13 +307,22 @@ function RateBookInner() {
               Your pricing library — categories, labor rates, and material costs
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-[#6B7280]">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>
-              {categories.length} {categories.length === 1 ? 'category' : 'categories'}
-              {' · '}
-              {laborRates.length + materials.length} rates visible
-            </span>
+          <div className="flex items-center gap-3">
+            <a
+              href="/settings/rate-book/items"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#2563EB] hover:bg-[#EFF6FF] border border-[#DBEAFE] transition-colors"
+              title="Manage the first-class items that the subproject editor picks from"
+            >
+              Items →
+            </a>
+            <div className="flex items-center gap-2 text-xs text-[#6B7280]">
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>
+                {categories.length} {categories.length === 1 ? 'category' : 'categories'}
+                {' · '}
+                {laborRates.length + materials.length} rates visible
+              </span>
+            </div>
           </div>
         </div>
       </div>

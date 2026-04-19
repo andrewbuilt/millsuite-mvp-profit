@@ -4,7 +4,7 @@
 // safe to call after any selection change or time entry creation.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { checkAndAdvanceProductionPhase } from '@/lib/leads'
+import { checkAndAdvanceProductionPhase } from '@/lib/phase'
 
 export const dynamic = 'force-dynamic'
 

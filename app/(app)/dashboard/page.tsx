@@ -220,12 +220,12 @@ function DashboardContent() {
             },
             {
               done: hasProject,
-              label: leadsUnlocked ? 'Create your first lead or project' : 'Create your first project',
+              label: leadsUnlocked ? 'Drop in a bid or start a project' : 'Create your first project',
               hint: leadsUnlocked
-                ? 'Leads sit in the bidding pipeline. Drag to "Sold" and they convert into projects automatically.'
+                ? 'Drop a bid PDF on the sales page and it parses into a new pipeline project. Drag it through the stages — Sold flips it live and profit tracking turns on.'
                 : 'A project tracks bid vs. actual so you can see profit the day it changes — not months later.',
-              cta: leadsUnlocked ? 'Go to leads' : 'Go to projects',
-              href: leadsUnlocked ? '/leads' : '/projects',
+              cta: leadsUnlocked ? 'Open sales' : 'Go to projects',
+              href: leadsUnlocked ? '/sales' : '/projects',
             },
             {
               done: hasTime,
@@ -301,21 +301,21 @@ function DashboardContent() {
               <Target className="w-6 h-6 text-[#2563EB]" />
             </div>
             <h2 className="text-lg font-semibold text-[#111] mb-1">
-              {hasAccess(org?.plan, 'leads') ? 'Start with a lead or a project' : 'Create your first project'}
+              {hasAccess(org?.plan, 'leads') ? 'Drop in a bid or start a project' : 'Create your first project'}
             </h2>
             <p className="text-sm text-[#6B7280] max-w-lg mx-auto mb-5">
               {hasAccess(org?.plan, 'leads')
-                ? 'Leads sit in the bidding pipeline until they convert. Projects are live jobs you can log time against. Either way, the bid-vs-actual loop turns on the moment you track an hour.'
+                ? 'Drop a bid PDF on the sales page and it becomes a pipeline project. Drag through the stages — Sold flips it live, and the bid-vs-actual loop turns on the moment someone logs an hour.'
                 : 'A project tracks bid vs. actual so you can see profit the day it changes — not months later. Set a bid amount, log time, and watch the margin.'}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               {hasAccess(org?.plan, 'leads') ? (
                 <>
                   <Link
-                    href="/leads"
+                    href="/sales"
                     className="inline-flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors"
                   >
-                    <Plus className="w-4 h-4" /> New lead
+                    <Plus className="w-4 h-4" /> New sale
                   </Link>
                   <Link
                     href="/projects"

@@ -7,9 +7,14 @@ import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeSubprojectPrice } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink, ClipboardCheck, Link2, Copy, Check, RefreshCw, Printer, Download } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink, Link2, Copy, Check, RefreshCw, Printer, Download, Pencil, Calculator } from 'lucide-react'
 import { useConfirm } from '@/components/confirm-dialog'
 import { hasAccess } from '@/lib/feature-flags'
+import ApprovalSlots from '@/components/approval-slots'
+import DrawingsTrack from '@/components/drawings-track'
+import GateChip from '@/components/gate-chip'
+import ChangeOrders from '@/components/change-orders'
+import { SubprojectStatus, loadSubprojectStatusMap } from '@/lib/subproject-status'
 import Link from 'next/link'
 
 // ── Types ──
@@ -77,7 +82,7 @@ function fmtHours(minutes: number) {
 export default function ProjectDetailPage() {
   const { id: projectId } = useParams() as { id: string }
   const router = useRouter()
-  const { org } = useAuth()
+  const { org, user } = useAuth()
   const { confirm } = useConfirm()
 
   const [project, setProject] = useState<Project | null>(null)
@@ -86,6 +91,7 @@ export default function ProjectDetailPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [departments, setDepartments] = useState<{ id: string; name: string; color: string }[]>([])
   const [deptAllocations, setDeptAllocations] = useState<{ id: string; subproject_id: string; department_id: string; estimated_hours: number }[]>([])
+  const [subStatusMap, setSubStatusMap] = useState<Record<string, SubprojectStatus>>({})
   const shopRate = org?.shop_rate || 75
   const orgDefaults = {
     consumable_markup_pct: org?.consumable_markup_pct ?? 15,
@@ -130,10 +136,14 @@ export default function ProjectDetailPage() {
 
       if (subs && subs.length > 0) {
         const subIds = subs.map((s: any) => s.id)
-        const { data: allocs } = await supabase.from('department_allocations')
-          .select('id, subproject_id, department_id, estimated_hours')
-          .in('subproject_id', subIds)
+        const [{ data: allocs }, statusMap] = await Promise.all([
+          supabase.from('department_allocations')
+            .select('id, subproject_id, department_id, estimated_hours')
+            .in('subproject_id', subIds),
+          loadSubprojectStatusMap(subIds),
+        ])
         setDeptAllocations(allocs || [])
+        setSubStatusMap(statusMap)
       }
     }
 
@@ -376,6 +386,16 @@ export default function ProjectDetailPage() {
             <Download className="w-4 h-4" />
             Export
           </button>
+          {hasAccess(org?.plan, 'rate-book') && (
+            <Link
+              href={`/projects/${projectId}/rollup`}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+              title="Open the project rollup with QB preview + mark-as-sold"
+            >
+              <Calculator className="w-4 h-4" />
+              Rollup
+            </Link>
+          )}
           <Link
             href={`/projects/${projectId}/estimate`}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors"
@@ -384,15 +404,6 @@ export default function ProjectDetailPage() {
             <Printer className="w-4 h-4" />
             Estimate
           </Link>
-          {hasAccess(org?.plan, 'pre-production') && project.status === 'active' && (
-            <Link
-              href={`/projects/${projectId}/pre-production`}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
-            >
-              <ClipboardCheck className="w-4 h-4" />
-              Pre-Production
-            </Link>
-          )}
           <button
             onClick={async () => {
               const confirmed = await confirm({
@@ -614,6 +625,9 @@ export default function ProjectDetailPage() {
                     <div className="flex items-center gap-3">
                       {isExpanded ? <ChevronUp className="w-4 h-4 text-[#9CA3AF]" /> : <ChevronDown className="w-4 h-4 text-[#9CA3AF]" />}
                       <span className="font-medium text-sm">{sub.name}</span>
+                      {hasAccess(org?.plan, 'pre-production') && project.status === 'active' && subStatusMap[sub.id] && (
+                        <GateChip status={subStatusMap[sub.id]} small />
+                      )}
                     </div>
                     <div className="flex items-center gap-4">
                       <span className="text-sm font-mono tabular-nums font-semibold">{fmtMoney(result.price)}</span>
@@ -628,6 +642,18 @@ export default function ProjectDetailPage() {
                   {/* Expanded Detail */}
                   {isExpanded && (
                     <div className="border-t border-[#F3F4F6] px-5 py-4 space-y-4">
+                      {hasAccess(org?.plan, 'rate-book') && (
+                        <div className="flex justify-end -mt-1 -mb-2">
+                          <Link
+                            href={`/projects/${projectId}/subprojects/${sub.id}`}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors"
+                            title="Open the line-item editor for this subproject"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            Edit lines →
+                          </Link>
+                        </div>
+                      )}
                       {/* Inputs Grid */}
                       <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -852,6 +878,21 @@ export default function ProjectDetailPage() {
                         </div>
                       </div>
 
+                      {/* Pre-production approval slots (Pro tier, sold projects) */}
+                      {hasAccess(org?.plan, 'pre-production') && project.status === 'active' && (
+                        <>
+                          <ApprovalSlots
+                            subprojectId={sub.id}
+                            projectId={projectId}
+                            actorUserId={user?.id}
+                          />
+                          <DrawingsTrack
+                            subprojectId={sub.id}
+                            actorUserId={user?.id}
+                          />
+                        </>
+                      )}
+
                       {/* Actuals (if any) */}
                       {(actuals.hours > 0 || actuals.materialCost > 0) && (
                         <div className="border-t border-[#F3F4F6] pt-3">
@@ -921,6 +962,21 @@ export default function ProjectDetailPage() {
             </button>
           )}
         </div>
+
+        {/* Change Orders (Pro tier, sold projects) */}
+        {hasAccess(org?.plan, 'pre-production') && project.status === 'active' && (
+          <div className="mb-6">
+            <ChangeOrders
+              projectId={projectId}
+              pricing={{
+                shopRate,
+                consumableMarkupPct: orgDefaults.consumable_markup_pct,
+                profitMarginPct: orgDefaults.profit_margin_pct,
+              }}
+              subprojects={subprojects.map((s) => ({ id: s.id, name: s.name }))}
+            />
+          </div>
+        )}
 
         {/* Invoices */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">

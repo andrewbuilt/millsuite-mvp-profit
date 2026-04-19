@@ -16,7 +16,7 @@ interface NavItem {
 
 const ALL_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/leads', label: 'Leads', icon: Target, feature: 'leads' },
+  { href: '/sales', label: 'Sales', icon: Target, feature: 'leads' },
   { href: '/projects', label: 'Projects', icon: FolderKanban },
   { href: '/schedule', label: 'Schedule', icon: Calendar, feature: 'schedule' },
   { href: '/capacity', label: 'Capacity', icon: BarChart3, feature: 'capacity' },

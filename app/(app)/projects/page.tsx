@@ -6,6 +6,8 @@ import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
+import { SubprojectStatus, loadSubprojectStatusMap } from '@/lib/subproject-status'
+import { CheckCircle2, AlertCircle } from 'lucide-react'
 
 // ── Types ──
 
@@ -87,6 +89,24 @@ function profitPct(project: Project): number | null {
   return ((project.bid_total - (project.actual_total || 0)) / project.bid_total) * 100
 }
 
+// Aggregate the scheduling gate across all subprojects on a project.
+interface ProjectGate {
+  totalSubs: number
+  readySubs: number
+  ready: boolean // true when every sub is ready
+}
+
+function aggregateProjectGate(
+  subs: Subproject[],
+  statusMap: Record<string, SubprojectStatus>
+): ProjectGate {
+  let ready = 0
+  for (const s of subs) {
+    if (statusMap[s.id]?.ready_for_scheduling) ready += 1
+  }
+  return { totalSubs: subs.length, readySubs: ready, ready: subs.length > 0 && ready === subs.length }
+}
+
 // ── Main Page ──
 
 export default function ProjectsPage() {
@@ -99,6 +119,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
+  const [subStatusMap, setSubStatusMap] = useState<Record<string, SubprojectStatus>>({})
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [newName, setNewName] = useState('')
@@ -135,6 +156,14 @@ export default function ProjectsPage() {
     setProjects(projectsRes.data || [])
     setSubprojects(subprojectsRes.data || [])
     setTimeEntries(timeEntriesRes.data || [])
+
+    // Load scheduling-gate status for all subprojects (Pro tier only).
+    if (hasPreProd && (subprojectsRes.data || []).length > 0) {
+      const ids = (subprojectsRes.data || []).map((s: Subproject) => s.id)
+      const statusMap = await loadSubprojectStatusMap(ids)
+      setSubStatusMap(statusMap)
+    }
+
     setLoading(false)
   }
 
@@ -217,6 +246,28 @@ export default function ProjectsPage() {
     if (project.status === targetStatus && project.production_phase === targetPhase) {
       setDragId(null)
       return
+    }
+
+    // Phase 3 gate: block advancing to Scheduling or In Production if any
+    // subproject isn't ready_for_scheduling. Pro tier only. Non-blocking
+    // confirm — user can override, but has to acknowledge.
+    if (
+      hasPreProd &&
+      targetStatus === 'active' &&
+      (targetPhase === 'scheduling' || targetPhase === 'in_production') &&
+      !(project.status === 'active' && project.production_phase === 'in_production') // don't re-gate on in_production → in_production (no-op above) or scheduling → in_production
+    ) {
+      const projSubs = subprojects.filter((s) => s.project_id === projectId)
+      const gate = aggregateProjectGate(projSubs, subStatusMap)
+      if (!gate.ready) {
+        const ok = window.confirm(
+          `${project.name} isn't ready for scheduling yet — ${gate.readySubs} of ${gate.totalSubs} subprojects have all approvals + drawings signed off.\n\nMove anyway?`
+        )
+        if (!ok) {
+          setDragId(null)
+          return
+        }
+      }
     }
 
     // Build the update payload
@@ -463,6 +514,27 @@ export default function ProjectsPage() {
                                 {fmtMoney(project.bid_total)}
                               </div>
                             )}
+                            {/* Phase 3 gate summary (Pro, pre_production/scheduling) */}
+                            {hasPreProd && project.status === 'active' && (project.production_phase === 'pre_production' || project.production_phase === 'scheduling') && (() => {
+                              const projSubs = subprojects.filter(s => s.project_id === project.id)
+                              if (projSubs.length === 0) return null
+                              const gate = aggregateProjectGate(projSubs, subStatusMap)
+                              if (gate.totalSubs === 0) return null
+                              const Icon = gate.ready ? CheckCircle2 : AlertCircle
+                              const tone = gate.ready
+                                ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                                : 'text-amber-700 bg-amber-50 border-amber-200'
+                              return (
+                                <div className={`mt-2 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${tone}`}>
+                                  <Icon className="w-2.5 h-2.5" />
+                                  <span>
+                                    {gate.ready
+                                      ? 'Ready for scheduling'
+                                      : `${gate.readySubs} of ${gate.totalSubs} ready`}
+                                  </span>
+                                </div>
+                              )
+                            })()}
                             {/* Subproject mini dashboard for active/complete */}
                             {(project.status === 'active' || project.status === 'complete') && (() => {
                               const projSubs = subprojects.filter(s => s.project_id === project.id)
