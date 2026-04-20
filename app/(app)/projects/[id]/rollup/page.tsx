@@ -1179,13 +1179,13 @@ function MilestoneBuilder({
       {milestones.map((m, i) => (
         <div
           key={m.id}
-          className="grid grid-cols-[1fr_54px_auto_24px] gap-1.5 items-center py-1.5 border-b border-[#F3F4F6] last:border-b-0"
+          className="flex items-center gap-1.5 py-1.5 border-b border-[#F3F4F6] last:border-b-0"
         >
           <input
             value={m.label}
             onChange={(e) => updateOne(i, { label: e.target.value })}
             placeholder="Milestone name"
-            className="text-xs bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-[#111]"
+            className="flex-1 min-w-0 text-xs bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-[#111]"
           />
           <input
             type="number"
@@ -1198,12 +1198,12 @@ function MilestoneBuilder({
                 amount: Math.round((total * (Number(e.target.value) || 0)) / 100),
               })
             }
-            className="text-xs font-mono bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-right text-[#111]"
+            className="w-[54px] flex-shrink-0 text-xs font-mono bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-right text-[#111]"
           />
           <select
             value={m.trigger}
             onChange={(e) => updateOne(i, { trigger: e.target.value as MilestoneTrigger })}
-            className="text-[11px] bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1 py-1 outline-none text-[#6B7280]"
+            className="flex-shrink-0 max-w-[130px] text-[11px] bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1 py-1 outline-none text-[#6B7280] truncate"
           >
             {TRIGGER_ORDER.map((t) => (
               <option key={t} value={t}>{TRIGGER_LABEL[t]}</option>
@@ -1211,7 +1211,7 @@ function MilestoneBuilder({
           </select>
           <button
             onClick={() => remove(i)}
-            className="p-1 text-[#9CA3AF] hover:text-[#DC2626] rounded"
+            className="flex-shrink-0 p-1 text-[#9CA3AF] hover:text-[#DC2626] rounded"
             title="Remove milestone"
           >
             <Trash2 className="w-3.5 h-3.5" />
