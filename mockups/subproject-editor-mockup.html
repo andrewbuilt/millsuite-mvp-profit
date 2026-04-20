@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MillSuite · Subproject Editor (Clickable Mockup)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #0a0a0a; color: #e5e5e5; height: 100vh; overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ========== TOP BAR ========== */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: #0d0d0d; border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+  }
+  .breadcrumb {
+    font-size: 12px; color: #888;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .breadcrumb .sep { color: #444; }
+  .breadcrumb .here { color: #fff; font-weight: 600; }
+  .breadcrumb .diamond { color: #3b82f6; }
+  .client-pill {
+    padding: 3px 10px; background: #141414; border: 1px solid #2a2a2a;
+    border-radius: 10px; font-size: 11px; color: #ccc;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .status-pill {
+    padding: 3px 10px; border-radius: 10px; font-size: 11px;
+    font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+    background: #2a200a; color: #fbbf24; border: 1px solid #4a3a15;
+  }
+  .topbar .btns { display: flex; gap: 8px; }
+  .btn {
+    background: #1e1e1e; border: 1px solid #2a2a2a; color: #ddd;
+    padding: 5px 11px; font-size: 12px; border-radius: 6px;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+  }
+  .btn:hover { background: #252525; border-color: #333; color: #fff; }
+  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover { color: #ccc; background: #1a1a1a; }
+
+  /* ========== PROJECT STRIP ========== */
+  .project-strip {
+    background: #0d0d0d; border-bottom: 1px solid #1a1a1a;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; flex-shrink: 0;
+  }
+  .subtabs { display: flex; gap: 2px; }
+  .subtab {
+    padding: 10px 16px; font-size: 12.5px; color: #999; cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.15s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .subtab:hover { color: #ddd; }
+  .subtab.active { color: #fff; border-bottom-color: #3b82f6; font-weight: 600; }
+  .subtab .count {
+    font-size: 10px; color: #666; font-family: "SF Mono", Menlo, monospace;
+    background: #1a1a1a; padding: 1px 5px; border-radius: 3px;
+  }
+  .subtab.active .count { color: #93c5fd; background: #1a2d4a; }
+  .subtab.add { color: #666; font-weight: 400; }
+  .subtab.add:hover { color: #93c5fd; }
+
+  .project-totals {
+    display: flex; align-items: center; gap: 16px;
+    font-size: 11.5px; color: #888;
+  }
+  .project-totals .metric {
+    font-family: "SF Mono", Menlo, monospace; color: #fff; font-weight: 600;
+  }
+  .project-totals .sep { color: #333; }
+  .margin-ok { color: #4ade80; }
+  .margin-warn { color: #fbbf24; }
+  .margin-bad { color: #f87171; }
+
+  /* ========== MAIN LAYOUT ========== */
+  .main {
+    flex: 1; display: flex; overflow: hidden;
+  }
+  .center {
+    flex: 1; overflow-y: auto; padding: 20px 24px 20px;
+    min-width: 0;
+  }
+  .right-panel {
+    width: 320px; background: #0d0d0d; border-left: 1px solid #1a1a1a;
+    flex-shrink: 0; overflow-y: auto; padding: 20px;
+  }
+
+  /* ========== SUBPROJECT HEADER ========== */
+  .sp-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .sp-header h2 {
+    font-size: 18px; color: #fff; font-weight: 600; letter-spacing: -0.2px;
+  }
+  .sp-header .sp-sub {
+    font-size: 11.5px; color: #888; margin-top: 4px;
+  }
+  .sp-header .sp-actions { display: flex; gap: 6px; }
+
+  /* ========== LINE TABLE ========== */
+  .line-table {
+    width: 100%; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 8px; overflow: hidden; margin-bottom: 16px;
+  }
+  .line-table .row {
+    display: grid;
+    grid-template-columns: 28px 1fr 80px 1fr 80px 90px 100px 30px;
+    gap: 0; align-items: center;
+    padding: 0 12px; min-height: 44px;
+    border-bottom: 1px solid #141414;
+    cursor: pointer; transition: background 0.1s;
+  }
+  .line-table .row:last-child { border-bottom: none; }
+  .line-table .row:hover { background: #111; }
+  .line-table .row.selected { background: #0f1a2a; }
+  .line-table .row.just-added {
+    background: #0f2a17;
+    box-shadow: inset 3px 0 0 #4ade80;
+    animation: flashIn 0.5s ease-out;
+  }
+  @keyframes flashIn {
+    0% { background: #1e4a2c; }
+    100% { background: #0f2a17; }
+  }
+  .new-badge {
+    font-size: 9px; color: #4ade80;
+    background: #14532d; padding: 1px 6px; border-radius: 3px;
+    letter-spacing: 0.6px; font-weight: 700; text-transform: uppercase;
+    margin-left: 8px; display: inline-block;
+  }
+  .line-table .row.header {
+    background: #0a0a0a; cursor: default; min-height: 32px;
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 0.8px; font-weight: 600;
+  }
+  .line-table .row.header:hover { background: #0a0a0a; }
+  .line-table .row .cell { padding: 8px 4px; font-size: 12.5px; color: #ddd; }
+  .line-table .row .cell.num {
+    font-family: "SF Mono", Menlo, monospace; text-align: right; color: #ccc;
+  }
+  .line-table .row .cell.item { color: #fff; font-weight: 500; }
+  .line-table .row .drag {
+    color: #333; font-size: 14px; cursor: grab;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .line-table .row:hover .drag { color: #666; }
+  .line-table .row .chip-cell {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    padding: 6px 4px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 10px; font-size: 10.5px;
+    background: #1a2d4a; color: #93c5fd; border: 1px solid #1e3a5f;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .chip:hover { background: #1e3a5f; color: #dbeafe; }
+  .chip .x { color: #6b8cc4; margin-left: 2px; font-weight: bold; }
+  .chip.add {
+    color: #666; background: transparent; border-color: #2a2a2a;
+    border-style: dashed;
+  }
+  .chip.add:hover { color: #93c5fd; border-color: #3b82f6; background: #0c1a2e; }
+
+  .line-table .actions-cell {
+    display: flex; gap: 4px; justify-content: flex-end;
+    color: #666; font-size: 14px;
+  }
+  .line-table .actions-cell span {
+    cursor: pointer; padding: 2px 6px; border-radius: 3px;
+  }
+  .line-table .actions-cell span:hover { color: #fff; background: #1e1e1e; }
+
+  /* ========== ADD LINE INPUT ========== */
+  .add-line {
+    position: relative;
+    margin-bottom: 12px;
+  }
+  .add-line-input-wrap {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; background: #0d0d0d; border: 1px dashed #2a2a2a;
+    border-radius: 8px; transition: all 0.15s;
+  }
+  .add-line-input-wrap:focus-within {
+    border-color: #3b82f6; border-style: solid; background: #0c1a2e;
+  }
+  .add-line-input-wrap .plus { color: #666; font-size: 14px; font-weight: 700; }
+  .add-line-input-wrap:focus-within .plus { color: #3b82f6; }
+  .add-line-input-wrap input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: #fff; font-size: 13.5px; font-family: inherit;
+  }
+  .add-line-input-wrap input::placeholder { color: #555; }
+  .add-line-input-wrap .kbd {
+    font-size: 10px; color: #666; padding: 2px 6px;
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .add-line-input-wrap .qty-prompt {
+    color: #93c5fd; font-size: 12px; font-weight: 500;
+  }
+
+  .autocomplete {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: #111; border: 1px solid #2a2a2a; border-radius: 8px;
+    margin-top: 4px; max-height: 320px; overflow-y: auto;
+    z-index: 10; display: none;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .autocomplete.open { display: block; }
+  .ac-group-head {
+    padding: 8px 14px 4px; font-size: 10px; color: #666;
+    text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600;
+    background: #0d0d0d;
+  }
+  .ac-item {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 12px; align-items: center; padding: 9px 14px;
+    cursor: pointer; border-bottom: 1px solid #141414;
+    font-size: 12.5px;
+  }
+  .ac-item:last-child { border-bottom: none; }
+  .ac-item:hover, .ac-item.highlight { background: #0f1a2a; }
+  .ac-item .name { color: #fff; font-weight: 500; }
+  .ac-item .hint { color: #777; font-size: 11px; }
+  .ac-item .rate {
+    font-family: "SF Mono", Menlo, monospace; color: #93c5fd;
+    font-size: 11.5px;
+  }
+
+  /* ========== RIGHT PANEL ========== */
+  .rp-title {
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 10px;
+  }
+  .rp-sel {
+    padding: 12px 14px; background: #111; border: 1px solid #1e3a5f;
+    border-radius: 8px; margin-bottom: 20px;
+  }
+  .rp-sel .sel-item {
+    font-size: 14px; color: #fff; font-weight: 600; margin-bottom: 2px;
+  }
+  .rp-sel .sel-qty {
+    font-size: 12px; color: #93c5fd; font-family: "SF Mono", Menlo, monospace;
+  }
+  .rp-section {
+    margin-bottom: 22px;
+  }
+  .rp-section h4 {
+    font-size: 11px; color: #999; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin-bottom: 10px;
+  }
+  .rp-option {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 10px; border-radius: 6px; cursor: pointer;
+    transition: background 0.1s;
+    margin-bottom: 2px;
+  }
+  .rp-option:hover { background: #141414; }
+  .rp-option .cb {
+    width: 16px; height: 16px; border: 1px solid #2a2a2a;
+    border-radius: 3px; flex-shrink: 0; margin-top: 1px;
+    background: #0d0d0d; position: relative;
+  }
+  .rp-option.on .cb { background: #3b82f6; border-color: #3b82f6; }
+  .rp-option.on .cb::after {
+    content: '✓'; color: white; font-size: 11px; font-weight: bold;
+    position: absolute; top: -3px; left: 2px;
+  }
+  .rp-option .opt-body { flex: 1; }
+  .rp-option .opt-name {
+    font-size: 12.5px; color: #ddd; font-weight: 500;
+  }
+  .rp-option .opt-effect {
+    font-size: 11px; color: #666; font-family: "SF Mono", Menlo, monospace;
+    margin-top: 2px;
+  }
+  .rp-option.on .opt-name { color: #fff; }
+  .rp-option.on .opt-effect { color: #93c5fd; }
+
+  .rp-empty {
+    padding: 32px 16px; text-align: center; color: #555;
+    font-size: 12.5px; font-style: italic; line-height: 1.5;
+  }
+
+  .rp-buildup {
+    background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .rp-buildup .bu-row {
+    display: flex; justify-content: space-between;
+    padding: 4px 0; font-size: 12px; color: #aaa;
+    border-bottom: 1px solid #141414;
+  }
+  .rp-buildup .bu-row:last-child { border-bottom: none; }
+  .rp-buildup .bu-row.total {
+    border-top: 1px solid #2a2a2a; border-bottom: none;
+    margin-top: 4px; padding-top: 8px;
+    color: #fff; font-weight: 600;
+  }
+  .rp-buildup .bu-row .v {
+    font-family: "SF Mono", Menlo, monospace; color: #ddd;
+  }
+
+  /* ========== BOTTOM MATH PANEL ========== */
+  .bottom {
+    background: #0d0d0d; border-top: 1px solid #1a1a1a;
+    padding: 12px 24px; flex-shrink: 0;
+  }
+  .bottom-grid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1fr 1fr 1.2fr;
+    gap: 20px; align-items: stretch;
+  }
+  .bottom-cell {
+    padding: 2px 0;
+  }
+  .bottom-cell + .bottom-cell {
+    border-left: 1px solid #1a1a1a; padding-left: 20px;
+  }
+  .bottom-cell .label {
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 0.8px; font-weight: 600; margin-bottom: 6px;
+  }
+  .bottom-cell .primary {
+    font-size: 17px; color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace; letter-spacing: -0.3px;
+  }
+  .bottom-cell .secondary {
+    font-size: 11.5px; color: #888; margin-top: 4px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .bottom-cell.total .primary { color: #fff; font-size: 19px; }
+  .bottom-cell .margin-line {
+    font-size: 11.5px; margin-top: 4px; font-weight: 600;
+  }
+  .dept-toggle {
+    margin-top: 14px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: #666; cursor: pointer;
+  }
+  .dept-toggle:hover { color: #ccc; }
+  .dept-toggle .caret { font-size: 9px; transition: transform 0.2s; }
+  .dept-toggle.open .caret { transform: rotate(90deg); }
+  .dept-row {
+    display: none; margin-top: 10px;
+    padding-top: 12px; border-top: 1px solid #1a1a1a;
+    gap: 20px; align-items: center; flex-wrap: wrap;
+    font-size: 12px; color: #999;
+  }
+  .dept-row.open { display: flex; }
+  .dept-row .dept {
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .dept-row .dept .d-name { color: #888; font-size: 11px; }
+  .dept-row .dept .d-hr {
+    font-family: "SF Mono", Menlo, monospace; color: #fff; font-weight: 600;
+  }
+  .dept-row .dept .d-$ {
+    font-family: "SF Mono", Menlo, monospace; color: #666; font-size: 10.5px;
+  }
+
+  /* ========== MODAL ========== */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    display: none; align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: #111; border: 1px solid #2a2a2a; border-radius: 12px;
+    width: 90%; max-width: 680px; max-height: 80vh; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .modal-head {
+    padding: 18px 20px; border-bottom: 1px solid #1a1a1a;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-head h3 { font-size: 16px; color: #fff; font-weight: 600; }
+  .modal-close { cursor: pointer; color: #666; font-size: 18px; }
+  .modal-close:hover { color: #fff; }
+  .modal-body { padding: 18px 20px; overflow-y: auto; }
+  .past-card {
+    padding: 14px; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 8px; cursor: pointer; margin-bottom: 10px;
+    transition: all 0.15s;
+  }
+  .past-card:hover { border-color: #3b82f6; background: #0f1a2a; }
+  .past-card .pc-title {
+    font-size: 13.5px; color: #fff; font-weight: 600; margin-bottom: 4px;
+  }
+  .past-card .pc-meta {
+    font-size: 11.5px; color: #888;
+  }
+  .past-card .pc-stats {
+    margin-top: 8px; display: flex; gap: 14px;
+    font-size: 11px; font-family: "SF Mono", Menlo, monospace; color: #93c5fd;
+  }
+
+  /* ========== TOAST ========== */
+  .toast {
+    position: fixed; bottom: 120px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    max-width: 520px; z-index: 100; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  .hint-strip {
+    padding: 8px 14px; background: #0c1a2e; border: 1px solid #1e3a5f;
+    border-radius: 6px; font-size: 11.5px; color: #93c5fd;
+    margin-bottom: 16px; display: flex; gap: 14px; align-items: center;
+    flex-wrap: wrap;
+  }
+  .hint-strip .k {
+    font-family: "SF Mono", Menlo, monospace; font-size: 10px;
+    padding: 1px 5px; background: #1e3a5f; color: #dbeafe;
+    border-radius: 3px;
+  }
+
+  .clone-banner {
+    padding: 10px 14px; background: #0f2a17; border: 1px solid #1e4a2c;
+    border-radius: 8px; margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12.5px; color: #86efac;
+  }
+  .clone-banner .left { display: flex; align-items: center; gap: 10px; }
+  .clone-banner .dot { color: #4ade80; font-size: 14px; }
+
+  /* Editable dept hours inputs in right panel */
+  .bu-row.editable { cursor: text; }
+  .bu-row input.hr-edit {
+    width: 64px; background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 4px; color: #fff; text-align: right;
+    padding: 2px 6px; font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+  }
+  .bu-row input.hr-edit:focus {
+    outline: none; border-color: #3b82f6; background: #141820;
+  }
+  .bu-row .override-badge {
+    font-size: 9px; color: #fbbf24; background: #2a200a;
+    padding: 1px 5px; border-radius: 3px; margin-left: 6px;
+    letter-spacing: 0.5px; font-weight: 700; text-transform: uppercase;
+    border: 1px solid #4a3a15;
+  }
+  .reset-link {
+    font-size: 11px; color: #888; cursor: pointer; margin-left: 6px;
+  }
+  .reset-link:hover { color: #ddd; text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span class="diamond">◆</span>
+      <span>Built OS</span>
+      <span class="sep">›</span>
+      <span>Projects</span>
+      <span class="sep">›</span>
+      <span class="here">Henderson kitchen remodel</span>
+      <span style="margin-left:14px" class="client-pill">👤 Henderson family</span>
+      <span style="margin-left:4px" class="status-pill">Draft</span>
+    </div>
+    <div class="btns">
+      <button class="btn" onclick="toast('Upload drawings — drag PDF or browse. System extracts LF and counts.')">📐 Drawings</button>
+      <button class="btn" onclick="toast('Generates client-facing PDF proposal with scope, exclusions, price, deposit terms.')">📤 Send to client</button>
+      <button class="btn btn-primary" onclick="toast('Saved. Draft locked for this session.')">Save</button>
+    </div>
+  </div>
+
+  <!-- PROJECT STRIP -->
+  <div class="project-strip">
+    <div class="subtabs" id="subtabs"></div>
+    <div class="project-totals">
+      <span>PROJECT</span>
+      <span class="metric" id="proj-hours">187 hr</span>
+      <span class="sep">·</span>
+      <span class="metric" id="proj-total">$48,320</span>
+      <span class="sep">·</span>
+      <span class="metric margin-ok" id="proj-margin">34% margin</span>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="center">
+      <div class="sp-header">
+        <div>
+          <h2 id="sp-name">Kitchen</h2>
+          <div class="sp-sub" id="sp-sub">22 LF base · 18 LF upper · engineering included</div>
+        </div>
+        <div class="sp-actions">
+          <button class="btn" onclick="openClone()">⎘ Clone from past…</button>
+          <button class="btn" onclick="toast('Subproject settings — name, default options, exclusions.')">⚙</button>
+          <button class="btn btn-ghost" onclick="toast('Duplicates this entire subproject within the project.')">Duplicate</button>
+        </div>
+      </div>
+
+      <div class="hint-strip">
+        <span>⌨ Shortcuts</span>
+        <span><span class="k">/</span> add item</span>
+        <span><span class="k">↑↓</span> navigate</span>
+        <span><span class="k">⏎</span> commit</span>
+        <span><span class="k">⌫</span> delete line</span>
+        <span><span class="k">⌘D</span> duplicate line</span>
+      </div>
+
+      <div id="cloneBanner"></div>
+      <div class="line-table" id="lines"></div>
+
+      <div class="add-line">
+        <div class="add-line-input-wrap" id="addWrap">
+          <span class="plus">+</span>
+          <input type="text" id="addInput" placeholder="Add item — type to search (std base, shaker door, pantry…)" oninput="acHandle(this.value)" onkeydown="acKey(event)" onfocus="acHandle(this.value)" />
+          <span class="kbd" id="addHint">type to search</span>
+        </div>
+        <div class="autocomplete" id="autocomplete"></div>
+      </div>
+    </div>
+
+    <div class="right-panel" id="rightPanel"></div>
+  </div>
+
+  <!-- BOTTOM MATH -->
+  <div class="bottom">
+    <div class="bottom-grid" id="bottomGrid"></div>
+    <div class="dept-toggle" id="deptToggle" onclick="toggleDept()">
+      <span class="caret">▸</span>
+      <span>Labor by department</span>
+    </div>
+    <div class="dept-row" id="deptRow"></div>
+  </div>
+</div>
+
+<!-- CLONE MODAL -->
+<div class="modal-bg" id="cloneModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Clone from a past subproject</h3>
+      <span class="modal-close" onclick="closeClone()">✕</span>
+    </div>
+    <div class="modal-body" id="cloneBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ================== DATA ==================
+const SHOP_RATE = 85;
+const DEPT_RATES = { Engineering: 95, CNC: 85, Assembly: 85, Finish: 90, Install: 80 };
+
+// Starter library (for autocomplete)
+const LIBRARY = [
+  { id:'std-base',    name:'Standard base carcass', group:'Carcasses', unit:'LF',  rate:120 },
+  { id:'sink-base',   name:'Sink base',             group:'Carcasses', unit:'each', rate:180 },
+  { id:'corner-base', name:'Blind corner base',     group:'Carcasses', unit:'each', rate:290 },
+  { id:'std-upper',   name:'Standard upper',        group:'Carcasses', unit:'LF',  rate:95 },
+  { id:'pantry',      name:'Pantry tower',          group:'Carcasses', unit:'LF',  rate:230 },
+  { id:'oven-tower',  name:'Oven tower',            group:'Carcasses', unit:'LF',  rate:260 },
+  { id:'shaker-door', name:'Shaker door',           group:'Doors',     unit:'LF',   rate:180 },
+  { id:'slab-door',   name:'Slab door',             group:'Doors',     unit:'LF',   rate:145 },
+  { id:'glass-door',  name:'Glass insert door',     group:'Doors',     unit:'LF',   rate:290 },
+  { id:'std-drawer',  name:'Standard drawer',       group:'Drawers',   unit:'each', rate:110 },
+  { id:'deep-drawer', name:'Deep drawer',           group:'Drawers',   unit:'each', rate:135 },
+  { id:'spice-drawer',name:'Spice drawer',          group:'Drawers',   unit:'each', rate:95 },
+  { id:'end-panel',   name:'End panel',             group:'Panels',    unit:'each', rate:95 },
+  { id:'fridge-panel',name:'Fridge panel',          group:'Panels',    unit:'each', rate:180 },
+  { id:'toe-kick',    name:'Toe kick',              group:'Panels',    unit:'LF',  rate:14 },
+  { id:'filler',      name:'Filler',                group:'Panels',    unit:'each', rate:28 },
+  { id:'led-strip',   name:'LED strip lighting',    group:'Lighting',  unit:'LF',  rate:22 },
+  { id:'puck',        name:'Puck light',            group:'Lighting',  unit:'each', rate:38 },
+  { id:'tipon',       name:'TIP-ON mechanism',      group:'Specialty hardware', unit:'each', rate:45 },
+  { id:'door-lift',   name:'Door lift system',      group:'Specialty hardware', unit:'each', rate:180 },
+  { id:'pullout-trash',name:'Pullout trash',        group:'Specialty hardware', unit:'each', rate:220 },
+  { id:'crown',       name:'Crown molding',         group:'Trim',      unit:'LF',  rate:18 },
+  { id:'base-trim',   name:'Base trim',             group:'Trim',      unit:'LF',  rate:12 },
+  { id:'shoe',        name:'Shoe molding',          group:'Trim',      unit:'LF',  rate:8 },
+  { id:'shop-drawings',name:'Shop drawings',        group:'Engineering',unit:'each',rate:450 },
+  { id:'cnc-prep',    name:'CNC prep',              group:'Engineering',unit:'each',rate:220 }
+];
+
+// Options applicable per item (stackable modifiers)
+const OPTIONS = {
+  'shaker-door': [
+    { id:'paint',     name:'Paint grade',       effect:'+0.08 hr finish',     applied:true },
+    { id:'stain',     name:'Stain grade',       effect:'+0.14 hr finish, +$2 mat' },
+    { id:'oversized', name:'Oversized (>36")',  effect:'+0.05 hr assembly, +$6 mat' },
+    { id:'arched',    name:'Arched top',        effect:'+0.12 hr finish, +$8 mat' }
+  ],
+  'slab-door': [
+    { id:'paint',     name:'Paint grade',       effect:'+0.05 hr finish',     applied:true },
+    { id:'stain',     name:'Stain grade',       effect:'+0.10 hr finish' },
+    { id:'oversized', name:'Oversized',         effect:'+0.04 hr assembly' }
+  ],
+  'std-base': [
+    { id:'inset',     name:'Inset face frame',  effect:'+0.5 hr assembly, +$8 mat' },
+    { id:'full-access',name:'Full-access (no FF)', effect:'−0.2 hr assembly' }
+  ],
+  'std-upper': [
+    { id:'inset',     name:'Inset face frame',  effect:'+0.4 hr assembly' },
+    { id:'tall',      name:'42" tall',          effect:'+0.3 hr assembly, +$15 mat' }
+  ],
+  'pantry': [
+    { id:'pullouts',  name:'Pullout shelves',   effect:'+1.2 hr assembly per pullout' },
+    { id:'inset',     name:'Inset face frame',  effect:'+2.0 hr assembly' }
+  ],
+  'std-drawer': [
+    { id:'soft-close',name:'Soft-close slides', effect:'included', applied:true, locked:true },
+    { id:'wood-box',  name:'Wood drawer box',   effect:'+$35 mat' }
+  ]
+};
+
+// The project — subprojects with line items
+const project = {
+  name: 'Henderson kitchen remodel',
+  client: 'Henderson family',
+  subprojects: [
+    {
+      id: 'sp-kitchen', name: 'Kitchen', sub: '22 LF base · 18 LF upper · engineering included',
+      lines: [
+        { id:'l1', itemId:'std-base',    qty:18, options:['full-access'] },
+        { id:'l2', itemId:'sink-base',   qty:1,  options:[] },
+        { id:'l3', itemId:'corner-base', qty:1,  options:[] },
+        { id:'l4', itemId:'std-upper',   qty:18, options:[] },
+        { id:'l5', itemId:'shaker-door', qty:18, options:['paint'] },
+        { id:'l6', itemId:'std-drawer',  qty:8,  options:['soft-close'] },
+        { id:'l7', itemId:'deep-drawer', qty:4,  options:[] },
+        { id:'l8', itemId:'end-panel',   qty:2,  options:[] },
+        { id:'l9', itemId:'fridge-panel',qty:1,  options:[] },
+        { id:'l10',itemId:'toe-kick',    qty:22, options:[] },
+        { id:'l11',itemId:'led-strip',   qty:18, options:[] },
+        { id:'l12',itemId:'tipon',       qty:12, options:[] },
+        { id:'l13',itemId:'pullout-trash',qty:1, options:[] },
+        { id:'l14',itemId:'crown',       qty:22, options:[] },
+        { id:'l15',itemId:'base-trim',   qty:22, options:[] },
+        { id:'l16',itemId:'shop-drawings',qty:1, options:[] }
+      ]
+    },
+    {
+      id: 'sp-butler', name: "Butler's pantry", sub: '8 LF base · 8 LF upper',
+      lines: [
+        { id:'b1', itemId:'std-base',   qty:8, options:[] },
+        { id:'b2', itemId:'std-upper',  qty:8, options:[] },
+        { id:'b3', itemId:'shaker-door',qty:8, options:['paint'] },
+        { id:'b4', itemId:'std-drawer', qty:4, options:['soft-close'] },
+        { id:'b5', itemId:'toe-kick',   qty:8, options:[] },
+        { id:'b6', itemId:'shop-drawings',qty:1,options:[] }
+      ]
+    },
+    {
+      id: 'sp-mud', name: 'Mudroom', sub: '10 LF built-in',
+      lines: [
+        { id:'m1', itemId:'std-base',   qty:10, options:['inset'] },
+        { id:'m2', itemId:'shaker-door',qty:6, options:['paint'] },
+        { id:'m3', itemId:'std-drawer', qty:6, options:['soft-close'] },
+        { id:'m4', itemId:'shop-drawings',qty:1,options:[] }
+      ]
+    },
+    {
+      id: 'sp-install', name: 'Install', sub: 'Priced per project, not per subproject',
+      lines: [
+        { id:'i1', itemId:'install-day',qty:3, options:[], custom:{name:'Install day', rate:720, unit:'day', hoursDept:'Install', hoursPer:9} },
+        { id:'i2', itemId:'2nd-floor',  qty:1, options:[], custom:{name:'2nd floor premium', rate:380, unit:'flat', hoursDept:'Install', hoursPer:3.5} }
+      ]
+    }
+  ]
+};
+
+// Past subprojects for "clone from past"
+const PAST = [
+  { name: 'Nguyen kitchen — shaker paint', lines:14, total:'$18,400', when:'3 months ago', hrs:72 },
+  { name: 'Walsh kitchen — shaker stain',  lines:15, total:'$21,600', when:'6 weeks ago',  hrs:86 },
+  { name: 'Palmer pantry',                 lines:8,  total:'$6,900',  when:'4 months ago', hrs:28 },
+  { name: 'Sato mudroom',                  lines:9,  total:'$7,200',  when:'2 months ago', hrs:31 }
+];
+
+// ================== STATE ==================
+const state = {
+  activeSpId: 'sp-kitchen',
+  selectedLineId: null,
+  acOpen: false,
+  acHighlight: 0,
+  acMatches: [],
+  pendingAdd: null, // { itemId } — awaiting qty input
+  deptOpen: false
+};
+
+const $ = id => document.getElementById(id);
+
+// ================== HELPERS ==================
+function libItem(id) { return LIBRARY.find(l => l.id === id); }
+function activeSp() { return project.subprojects.find(s => s.id === state.activeSpId); }
+function optionFor(itemId, optId) {
+  const opts = OPTIONS[itemId] || [];
+  return opts.find(o => o.id === optId);
+}
+
+// Compute labor hours for a line (by dept) — synthetic for this mockup
+function lineLabor(line) {
+  if (line.custom) {
+    const h = {}; h[line.custom.hoursDept] = line.qty * line.custom.hoursPer;
+    return h;
+  }
+  const item = libItem(line.itemId);
+  if (!item) return {};
+  const qty = line.qty;
+  // Synthetic labor profiles
+  const profile = {
+    'std-base':     { CNC: 0.4, Assembly: 1.8, Finish: 0.3, Engineering: 0.1 },
+    'sink-base':    { CNC: 0.6, Assembly: 2.8, Finish: 0.4, Engineering: 0.15 },
+    'corner-base':  { CNC: 0.8, Assembly: 3.4, Finish: 0.5, Engineering: 0.2 },
+    'std-upper':    { CNC: 0.3, Assembly: 1.4, Finish: 0.3, Engineering: 0.1 },
+    'pantry':       { CNC: 0.6, Assembly: 4.7, Finish: 0.6, Engineering: 0.2 },
+    'oven-tower':   { CNC: 0.7, Assembly: 4.4, Finish: 0.7, Engineering: 0.25 },
+    'shaker-door':  { CNC: 0.16, Assembly: 0.30, Finish: 0.70 },
+    'slab-door':    { CNC: 0.12, Assembly: 0.20, Finish: 0.40 },
+    'glass-door':   { CNC: 0.24, Assembly: 0.50, Finish: 0.80 },
+    'std-drawer':   { CNC: 0.12, Assembly: 0.55, Finish: 0.10 },
+    'deep-drawer':  { CNC: 0.14, Assembly: 0.65, Finish: 0.12 },
+    'spice-drawer': { CNC: 0.10, Assembly: 0.45, Finish: 0.08 },
+    'end-panel':    { CNC: 0.15, Assembly: 0.40, Finish: 0.25 },
+    'fridge-panel': { CNC: 0.25, Assembly: 0.60, Finish: 0.35 },
+    'toe-kick':     { Assembly: 0.08 },
+    'filler':       { Assembly: 0.20 },
+    'led-strip':    { Assembly: 0.15 },
+    'puck':         { Assembly: 0.20 },
+    'tipon':        { Assembly: 0.10 },
+    'door-lift':    { Assembly: 0.60 },
+    'pullout-trash':{ Assembly: 0.80 },
+    'crown':        { Finish: 0.06, Assembly: 0.04 },
+    'base-trim':    { Finish: 0.04, Assembly: 0.03 },
+    'shoe':         { Finish: 0.03 },
+    'shop-drawings':{ Engineering: 5 },
+    'cnc-prep':     { Engineering: 2.5 }
+  }[item.id] || {};
+
+  // Apply option effects (synthetic nudges)
+  let assemblyBoost = 0, finishBoost = 0, cncBoost = 0;
+  (line.options || []).forEach(optId => {
+    const o = optionFor(item.id, optId);
+    if (!o) return;
+    if (optId === 'inset')      assemblyBoost += 0.4;
+    if (optId === 'oversized')  { assemblyBoost += 0.05; finishBoost += 0.02; }
+    if (optId === 'arched')     finishBoost += 0.12;
+    if (optId === 'stain')      finishBoost += 0.10;
+    if (optId === 'paint')      finishBoost += 0;
+    if (optId === 'tall')       assemblyBoost += 0.3;
+    if (optId === 'pullouts')   assemblyBoost += 1.2;
+    if (optId === 'full-access')assemblyBoost -= 0.2;
+  });
+
+  const out = {};
+  for (const dept in profile) out[dept] = (profile[dept] || 0) * qty;
+  if (assemblyBoost) out.Assembly = (out.Assembly || 0) + assemblyBoost * qty;
+  if (finishBoost)   out.Finish   = (out.Finish   || 0) + finishBoost * qty;
+  if (cncBoost)      out.CNC      = (out.CNC      || 0) + cncBoost    * qty;
+
+  // Apply any per-line overrides (editable by user in the right panel)
+  if (line.hoursOverride) {
+    for (const d in line.hoursOverride) {
+      out[d] = line.hoursOverride[d];
+    }
+  }
+  return out;
+}
+
+function lineLaborComputed(line) {
+  // The "system's computed" hours without overrides — used to show the default when user wants to reset
+  const saved = line.hoursOverride;
+  delete line.hoursOverride;
+  const h = lineLabor(line);
+  if (saved) line.hoursOverride = saved;
+  return h;
+}
+
+function setHourOverride(lineId, dept, value) {
+  const sp = activeSp();
+  const line = sp.lines.find(l => l.id === lineId);
+  if (!line) return;
+  if (!line.hoursOverride) line.hoursOverride = {};
+  line.hoursOverride[dept] = value;
+  render();
+}
+
+function resetHourOverride(lineId, dept) {
+  const sp = activeSp();
+  const line = sp.lines.find(l => l.id === lineId);
+  if (!line || !line.hoursOverride) return;
+  delete line.hoursOverride[dept];
+  if (Object.keys(line.hoursOverride).length === 0) delete line.hoursOverride;
+  render();
+}
+
+function lineLaborHours(line) {
+  const h = lineLabor(line);
+  return Object.values(h).reduce((a,b) => a + b, 0);
+}
+
+function lineLaborCost(line) {
+  const h = lineLabor(line);
+  let c = 0;
+  for (const d in h) c += h[d] * (DEPT_RATES[d] || SHOP_RATE);
+  return c;
+}
+
+// Material = rough estimate: rate × qty × 0.55 (just a plausible split for the mockup)
+function lineMaterial(line) {
+  if (line.custom) return 0;
+  const item = libItem(line.itemId);
+  if (!item) return 0;
+  const base = item.rate * line.qty * 0.35;
+  let mult = 1;
+  (line.options || []).forEach(optId => {
+    if (optId === 'inset') mult *= 1.06;
+    if (optId === 'oversized') mult *= 1.12;
+    if (optId === 'arched') mult *= 1.08;
+    if (optId === 'stain') mult *= 1.04;
+    if (optId === 'wood-box') mult *= 1.15;
+    if (optId === 'tall') mult *= 1.1;
+  });
+  return base * mult;
+}
+
+function lineSpecialty(line) {
+  const specialtyIds = ['tipon','door-lift','pullout-trash','puck','led-strip'];
+  if (!specialtyIds.includes(line.itemId)) return 0;
+  const item = libItem(line.itemId);
+  return item.rate * line.qty;
+}
+
+function lineTotal(line) {
+  if (line.custom) return line.custom.rate * line.qty;
+  return lineLaborCost(line) + lineMaterial(line) * 1.10 + lineSpecialty(line);
+}
+
+// Subproject rollup
+function spRollup(sp) {
+  const hours = {};
+  let material = 0, specialty = 0;
+  for (const line of sp.lines) {
+    const h = lineLabor(line);
+    for (const d in h) hours[d] = (hours[d] || 0) + h[d];
+    material += lineMaterial(line);
+    specialty += lineSpecialty(line);
+  }
+  let labor$ = 0;
+  for (const d in hours) labor$ += hours[d] * (DEPT_RATES[d] || SHOP_RATE);
+  // For install subproject, add custom rates
+  if (sp.id === 'sp-install') {
+    let custom$ = 0;
+    for (const l of sp.lines) if (l.custom) custom$ += l.custom.rate * l.qty;
+    // Replace labor$ with custom (install subproject is priced per-day, not labor-cost)
+    return {
+      hours,
+      hoursTotal: Object.values(hours).reduce((a,b)=>a+b,0),
+      labor: custom$,
+      material: 0, consumables: 0, specialty: 0,
+      total: custom$,
+      margin: 35 // synthetic
+    };
+  }
+  const consumables = material * 0.10;
+  const total = labor$ + material + consumables + specialty;
+  const margin = Math.round(((total - (labor$*0.55 + material + consumables + specialty*0.7)) / total) * 100);
+  return {
+    hours, hoursTotal: Object.values(hours).reduce((a,b)=>a+b,0),
+    labor: labor$, material, consumables, specialty, total, margin
+  };
+}
+
+function projectRollup() {
+  let hours = {}, material = 0, specialty = 0, consumables = 0, labor = 0, total = 0;
+  for (const sp of project.subprojects) {
+    const r = spRollup(sp);
+    for (const d in r.hours) hours[d] = (hours[d]||0) + r.hours[d];
+    material += r.material; specialty += r.specialty; consumables += r.consumables;
+    labor += r.labor; total += r.total;
+  }
+  const hoursTotal = Object.values(hours).reduce((a,b)=>a+b,0);
+  const margin = 34; // synthetic
+  return { hours, hoursTotal, material, specialty, consumables, labor, total, margin };
+}
+
+function money(n) {
+  return '$' + Math.round(n).toLocaleString();
+}
+
+function hours(n) {
+  return (Math.round(n*10)/10).toFixed(1) + ' hr';
+}
+
+// ================== TOAST ==================
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ================== RENDER ==================
+function renderSubtabs() {
+  const tabs = project.subprojects.map(sp => {
+    const active = sp.id === state.activeSpId;
+    const r = spRollup(sp);
+    return `<div class="subtab ${active?'active':''}" onclick="selectSp('${sp.id}')">
+      <span>${sp.name}</span>
+      <span class="count">${money(r.total)}</span>
+    </div>`;
+  }).join('');
+  const addTab = `<div class="subtab add" onclick="toast('New subproject — starts blank or clone from past.')">+ Add</div>`;
+  $('subtabs').innerHTML = tabs + addTab;
+}
+
+function renderProjectTotals() {
+  const r = projectRollup();
+  $('proj-hours').textContent = hours(r.hoursTotal);
+  $('proj-total').textContent = money(r.total);
+  const mCls = r.margin >= 32 ? 'margin-ok' : r.margin >= 25 ? 'margin-warn' : 'margin-bad';
+  $('proj-margin').className = 'metric ' + mCls;
+  $('proj-margin').textContent = r.margin + '% margin';
+}
+
+function renderCloneBanner() {
+  const sp = activeSp();
+  const count = sp.lines.filter(l => l.justAdded).length;
+  if (count === 0) { $('cloneBanner').innerHTML = ''; return; }
+  $('cloneBanner').innerHTML = `
+    <div class="clone-banner">
+      <div class="left">
+        <span class="dot">●</span>
+        <span>${count} line${count===1?'':'s'} just added — review, tweak quantities, or remove any that don't apply.</span>
+      </div>
+      <div>
+        <button class="btn" onclick="clearJustAdded()">Looks good — clear highlights</button>
+      </div>
+    </div>`;
+}
+
+function renderLines() {
+  const sp = activeSp();
+  $('sp-name').textContent = sp.name;
+  $('sp-sub').textContent = sp.sub;
+
+  const header = `<div class="row header">
+    <div></div>
+    <div class="cell">Item</div>
+    <div class="cell num">Qty</div>
+    <div class="cell">Options</div>
+    <div class="cell num">Hours</div>
+    <div class="cell num">Material</div>
+    <div class="cell num">Total</div>
+    <div></div>
+  </div>`;
+
+  const rows = sp.lines.map(line => {
+    const item = libItem(line.itemId);
+    const isCustom = !!line.custom;
+    const name = isCustom ? line.custom.name : (item ? item.name : '???');
+    const unit = isCustom ? line.custom.unit : (item ? item.unit : '');
+    const selected = state.selectedLineId === line.id;
+
+    const opts = (line.options || []).map(optId => {
+      const o = optionFor(line.itemId, optId);
+      return o ? `<span class="chip" onclick="event.stopPropagation(); toggleOption('${line.id}','${optId}')">${o.name}<span class="x">×</span></span>` : '';
+    }).join('');
+    const canAddOpts = (OPTIONS[line.itemId] || []).length > 0;
+    const addChip = canAddOpts
+      ? `<span class="chip add" onclick="event.stopPropagation(); selectLine('${line.id}')">+ option</span>`
+      : '';
+
+    const justAdded = line.justAdded ? 'just-added' : '';
+    const newBadge = line.justAdded ? '<span class="new-badge">new</span>' : '';
+    return `<div class="row ${selected?'selected':''} ${justAdded}" onclick="selectLine('${line.id}')">
+      <div class="drag">⋮⋮</div>
+      <div class="cell item">${name}${newBadge}</div>
+      <div class="cell num">${line.qty} ${unit}</div>
+      <div class="chip-cell">${opts}${addChip}</div>
+      <div class="cell num">${hours(lineLaborHours(line))}</div>
+      <div class="cell num">${money(lineMaterial(line) * 1.1 + lineSpecialty(line))}</div>
+      <div class="cell num" style="color:#fff;font-weight:600">${money(lineTotal(line))}</div>
+      <div class="actions-cell">
+        <span onclick="event.stopPropagation(); duplicateLine('${line.id}')" title="Duplicate">⎘</span>
+        <span onclick="event.stopPropagation(); deleteLine('${line.id}')" title="Delete">✕</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  $('lines').innerHTML = header + rows;
+}
+
+function renderRightPanel() {
+  const sp = activeSp();
+  const line = state.selectedLineId ? sp.lines.find(l => l.id === state.selectedLineId) : null;
+
+  if (!line) {
+    $('rightPanel').innerHTML = `
+      <div class="rp-title">Line detail</div>
+      <div class="rp-empty">
+        Click a line to see its options and build-up.<br><br>
+        Tip: any chip on a line can be clicked to remove it, or click <b>+ option</b> to add more.
+      </div>
+    `;
+    return;
+  }
+
+  const item = libItem(line.itemId);
+  if (!item && !line.custom) {
+    $('rightPanel').innerHTML = `<div class="rp-empty">Line data unavailable.</div>`;
+    return;
+  }
+
+  const name = line.custom ? line.custom.name : item.name;
+  const unit = line.custom ? line.custom.unit : item.unit;
+
+  const opts = OPTIONS[line.itemId] || [];
+  const optsHtml = opts.length ? opts.map(o => {
+    const on = (line.options || []).includes(o.id);
+    const locked = o.locked ? 'style="opacity:0.6; cursor:not-allowed"' : '';
+    const click = o.locked ? '' : `onclick="toggleOption('${line.id}','${o.id}')"`;
+    return `<div class="rp-option ${on?'on':''}" ${click} ${locked}>
+      <div class="cb"></div>
+      <div class="opt-body">
+        <div class="opt-name">${o.name}${o.locked?' <span style="color:#666;font-size:10px">· default</span>':''}</div>
+        <div class="opt-effect">${o.effect}</div>
+      </div>
+    </div>`;
+  }).join('') : `<div class="rp-empty" style="padding:12px 0">No options for this item type.</div>`;
+
+  const h = lineLabor(line);
+  const hDefault = lineLaborComputed(line);
+  const buildupRows = Object.entries(h).map(([d, hrs]) => {
+    const cost = hrs * (DEPT_RATES[d] || SHOP_RATE);
+    const overridden = line.hoursOverride && line.hoursOverride[d] !== undefined;
+    const defaultHr = hDefault[d] || 0;
+    const resetLink = overridden
+      ? `<span class="reset-link" onclick="resetHourOverride('${line.id}','${d}')">reset to ${defaultHr.toFixed(1)}</span>`
+      : '';
+    const badge = overridden ? `<span class="override-badge">override</span>` : '';
+    return `<div class="bu-row editable">
+      <span>${d}${badge}</span>
+      <span class="v">
+        <input class="hr-edit" type="number" step="0.1" value="${hrs.toFixed(1)}"
+          onblur="setHourOverride('${line.id}','${d}', parseFloat(this.value))"
+          onkeydown="if(event.key==='Enter'){this.blur();}" />
+        hr · ${money(cost)}
+        ${resetLink}
+      </span>
+    </div>`;
+  }).join('');
+  const mat = lineMaterial(line);
+  const cons = mat * 0.10;
+  const specialty = lineSpecialty(line);
+
+  $('rightPanel').innerHTML = `
+    <div class="rp-title">Selected line</div>
+    <div class="rp-sel">
+      <div class="sel-item">${name}</div>
+      <div class="sel-qty">${line.qty} ${unit} · ${money(lineTotal(line))}</div>
+    </div>
+
+    <div class="rp-section">
+      <h4>Options</h4>
+      ${optsHtml}
+    </div>
+
+    <div class="rp-section">
+      <h4>What's in this line's price</h4>
+      <div class="rp-buildup">
+        ${buildupRows}
+        ${mat > 0 ? `<div class="bu-row"><span>Material</span><span class="v">${money(mat)}</span></div>` : ''}
+        ${cons > 0 ? `<div class="bu-row"><span>Consumables (10%)</span><span class="v">${money(cons)}</span></div>` : ''}
+        ${specialty > 0 ? `<div class="bu-row"><span>Hardware</span><span class="v">${money(specialty)}</span></div>` : ''}
+        <div class="bu-row total"><span>Line total</span><span class="v">${money(lineTotal(line))}</span></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderBottom() {
+  const r = spRollup(activeSp());
+  const sp = activeSp();
+
+  const mCls = r.margin >= 32 ? 'margin-ok' : r.margin >= 25 ? 'margin-warn' : 'margin-bad';
+
+  $('bottomGrid').innerHTML = `
+    <div class="bottom-cell">
+      <div class="label">${sp.name} · ${sp.lines.length} lines</div>
+      <div class="primary">${money(r.total)}</div>
+      <div class="margin-line ${mCls}">${r.margin}% margin${r.margin < 32 ? ' · below target 32%' : ''}</div>
+    </div>
+    <div class="bottom-cell">
+      <div class="label">Labor</div>
+      <div class="primary">${hours(r.hoursTotal)}</div>
+      <div class="secondary">${money(r.labor)}</div>
+    </div>
+    <div class="bottom-cell">
+      <div class="label">Material</div>
+      <div class="primary">${money(r.material)}</div>
+      <div class="secondary">+ ${money(r.consumables)} consumables</div>
+    </div>
+    <div class="bottom-cell">
+      <div class="label">Specialty hardware</div>
+      <div class="primary">${money(r.specialty)}</div>
+      <div class="secondary">${sp.lines.filter(l => lineSpecialty(l)>0).length} lines</div>
+    </div>
+    <div class="bottom-cell total">
+      <div class="label">Subproject total</div>
+      <div class="primary">${money(r.total)}</div>
+      <div class="secondary">${hours(r.hoursTotal)} labor · ${money(r.material + r.consumables)} mat · ${money(r.specialty)} hw</div>
+    </div>
+  `;
+
+  const depts = ['Engineering','CNC','Assembly','Finish','Install'];
+  $('deptRow').innerHTML = depts.map(d => {
+    const h = r.hours[d] || 0;
+    const c = h * (DEPT_RATES[d] || SHOP_RATE);
+    return `<div class="dept">
+      <span class="d-name">${d}</span>
+      <span class="d-hr">${hours(h)}</span>
+      <span class="d-$">${money(c)}</span>
+    </div>`;
+  }).join('');
+}
+
+// ================== ACTIONS ==================
+function selectSp(id) {
+  state.activeSpId = id;
+  state.selectedLineId = null;
+  render();
+}
+
+function selectLine(id) {
+  state.selectedLineId = state.selectedLineId === id ? null : id;
+  render();
+}
+
+function toggleOption(lineId, optId) {
+  const sp = activeSp();
+  const line = sp.lines.find(l => l.id === lineId);
+  if (!line) return;
+  const opts = line.options || (line.options = []);
+  const i = opts.indexOf(optId);
+  if (i >= 0) opts.splice(i, 1);
+  else opts.push(optId);
+  render();
+}
+
+function duplicateLine(id) {
+  const sp = activeSp();
+  const line = sp.lines.find(l => l.id === id);
+  if (!line) return;
+  const copy = JSON.parse(JSON.stringify(line));
+  copy.id = 'l' + Date.now();
+  const idx = sp.lines.findIndex(l => l.id === id);
+  sp.lines.splice(idx + 1, 0, copy);
+  toast(`Duplicated ${libItem(line.itemId)?.name || 'line'}.`);
+  render();
+}
+
+function deleteLine(id) {
+  const sp = activeSp();
+  const idx = sp.lines.findIndex(l => l.id === id);
+  if (idx < 0) return;
+  const name = libItem(sp.lines[idx].itemId)?.name || 'line';
+  sp.lines.splice(idx, 1);
+  if (state.selectedLineId === id) state.selectedLineId = null;
+  toast(`Removed ${name}.`);
+  render();
+}
+
+function toggleDept() {
+  state.deptOpen = !state.deptOpen;
+  $('deptRow').classList.toggle('open', state.deptOpen);
+  $('deptToggle').classList.toggle('open', state.deptOpen);
+}
+
+// ================== AUTOCOMPLETE ==================
+function acHandle(q) {
+  if (state.pendingAdd) {
+    // awaiting qty — don't filter
+    return;
+  }
+  if (!q || q.length < 1) {
+    state.acMatches = LIBRARY.slice(0, 10);
+  } else {
+    const qlow = q.toLowerCase();
+    state.acMatches = LIBRARY.filter(l =>
+      l.name.toLowerCase().includes(qlow) || l.group.toLowerCase().includes(qlow)
+    );
+  }
+  state.acHighlight = 0;
+  state.acOpen = true;
+  renderAc();
+}
+
+function renderAc() {
+  const ac = $('autocomplete');
+  if (!state.acOpen || !state.acMatches.length) {
+    ac.classList.remove('open'); return;
+  }
+  const grouped = {};
+  state.acMatches.forEach(m => {
+    if (!grouped[m.group]) grouped[m.group] = [];
+    grouped[m.group].push(m);
+  });
+  let html = '';
+  let flatIdx = 0;
+  for (const g in grouped) {
+    html += `<div class="ac-group-head">${g}</div>`;
+    for (const m of grouped[g]) {
+      const hl = flatIdx === state.acHighlight ? 'highlight' : '';
+      html += `<div class="ac-item ${hl}" onclick="acPick('${m.id}')">
+        <div><span class="name">${m.name}</span> <span class="hint">· ${m.unit}</span></div>
+        <div class="rate">$${m.rate}/${m.unit}</div>
+      </div>`;
+      flatIdx++;
+    }
+  }
+  ac.innerHTML = html;
+  ac.classList.add('open');
+}
+
+function acKey(e) {
+  if (state.pendingAdd) {
+    if (e.key === 'Enter') {
+      const q = parseFloat($('addInput').value);
+      if (!isNaN(q) && q > 0) {
+        commitAdd(q);
+      }
+      return;
+    }
+    if (e.key === 'Escape') cancelAdd();
+    return;
+  }
+  if (!state.acOpen) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); state.acHighlight = Math.min(state.acHighlight + 1, state.acMatches.length - 1); renderAc(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); state.acHighlight = Math.max(state.acHighlight - 1, 0); renderAc(); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    const pick = state.acMatches[state.acHighlight];
+    if (pick) acPick(pick.id);
+  }
+  else if (e.key === 'Escape') { state.acOpen = false; renderAc(); }
+}
+
+function acPick(itemId) {
+  state.pendingAdd = { itemId };
+  state.acOpen = false;
+  renderAc();
+  const item = libItem(itemId);
+  const input = $('addInput');
+  input.value = '';
+  input.placeholder = `${item.name} — how many ${item.unit}? (press Enter)`;
+  $('addHint').textContent = 'qty';
+  input.focus();
+}
+
+function commitAdd(qty) {
+  const sp = activeSp();
+  const itemId = state.pendingAdd.itemId;
+  const item = libItem(itemId);
+  // Default options
+  const defaults = (OPTIONS[itemId] || []).filter(o => o.applied).map(o => o.id);
+  const newLine = { id: 'l' + Date.now(), itemId, qty, options: defaults };
+  sp.lines.push(newLine);
+  toast(`Added ${qty} ${item.unit} · ${item.name}.`);
+  cancelAdd();
+  render();
+}
+
+function cancelAdd() {
+  state.pendingAdd = null;
+  const input = $('addInput');
+  input.value = '';
+  input.placeholder = 'Add item — type to search (std base, shaker door, pantry…)';
+  $('addHint').textContent = 'type to search';
+  state.acOpen = false;
+  renderAc();
+}
+
+// ================== CLONE MODAL ==================
+function openClone() {
+  const cards = PAST.map((p, i) => `
+    <div class="past-card" onclick="doClone(${i})">
+      <div class="pc-title">${p.name}</div>
+      <div class="pc-meta">${p.when}</div>
+      <div class="pc-stats">
+        <span>${p.lines} lines</span>
+        <span>${p.hrs} hr</span>
+        <span>${p.total}</span>
+      </div>
+    </div>
+  `).join('');
+  $('cloneBody').innerHTML = `
+    <div style="font-size:12.5px;color:#888;margin-bottom:14px;line-height:1.55">Clone all line items from a past subproject into this one. You can tweak quantities, options, and items after. Past pricing is not copied — current rates are applied.</div>
+    ${cards}
+  `;
+  $('cloneModal').classList.add('open');
+}
+
+function closeClone() { $('cloneModal').classList.remove('open'); }
+
+function doClone(i) {
+  const p = PAST[i];
+  // Synthetic — just add a few lines based on the past label
+  const sp = activeSp();
+  const template = {
+    'Nguyen kitchen — shaker paint': [
+      { itemId:'std-base',    qty:18 }, { itemId:'std-upper', qty:18 },
+      { itemId:'shaker-door', qty:28, options:['paint'] },
+      { itemId:'std-drawer',  qty:8, options:['soft-close'] },
+      { itemId:'toe-kick',    qty:18 }, { itemId:'crown', qty:18 }
+    ],
+    'Walsh kitchen — shaker stain': [
+      { itemId:'std-base',    qty:22 }, { itemId:'std-upper', qty:18 },
+      { itemId:'shaker-door', qty:32, options:['stain'] },
+      { itemId:'std-drawer',  qty:10, options:['soft-close'] },
+      { itemId:'toe-kick',    qty:22 }, { itemId:'crown', qty:22 }
+    ],
+    'Palmer pantry': [
+      { itemId:'pantry', qty:6 }, { itemId:'shaker-door', qty:8, options:['paint'] }
+    ],
+    'Sato mudroom': [
+      { itemId:'std-base', qty:10, options:['inset'] },
+      { itemId:'shaker-door', qty:8, options:['paint'] },
+      { itemId:'std-drawer', qty:6, options:['soft-close'] }
+    ]
+  }[p.name] || [];
+  template.forEach((t, idx) => {
+    sp.lines.push({ id:'l' + (Date.now() + idx), itemId:t.itemId, qty:t.qty, options:t.options || [], justAdded: true });
+  });
+  toast(`Cloned ${template.length} lines from ${p.name}. Tweak quantities or options as needed.`);
+  closeClone();
+  render();
+}
+
+function clearJustAdded() {
+  for (const sp of project.subprojects) {
+    for (const l of sp.lines) delete l.justAdded;
+  }
+  render();
+}
+
+// ================== KEYBOARD SHORTCUTS ==================
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === '/') { e.preventDefault(); $('addInput').focus(); }
+  if (e.key === 'Backspace' && state.selectedLineId) {
+    e.preventDefault();
+    deleteLine(state.selectedLineId);
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'd' && state.selectedLineId) {
+    e.preventDefault();
+    duplicateLine(state.selectedLineId);
+  }
+});
+
+// Click outside autocomplete closes it
+document.addEventListener('click', (e) => {
+  if (!$('addWrap').contains(e.target) && !$('autocomplete').contains(e.target)) {
+    if (!state.pendingAdd) {
+      state.acOpen = false;
+      renderAc();
+    }
+  }
+});
+
+// ================== RENDER ALL ==================
+function render() {
+  renderSubtabs();
+  renderProjectTotals();
+  renderCloneBanner();
+  renderLines();
+  renderRightPanel();
+  renderBottom();
+}
+
+render();
+</script>
+</body>
+</html>

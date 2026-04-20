@@ -628,6 +628,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* QuickBooks (Phase 9) */}
+        <QuickBooksPanel orgId={org?.id || null} />
+
         {/* Defaults */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mt-6">
           <div className="px-6 py-4 border-b border-[#E5E7EB]">
@@ -653,5 +656,144 @@ export default function SettingsPage() {
         </div>
       </div>
     </>
+  )
+}
+
+// ── QuickBooks connection panel (Phase 9) ──
+//
+// Real Intuit OAuth lives in a follow-up. For MVP we stash a synthetic
+// qb_connections row so the reconciliation pipeline (lib/qb-events.ts) can
+// operate end-to-end: an org with a connected QB is expected to have a row
+// here, the reconciliation page reads the row and surfaces the connected
+// realm id. "Connect" stubs a row, "Disconnect" removes it.
+
+interface QbConnection {
+  id: string
+  realm_id: string
+  connected_at: string
+  last_polled_at: string | null
+}
+
+function QuickBooksPanel({ orgId }: { orgId: string | null }) {
+  const [conn, setConn] = useState<QbConnection | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [realmInput, setRealmInput] = useState('')
+
+  const refresh = useCallback(async () => {
+    if (!orgId) return
+    setLoading(true)
+    const { data } = await supabase
+      .from('qb_connections')
+      .select('id, realm_id, connected_at, last_polled_at')
+      .eq('org_id', orgId)
+      .maybeSingle()
+    setConn((data as QbConnection | null) ?? null)
+    setLoading(false)
+  }, [orgId])
+
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
+  async function handleConnect() {
+    if (!orgId) return
+    setBusy(true)
+    const realm = realmInput.trim() || `sim-${Math.random().toString(36).slice(2, 10)}`
+    const { error } = await supabase.from('qb_connections').insert({
+      org_id: orgId,
+      realm_id: realm,
+      access_token: null,
+      refresh_token: null,
+      expires_at: null,
+      scope: 'com.intuit.quickbooks.accounting',
+      metadata: { stub: true, note: 'Synthetic connection — real OAuth lands in follow-up.' },
+    })
+    setBusy(false)
+    if (error) {
+      console.error('QB connect', error)
+      alert(`Failed to save QB connection: ${error.message}`)
+      return
+    }
+    setRealmInput('')
+    refresh()
+  }
+
+  async function handleDisconnect() {
+    if (!orgId || !conn) return
+    if (!window.confirm('Disconnect QuickBooks? Past QB events stay in your audit log; no new events will be accepted until you reconnect.')) {
+      return
+    }
+    setBusy(true)
+    const { error } = await supabase.from('qb_connections').delete().eq('id', conn.id)
+    setBusy(false)
+    if (error) {
+      console.error('QB disconnect', error)
+      alert(`Failed to disconnect: ${error.message}`)
+      return
+    }
+    refresh()
+  }
+
+  return (
+    <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mt-6">
+      <div className="px-6 py-4 border-b border-[#E5E7EB] flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-base font-semibold">QuickBooks</h2>
+          <p className="text-xs text-[#9CA3AF] mt-0.5 max-w-md">
+            MillSuite never sends to QuickBooks — it only watches.
+            Connect your Intuit realm and we'll match deposits and invoice
+            payments back to the milestones you already set on each project.
+            Review unmatched events on the{' '}
+            <Link href="/qb-reconciliation" className="text-[#2563EB] underline">reconciliation page</Link>.
+          </p>
+        </div>
+        {conn && (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#DCFCE7] text-[#15803D] text-xs font-semibold uppercase tracking-wide">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#15803D]" />
+            Connected
+          </span>
+        )}
+      </div>
+      <div className="px-6 py-4">
+        {loading ? (
+          <div className="text-xs text-[#9CA3AF]">Loading connection…</div>
+        ) : conn ? (
+          <div className="flex items-start justify-between gap-4">
+            <div className="text-sm">
+              <div className="font-mono text-[#111]">{conn.realm_id}</div>
+              <div className="text-[11px] text-[#9CA3AF] mt-1">
+                Connected {new Date(conn.connected_at).toLocaleString()}
+                {conn.last_polled_at ? ` · last poll ${new Date(conn.last_polled_at).toLocaleString()}` : ' · never polled'}
+              </div>
+            </div>
+            <button
+              onClick={handleDisconnect}
+              disabled={busy}
+              className="px-4 py-2 text-xs font-semibold rounded-lg border border-[#E5E7EB] text-[#374151] hover:bg-[#F9FAFB] disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Realm ID (optional — leave blank to simulate)"
+              value={realmInput}
+              onChange={(e) => setRealmInput(e.target.value)}
+              className="flex-1 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
+            />
+            <button
+              onClick={handleConnect}
+              disabled={busy || !orgId}
+              className="px-4 py-2 text-sm font-semibold rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50"
+            >
+              {busy ? 'Connecting…' : 'Connect QuickBooks'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

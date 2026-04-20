@@ -1,51 +1,53 @@
 // ============================================================================
 // lib/estimate-lines.ts — data + pricing for per-subproject estimate lines
 // ============================================================================
-// Per subproject-editor-mockup.html + BUILD-PLAN.md: lines are first-class.
-// A subproject is the sum of its lines. Each line is an instance of a
-// `rate_book_item` (construction labor + sheets + hardware) with a chosen
-// `rate_book_material_variant` (material cost + per-dept labor multipliers).
-// Callouts on the line are the editable chips that become approval_items
-// labels once the project is sold.
+// Phase 2 (BUILD-ORDER): lines are first-class and everything routes through
+// the new rate book (rate_book_items with material_mode + confidence). A line
+// is either:
+//   (a) a rate_book_item reference with optional per-line overrides, or
+//   (b) freeform — rate_book_item_id null, all fields populated on the line.
+//
+// The editor's math engine is computeLineBuildup (pure). The bottom-math
+// rollup is computeSubprojectRollup (also pure). Both use shop_labor_rates
+// via laborRateMap from rate-book-v2.ts.
 // ============================================================================
 
 import { supabase } from './supabase'
+import type {
+  RateBookItemRow,
+  RateBookOptionRow,
+  MaterialMode,
+  Unit,
+} from './rate-book-v2'
+import type { LaborDept } from './rate-book-seed'
+import { LABOR_DEPTS } from './rate-book-seed'
 
 // ── Types ──
 
-export interface RateBookItem {
-  id: string
-  name: string
-  category_id: string | null
-  category_name?: string | null
-  unit: 'lf' | 'each' | 'sf'
-  base_labor_hours_eng: number
-  base_labor_hours_cnc: number
-  base_labor_hours_assembly: number
-  base_labor_hours_finish: number
-  base_labor_hours_install: number
-  sheets_per_unit: number
-  sheet_cost: number
-  hardware_cost: number
-  default_callouts: string[]
-  default_variant_id: string | null
-  // Confidence / usage — set by the learning loop when rate_book_items are
-  // used on real jobs. Null when never used.
-  confidence_job_count?: number
-  confidence_last_used_at?: string | null
-}
+export type InstallMode = 'per_man_per_day' | 'per_box' | 'flat'
 
-export interface MaterialVariant {
-  id: string
-  rate_book_item_id: string
-  material_name: string
-  material_cost_per_lf: number
-  labor_multiplier_eng: number
-  labor_multiplier_cnc: number
-  labor_multiplier_assembly: number
-  labor_multiplier_finish: number
-  labor_multiplier_install: number
-  active: boolean
+export interface InstallParamsPerManPerDay {
+  days: number
+  men: number
+  rate: number // $ per man per day
+}
+export interface InstallParamsPerBox {
+  boxes: number
+  rate_per_box: number
+}
+export interface InstallParamsFlat {
+  amount: number
+}
+export type InstallParams =
+  | InstallParamsPerManPerDay
+  | InstallParamsPerBox
+  | InstallParamsFlat
+
+export interface FinishSpec {
+  material?: string
+  finish?: string
+  edge?: string
+  notes?: string
 }
 
 export interface EstimateLine {
@@ -54,136 +56,92 @@ export interface EstimateLine {
   sort_order: number
   description: string
   rate_book_item_id: string | null
-  rate_book_material_variant_id: string | null
   quantity: number
-  linear_feet: number | null
+  unit: Unit | null
+  // Per-line overrides (null = inherit from rate book item).
+  material_mode_override: MaterialMode | null
+  linear_cost_override: number | null
+  lump_cost_override: number | null
+  dept_hour_overrides: Partial<Record<LaborDept, number>> | null
+  // Freeform-line material (used when rate_book_item_id is null).
+  material_description: string | null
+  // Install (per line, optional).
+  install_mode: InstallMode | null
+  install_params: InstallParams | null
+  // Finishes (new, structured) + legacy callouts text[] (still present, kept
+  // for back-compat until the approval-items flow is migrated).
+  finish_specs: FinishSpec[] | null
   callouts: string[] | null
   unit_price_override: number | null
   notes: string | null
 }
 
-// Computed breakdown for a single line.
+export interface EstimateLineOptionRow {
+  estimate_line_id: string
+  rate_book_option_id: string
+  effect_value_override: number | null
+}
+
+// Computed breakdown for one line. Pure function output.
 export interface LineBuildup {
-  hoursByDept: {
-    eng: number
-    cnc: number
-    assembly: number
-    finish: number
-    install: number
-  }
+  hoursByDept: Record<LaborDept, number>
   totalHours: number
   laborCost: number
   materialCost: number
   hardwareCost: number
-  sheetCost: number // materials from sheet consumption
-  lineTotal: number // sum before markup + margin
-  // Effective callouts = line-level callouts when set, else item defaults.
+  consumablesCost: number
+  installCost: number
+  optionsFlatAdd: number
+  optionsFlag: string[]
+  lineTotal: number
   effectiveCallouts: string[]
+  effectiveFinishSpecs: FinishSpec[]
 }
 
 export interface SubprojectRollup {
-  hoursByDept: {
-    eng: number
-    cnc: number
-    assembly: number
-    finish: number
-    install: number
-  }
+  hoursByDept: Record<LaborDept, number>
   totalHours: number
   laborCost: number
   materialCost: number
   hardwareCost: number
-  sheetCost: number
-  consumables: number // markup on (material + sheet)
-  subtotal: number // labor + material + sheet + hardware + consumables
-  total: number // subtotal with profit margin applied
+  consumablesCost: number
+  installCost: number
+  optionsCost: number // sum of flat_add + per_unit_add option effects
+  subtotal: number
+  total: number
   marginPct: number
   lineCount: number
 }
 
-// ── Rate book loading ──
+// ── Loaders ──
 
 /**
- * Load the whole rate book for an org plus variants, keyed for fast lookup
- * in the editor. Used by the autocomplete + line-buildup renderer.
+ * Load an org's active rate book items keyed for the line editor.
  */
 export async function loadRateBook(orgId: string): Promise<{
-  items: RateBookItem[]
-  variantsByItem: Record<string, MaterialVariant[]>
+  items: RateBookItemRow[]
+  itemsById: Map<string, RateBookItemRow>
 }> {
-  const [itemsRes, variantsRes] = await Promise.all([
-    supabase
-      .from('rate_book_items')
-      .select(
-        `id, name, unit, category_id,
-         base_labor_hours_eng, base_labor_hours_cnc, base_labor_hours_assembly,
-         base_labor_hours_finish, base_labor_hours_install,
-         sheets_per_unit, sheet_cost, hardware_cost,
-         default_callouts, default_variant_id,
-         confidence_job_count, confidence_last_used_at,
-         rate_book_categories(name)`
-      )
-      .eq('org_id', orgId)
-      .eq('active', true)
-      .order('name'),
-    supabase
-      .from('rate_book_material_variants')
-      .select(
-        `id, rate_book_item_id, material_name, material_cost_per_lf,
-         labor_multiplier_eng, labor_multiplier_cnc, labor_multiplier_assembly,
-         labor_multiplier_finish, labor_multiplier_install, active`
-      )
-      .eq('active', true),
-  ])
-
-  const items: RateBookItem[] = (itemsRes.data || []).map((r: any) => ({
-    id: r.id,
-    name: r.name,
-    category_id: r.category_id,
-    category_name: r.rate_book_categories?.name ?? null,
-    unit: r.unit,
-    base_labor_hours_eng: Number(r.base_labor_hours_eng) || 0,
-    base_labor_hours_cnc: Number(r.base_labor_hours_cnc) || 0,
-    base_labor_hours_assembly: Number(r.base_labor_hours_assembly) || 0,
-    base_labor_hours_finish: Number(r.base_labor_hours_finish) || 0,
-    base_labor_hours_install: Number(r.base_labor_hours_install) || 0,
-    sheets_per_unit: Number(r.sheets_per_unit) || 0,
-    sheet_cost: Number(r.sheet_cost) || 0,
-    hardware_cost: Number(r.hardware_cost) || 0,
-    default_callouts: r.default_callouts || [],
-    default_variant_id: r.default_variant_id,
-    confidence_job_count: Number(r.confidence_job_count) || 0,
-    confidence_last_used_at: r.confidence_last_used_at ?? null,
-  }))
-
-  const variantsByItem: Record<string, MaterialVariant[]> = {}
-  for (const v of variantsRes.data || []) {
-    const variant: MaterialVariant = {
-      id: v.id,
-      rate_book_item_id: v.rate_book_item_id,
-      material_name: v.material_name,
-      material_cost_per_lf: Number(v.material_cost_per_lf) || 0,
-      labor_multiplier_eng: Number(v.labor_multiplier_eng) || 1,
-      labor_multiplier_cnc: Number(v.labor_multiplier_cnc) || 1,
-      labor_multiplier_assembly: Number(v.labor_multiplier_assembly) || 1,
-      labor_multiplier_finish: Number(v.labor_multiplier_finish) || 1,
-      labor_multiplier_install: Number(v.labor_multiplier_install) || 1,
-      active: v.active,
-    }
-    ;(variantsByItem[variant.rate_book_item_id] ||= []).push(variant)
-  }
-
-  return { items, variantsByItem }
+  const { data, error } = await supabase
+    .from('rate_book_items')
+    .select('*')
+    .eq('org_id', orgId)
+    .eq('active', true)
+    .order('name', { ascending: true })
+  if (error) throw error
+  const items = (data || []) as RateBookItemRow[]
+  const itemsById = new Map(items.map((i) => [i.id, i]))
+  return { items, itemsById }
 }
-
-// ── Estimate-line CRUD ──
 
 export async function loadEstimateLines(subprojectId: string): Promise<EstimateLine[]> {
   const { data, error } = await supabase
     .from('estimate_lines')
     .select(
       `id, subproject_id, sort_order, description, rate_book_item_id,
-       rate_book_material_variant_id, quantity, linear_feet, callouts,
+       quantity, unit, material_mode_override, linear_cost_override,
+       lump_cost_override, dept_hour_overrides, material_description,
+       install_mode, install_params, finish_specs, callouts,
        unit_price_override, notes`
     )
     .eq('subproject_id', subprojectId)
@@ -203,26 +161,65 @@ function normalizeLine(row: any): EstimateLine {
     sort_order: row.sort_order ?? 0,
     description: row.description || '',
     rate_book_item_id: row.rate_book_item_id,
-    rate_book_material_variant_id: row.rate_book_material_variant_id,
     quantity: Number(row.quantity) || 0,
-    linear_feet: row.linear_feet != null ? Number(row.linear_feet) : null,
-    callouts: row.callouts || null,
+    unit: row.unit ?? null,
+    material_mode_override: row.material_mode_override ?? null,
+    linear_cost_override:
+      row.linear_cost_override != null ? Number(row.linear_cost_override) : null,
+    lump_cost_override:
+      row.lump_cost_override != null ? Number(row.lump_cost_override) : null,
+    dept_hour_overrides: row.dept_hour_overrides ?? null,
+    material_description: row.material_description ?? null,
+    install_mode: row.install_mode ?? null,
+    install_params: row.install_params ?? null,
+    finish_specs: row.finish_specs ?? null,
+    callouts: row.callouts ?? null,
     unit_price_override:
       row.unit_price_override != null ? Number(row.unit_price_override) : null,
-    notes: row.notes,
+    notes: row.notes ?? null,
   }
 }
 
+export async function loadLineOptions(
+  subprojectId: string
+): Promise<Map<string, EstimateLineOptionRow[]>> {
+  // Join through estimate_lines to narrow by subproject, then return a
+  // per-line map the editor can merge into its line state.
+  const { data: lines } = await supabase
+    .from('estimate_lines')
+    .select('id')
+    .eq('subproject_id', subprojectId)
+  const ids = (lines || []).map((l: any) => l.id)
+  if (ids.length === 0) return new Map()
+
+  const { data, error } = await supabase
+    .from('estimate_line_options')
+    .select('estimate_line_id, rate_book_option_id, effect_value_override')
+    .in('estimate_line_id', ids)
+  if (error) throw error
+
+  const map = new Map<string, EstimateLineOptionRow[]>()
+  for (const row of (data || []) as EstimateLineOptionRow[]) {
+    const list = map.get(row.estimate_line_id) || []
+    list.push(row)
+    map.set(row.estimate_line_id, list)
+  }
+  return map
+}
+
+// ── Estimate-line CRUD ──
+
 /**
- * Add a line to a subproject. Pulls defaults from the rate book item — the
- * caller can immediately overwrite qty, variant, callouts via updateEstimateLine.
+ * Add a new line. If `item` is supplied, it pre-fills description + unit from
+ * the rate book. For freeform lines, pass only subprojectId + description.
  */
 export async function addEstimateLine(input: {
   subprojectId: string
-  item: RateBookItem
+  item?: RateBookItemRow
+  description?: string
   quantity?: number
+  unit?: Unit
 }): Promise<EstimateLine | null> {
-  // sort_order = current max + 1. One extra round-trip is fine in an editor.
   const { data: last } = await supabase
     .from('estimate_lines')
     .select('sort_order')
@@ -230,7 +227,6 @@ export async function addEstimateLine(input: {
     .order('sort_order', { ascending: false })
     .limit(1)
     .maybeSingle()
-
   const nextOrder = last?.sort_order != null ? Number(last.sort_order) + 1 : 0
 
   const { data, error } = await supabase
@@ -238,11 +234,10 @@ export async function addEstimateLine(input: {
     .insert({
       subproject_id: input.subprojectId,
       sort_order: nextOrder,
-      description: input.item.name,
-      rate_book_item_id: input.item.id,
-      rate_book_material_variant_id: input.item.default_variant_id,
+      description: input.description ?? input.item?.name ?? '',
+      rate_book_item_id: input.item?.id ?? null,
       quantity: input.quantity ?? 1,
-      callouts: null, // null = inherit defaults
+      unit: input.unit ?? input.item?.unit ?? null,
     })
     .select()
     .single()
@@ -256,10 +251,7 @@ export async function addEstimateLine(input: {
 
 export async function updateEstimateLine(
   id: string,
-  patch: Partial<Pick<EstimateLine,
-    'description' | 'quantity' | 'linear_feet' | 'rate_book_material_variant_id'
-    | 'callouts' | 'unit_price_override' | 'notes' | 'sort_order'
-  >>
+  patch: Partial<Omit<EstimateLine, 'id' | 'subproject_id'>>
 ): Promise<void> {
   const { error } = await supabase
     .from('estimate_lines')
@@ -279,94 +271,235 @@ export async function deleteEstimateLine(id: string): Promise<void> {
   }
 }
 
+export async function duplicateEstimateLine(
+  id: string
+): Promise<EstimateLine | null> {
+  const { data: src } = await supabase
+    .from('estimate_lines')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (!src) return null
+  const { data: last } = await supabase
+    .from('estimate_lines')
+    .select('sort_order')
+    .eq('subproject_id', src.subproject_id)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextOrder = last?.sort_order != null ? Number(last.sort_order) + 1 : 0
+
+  const { id: _drop, created_at, updated_at, ...rest } = src
+  const { data, error } = await supabase
+    .from('estimate_lines')
+    .insert({ ...rest, sort_order: nextOrder })
+    .select()
+    .single()
+  if (error) {
+    console.error('duplicateEstimateLine', error)
+    return null
+  }
+  return normalizeLine(data)
+}
+
+// ── Line options CRUD ──
+
+export async function attachLineOption(
+  lineId: string,
+  optionId: string,
+  effectValueOverride: number | null = null
+) {
+  const { error } = await supabase.from('estimate_line_options').upsert(
+    {
+      estimate_line_id: lineId,
+      rate_book_option_id: optionId,
+      effect_value_override: effectValueOverride,
+    },
+    { onConflict: 'estimate_line_id,rate_book_option_id' }
+  )
+  if (error) throw error
+}
+
+export async function detachLineOption(lineId: string, optionId: string) {
+  const { error } = await supabase
+    .from('estimate_line_options')
+    .delete()
+    .eq('estimate_line_id', lineId)
+    .eq('rate_book_option_id', optionId)
+  if (error) throw error
+}
+
 // ── Pricing ──
 
-export interface PricingDefaults {
-  shopRate: number // default $/hr when a department doesn't have its own rate
-  consumableMarkupPct: number // markup % on material + sheet cost
-  profitMarginPct: number // profit margin applied at subproject subtotal level
-  deptRates?: {
-    eng?: number
-    cnc?: number
-    assembly?: number
-    finish?: number
-    install?: number
+export interface PricingContext {
+  laborRates: Record<LaborDept, number>  // from shop_labor_rates
+  consumableMarkupPct: number            // e.g. 10 (%)
+  profitMarginPct: number                // e.g. 25 (%)
+}
+
+// Pull the effective hours-by-dept for a line: override wins, else inherit.
+function effectiveHours(
+  line: EstimateLine,
+  item: RateBookItemRow | null
+): Record<LaborDept, number> {
+  const ov = line.dept_hour_overrides || {}
+  const base = (d: LaborDept): number => {
+    if (!item) return 0
+    return d === 'eng'
+      ? item.base_labor_hours_eng
+      : d === 'cnc'
+      ? item.base_labor_hours_cnc
+      : d === 'assembly'
+      ? item.base_labor_hours_assembly
+      : d === 'finish'
+      ? item.base_labor_hours_finish
+      : item.base_labor_hours_install
   }
+  const out = {} as Record<LaborDept, number>
+  for (const d of LABOR_DEPTS) {
+    const v = ov[d]
+    out[d] = v != null ? Number(v) || 0 : Number(base(d)) || 0
+  }
+  return out
+}
+
+function effectiveMaterialMode(
+  line: EstimateLine,
+  item: RateBookItemRow | null
+): MaterialMode {
+  return line.material_mode_override || item?.material_mode || 'none'
+}
+
+function effectiveMaterialCost(
+  line: EstimateLine,
+  item: RateBookItemRow | null
+): number {
+  const mode = effectiveMaterialMode(line, item)
+  if (mode === 'sheets') {
+    const sheetsPer = Number(item?.sheets_per_unit || 0)
+    const sheetCost = Number(item?.sheet_cost || 0)
+    return sheetsPer * sheetCost
+  }
+  if (mode === 'linear') {
+    return line.linear_cost_override != null
+      ? Number(line.linear_cost_override)
+      : Number(item?.linear_cost || 0)
+  }
+  if (mode === 'lump') {
+    return line.lump_cost_override != null
+      ? Number(line.lump_cost_override)
+      : Number(item?.lump_cost || 0)
+  }
+  return 0
+}
+
+function computeInstallCost(line: EstimateLine): number {
+  if (!line.install_mode || !line.install_params) return 0
+  const p = line.install_params as any
+  if (line.install_mode === 'per_man_per_day') {
+    return (Number(p.days) || 0) * (Number(p.men) || 0) * (Number(p.rate) || 0)
+  }
+  if (line.install_mode === 'per_box') {
+    return (Number(p.boxes) || 0) * (Number(p.rate_per_box) || 0)
+  }
+  if (line.install_mode === 'flat') {
+    return Number(p.amount) || 0
+  }
+  return 0
 }
 
 /**
- * Compute the build-up for a single line. Pure — no DB calls. The caller
- * passes the rate book item + chosen variant from the already-loaded rate
- * book map, so this function is trivially memoizable in React.
+ * Compute the build-up for one line. Pure. Takes the resolved rate book item
+ * (or null for freeform) and the set of options attached to the line with
+ * their effect metadata already merged in.
  */
 export function computeLineBuildup(
   line: EstimateLine,
-  item: RateBookItem | null,
-  variant: MaterialVariant | null,
-  defaults: PricingDefaults
+  item: RateBookItemRow | null,
+  appliedOptions: Array<{
+    option: RateBookOptionRow
+    effect_value_override: number | null
+  }>,
+  ctx: PricingContext
 ): LineBuildup {
-  const qty = line.quantity || 0
-  const deptRate = (dept: keyof NonNullable<PricingDefaults['deptRates']>) =>
-    defaults.deptRates?.[dept] ?? defaults.shopRate
+  const qty = Number(line.quantity) || 0
 
-  if (!item) {
-    // Custom/free-text line. Honor unit_price_override if set.
-    const lineTotal = (line.unit_price_override ?? 0) * qty
+  // unit_price_override short-circuits the build-up entirely.
+  if (line.unit_price_override != null) {
     return {
       hoursByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
       totalHours: 0,
       laborCost: 0,
       materialCost: 0,
       hardwareCost: 0,
-      sheetCost: 0,
-      lineTotal,
+      consumablesCost: 0,
+      installCost: 0,
+      optionsFlatAdd: 0,
+      optionsFlag: [],
+      lineTotal: Number(line.unit_price_override) * qty,
       effectiveCallouts: line.callouts || [],
+      effectiveFinishSpecs: line.finish_specs || [],
     }
   }
 
-  // Multipliers default to 1.0 when no variant is chosen.
-  const mEng = variant?.labor_multiplier_eng ?? 1
-  const mCnc = variant?.labor_multiplier_cnc ?? 1
-  const mAsm = variant?.labor_multiplier_assembly ?? 1
-  const mFin = variant?.labor_multiplier_finish ?? 1
-  const mIns = variant?.labor_multiplier_install ?? 1
+  // Start from base hours (already mixing overrides + item).
+  const baseHours = effectiveHours(line, item)
 
-  const hoursByDept = {
-    eng: item.base_labor_hours_eng * mEng * qty,
-    cnc: item.base_labor_hours_cnc * mCnc * qty,
-    assembly: item.base_labor_hours_assembly * mAsm * qty,
-    finish: item.base_labor_hours_finish * mFin * qty,
-    install: item.base_labor_hours_install * mIns * qty,
+  // Apply hours_multiplier options per dept (effect_target = dept name).
+  const hoursByDept: Record<LaborDept, number> = { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 }
+  for (const d of LABOR_DEPTS) {
+    let h = baseHours[d]
+    for (const { option, effect_value_override } of appliedOptions) {
+      if (option.effect_type !== 'hours_multiplier') continue
+      const t = option.effect_target
+      if (t && t !== d) continue
+      const mult = effect_value_override != null ? Number(effect_value_override) : Number(option.effect_value || 1)
+      h = h * (mult || 1)
+    }
+    hoursByDept[d] = h * qty
   }
   const totalHours =
-    hoursByDept.eng +
-    hoursByDept.cnc +
-    hoursByDept.assembly +
-    hoursByDept.finish +
-    hoursByDept.install
+    hoursByDept.eng + hoursByDept.cnc + hoursByDept.assembly +
+    hoursByDept.finish + hoursByDept.install
 
-  const laborCost =
-    hoursByDept.eng * deptRate('eng') +
-    hoursByDept.cnc * deptRate('cnc') +
-    hoursByDept.assembly * deptRate('assembly') +
-    hoursByDept.finish * deptRate('finish') +
-    hoursByDept.install * deptRate('install')
+  let laborCost =
+    hoursByDept.eng * ctx.laborRates.eng +
+    hoursByDept.cnc * ctx.laborRates.cnc +
+    hoursByDept.assembly * ctx.laborRates.assembly +
+    hoursByDept.finish * ctx.laborRates.finish +
+    hoursByDept.install * ctx.laborRates.install
 
-  const materialCost = (variant?.material_cost_per_lf ?? 0) * qty
-  const sheetCost = item.sheets_per_unit * item.sheet_cost * qty
-  const hardwareCost = item.hardware_cost * qty
+  // rate_multiplier options apply to the line's labor $ total.
+  for (const { option, effect_value_override } of appliedOptions) {
+    if (option.effect_type !== 'rate_multiplier') continue
+    const mult = effect_value_override != null ? Number(effect_value_override) : Number(option.effect_value || 1)
+    laborCost = laborCost * (mult || 1)
+  }
 
-  // Override wins if set; else compute from the build-up.
-  const computedUnitTotal =
-    laborCost / Math.max(qty, 1) +
-    materialCost / Math.max(qty, 1) +
-    sheetCost / Math.max(qty, 1) +
-    hardwareCost / Math.max(qty, 1)
-  const unitPrice =
-    line.unit_price_override != null ? line.unit_price_override : computedUnitTotal
-  const lineTotal = unitPrice * qty
+  // Material, scaled by qty. material_multiplier options adjust this total.
+  let materialCost = effectiveMaterialCost(line, item) * qty
+  for (const { option, effect_value_override } of appliedOptions) {
+    if (option.effect_type !== 'material_multiplier') continue
+    const mult = effect_value_override != null ? Number(effect_value_override) : Number(option.effect_value || 1)
+    materialCost = materialCost * (mult || 1)
+  }
 
-  const effectiveCallouts = line.callouts ?? item.default_callouts
+  const hardwareCost = Number(item?.hardware_cost || 0) * qty
+  const consumablesCost = materialCost * (ctx.consumableMarkupPct / 100)
+  const installCost = computeInstallCost(line)
+
+  // flat_add and per_unit_add options.
+  let optionsFlatAdd = 0
+  const optionsFlag: string[] = []
+  for (const { option, effect_value_override } of appliedOptions) {
+    const val = effect_value_override != null ? Number(effect_value_override) : Number(option.effect_value || 0)
+    if (option.effect_type === 'flat_add') optionsFlatAdd += val
+    else if (option.effect_type === 'per_unit_add') optionsFlatAdd += val * qty
+    else if (option.effect_type === 'flag') optionsFlag.push(option.name)
+  }
+
+  const lineTotal =
+    laborCost + materialCost + hardwareCost + consumablesCost + installCost + optionsFlatAdd
 
   return {
     hoursByDept,
@@ -374,39 +507,35 @@ export function computeLineBuildup(
     laborCost,
     materialCost,
     hardwareCost,
-    sheetCost,
+    consumablesCost,
+    installCost,
+    optionsFlatAdd,
+    optionsFlag,
     lineTotal,
-    effectiveCallouts,
+    effectiveCallouts: line.callouts || [],
+    effectiveFinishSpecs: line.finish_specs || [],
   }
 }
 
 /**
- * Roll up every line in a subproject into the totals the editor's bottom
- * math panel shows. Applies consumable markup + profit margin at the
- * subproject level (not per-line).
+ * Subproject-level rollup. Profit margin is applied as a gross-margin mark-up
+ * (price = cost / (1 - margin%)), matching lib/pricing.ts.
  */
 export function computeSubprojectRollup(
   lines: EstimateLine[],
-  rateBook: {
-    items: RateBookItem[]
-    variantsByItem: Record<string, MaterialVariant[]>
-  },
-  defaults: PricingDefaults
+  itemsById: Map<string, RateBookItemRow>,
+  lineOptions: Map<string, Array<{ option: RateBookOptionRow; effect_value_override: number | null }>>,
+  ctx: PricingContext
 ): SubprojectRollup {
-  const itemById = new Map(rateBook.items.map((i) => [i.id, i]))
-  const variantById = new Map<string, MaterialVariant>()
-  for (const list of Object.values(rateBook.variantsByItem)) {
-    for (const v of list) variantById.set(v.id, v)
-  }
-
   const acc: SubprojectRollup = {
     hoursByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
     totalHours: 0,
     laborCost: 0,
     materialCost: 0,
     hardwareCost: 0,
-    sheetCost: 0,
-    consumables: 0,
+    consumablesCost: 0,
+    installCost: 0,
+    optionsCost: 0,
     subtotal: 0,
     total: 0,
     marginPct: 0,
@@ -414,36 +543,49 @@ export function computeSubprojectRollup(
   }
 
   for (const line of lines) {
-    const item = line.rate_book_item_id
-      ? itemById.get(line.rate_book_item_id) ?? null
-      : null
-    const variant = line.rate_book_material_variant_id
-      ? variantById.get(line.rate_book_material_variant_id) ?? null
-      : null
-    const b = computeLineBuildup(line, item, variant, defaults)
-    acc.hoursByDept.eng += b.hoursByDept.eng
-    acc.hoursByDept.cnc += b.hoursByDept.cnc
-    acc.hoursByDept.assembly += b.hoursByDept.assembly
-    acc.hoursByDept.finish += b.hoursByDept.finish
-    acc.hoursByDept.install += b.hoursByDept.install
+    const item = line.rate_book_item_id ? itemsById.get(line.rate_book_item_id) ?? null : null
+    const opts = lineOptions.get(line.id) || []
+    const b = computeLineBuildup(line, item, opts, ctx)
+    for (const d of LABOR_DEPTS) acc.hoursByDept[d] += b.hoursByDept[d]
     acc.totalHours += b.totalHours
     acc.laborCost += b.laborCost
     acc.materialCost += b.materialCost
     acc.hardwareCost += b.hardwareCost
-    acc.sheetCost += b.sheetCost
+    acc.consumablesCost += b.consumablesCost
+    acc.installCost += b.installCost
+    acc.optionsCost += b.optionsFlatAdd
   }
 
-  const markupBase = acc.materialCost + acc.sheetCost
-  acc.consumables = markupBase * (defaults.consumableMarkupPct / 100)
   acc.subtotal =
-    acc.laborCost + acc.materialCost + acc.sheetCost + acc.hardwareCost + acc.consumables
+    acc.laborCost + acc.materialCost + acc.hardwareCost +
+    acc.consumablesCost + acc.installCost + acc.optionsCost
 
-  // Profit margin applied as a gross-margin mark-up: price = cost / (1 - margin%).
-  // Matches the rest of the app (see lib/pricing.ts).
-  const marginFraction = Math.min(Math.max(defaults.profitMarginPct / 100, 0), 0.95)
+  const marginFraction = Math.min(Math.max(ctx.profitMarginPct / 100, 0), 0.95)
   acc.total = marginFraction > 0 ? acc.subtotal / (1 - marginFraction) : acc.subtotal
-  acc.marginPct =
-    acc.total > 0 ? ((acc.total - acc.subtotal) / acc.total) * 100 : 0
+  acc.marginPct = acc.total > 0 ? ((acc.total - acc.subtotal) / acc.total) * 100 : 0
 
   return acc
+}
+
+/**
+ * Filter the rate book's options list to those applicable to a given category
+ * / item (honoring the options.scope field).
+ */
+export function applicableOptionsForItem(
+  options: RateBookOptionRow[],
+  item: RateBookItemRow | null
+): RateBookOptionRow[] {
+  return options.filter((o) => {
+    if (o.scope === 'shop_wide') return true
+    if (!item) return false
+    if (o.scope.startsWith('category:')) {
+      const cid = o.scope.slice('category:'.length)
+      return item.category_id === cid
+    }
+    if (o.scope.startsWith('item:')) {
+      const iid = o.scope.slice('item:'.length)
+      return item.id === iid
+    }
+    return false
+  })
 }

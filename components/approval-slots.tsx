@@ -15,6 +15,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { CheckCircle2, Clock, Send, RotateCcw, Link2, Link2Off, Plus, Trash2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import {
   ApprovalItem,
@@ -33,6 +34,7 @@ import {
   submitSample,
   unlinkSlot,
 } from '@/lib/approvals'
+import { draftCoFromApprovalCard } from '@/lib/change-orders'
 
 interface Props {
   subprojectId: string
@@ -42,6 +44,7 @@ interface Props {
 }
 
 export default function ApprovalSlots({ subprojectId, projectId, actorUserId }: Props) {
+  const router = useRouter()
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
   const [busyItemId, setBusyItemId] = useState<string | null>(null)
@@ -131,7 +134,25 @@ export default function ApprovalSlots({ subprojectId, projectId, actorUserId }: 
           onSubmit={() => runTransition(submitSample, item.id)}
           onApprove={() => runTransition(approve, item.id)}
           onRequestChange={() => runTransition(requestChange, item.id)}
-          onChangeMaterial={() => runTransition(changeMaterial, item.id)}
+          onChangeMaterial={async () => {
+            // Phase 7: drafts a CO seeded from this slot, reopens the slot for
+            // a new sample, then jumps to the CO panel so the user can edit
+            // the proposed material/finish + send to the client.
+            setBusyItemId(item.id)
+            try {
+              const co = await draftCoFromApprovalCard(item.id)
+              await changeMaterial(item.id, { actorUserId })
+              await reload()
+              if (co) {
+                router.push(`/projects/${projectId}#change-orders`)
+              }
+            } catch (err) {
+              console.error(err)
+              alert('Failed to draft change order. See console.')
+            } finally {
+              setBusyItemId(null)
+            }
+          }}
           onStartLink={() => setLinkingItemId(item.id)}
           onUnlink={async () => {
             setBusyItemId(item.id)
@@ -346,6 +367,9 @@ function SlotActions({
     )
   }
   // approved
+  // Phase 7 wiring lives in the parent's onChangeMaterial handler — clicking
+  // here drafts a CO (lib/change-orders.draftCoFromApprovalCard) seeded from
+  // this slot, reopens the slot, and routes to the project's CO panel.
   return (
     <button
       onClick={onChangeMaterial}

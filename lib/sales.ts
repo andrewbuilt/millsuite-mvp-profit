@@ -162,8 +162,8 @@ export function summarizePipeline(
 
 /**
  * Create a blank project at the 'new_lead' stage. Used by the "Start a blank
- * project" fallback on the sales dashboard and (for now) by the drop-zone
- * parser stub until the real parser ships.
+ * project" fallback on the sales dashboard and by the parse-miss path in the
+ * Phase 3 parser flow.
  */
 export async function createBlankLeadProject(input: {
   org_id: string
@@ -202,6 +202,118 @@ export async function createBlankLeadProject(input: {
     created_at: data.created_at,
     updated_at: data.updated_at,
   }
+}
+
+/**
+ * Create a project from a parsed PDF intake. Role assignments are already
+ * resolved client-side (user confirmed via the parser chips); we write them
+ * to first-class columns + stash the full parse context as jsonb for audit.
+ */
+export async function createParsedLeadProject(input: {
+  org_id: string
+  name: string
+  file_name: string
+  page_count: number
+  client_name?: string | null
+  client_email?: string | null
+  client_phone?: string | null
+  client_company?: string | null
+  designer_name?: string | null
+  gc_name?: string | null
+  delivery_address?: string | null
+  estimated_price?: number | null
+  intake_context: Record<string, any>
+}): Promise<SalesProject | null> {
+  // If client_company was provided but no client_name, prefer the company
+  // for the display field so the sales card isn't empty.
+  const displayClient = input.client_name || input.client_company || null
+
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({
+      org_id: input.org_id,
+      name: input.name,
+      client_name: displayClient,
+      client_email: input.client_email ?? null,
+      client_phone: input.client_phone ?? null,
+      designer_name: input.designer_name ?? null,
+      gc_name: input.gc_name ?? null,
+      delivery_address: input.delivery_address ?? null,
+      estimated_price: input.estimated_price ?? null,
+      source_pdf_name: input.file_name,
+      intake_context: input.intake_context,
+      stage: 'new_lead' as SalesStage,
+      status: 'bidding',
+      bid_total: 0,
+    })
+    .select()
+    .single()
+  if (error) {
+    console.error('createParsedLeadProject', error)
+    return null
+  }
+  return {
+    id: data.id,
+    name: data.name,
+    client_name: data.client_name,
+    client_id: data.client_id ?? null,
+    delivery_address: data.delivery_address ?? null,
+    stage: (data.stage as SalesStage) || 'new_lead',
+    status: data.status,
+    bid_total: Number(data.bid_total) || 0,
+    estimated_price:
+      data.estimated_price != null ? Number(data.estimated_price) : null,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+  }
+}
+
+// ── Quick notes ──
+// Phase 3 inline action: append a short note to a project straight from the
+// sales dashboard / kanban, without opening the full project page.
+
+export interface ProjectNote {
+  id: string
+  project_id: string
+  body: string
+  created_at: string
+}
+
+export async function addProjectNote(input: {
+  org_id: string
+  project_id: string
+  body: string
+  created_by?: string | null
+}): Promise<ProjectNote | null> {
+  const { data, error } = await supabase
+    .from('project_notes')
+    .insert({
+      org_id: input.org_id,
+      project_id: input.project_id,
+      body: input.body,
+      created_by: input.created_by ?? null,
+    })
+    .select('id, project_id, body, created_at')
+    .single()
+  if (error) {
+    console.error('addProjectNote', error)
+    return null
+  }
+  return data as ProjectNote
+}
+
+export async function loadProjectNotes(projectId: string): Promise<ProjectNote[]> {
+  const { data, error } = await supabase
+    .from('project_notes')
+    .select('id, project_id, body, created_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  if (error) {
+    console.error('loadProjectNotes', error)
+    return []
+  }
+  return (data as ProjectNote[]) || []
 }
 
 /**

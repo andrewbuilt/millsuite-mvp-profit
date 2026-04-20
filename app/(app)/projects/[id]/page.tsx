@@ -7,7 +7,7 @@ import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeSubprojectPrice } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink, Link2, Copy, Check, RefreshCw, Printer, Download, Pencil, Calculator } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink, Copy, Check, Printer, Download, Pencil, Calculator } from 'lucide-react'
 import { useConfirm } from '@/components/confirm-dialog'
 import { hasAccess } from '@/lib/feature-flags'
 import ApprovalSlots from '@/components/approval-slots'
@@ -16,6 +16,12 @@ import GateChip from '@/components/gate-chip'
 import ChangeOrders from '@/components/change-orders'
 import { SubprojectStatus, loadSubprojectStatusMap } from '@/lib/subproject-status'
 import Link from 'next/link'
+
+// ── Phase 2: legacy inline subproject add is OFF ──
+// The inline "Add Subproject" box is gone. Clicking the dashed row now routes
+// to /projects/[id]/subprojects/new, which creates the subproject and drops
+// the user into the keyboard-first line editor.
+const LEGACY_INLINE_SUBPROJECT_ADD = false
 
 // ── Types ──
 
@@ -29,7 +35,6 @@ interface Project {
   production_phase: 'pre_production' | 'scheduling' | 'in_production' | null
   bid_total: number
   notes: string | null
-  portal_slug: string | null
 }
 
 interface Subproject {
@@ -103,9 +108,6 @@ export default function ProjectDetailPage() {
   const [addingSubproject, setAddingSubproject] = useState(false)
   const [newSubName, setNewSubName] = useState('')
   const [editingField, setEditingField] = useState<string | null>(null)
-  const [portalPassword, setPortalPassword] = useState<string | null>(null)
-  const [portalCopied, setPortalCopied] = useState(false)
-  const [portalBusy, setPortalBusy] = useState(false)
 
   // ── Load Data ──
 
@@ -165,7 +167,11 @@ export default function ProjectDetailPage() {
     }).select().single()
     if (data) {
       setSubprojects(prev => [...prev, data])
-      setExpandedSubs(prev => new Set([...prev, data.id]))
+      setExpandedSubs(prev => {
+        const next = new Set(prev)
+        next.add(data.id)
+        return next
+      })
     }
     setNewSubName('')
     setAddingSubproject(false)
@@ -207,54 +213,6 @@ export default function ProjectDetailPage() {
     const newSubs = subprojects.map(s => s.id === subId ? { ...s, ...dbUpdate } : s)
     setSubprojects(newSubs)
     recalcBidTotal(newSubs)
-  }
-
-  async function enablePortal() {
-    if (!project || portalBusy) return
-    setPortalBusy(true)
-    try {
-      const res = await fetch(`/api/projects/${projectId}/enable-portal`, { method: 'POST' })
-      if (res.ok) {
-        const json = await res.json()
-        setProject(prev => prev ? { ...prev, portal_slug: json.slug } : prev)
-        setPortalPassword(json.password)
-      } else {
-        const json = await res.json().catch(() => ({}))
-        alert(json.error || 'Failed to enable portal')
-      }
-    } finally {
-      setPortalBusy(false)
-    }
-  }
-
-  async function resetPortalPassword() {
-    if (!project || portalBusy) return
-    const ok = await confirm({
-      title: 'Reset Portal Password',
-      message: 'Generate a new password? The old password will stop working immediately.',
-      confirmLabel: 'Reset',
-    })
-    if (!ok) return
-    setPortalBusy(true)
-    try {
-      const res = await fetch(`/api/projects/${projectId}/reset-portal-password`, { method: 'POST' })
-      if (res.ok) {
-        const json = await res.json()
-        setPortalPassword(json.password)
-      } else {
-        alert('Failed to reset password')
-      }
-    } finally {
-      setPortalBusy(false)
-    }
-  }
-
-  function copyPortalLink() {
-    if (!project?.portal_slug) return
-    const url = `${window.location.origin}/portal/${project.portal_slug}`
-    navigator.clipboard.writeText(url)
-    setPortalCopied(true)
-    setTimeout(() => setPortalCopied(false), 2000)
   }
 
   async function recalcBidTotal(subs: Subproject[]) {
@@ -505,91 +463,6 @@ export default function ProjectDetailPage() {
             </div>
           </div>
         </div>
-
-        {/* Client Portal (Pro tier) */}
-        {hasAccess(org?.plan, 'portal') && (
-          <div className="bg-white border border-[#E5E7EB] rounded-xl px-6 py-4 mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Link2 className="w-4 h-4 text-[#6B7280]" />
-                <h2 className="text-sm font-semibold text-[#111]">Client Portal</h2>
-              </div>
-              {project.portal_slug && (
-                <button
-                  onClick={resetPortalPassword}
-                  disabled={portalBusy}
-                  className="inline-flex items-center gap-1 text-xs text-[#6B7280] hover:text-[#111] transition-colors disabled:opacity-50"
-                  title="Generate a new password — the client will get an email with the new link"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  Reset &amp; re-send
-                </button>
-              )}
-            </div>
-
-            {!project.portal_slug ? (
-              <div className="flex items-center justify-between bg-[#F9FAFB] border border-dashed border-[#E5E7EB] rounded-xl px-4 py-4">
-                <div>
-                  <div className="text-sm font-medium text-[#111]">No portal yet</div>
-                  <div className="text-xs text-[#9CA3AF] mt-0.5">Give your client a password-protected page to see progress, approve selections, and sign off drawings.</div>
-                </div>
-                <button
-                  onClick={enablePortal}
-                  disabled={portalBusy}
-                  className="px-3 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 flex-shrink-0 ml-4"
-                >
-                  {portalBusy ? 'Enabling...' : 'Enable Portal'}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg text-sm font-mono text-[#6B7280] truncate">
-                    {typeof window !== 'undefined' ? window.location.origin : ''}/portal/{project.portal_slug}
-                  </div>
-                  <a
-                    href={`/portal/${project.portal_slug}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium text-[#6B7280] hover:text-[#111] border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] transition-colors"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    Open
-                  </a>
-                  <button
-                    onClick={copyPortalLink}
-                    className={`inline-flex items-center gap-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
-                      portalCopied
-                        ? 'bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0]'
-                        : 'bg-[#2563EB] text-white hover:bg-[#1D4ED8]'
-                    }`}
-                  >
-                    {portalCopied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy Link</>}
-                  </button>
-                </div>
-                {portalPassword && (
-                  <div className="flex items-center justify-between bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-4 py-3">
-                    <div>
-                      <div className="text-xs font-medium text-[#92400E] mb-0.5">New password — save it now, we won't show it again</div>
-                      <div className="text-xl font-mono tabular-nums font-bold text-[#92400E] tracking-widest">{portalPassword}</div>
-                    </div>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText(portalPassword); setPortalPassword(portalPassword) }}
-                      className="px-3 py-1.5 bg-white border border-[#FDE68A] text-xs font-medium text-[#92400E] rounded-lg hover:bg-[#FEF3C7] transition-colors"
-                    >
-                      <Copy className="w-3.5 h-3.5 inline mr-1" /> Copy
-                    </button>
-                  </div>
-                )}
-                {!portalPassword && (
-                  <p className="text-[11px] text-[#9CA3AF]">
-                    Your client was emailed the portal link and password when this was created. Click "Reset &amp; re-send" to rotate the password.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Subprojects */}
         <div className="mb-6">
@@ -935,39 +808,49 @@ export default function ProjectDetailPage() {
             })}
           </div>
 
-          {/* Add Subproject */}
-          {addingSubproject ? (
-            <div className="mt-3 flex items-center gap-2">
-              <input
-                autoFocus
-                value={newSubName}
-                onChange={e => setNewSubName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addSubproject(); if (e.key === 'Escape') { setAddingSubproject(false); setNewSubName('') } }}
-                placeholder="Subproject name..."
-                className="flex-1 px-4 py-2.5 text-sm bg-white border border-[#E5E7EB] rounded-xl outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
-              />
-              <button onClick={addSubproject} disabled={saving} className="px-4 py-2.5 bg-[#2563EB] text-white text-sm font-medium rounded-xl hover:bg-[#1D4ED8] transition-colors disabled:opacity-50">
-                Add
+          {/* Add Subproject — legacy inline form, flagged for removal in Phase 2 */}
+          {LEGACY_INLINE_SUBPROJECT_ADD ? (
+            addingSubproject ? (
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={newSubName}
+                  onChange={e => setNewSubName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addSubproject(); if (e.key === 'Escape') { setAddingSubproject(false); setNewSubName('') } }}
+                  placeholder="Subproject name..."
+                  className="flex-1 px-4 py-2.5 text-sm bg-white border border-[#E5E7EB] rounded-xl outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
+                />
+                <button onClick={addSubproject} disabled={saving} className="px-4 py-2.5 bg-[#2563EB] text-white text-sm font-medium rounded-xl hover:bg-[#1D4ED8] transition-colors disabled:opacity-50">
+                  Add
+                </button>
+                <button onClick={() => { setAddingSubproject(false); setNewSubName('') }} className="px-3 py-2.5 text-sm text-[#6B7280] hover:text-[#111]">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setAddingSubproject(true)}
+                className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-[#D1D5DB] rounded-xl text-sm font-medium text-[#6B7280] hover:text-[#111] hover:border-[#9CA3AF] hover:bg-white transition-colors"
+              >
+                <Plus className="w-4 h-4" /> Add Subproject
               </button>
-              <button onClick={() => { setAddingSubproject(false); setNewSubName('') }} className="px-3 py-2.5 text-sm text-[#6B7280] hover:text-[#111]">
-                Cancel
-              </button>
-            </div>
+            )
           ) : (
-            <button
-              onClick={() => setAddingSubproject(true)}
+            <Link
+              href={`/projects/${projectId}/subprojects/new`}
               className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-[#D1D5DB] rounded-xl text-sm font-medium text-[#6B7280] hover:text-[#111] hover:border-[#9CA3AF] hover:bg-white transition-colors"
             >
               <Plus className="w-4 h-4" /> Add Subproject
-            </button>
+            </Link>
           )}
         </div>
 
         {/* Change Orders (Pro tier, sold projects) */}
         {hasAccess(org?.plan, 'pre-production') && project.status === 'active' && (
-          <div className="mb-6">
+          <div id="change-orders" className="mb-6 scroll-mt-24">
             <ChangeOrders
               projectId={projectId}
+              projectName={project.name}
               pricing={{
                 shopRate,
                 consumableMarkupPct: orgDefaults.consumable_markup_pct,

@@ -1,14 +1,16 @@
 'use client'
 
 // ============================================================================
-// /sales — parser-first sales dashboard (mockup #1)
+// /sales — parser-first sales dashboard (Phase 3)
 // ============================================================================
-// Replaces the Apr 18 /leads route. Leads are projects with a stage field
-// (see migration 004 + lib/sales.ts). Three sections:
-//   1. Drop zone hero — parser stub for V1 (creates a blank project at
-//      stage='new_lead'; real PDF parsing is Phase 6+).
+// Leads are projects with a stage field (migration 004 + lib/sales.ts). Three
+// sections:
+//   1. Parser hero — drop PDF → lib/pdf-parser extracts candidates → the user
+//      tags each chip with a role and hits Create. No drop → blank-form
+//      fallback still available.
 //   2. Pipeline tiles — 5 columns driven by projects.stage.
-//   3. Recently parsed — the most recent projects, with their stage chip.
+//   3. Recently parsed — the most recent projects, with stage chip + inline
+//      actions (move stage, quick note, open rollup).
 // ============================================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -24,11 +26,41 @@ import {
   SalesStage,
   StageSummary,
   SubprojectSummary,
+  addProjectNote,
   createBlankLeadProject,
+  createParsedLeadProject,
   loadSalesProjects,
   summarizePipeline,
+  updateProjectStage,
 } from '@/lib/sales'
-import { Upload, FileText, ArrowRight, Plus, LayoutGrid } from 'lucide-react'
+import {
+  CandidateRole,
+  ParsedCandidate,
+  ParsedPdf,
+  ROLE_LABEL,
+  defaultRoleFor,
+  parsePdfFile,
+  roleOptionsFor,
+} from '@/lib/pdf-parser'
+import {
+  Upload,
+  FileText,
+  ArrowRight,
+  Plus,
+  LayoutGrid,
+  Loader2,
+  X,
+  Mail,
+  Phone,
+  MapPin,
+  DollarSign,
+  Calendar,
+  User,
+  Building,
+  StickyNote,
+  MoreHorizontal,
+  Check,
+} from 'lucide-react'
 import Link from 'next/link'
 
 function fmtMoney(n: number) {
@@ -72,17 +104,30 @@ export default function SalesPage() {
 
 function SalesInner() {
   const router = useRouter()
-  const { org } = useAuth()
+  const { org, user } = useAuth()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [projects, setProjects] = useState<SalesProject[]>([])
   const [summaries, setSummaries] = useState<Record<string, SubprojectSummary>>({})
   const [loading, setLoading] = useState(true)
   const [dragOver, setDragOver] = useState(false)
+
+  // Parser flow state.
+  const [parsing, setParsing] = useState(false)
+  const [parsed, setParsed] = useState<ParsedPdf | null>(null)
+  const [roleByCand, setRoleByCand] = useState<Record<string, CandidateRole>>({})
+  const [ignored, setIgnored] = useState<Record<string, boolean>>({})
+  const [projectName, setProjectName] = useState('')
   const [creating, setCreating] = useState(false)
+
+  // Fallback / manual-entry state (shown when parser returns nothing OR the
+  // user clicks "Start a blank project").
   const [showBlankForm, setShowBlankForm] = useState(false)
   const [blankName, setBlankName] = useState('')
   const [blankClient, setBlankClient] = useState('')
+
+  // Inline-note overlay state. Null = closed; otherwise the target project.
+  const [noteFor, setNoteFor] = useState<SalesProject | null>(null)
 
   useEffect(() => {
     if (!org?.id) return
@@ -98,6 +143,61 @@ function SalesInner() {
   const pipeline = summarizePipeline(projects)
   const recent = projects.slice(0, 6)
 
+  async function refreshProjects() {
+    if (!org?.id) return
+    const { projects, summaries } = await loadSalesProjects(org.id)
+    setProjects(projects)
+    setSummaries(summaries)
+  }
+
+  // ── Parser flow ──
+
+  async function runParser(file: File) {
+    setParsing(true)
+    setParsed(null)
+    try {
+      const result = await parsePdfFile(file)
+      setParsed(result)
+      // Seed per-candidate role dropdowns with sensible defaults.
+      const seededRoles: Record<string, CandidateRole> = {}
+      for (const c of result.candidates) seededRoles[c.id] = defaultRoleFor(c)
+      setRoleByCand(seededRoles)
+      setIgnored({})
+      setProjectName(result.projectNameGuess || file.name.replace(/\.[^.]+$/, ''))
+      // Parse-miss fallback: open the manual form pre-filled with the filename.
+      if (!result.parseSucceeded) {
+        setShowBlankForm(true)
+        setBlankName(result.projectNameGuess || file.name.replace(/\.[^.]+$/, ''))
+      } else {
+        setShowBlankForm(false)
+      }
+    } catch (err) {
+      console.error('parser failed', err)
+      setShowBlankForm(true)
+      setBlankName(file.name.replace(/\.[^.]+$/, ''))
+    } finally {
+      setParsing(false)
+    }
+  }
+
+  function handleDroppedFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    const first = files[0]
+    // If the user drops an image or an unknown type we still try — the parser
+    // will return a parse-miss result which we surface as the manual form.
+    runParser(first)
+  }
+
+  function clearParser() {
+    setParsed(null)
+    setRoleByCand({})
+    setIgnored({})
+    setProjectName('')
+    setShowBlankForm(false)
+    setBlankName('')
+    setBlankClient('')
+  }
+
   async function handleBlankSubmit() {
     if (!org?.id || !blankName.trim() || creating) return
     setCreating(true)
@@ -110,16 +210,90 @@ function SalesInner() {
     if (p) router.push(`/projects/${p.id}`)
   }
 
-  // Drop-zone parser stub — V1 just creates a blank project. Hooking this to
-  // a real PDF parser is Phase 6+ per BUILD-PLAN.md.
-  function handleDroppedFiles(files: FileList | null) {
-    if (!files || files.length === 0) return
-    // For now we route the user to the blank-project form with a pre-filled
-    // note that files were "uploaded" — a toast will eventually be replaced
-    // by the real parser preview panel.
-    const firstName = files[0].name.replace(/\.[^.]+$/, '').slice(0, 60)
-    setBlankName(firstName)
-    setShowBlankForm(true)
+  async function handleParsedSubmit() {
+    if (!org?.id || !parsed || !projectName.trim() || creating) return
+    setCreating(true)
+
+    // Resolve role → value. For fields that can reasonably take multiple
+    // candidates (amounts, addresses, etc.) we pick the first non-ignored one
+    // the user mapped there.
+    const pickFirst = (role: CandidateRole): string | null => {
+      for (const c of parsed.candidates) {
+        if (ignored[c.id]) continue
+        if (roleByCand[c.id] === role) return c.value
+      }
+      return null
+    }
+
+    const amountText = pickFirst('amount')
+    const estimated_price =
+      amountText != null ? Number(amountText.replace(/[$,]/g, '')) || null : null
+
+    const intakeContext = {
+      source: 'pdf_parser',
+      file_name: parsed.fileName,
+      page_count: parsed.pageCount,
+      parsed_candidates: parsed.candidates.map((c) => ({
+        id: c.id,
+        kind: c.kind,
+        value: c.value,
+        role: ignored[c.id] ? 'other' : roleByCand[c.id] ?? null,
+      })),
+      role_assignments: {
+        client_name: pickFirst('client_name'),
+        client_company: pickFirst('client_company'),
+        client_email: pickFirst('email'),
+        client_phone: pickFirst('phone'),
+        designer: pickFirst('designer'),
+        gc: pickFirst('gc'),
+        venue: pickFirst('venue'),
+        address: pickFirst('address'),
+        amount: amountText,
+        date: pickFirst('date'),
+      },
+      parsed_at: new Date().toISOString(),
+    }
+
+    const p = await createParsedLeadProject({
+      org_id: org.id,
+      name: projectName.trim(),
+      file_name: parsed.fileName,
+      page_count: parsed.pageCount,
+      client_name: pickFirst('client_name'),
+      client_company: pickFirst('client_company'),
+      client_email: pickFirst('email'),
+      client_phone: pickFirst('phone'),
+      designer_name: pickFirst('designer'),
+      gc_name: pickFirst('gc'),
+      delivery_address: pickFirst('address') || pickFirst('venue'),
+      estimated_price,
+      intake_context: intakeContext,
+    })
+    setCreating(false)
+    if (p) router.push(`/projects/${p.id}`)
+  }
+
+  // ── Inline actions ──
+
+  async function handleStageChange(project: SalesProject, stage: SalesStage) {
+    // optimistic
+    setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, stage } : p)))
+    try {
+      await updateProjectStage(project.id, stage)
+    } catch {
+      refreshProjects()
+    }
+  }
+
+  async function handleAddNote(body: string) {
+    if (!org?.id || !noteFor || !body.trim()) return
+    await addProjectNote({
+      org_id: org.id,
+      project_id: noteFor.id,
+      body: body.trim(),
+      created_by: user?.id,
+    })
+    setNoteFor(null)
   }
 
   return (
@@ -148,57 +322,90 @@ function SalesInner() {
               Drop a PDF. We'll start the project for you.
             </h2>
             <p className="text-sm text-[#6B7280] max-w-xl mb-6">
-              Parser pulls the client, address, and LF counts off the drawings, matches to your
-              existing clients, and pre-fills the subprojects. (Full parser lands in a
-              later release — for now drop a file to start a named project.)
+              Parser pulls the client, address, and dollar amounts off the drawings.
+              Confirm the chips, assign roles, and we create the project.
             </p>
 
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              onDragEnter={(e) => { e.preventDefault(); setDragOver(true) }}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={(e) => { e.preventDefault(); setDragOver(false) }}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDragOver(false)
-                handleDroppedFiles(e.dataTransfer.files)
-              }}
-              className={`border-2 border-dashed rounded-xl px-8 py-10 text-center cursor-pointer transition-all ${
-                dragOver
-                  ? 'border-[#2563EB] bg-[#EFF6FF]'
-                  : 'border-[#D1D5DB] bg-[#F9FAFB] hover:border-[#9CA3AF] hover:bg-white'
-              }`}
-            >
-              <Upload className="w-7 h-7 mx-auto mb-3 text-[#9CA3AF]" />
-              <div className="text-sm font-medium text-[#111] mb-1">
-                Drop drawings here to start a project
-              </div>
-              <div className="text-xs text-[#9CA3AF]">PDF, PNG, JPG · up to 10 files · 40 MB each</div>
-              <div className="inline-block mt-4 px-3 py-1.5 bg-white border border-[#E5E7EB] rounded-lg text-xs font-medium text-[#6B7280]">
-                Browse files
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                accept=".pdf,.png,.jpg,.jpeg"
-                onChange={(e) => handleDroppedFiles(e.target.files)}
-              />
-            </div>
-
-            <div className="mt-5 text-center text-xs text-[#6B7280]">
-              No drawings yet?{' '}
-              <button
-                onClick={() => setShowBlankForm((v) => !v)}
-                className="text-[#2563EB] hover:underline"
+            {!parsed && !parsing && !showBlankForm && (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragEnter={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={(e) => { e.preventDefault(); setDragOver(false) }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDragOver(false)
+                  handleDroppedFiles(e.dataTransfer.files)
+                }}
+                className={`border-2 border-dashed rounded-xl px-8 py-10 text-center cursor-pointer transition-all ${
+                  dragOver
+                    ? 'border-[#2563EB] bg-[#EFF6FF]'
+                    : 'border-[#D1D5DB] bg-[#F9FAFB] hover:border-[#9CA3AF] hover:bg-white'
+                }`}
               >
-                Start a blank project
-              </button>
-            </div>
+                <Upload className="w-7 h-7 mx-auto mb-3 text-[#9CA3AF]" />
+                <div className="text-sm font-medium text-[#111] mb-1">
+                  Drop drawings here to start a project
+                </div>
+                <div className="text-xs text-[#9CA3AF]">PDF · one file · 40 MB</div>
+                <div className="inline-block mt-4 px-3 py-1.5 bg-white border border-[#E5E7EB] rounded-lg text-xs font-medium text-[#6B7280]">
+                  Browse files
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.png,.jpg,.jpeg"
+                  onChange={(e) => handleDroppedFiles(e.target.files)}
+                />
+              </div>
+            )}
+
+            {parsing && (
+              <div className="border-2 border-dashed border-[#BFDBFE] bg-[#EFF6FF] rounded-xl px-8 py-10 text-center">
+                <Loader2 className="w-6 h-6 mx-auto mb-3 text-[#2563EB] animate-spin" />
+                <div className="text-sm font-medium text-[#111] mb-1">Reading the PDF…</div>
+                <div className="text-xs text-[#6B7280]">
+                  Extracting text and candidate entities.
+                </div>
+              </div>
+            )}
+
+            {parsed && parsed.parseSucceeded && !parsing && (
+              <ParsePreview
+                parsed={parsed}
+                projectName={projectName}
+                onProjectName={setProjectName}
+                roleByCand={roleByCand}
+                onRoleChange={(id, role) => setRoleByCand((r) => ({ ...r, [id]: role }))}
+                ignored={ignored}
+                onToggleIgnore={(id) => setIgnored((i) => ({ ...i, [id]: !i[id] }))}
+                onCancel={clearParser}
+                onSubmit={handleParsedSubmit}
+                creating={creating}
+              />
+            )}
+
+            {!parsed && !parsing && (
+              <div className="mt-5 text-center text-xs text-[#6B7280]">
+                No drawings yet?{' '}
+                <button
+                  onClick={() => setShowBlankForm((v) => !v)}
+                  className="text-[#2563EB] hover:underline"
+                >
+                  Start a blank project
+                </button>
+              </div>
+            )}
 
             {showBlankForm && (
               <div className="mt-5 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-5">
+                {parsed && !parsed.parseSucceeded && (
+                  <div className="mb-3 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-xs text-[#92400E]">
+                    Couldn't read candidate entities from {parsed.fileName} — likely a
+                    scanned drawing set. Fill in the basics and we'll open the project.
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
                     <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
@@ -228,7 +435,7 @@ function SalesInner() {
                 </div>
                 <div className="flex justify-end gap-2">
                   <button
-                    onClick={() => { setShowBlankForm(false); setBlankName(''); setBlankClient('') }}
+                    onClick={clearParser}
                     className="px-3 py-2 text-sm text-[#6B7280] hover:text-[#111]"
                   >
                     Cancel
@@ -291,43 +498,216 @@ function SalesInner() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {recent.map((p) => (
-              <Link
+              <RecentCard
                 key={p.id}
-                href={`/projects/${p.id}`}
-                className="bg-white border border-[#E5E7EB] rounded-xl p-4 hover:border-[#9CA3AF] transition-colors"
-              >
-                <div className="flex items-start justify-between mb-1.5">
-                  <div className="text-sm font-semibold text-[#111] truncate">{p.name}</div>
-                  <span
-                    className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md border ${STAGE_CHIP_CLASS[p.stage]}`}
-                  >
-                    {STAGE_SHORT[p.stage]}
-                  </span>
-                </div>
-                <div className="text-xs text-[#9CA3AF] mb-3 truncate">
-                  {p.delivery_address || p.client_name || 'No client/address yet'} ·{' '}
-                  {fmtRelativeDate(p.created_at)}
-                </div>
-                <div className="flex items-center gap-4 text-xs font-mono tabular-nums border-t border-[#F3F4F6] pt-2.5">
-                  <span className="text-[#9CA3AF]">
-                    subs <span className="text-[#111] font-semibold">{summaries[p.id]?.sub_count ?? 0}</span>
-                  </span>
-                  <span className="text-[#9CA3AF]">
-                    LF <span className="text-[#111] font-semibold">{summaries[p.id]?.linear_feet ?? 0}</span>
-                  </span>
-                  <span className="text-[#9CA3AF]">
-                    est.{' '}
-                    <span className="text-[#111] font-semibold">
-                      {fmtMoneyFull(p.bid_total || p.estimated_price)}
-                    </span>
-                  </span>
-                </div>
-              </Link>
+                project={p}
+                summary={summaries[p.id]}
+                onStageChange={(s) => handleStageChange(p, s)}
+                onAddNote={() => setNoteFor(p)}
+                onOpenRollup={() => router.push(`/projects/${p.id}/rollup`)}
+              />
             ))}
           </div>
         )}
       </div>
+
+      {noteFor && (
+        <QuickNoteModal
+          project={noteFor}
+          onClose={() => setNoteFor(null)}
+          onSubmit={handleAddNote}
+        />
+      )}
     </>
+  )
+}
+
+// ── Parse preview panel ──
+
+function ParsePreview({
+  parsed,
+  projectName,
+  onProjectName,
+  roleByCand,
+  onRoleChange,
+  ignored,
+  onToggleIgnore,
+  onCancel,
+  onSubmit,
+  creating,
+}: {
+  parsed: ParsedPdf
+  projectName: string
+  onProjectName: (v: string) => void
+  roleByCand: Record<string, CandidateRole>
+  onRoleChange: (id: string, role: CandidateRole) => void
+  ignored: Record<string, boolean>
+  onToggleIgnore: (id: string) => void
+  onCancel: () => void
+  onSubmit: () => void
+  creating: boolean
+}) {
+  const active = parsed.candidates.filter((c) => !ignored[c.id])
+  const byRole = (role: CandidateRole) =>
+    active.find((c) => roleByCand[c.id] === role) || null
+  const client = byRole('client_name') || byRole('client_company')
+  const email = byRole('email')
+  const phone = byRole('phone')
+  const address = byRole('address') || byRole('venue')
+  const amount = byRole('amount')
+
+  return (
+    <div className="border border-[#E5E7EB] rounded-xl bg-white p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="w-4 h-4 text-[#9CA3AF] flex-shrink-0" />
+          <div className="text-sm font-semibold text-[#111] truncate">
+            {parsed.fileName}
+          </div>
+          <div className="text-[11px] text-[#9CA3AF] flex-shrink-0">
+            · {parsed.pageCount} {parsed.pageCount === 1 ? 'page' : 'pages'} ·
+            {' '}{parsed.candidates.length} candidates
+          </div>
+        </div>
+        <button
+          onClick={onCancel}
+          className="p-1 text-[#9CA3AF] hover:text-[#111] rounded"
+          aria-label="Discard parse"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="mb-4">
+        <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+          Project name
+        </label>
+        <input
+          value={projectName}
+          onChange={(e) => onProjectName(e.target.value)}
+          className="mt-1 w-full text-sm bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 outline-none focus:border-[#2563EB]"
+        />
+      </div>
+
+      <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
+        Parsed candidates — assign a role or ignore
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
+        {parsed.candidates.map((c) => (
+          <CandidateChip
+            key={c.id}
+            candidate={c}
+            role={roleByCand[c.id]}
+            ignored={!!ignored[c.id]}
+            onRoleChange={(r) => onRoleChange(c.id, r)}
+            onToggleIgnore={() => onToggleIgnore(c.id)}
+          />
+        ))}
+      </div>
+
+      {/* Summary strip — "this is what will land on the project" */}
+      <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-3 text-xs text-[#6B7280] mb-4">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1.5">
+          Will save as
+        </div>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+          <Line label="Client" value={client?.value} />
+          <Line label="Email" value={email?.value} />
+          <Line label="Phone" value={phone?.value} />
+          <Line label="Address" value={address?.value} />
+          <Line label="Amount" value={amount?.value} />
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={onCancel}
+          className="px-3 py-2 text-sm text-[#6B7280] hover:text-[#111]"
+        >
+          Discard
+        </button>
+        <button
+          onClick={onSubmit}
+          disabled={!projectName.trim() || creating}
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50"
+        >
+          <Plus className="w-4 h-4" />
+          {creating ? 'Creating…' : 'Create project & open editor'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Line({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="flex items-baseline gap-2 min-w-0">
+      <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] flex-shrink-0">
+        {label}
+      </span>
+      <span className="text-xs text-[#111] truncate font-mono">{value || '—'}</span>
+    </div>
+  )
+}
+
+function CandidateIcon({ kind }: { kind: ParsedCandidate['kind'] }) {
+  const cls = 'w-3.5 h-3.5 text-[#6B7280]'
+  switch (kind) {
+    case 'email': return <Mail className={cls} />
+    case 'phone': return <Phone className={cls} />
+    case 'address': return <MapPin className={cls} />
+    case 'amount': return <DollarSign className={cls} />
+    case 'date': return <Calendar className={cls} />
+    case 'company': return <Building className={cls} />
+    case 'name': return <User className={cls} />
+    default: return <FileText className={cls} />
+  }
+}
+
+function CandidateChip({
+  candidate,
+  role,
+  ignored,
+  onRoleChange,
+  onToggleIgnore,
+}: {
+  candidate: ParsedCandidate
+  role: CandidateRole | undefined
+  ignored: boolean
+  onRoleChange: (r: CandidateRole) => void
+  onToggleIgnore: () => void
+}) {
+  const options = roleOptionsFor(candidate)
+  return (
+    <div
+      className={`flex items-center gap-2 px-2.5 py-1.5 border rounded-lg text-xs ${
+        ignored
+          ? 'bg-[#F3F4F6] border-[#E5E7EB] opacity-60'
+          : 'bg-white border-[#E5E7EB]'
+      }`}
+    >
+      <CandidateIcon kind={candidate.kind} />
+      <div className="font-mono text-[#111] truncate min-w-0 flex-1" title={candidate.value}>
+        {candidate.value}
+      </div>
+      <select
+        disabled={ignored}
+        value={role ?? 'other'}
+        onChange={(e) => onRoleChange(e.target.value as CandidateRole)}
+        className="text-[11px] bg-[#F9FAFB] border border-[#E5E7EB] rounded px-1.5 py-0.5 text-[#6B7280] disabled:opacity-60 outline-none focus:border-[#2563EB]"
+      >
+        {options.map((r) => (
+          <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+        ))}
+      </select>
+      <button
+        onClick={onToggleIgnore}
+        className="p-0.5 text-[#9CA3AF] hover:text-[#111]"
+        title={ignored ? 'Include' : 'Ignore'}
+      >
+        {ignored ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+      </button>
+    </div>
   )
 }
 
@@ -366,6 +746,167 @@ function PipelineTile({ stage, summary }: { stage: SalesStage; summary: StageSum
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Recently-parsed card with inline actions ──
+
+function RecentCard({
+  project,
+  summary,
+  onStageChange,
+  onAddNote,
+  onOpenRollup,
+}: {
+  project: SalesProject
+  summary: SubprojectSummary | undefined
+  onStageChange: (s: SalesStage) => void
+  onAddNote: () => void
+  onOpenRollup: () => void
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  return (
+    <div className="relative bg-white border border-[#E5E7EB] rounded-xl p-4 hover:border-[#9CA3AF] transition-colors">
+      <div className="flex items-start justify-between mb-1.5 gap-2">
+        <Link
+          href={`/projects/${project.id}`}
+          className="text-sm font-semibold text-[#111] truncate hover:underline"
+        >
+          {project.name}
+        </Link>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <span
+            className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md border ${STAGE_CHIP_CLASS[project.stage]}`}
+          >
+            {STAGE_SHORT[project.stage]}
+          </span>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="p-1 text-[#9CA3AF] hover:text-[#111] rounded"
+            aria-label="More actions"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      <div className="text-xs text-[#9CA3AF] mb-3 truncate">
+        {project.delivery_address || project.client_name || 'No client/address yet'} ·{' '}
+        {fmtRelativeDate(project.created_at)}
+      </div>
+      <div className="flex items-center gap-4 text-xs font-mono tabular-nums border-t border-[#F3F4F6] pt-2.5">
+        <span className="text-[#9CA3AF]">
+          subs <span className="text-[#111] font-semibold">{summary?.sub_count ?? 0}</span>
+        </span>
+        <span className="text-[#9CA3AF]">
+          LF <span className="text-[#111] font-semibold">{summary?.linear_feet ?? 0}</span>
+        </span>
+        <span className="text-[#9CA3AF]">
+          est.{' '}
+          <span className="text-[#111] font-semibold">
+            {fmtMoneyFull(project.bid_total || project.estimated_price)}
+          </span>
+        </span>
+      </div>
+
+      {menuOpen && (
+        <>
+          {/* click-off */}
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setMenuOpen(false)}
+          />
+          <div className="absolute right-3 top-10 z-20 w-52 bg-white border border-[#E5E7EB] rounded-lg shadow-lg py-1">
+            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              Move to
+            </div>
+            {SALES_STAGES.filter((s) => s !== project.stage).map((s) => (
+              <button
+                key={s}
+                onClick={() => { setMenuOpen(false); onStageChange(s) }}
+                className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6]"
+              >
+                {STAGE_LABEL[s]}
+              </button>
+            ))}
+            <div className="border-t border-[#F3F4F6] my-1" />
+            <button
+              onClick={() => { setMenuOpen(false); onAddNote() }}
+              className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
+            >
+              <StickyNote className="w-3.5 h-3.5 text-[#9CA3AF]" />
+              Add a note
+            </button>
+            <button
+              onClick={() => { setMenuOpen(false); onOpenRollup() }}
+              className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
+            >
+              <ArrowRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
+              Open rollup
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function QuickNoteModal({
+  project,
+  onClose,
+  onSubmit,
+}: {
+  project: SalesProject
+  onClose: () => void
+  onSubmit: (body: string) => void
+}) {
+  const [body, setBody] = useState('')
+  const [saving, setSaving] = useState(false)
+  async function save() {
+    if (!body.trim() || saving) return
+    setSaving(true)
+    await onSubmit(body)
+    setSaving(false)
+  }
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white border border-[#E5E7EB] rounded-xl w-full max-w-md p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+          Quick note
+        </div>
+        <div className="text-base font-semibold text-[#111] truncate">{project.name}</div>
+        <textarea
+          autoFocus
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save() }}
+          rows={4}
+          placeholder="Left a VM. Sent revised quote on materials."
+          className="mt-3 w-full text-sm bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 outline-none focus:border-[#2563EB] resize-none"
+        />
+        <div className="mt-3 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-3 py-2 text-sm text-[#6B7280] hover:text-[#111]"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={!body.trim() || saving}
+            className="px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save note (⌘↩)'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

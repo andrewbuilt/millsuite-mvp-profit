@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sold handoff — Henderson kitchen — MillSuite</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0a0a0a; color: #e5e5e5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  .app { min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* TOP BAR */
+  .topbar {
+    height: 48px; padding: 0 20px; background: #111; border-bottom: 1px solid #1a1a1a;
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+  }
+  .crumb { font-size: 12px; color: #888; display: flex; align-items: center; gap: 8px; }
+  .crumb .sep { color: #333; }
+  .crumb a { color: #888; cursor: pointer; }
+  .crumb a:hover { color: #fff; }
+  .crumb .curr { color: #ddd; font-weight: 500; }
+  .logo { font-size: 12px; color: #888; letter-spacing: 0.5px; font-weight: 600; }
+  .logo b { color: #fff; font-weight: 700; }
+  .exit-link {
+    font-size: 11.5px; color: #888; cursor: pointer;
+  }
+  .exit-link:hover { color: #fff; }
+
+  /* MAIN */
+  .main { flex: 1; overflow-y: auto; padding: 24px 28px 44px; }
+  .container { max-width: 1160px; margin: 0 auto; }
+
+  /* PROJECT STRIP */
+  .project-strip {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 18px; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 10px; margin-bottom: 20px;
+  }
+  .project-strip .ps-name {
+    font-size: 14px; color: #fff; font-weight: 600;
+  }
+  .project-strip .ps-meta {
+    font-size: 11.5px; color: #888; margin-top: 2px;
+  }
+  .project-strip .ps-total {
+    font-size: 18px; font-weight: 700; color: #fff;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .project-strip .ps-margin {
+    font-size: 11px; color: #86efac; text-align: right;
+    font-family: "SF Mono", Menlo, monospace; margin-top: 2px;
+  }
+
+  /* HEADER / BANNER */
+  .handoff-head {
+    background: linear-gradient(180deg, #1a1e0e 0%, #0f120a 100%);
+    border: 1px solid #2a3315; border-radius: 12px;
+    padding: 24px 28px; margin-bottom: 24px;
+  }
+  .handoff-head .eyebrow {
+    font-size: 10.5px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: #bef264; font-weight: 600; margin-bottom: 8px;
+  }
+  .handoff-head h1 {
+    font-size: 22px; color: #fff; font-weight: 600; margin-bottom: 8px;
+  }
+  .handoff-head .lede {
+    font-size: 13.5px; color: #cbd5b5; line-height: 1.6; max-width: 700px;
+  }
+  .handoff-head .lede b { color: #fff; }
+
+  /* PANELS */
+  .panel {
+    background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 12px;
+    padding: 22px 24px; margin-bottom: 16px;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px; gap: 14px;
+  }
+  .panel-head .ph-left {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .panel-head .p-icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .panel-head .p-title {
+    font-size: 15px; color: #fff; font-weight: 600;
+  }
+  .panel-head .p-sub {
+    font-size: 12px; color: #888; margin-top: 2px;
+  }
+  .panel-head .p-action {
+    font-size: 11.5px; color: #888; cursor: pointer;
+    border-bottom: 1px dashed #333;
+  }
+  .panel-head .p-action:hover { color: #fff; }
+
+  /* PREPROD PANEL */
+  .panel.preprod .p-icon { background: #0c1a2e; color: #4a9eff; }
+  .preprod-intro {
+    padding: 12px 14px; background: #0a0f1a; border: 1px solid #1a2033;
+    border-radius: 8px; margin-bottom: 18px;
+    font-size: 12.5px; color: #aac1e5; line-height: 1.6;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .preprod-intro .pi-icon { color: #4a9eff; font-size: 16px; flex-shrink: 0; margin-top: -2px; }
+  .preprod-intro b { color: #fff; }
+
+  .sel-group { margin-bottom: 18px; }
+  .sel-group:last-child { margin-bottom: 0; }
+  .sg-title {
+    font-size: 11px; letter-spacing: 1.1px; text-transform: uppercase;
+    color: #888; font-weight: 600; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sg-title .count {
+    padding: 2px 8px; background: #1a1a1a; color: #ccc;
+    border-radius: 10px; font-size: 10.5px; letter-spacing: 0.3px;
+    text-transform: none; font-weight: 500;
+  }
+  .sg-title.client .count { background: #2a2515; color: #fbbf24; }
+  .sg-title.ready .count { background: #14291c; color: #86efac; }
+  .sg-title.vendor .count { background: #2a1e3a; color: #c4b5fd; }
+
+  .sel-card {
+    display: grid; grid-template-columns: auto 1fr auto;
+    gap: 14px; align-items: start;
+    padding: 14px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 8px; margin-bottom: 8px;
+    cursor: pointer; transition: border-color 0.15s;
+  }
+  .sel-card:hover { border-color: #2a2a2a; background: #0c0c0c; }
+  .sel-card .sc-status {
+    width: 8px; height: 8px; border-radius: 50%; margin-top: 8px;
+  }
+  .sel-card.status-client .sc-status { background: #fbbf24; }
+  .sel-card.status-ready .sc-status { background: #86efac; }
+  .sel-card.status-vendor .sc-status { background: #c4b5fd; }
+
+  .sel-card .sc-body {
+    min-width: 0;
+  }
+  .sel-card .sc-title {
+    font-size: 13.5px; color: #fff; font-weight: 500; margin-bottom: 4px;
+  }
+  .sel-card .sc-spec {
+    font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 6px;
+  }
+  .sel-card .sc-source {
+    font-size: 10.5px; color: #666; font-family: "SF Mono", Menlo, monospace;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .sel-card .sc-source .arrow {
+    color: #444;
+  }
+  .sel-card .sc-meta {
+    display: flex; flex-direction: column; gap: 4px; align-items: flex-end;
+    flex-shrink: 0;
+  }
+  .sel-card .sc-owner {
+    font-size: 10px; padding: 2px 7px; border-radius: 5px;
+    font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase;
+  }
+  .sc-owner.client { background: #2a2515; color: #fbbf24; }
+  .sc-owner.shop { background: #1a1a1a; color: #aaa; }
+  .sc-owner.vendor { background: #2a1e3a; color: #c4b5fd; }
+  .sel-card .sc-due {
+    font-size: 10.5px; color: #777;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+
+  /* SCHEDULE PANEL */
+  .panel.schedule .p-icon { background: #2a2515; color: #fbbf24; }
+  .capacity-viz {
+    background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px;
+    padding: 16px; margin-bottom: 14px;
+  }
+  .cap-weeks {
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px;
+  }
+  .cap-week {
+    background: #141414; border-radius: 5px; padding: 8px 4px;
+    text-align: center; font-size: 10px; color: #666;
+    position: relative;
+    display: flex; flex-direction: column; justify-content: space-between;
+    min-height: 56px;
+  }
+  .cap-week .cw-label { font-weight: 600; color: #777; }
+  .cap-week .cw-util { font-size: 9px; color: #444; margin-top: 3px; }
+  .cap-week.existing {
+    background: #1a1a1a;
+  }
+  .cap-week.slot {
+    background: #2a2515; border: 1px solid #4a3f25;
+    color: #fbbf24;
+  }
+  .cap-week.slot .cw-label { color: #fbbf24; }
+  .cap-week.slot .cw-util { color: #fbbf24; }
+  .cap-week.install {
+    background: #1a2a1a; border: 1px solid #2e4a2e;
+    color: #86efac;
+  }
+  .cap-week.install .cw-label, .cap-week.install .cw-util { color: #86efac; }
+
+  .sched-summary {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    margin-bottom: 14px;
+  }
+  .sched-box {
+    padding: 12px 14px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 8px;
+  }
+  .sched-box .sb-label {
+    font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase;
+    color: #666; font-weight: 600; margin-bottom: 6px;
+  }
+  .sched-box .sb-val {
+    font-size: 14px; color: #fff; font-weight: 600;
+  }
+  .sched-box .sb-detail {
+    font-size: 11.5px; color: #888; margin-top: 4px;
+  }
+
+  .dept-hrs {
+    display: flex; gap: 8px; flex-wrap: wrap; padding-top: 12px;
+    border-top: 1px solid #1a1a1a;
+  }
+  .dept-chip {
+    padding: 5px 10px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 14px; font-size: 11px; color: #aaa;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .dept-chip b { color: #fff; font-weight: 600; }
+
+  .sched-adjust {
+    font-size: 11.5px; color: #888; padding: 10px 0 0;
+  }
+  .sched-adjust a { color: #4a9eff; cursor: pointer; border-bottom: 1px dashed #2d5a8a; }
+  .sched-adjust a:hover { color: #93c5fd; }
+
+  /* INVOICE PANEL */
+  .panel.invoice .p-icon { background: #14291c; color: #86efac; }
+  .invoice-row {
+    display: grid; grid-template-columns: 1fr auto;
+    padding: 10px 0; border-bottom: 1px solid #141414;
+    font-size: 12.5px;
+  }
+  .invoice-row:last-of-type { border-bottom: none; }
+  .invoice-row .ir-label { color: #ccc; }
+  .invoice-row .ir-detail { font-size: 11px; color: #666; margin-top: 2px; }
+  .invoice-row .ir-val {
+    color: #fff; font-family: "SF Mono", Menlo, monospace; font-weight: 600;
+  }
+  .invoice-row.deposit {
+    background: #0c1a14; border: 1px solid #1f3d2a;
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 8px;
+  }
+  .invoice-row.deposit .ir-val { color: #4ade80; font-size: 14px; }
+  .invoice-row.deposit .ir-label { color: #fff; font-weight: 600; }
+
+  .client-send {
+    padding: 12px 14px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 8px; margin-top: 12px;
+    font-size: 12px; color: #aaa; line-height: 1.5;
+  }
+  .client-send b { color: #fff; }
+
+  /* LOCK PANEL */
+  .panel.lock .p-icon { background: #2a1e3a; color: #c4b5fd; }
+  .lock-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  }
+  .lock-box {
+    padding: 14px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 8px;
+  }
+  .lock-box h4 {
+    font-size: 12px; color: #fff; font-weight: 600; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .lock-box .lb-icon { font-size: 13px; }
+  .lock-box ul { list-style: none; font-size: 12px; color: #aaa; line-height: 1.8; }
+  .lock-box li { padding-left: 16px; position: relative; }
+  .lock-box li::before {
+    content: '→'; position: absolute; left: 0; color: #555;
+  }
+  .lock-box.unlocks li::before { color: #86efac; content: '↑'; }
+  .lock-box.locks li::before { color: #fbbf24; content: '🔒'; font-size: 9px; }
+
+  /* ACTIONS */
+  .actions-bar {
+    position: sticky; bottom: 0; margin-top: 24px;
+    padding: 16px 20px; background: rgba(10,10,10,0.96);
+    backdrop-filter: blur(8px);
+    border: 1px solid #1e1e1e; border-radius: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px;
+  }
+  .actions-bar .left-text {
+    font-size: 11.5px; color: #888;
+  }
+  .actions-bar .right-actions { display: flex; gap: 10px; }
+
+  /* BUTTONS */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 18px; background: #1a1a1a; border: 1px solid #2a2a2a;
+    color: #ddd; border-radius: 8px; cursor: pointer; font-size: 13px;
+    font-family: inherit; font-weight: 500;
+  }
+  .btn:hover { background: #222; border-color: #333; color: #fff; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover { background: #141414; color: #fff; }
+  .btn-primary {
+    background: #1e3a2c; border-color: #2e5e3e; color: #86efac;
+    padding: 10px 22px; font-weight: 600;
+  }
+  .btn-primary:hover { background: #2e5e3e; color: #fff; }
+
+  /* TOAST */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    max-width: 560px; z-index: 100; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 840px) {
+    .lock-grid, .sched-summary { grid-template-columns: 1fr; }
+    .sel-card { grid-template-columns: auto 1fr; }
+    .sel-card .sc-meta { grid-column: 2; align-items: flex-start; flex-direction: row; }
+    .cap-weeks { grid-template-columns: repeat(4, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="crumb">
+      <span class="logo"><b>MillSuite</b></span>
+      <span class="sep">›</span>
+      <a onclick="toast('Back to Projects.')">Projects</a>
+      <span class="sep">›</span>
+      <a onclick="toast('Back to Henderson kitchen rollup.')">Henderson kitchen remodel</a>
+      <span class="sep">›</span>
+      <span class="curr">Handoff</span>
+    </div>
+    <div class="exit-link" onclick="toast('Exits handoff without saving. Project stays in 90% stage.')">← Exit handoff</div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="container">
+
+      <!-- PROJECT STRIP -->
+      <div class="project-strip">
+        <div>
+          <div class="ps-name">Henderson kitchen remodel</div>
+          <div class="ps-meta">Henderson family · 1842 Ridgeview Ln, Nashville TN · 4 subprojects · 193 hrs</div>
+        </div>
+        <div style="text-align:right">
+          <div class="ps-total">$48,320</div>
+          <div class="ps-margin">34% margin · 32% target</div>
+        </div>
+      </div>
+
+      <!-- BANNER -->
+      <div class="handoff-head">
+        <div class="eyebrow">◆ Sales → Production</div>
+        <h1>Mark this project as sold?</h1>
+        <div class="lede">
+          When you confirm, this stops being an estimate and becomes a <b>committed production job</b>. The line item specs flow into preproduction as selection cards, the schedule commits to a slot, the deposit invoice fires to QuickBooks, and the estimate locks — future edits become change orders. Review each section below, then confirm.
+        </div>
+      </div>
+
+      <!-- PREPRODUCTION -->
+      <div class="panel preprod">
+        <div class="panel-head">
+          <div class="ph-left">
+            <div class="p-icon">◇</div>
+            <div>
+              <div class="p-title">Preproduction · 12 selection cards</div>
+              <div class="p-sub">Each estimate line becomes one or more selection cards. Specs travel unchanged.</div>
+            </div>
+          </div>
+          <a class="p-action" onclick="toast('Expands to full preproduction board preview.')">Preview full board →</a>
+        </div>
+
+        <div class="preprod-intro">
+          <span class="pi-icon">◇</span>
+          <div>
+            <b>What's happening here.</b> The spec you quoted is the spec your shop builds. Line items from the estimate carry their spec payload — finish, grade, hardware, dimensions — into preproduction as selection cards. Your production team works from the same data the client saw on the estimate.
+          </div>
+        </div>
+
+        <!-- NEEDS CLIENT -->
+        <div class="sel-group">
+          <div class="sg-title client">
+            ◆ Needs client input <span class="count">3 cards</span>
+          </div>
+
+          <div class="sel-card status-client" onclick="toast('Opens Kitchen hardware selection card — client picks from your hardware catalog.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Kitchen cabinet hardware — knobs &amp; pulls</div>
+              <div class="sc-spec">Spec: soft-close standard, finish TBD. Client selects knob style and pull style from catalog. Shop provides shortlist.</div>
+              <div class="sc-source">
+                from estimate line <span class="arrow">→</span> Kitchen · 22 LF base + 18 LF upper
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner client">Client</div>
+              <div class="sc-due">Due May 1</div>
+            </div>
+          </div>
+
+          <div class="sel-card status-client" onclick="toast('Opens Paint color selection — client picks from approved Benjamin Moore palette.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Paint color &amp; sheen</div>
+              <div class="sc-spec">Spec: paint grade maple, shaker profile. Client selects color and sheen (flat / satin / semi-gloss). Applies to kitchen, butler's pantry, and mudroom.</div>
+              <div class="sc-source">
+                from estimate lines <span class="arrow">→</span> Kitchen doors · Butler doors · Mudroom doors
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner client">Client</div>
+              <div class="sc-due">Due May 8</div>
+            </div>
+          </div>
+
+          <div class="sel-card status-client" onclick="toast('Opens Mudroom hook &amp; bench cushion card.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Mudroom hooks &amp; bench</div>
+              <div class="sc-spec">Hooks and bench cushion excluded from our scope (noted on QB estimate). Confirm client is sourcing separately so we can coordinate delivery.</div>
+              <div class="sc-source">
+                from estimate line <span class="arrow">→</span> Mudroom built-in (exclusion note)
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner client">Client</div>
+              <div class="sc-due">Due May 1</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SHOP READY -->
+        <div class="sel-group">
+          <div class="sg-title ready">
+            ● Shop-ready <span class="count">6 cards · locked from estimate</span>
+          </div>
+
+          <div class="sel-card status-ready" onclick="toast('Opens Kitchen door spec — shaker profile, paint grade, locked.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Kitchen doors — shaker, paint grade</div>
+              <div class="sc-spec">2.5" stile/rail, 5-piece, paint grade maple. 22 LF base + 18 LF upper. Dimensions per drawings A-2.1.</div>
+              <div class="sc-source">
+                from estimate line <span class="arrow">→</span> Kitchen · shaker doors (paint grade) · 22 LF base + 18 LF upper
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner shop">Shop</div>
+              <div class="sc-due">CNC May 4</div>
+            </div>
+          </div>
+
+          <div class="sel-card status-ready" onclick="toast('Opens Kitchen box construction card.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Kitchen cabinet boxes</div>
+              <div class="sc-spec">3/4" plywood, edge-banded interiors, adjustable shelves. Inset face-frame — dimensions per shop drawings.</div>
+              <div class="sc-source">
+                from estimate line <span class="arrow">→</span> Kitchen · custom millwork · 22 LF base + 18 LF upper
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner shop">Shop</div>
+              <div class="sc-due">CNC May 4</div>
+            </div>
+          </div>
+
+          <div class="sel-card status-ready" onclick="toast('Opens Drawer spec card — dovetail, soft-close.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Drawers — dovetail, soft-close</div>
+              <div class="sc-spec">12 drawer fronts detected in kitchen elevations. Dovetail box construction, Blum Tandem soft-close glides standard.</div>
+              <div class="sc-source">
+                from estimate line <span class="arrow">→</span> Kitchen · drawers (soft-close) · 12 ea
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner shop">Shop</div>
+              <div class="sc-due">CNC May 4</div>
+            </div>
+          </div>
+
+          <div class="sel-card status-ready" onclick="toast('Opens Butler pantry card.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Butler's pantry</div>
+              <div class="sc-spec">8 LF base + 8 LF upper. Matches kitchen spec (shaker, paint grade, dovetail drawers). Adjustable shelves throughout.</div>
+              <div class="sc-source">
+                from estimate line <span class="arrow">→</span> Butler's pantry · 8 LF base + 8 LF upper
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner shop">Shop</div>
+              <div class="sc-due">CNC May 7</div>
+            </div>
+          </div>
+
+          <div class="sel-card status-ready" onclick="toast('Opens Mudroom built-in card.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Mudroom built-in — lockers + bench</div>
+              <div class="sc-spec">10 LF. 4-locker layout with upper cubbies and lower bench seat. Inset face-frame, shaker fronts, paint grade to match kitchen.</div>
+              <div class="sc-source">
+                from estimate line <span class="arrow">→</span> Mudroom built-in · 10 LF
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner shop">Shop</div>
+              <div class="sc-due">CNC May 11</div>
+            </div>
+          </div>
+
+          <div class="sel-card status-ready" onclick="toast('Opens Finish prep card — sanding, prime, topcoat schedule.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Finish prep &amp; schedule</div>
+              <div class="sc-spec">Standard prep: sand to 180, 1 coat primer, 2 coats finish. Color locked once client confirms (Paint color card).</div>
+              <div class="sc-source">
+                from estimate lines <span class="arrow">→</span> All painted components
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner shop">Shop</div>
+              <div class="sc-due">Finish May 15</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VENDOR ORDERS -->
+        <div class="sel-group">
+          <div class="sg-title vendor">
+            ◈ Vendor orders <span class="count">3 cards · purchase orders</span>
+          </div>
+
+          <div class="sel-card status-vendor" onclick="toast('Opens Hinge order — Blum compact 38N, qty to calculate from door count.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Hinges — Blum compact 38N</div>
+              <div class="sc-spec">Quantity auto-calculated from door count (approx 48 doors across all subprojects). PO drafts when handoff confirms.</div>
+              <div class="sc-source">
+                from estimate lines <span class="arrow">→</span> all door-carrying lines
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner vendor">Vendor</div>
+              <div class="sc-due">Order by May 1</div>
+            </div>
+          </div>
+
+          <div class="sel-card status-vendor" onclick="toast('Opens Drawer slide order — Blum Tandem soft-close.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Drawer slides — Blum Tandem soft-close</div>
+              <div class="sc-spec">12 pairs. PO drafts when handoff confirms.</div>
+              <div class="sc-source">
+                from estimate line <span class="arrow">→</span> Kitchen · drawers (soft-close)
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner vendor">Vendor</div>
+              <div class="sc-due">Order by May 1</div>
+            </div>
+          </div>
+
+          <div class="sel-card status-vendor" onclick="toast('Opens Pulls/knobs PO — drafts from client hardware selection.')">
+            <div class="sc-status"></div>
+            <div class="sc-body">
+              <div class="sc-title">Pulls &amp; knobs (pending client selection)</div>
+              <div class="sc-spec">Waits on Kitchen hardware card above. PO auto-drafts once client confirms selection — quantity auto-calculated.</div>
+              <div class="sc-source">
+                depends on <span class="arrow">→</span> Kitchen cabinet hardware card
+              </div>
+            </div>
+            <div class="sc-meta">
+              <div class="sc-owner vendor">Vendor</div>
+              <div class="sc-due">After client</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCHEDULE -->
+      <div class="panel schedule">
+        <div class="panel-head">
+          <div class="ph-left">
+            <div class="p-icon">◧</div>
+            <div>
+              <div class="p-title">Schedule · slot placement</div>
+              <div class="p-sub">Current capacity + this project's dept hours → suggested production window.</div>
+            </div>
+          </div>
+          <a class="p-action" onclick="toast('Opens capacity planner to adjust slot manually.')">Adjust slot →</a>
+        </div>
+
+        <div class="capacity-viz">
+          <div class="cap-weeks">
+            <div class="cap-week existing"><div class="cw-label">Apr 20</div><div class="cw-util">92% full</div></div>
+            <div class="cap-week existing"><div class="cw-label">Apr 27</div><div class="cw-util">88% full</div></div>
+            <div class="cap-week slot"><div class="cw-label">May 4</div><div class="cw-util">Henderson starts</div></div>
+            <div class="cap-week slot"><div class="cw-label">May 11</div><div class="cw-util">Henderson</div></div>
+            <div class="cap-week existing"><div class="cw-label">May 18</div><div class="cw-util">Finish cycle</div></div>
+            <div class="cap-week existing"><div class="cw-label">May 25</div><div class="cw-util">70% full</div></div>
+            <div class="cap-week install"><div class="cw-label">Jun 8</div><div class="cw-util">Install wk</div></div>
+            <div class="cap-week existing"><div class="cw-label">Jun 15</div><div class="cw-util">65% full</div></div>
+          </div>
+        </div>
+
+        <div class="sched-summary">
+          <div class="sched-box">
+            <div class="sb-label">Production window</div>
+            <div class="sb-val">May 4 – 15, 2026</div>
+            <div class="sb-detail">CNC → Assembly → Finish · 2 weeks</div>
+          </div>
+          <div class="sched-box">
+            <div class="sb-label">Install target</div>
+            <div class="sb-val">Week of Jun 8</div>
+            <div class="sb-detail">3 days on-site · 2nd-floor premium priced in</div>
+          </div>
+        </div>
+
+        <div class="dept-hrs">
+          <span class="dept-chip">Engineering <b>8.5 hrs</b></span>
+          <span class="dept-chip">CNC <b>14.2 hrs</b></span>
+          <span class="dept-chip">Assembly <b>124.5 hrs</b></span>
+          <span class="dept-chip">Finish <b>16.8 hrs</b></span>
+          <span class="dept-chip">Install <b>30 hrs</b></span>
+        </div>
+
+        <div class="sched-adjust">
+          Locked in once handoff confirms. Need a different start? <a onclick="toast('Opens the capacity planner so you can slot manually.')">Adjust now</a> — otherwise the system uses the next clean window.
+        </div>
+      </div>
+
+      <!-- INVOICE -->
+      <div class="panel invoice">
+        <div class="panel-head">
+          <div class="ph-left">
+            <div class="p-icon">$</div>
+            <div>
+              <div class="p-title">Client &amp; QuickBooks · deposit invoice fires</div>
+              <div class="p-sub">30% deposit bills immediately. Remaining milestones queue as draft invoices.</div>
+            </div>
+          </div>
+          <a class="p-action" onclick="toast('Opens QB estimate/invoice preview with editable descriptions and terms.')">Review in QB →</a>
+        </div>
+
+        <div class="invoice-row deposit">
+          <div>
+            <div class="ir-label">Deposit · 30%</div>
+            <div class="ir-detail">Sends now to QuickBooks as an invoice</div>
+          </div>
+          <div class="ir-val">$14,496</div>
+        </div>
+
+        <div class="invoice-row">
+          <div>
+            <div class="ir-label">At production start</div>
+            <div class="ir-detail">40% — queued as draft, fires when schedule hits May 4</div>
+          </div>
+          <div class="ir-val">$19,328</div>
+        </div>
+        <div class="invoice-row">
+          <div>
+            <div class="ir-label">At install start</div>
+            <div class="ir-detail">20% — queued as draft, fires when install kicks off</div>
+          </div>
+          <div class="ir-val">$9,664</div>
+        </div>
+        <div class="invoice-row">
+          <div>
+            <div class="ir-label">Final</div>
+            <div class="ir-detail">10% — queued, fires at install completion</div>
+          </div>
+          <div class="ir-val">$4,832</div>
+        </div>
+
+        <div class="client-send">
+          <b>Goes to:</b> Sarah Henderson &lt;sarah.henderson@example.com&gt; · Henderson family · on file since Feb 2025.<br>
+          <b>Terms:</b> Deposit due on receipt. Remaining balance billed at milestones per the terms block on the estimate.
+        </div>
+      </div>
+
+      <!-- LOCK -->
+      <div class="panel lock">
+        <div class="panel-head">
+          <div class="ph-left">
+            <div class="p-icon">⚑</div>
+            <div>
+              <div class="p-title">What locks &amp; what unlocks</div>
+              <div class="p-sub">After handoff, the project enters production mode. Some surfaces lock, others go live.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="lock-grid">
+          <div class="lock-box locks">
+            <h4><span class="lb-icon">🔒</span> Locks</h4>
+            <ul>
+              <li>Estimate line items — edits require a change order</li>
+              <li>Pricing and rate overrides for this project</li>
+              <li>Subproject scope (add/remove via change order only)</li>
+              <li>QB estimate → becomes a committed invoice series</li>
+            </ul>
+          </div>
+          <div class="lock-box unlocks">
+            <h4><span class="lb-icon">🔓</span> Unlocks</h4>
+            <ul>
+              <li>Preproduction selection cards (live for shop + client)</li>
+              <li>Schedule slot committed &amp; visible to the team</li>
+              <li>Time tracking against this project's subprojects</li>
+              <li>Change order workflow — for any post-sold adjustments</li>
+            </ul>
+          </div>
+        </div>
+
+        <div style="font-size:11.5px; color:#666; margin-top:14px; font-style:italic;">
+          Note: the change order workflow is scaffolded — full build coming. For now, unlocked surfaces are live and the estimate is locked.
+        </div>
+      </div>
+
+      <!-- ACTIONS -->
+      <div class="actions-bar">
+        <div class="left-text">
+          You can still exit without committing. Nothing fires until you confirm.
+        </div>
+        <div class="right-actions">
+          <button class="btn btn-ghost" onclick="toast('Exits handoff. Project stays in 90% stage — revisit when ready.')">Exit without committing</button>
+          <button class="btn" onclick="toast('Saved a handoff draft — all selections captured, but not committed. Deposit does not fire.')">Save handoff as draft</button>
+          <button class="btn btn-primary" onclick="confirmHandoff()">✓ Confirm &amp; mark as sold</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function $(id) { return document.getElementById(id); }
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 3000);
+}
+function confirmHandoff() {
+  toast('✓ Project sold. 12 selection cards live in preproduction. Slot locked May 4–15. Deposit invoice sent to QB. Estimate locked.');
+}
+</script>
+</body>
+</html>

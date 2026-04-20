@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales · parser-first dashboard — MillSuite</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0a0a0a; color: #e5e5e5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  .app { min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* TOP BAR */
+  .topbar {
+    height: 48px; padding: 0 20px; background: #111; border-bottom: 1px solid #1a1a1a;
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    position: relative;
+  }
+  .logo { font-size: 12px; color: #888; letter-spacing: 0.5px; font-weight: 600;
+    padding-right: 14px; border-right: 1px solid #1e1e1e; margin-right: 6px;
+  }
+  .logo b { color: #fff; font-weight: 700; }
+  .nav { display: flex; gap: 2px; flex: 1; }
+  .nav-item {
+    position: relative;
+    font-size: 12.5px; color: #999; padding: 6px 12px;
+    cursor: pointer; border-radius: 6px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .nav-item:hover { background: #1a1a1a; color: #fff; }
+  .nav-item.active { color: #fff; background: #141414; }
+  .nav-item.active::after {
+    content: ''; position: absolute; left: 10px; right: 10px; bottom: -14px;
+    height: 2px; background: #4a9eff;
+  }
+  .nav-item .chev { font-size: 9px; color: #555; margin-left: 2px; }
+  .nav-item:hover .chev { color: #999; }
+
+  .subnav {
+    position: absolute; top: 100%; left: 0;
+    margin-top: 6px; min-width: 200px;
+    background: #0d0d0d; border: 1px solid #222; border-radius: 10px;
+    padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+    display: none; z-index: 60;
+  }
+  .nav-item:hover .subnav { display: block; }
+  .subnav-item {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 8px 12px; border-radius: 6px;
+    font-size: 12.5px; color: #ccc; cursor: pointer;
+  }
+  .subnav-item:hover { background: #1a1a1a; color: #fff; }
+  .subnav-item .sn-desc { font-size: 10.5px; color: #666; }
+
+  .user-chip {
+    font-size: 11px; color: #999; padding: 4px 10px; background: #1a1a1a;
+    border: 1px solid #222; border-radius: 10px;
+  }
+
+  /* MAIN */
+  .main { flex: 1; overflow-y: auto; padding: 32px 28px 44px; }
+  .container { max-width: 1160px; margin: 0 auto; }
+
+  /* HEADER */
+  .page-head {
+    margin-bottom: 24px;
+  }
+  .page-head h1 { font-size: 24px; color: #fff; font-weight: 700; margin-bottom: 4px; }
+  .page-head .sub { font-size: 13px; color: #888; }
+
+  /* HERO: PARSER DROPZONE */
+  .hero {
+    background: linear-gradient(180deg, #0e0e0e 0%, #0a0a0a 100%);
+    border: 1px solid #1e1e1e; border-radius: 16px;
+    padding: 38px 32px;
+    margin-bottom: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 30% 0%, rgba(74, 158, 255, 0.08), transparent 60%);
+    pointer-events: none;
+  }
+  .hero-inner { position: relative; }
+
+  .hero-eyebrow {
+    font-size: 10.5px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: #4a9eff; font-weight: 600; margin-bottom: 10px;
+  }
+  .hero h2 {
+    font-size: 24px; color: #fff; font-weight: 600; margin-bottom: 8px;
+    line-height: 1.3;
+  }
+  .hero .hero-lede {
+    font-size: 13.5px; color: #aaa; max-width: 560px; margin-bottom: 22px;
+    line-height: 1.55;
+  }
+
+  .dropzone {
+    border: 2px dashed #2a2a2a; border-radius: 12px;
+    padding: 36px 28px;
+    background: #080808;
+    text-align: center;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+  .dropzone:hover {
+    border-color: #4a9eff; background: #0a1420;
+  }
+  .dropzone.dragging {
+    border-color: #4a9eff; background: #0e1e33;
+    transform: scale(1.005);
+  }
+  .dropzone .dz-icon {
+    font-size: 32px; margin-bottom: 12px; color: #666;
+  }
+  .dropzone:hover .dz-icon, .dropzone.dragging .dz-icon { color: #4a9eff; }
+  .dropzone .dz-main {
+    font-size: 15px; color: #fff; font-weight: 500; margin-bottom: 6px;
+  }
+  .dropzone .dz-sub {
+    font-size: 12px; color: #777;
+  }
+  .dropzone .dz-browse {
+    display: inline-block; margin-top: 14px; padding: 7px 14px;
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 7px; color: #ddd; font-size: 12px;
+    cursor: pointer;
+  }
+  .dropzone .dz-browse:hover { background: #222; border-color: #333; }
+
+  .hero-alt {
+    margin-top: 18px; text-align: center; font-size: 12px; color: #666;
+  }
+  .hero-alt a {
+    color: #999; cursor: pointer; border-bottom: 1px dashed #333;
+  }
+  .hero-alt a:hover { color: #fff; border-color: #555; }
+
+  /* PARSED STATE */
+  .parsed-panel {
+    background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 16px;
+    padding: 28px; margin-bottom: 28px;
+    display: none;
+  }
+  .parsed-panel.open { display: block; }
+
+  /* Parse-miss: swap chips for editable inputs, show warning */
+  .miss-banner {
+    display: none; padding: 12px 14px; margin-bottom: 16px;
+    background: #2a1e14; border: 1px solid #4a3a20; border-radius: 8px;
+    font-size: 12.5px; color: #fbbf24;
+  }
+  .parsed-panel.miss .miss-banner { display: block; }
+  .parsed-panel.miss .candidates,
+  .parsed-panel.miss .role-row,
+  .parsed-panel.miss .sub-detect,
+  .parsed-panel.miss .addr-field { display: none; }
+  .parsed-panel:not(.miss) .miss-fallback { display: none; }
+  .miss-fallback {
+    padding: 10px 12px; background: #0a0a0a;
+    border: 1px dashed #2a2a2a; border-radius: 8px;
+    color: #888; font-size: 13px;
+  }
+  .miss-input {
+    width: 100%; padding: 11px 14px;
+    background: #141414; border: 1px solid #2a2a2a; border-radius: 8px;
+    font-size: 13.5px; color: #fff; font-family: inherit;
+  }
+  .miss-input:focus { outline: none; border-color: #4a9eff; background: #0c1a2e; }
+  .parsed-panel.miss .conf-chip.high-only { display: none; }
+  .miss-conf { display: none; }
+  .parsed-panel.miss .miss-conf { display: inline-flex; }
+  .parsed-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 20px; gap: 16px;
+  }
+  .parsed-head h3 {
+    font-size: 17px; color: #fff; font-weight: 600; margin-bottom: 4px;
+  }
+  .parsed-head .parsed-sub {
+    font-size: 12.5px; color: #888;
+  }
+  .parsed-head .file-chip {
+    font-size: 11px; padding: 4px 10px; background: #0c1a2e;
+    color: #93c5fd; border: 1px solid #1e3a5f; border-radius: 10px;
+    display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  .parsed-files {
+    display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+
+  .review-section {
+    padding: 18px 0; border-top: 1px solid #1a1a1a;
+  }
+  .review-section:first-of-type { border-top: none; padding-top: 0; }
+  .rv-label {
+    font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase;
+    color: #666; font-weight: 600; margin-bottom: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .rv-label .conf-chip {
+    font-size: 10px; padding: 2px 7px;
+    background: #14291c; color: #86efac; border: 1px solid #1f3d2a;
+    border-radius: 8px; letter-spacing: 0.3px; text-transform: none;
+  }
+  .rv-label .conf-chip.med {
+    background: #2a2515; color: #fbbf24; border-color: #3d3420;
+  }
+  .rv-label .conf-chip.low {
+    background: #2a1f1f; color: #fca5a5; border-color: #3d2a2a;
+  }
+
+  /* Candidate chips */
+  .candidates {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .cand {
+    padding: 9px 14px;
+    background: #141414; border: 1px solid #2a2a2a; border-radius: 10px;
+    font-size: 13px; color: #ccc; cursor: pointer;
+    transition: all 0.15s;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .cand .c-meta { color: #666; font-size: 10.5px; }
+  .cand:hover { border-color: #444; color: #fff; }
+  .cand.selected {
+    background: #0e1e33; border-color: #4a9eff; color: #fff;
+  }
+  .cand.selected::before {
+    content: '✓ '; color: #4a9eff;
+  }
+  .cand.cand-add {
+    border-style: dashed; color: #888;
+  }
+  .cand.cand-add:hover { border-color: #4a9eff; color: #4a9eff; }
+  .cand.ignored {
+    opacity: 0.45; text-decoration: line-through; color: #666;
+  }
+  .cand .c-existing {
+    font-size: 10px; padding: 2px 6px; background: #14291c;
+    color: #86efac; border-radius: 4px; letter-spacing: 0.3px;
+    font-weight: 600;
+  }
+
+  /* Role rows */
+  .role-row {
+    display: grid; grid-template-columns: 1fr auto;
+    padding: 10px 12px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 8px; margin-bottom: 6px;
+    align-items: center;
+  }
+  .role-row .role-name { font-size: 13px; color: #ddd; }
+  .role-row .role-detail { font-size: 11px; color: #666; margin-top: 2px; }
+  .role-row .role-actions { display: flex; gap: 6px; }
+  .role-row select {
+    font-size: 12px; padding: 5px 8px;
+    background: #141414; border: 1px solid #2a2a2a; color: #ddd;
+    border-radius: 6px; font-family: inherit;
+  }
+  .role-row select:focus { outline: none; border-color: #4a9eff; }
+
+  /* Address display */
+  .addr-field {
+    padding: 11px 14px;
+    background: #141414; border: 1px solid #2a2a2a; border-radius: 8px;
+    font-size: 13.5px; color: #fff; font-family: "SF Mono", Menlo, monospace;
+    cursor: text;
+  }
+  .addr-field:hover { border-color: #444; }
+  .addr-input {
+    width: 100%; padding: 11px 14px;
+    background: #141414; border: 1px solid #2a2a2a; border-radius: 8px;
+    font-size: 13.5px; color: #fff; font-family: "SF Mono", Menlo, monospace;
+  }
+  .addr-input:focus { outline: none; border-color: #4a9eff; background: #0c1a2e; }
+
+  /* Subproject review */
+  .sub-detect {
+    background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 6px;
+    display: grid; grid-template-columns: auto 1fr auto;
+    gap: 12px; align-items: center;
+  }
+  .sub-detect .sd-check {
+    width: 18px; height: 18px; border: 1.5px solid #4a9eff;
+    border-radius: 4px; background: #0e1e33;
+    display: flex; align-items: center; justify-content: center;
+    color: #4a9eff; font-size: 12px; font-weight: 700;
+    cursor: pointer;
+  }
+  .sub-detect.off .sd-check {
+    background: transparent; border-color: #333; color: transparent;
+  }
+  .sub-detect.off { opacity: 0.55; }
+  .sub-detect .sd-name { font-size: 13.5px; color: #fff; font-weight: 500; }
+  .sub-detect .sd-meta { font-size: 11.5px; color: #888; margin-top: 2px; }
+  .sub-detect .sd-tag {
+    font-size: 10px; padding: 2px 8px; background: #1a1a1a;
+    color: #888; border: 1px solid #2a2a2a; border-radius: 6px;
+    letter-spacing: 0.3px;
+  }
+
+  /* Actions */
+  .parsed-actions {
+    margin-top: 24px; padding-top: 20px; border-top: 1px solid #1a1a1a;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; flex-wrap: wrap;
+  }
+  .parsed-actions .left { display: flex; gap: 8px; }
+
+  /* SECTION TITLE */
+  .section-title {
+    font-size: 11px; color: #666; text-transform: uppercase;
+    letter-spacing: 1.2px; font-weight: 600; margin: 8px 0 14px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .section-title a {
+    font-size: 11px; color: #777; cursor: pointer; letter-spacing: 0.3px;
+    text-transform: none; font-weight: 400; border-bottom: 1px dashed #333;
+  }
+  .section-title a:hover { color: #fff; }
+
+  /* PIPELINE */
+  .pipeline {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+    margin-bottom: 28px;
+  }
+  .pipe-col {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 10px;
+    padding: 14px 12px;
+  }
+  .pipe-col .pc-label {
+    font-size: 10.5px; color: #888; text-transform: uppercase;
+    letter-spacing: 0.8px; font-weight: 600; margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .pipe-col .pc-count {
+    font-size: 22px; font-weight: 700; color: #fff;
+    font-family: "SF Mono", Menlo, monospace; margin-bottom: 2px;
+  }
+  .pipe-col .pc-value {
+    font-size: 11px; color: #666; font-family: "SF Mono", Menlo, monospace;
+  }
+  .pipe-col.sold { background: #0c1a14; border-color: #1f3d2a; }
+  .pipe-col.sold .pc-count { color: #86efac; }
+  .pipe-col.lost { background: #0e0a0a; border-color: #2a1a1a; }
+  .pipe-col.lost .pc-count { color: #888; }
+  .pipe-col .pc-top {
+    font-size: 11px; color: #aaa; margin-top: 8px; line-height: 1.5;
+    padding-top: 8px; border-top: 1px solid #1a1a1a;
+  }
+
+  /* RECENT */
+  .recent-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+  }
+  .lead-card {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 10px;
+    padding: 14px 16px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .lead-card:hover { border-color: #2a2a2a; background: #111; }
+  .lead-card .lc-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 6px;
+  }
+  .lead-card .lc-name {
+    font-size: 13.5px; color: #fff; font-weight: 600;
+  }
+  .lead-card .lc-stage {
+    font-size: 10px; padding: 2px 8px; border-radius: 6px;
+    letter-spacing: 0.4px; font-weight: 600; text-transform: uppercase;
+  }
+  .st-new   { background: #1a1e2a; color: #93c5fd; }
+  .st-50    { background: #2a2515; color: #fbbf24; }
+  .st-90    { background: #1a2a1a; color: #86efac; }
+  .st-sold  { background: #14291c; color: #4ade80; }
+  .lead-card .lc-meta {
+    font-size: 11.5px; color: #888; margin-bottom: 10px;
+  }
+  .lead-card .lc-nums {
+    display: flex; gap: 14px; font-size: 11.5px;
+    font-family: "SF Mono", Menlo, monospace;
+    padding-top: 10px; border-top: 1px solid #1a1a1a;
+  }
+  .lead-card .lc-nums span { color: #666; }
+  .lead-card .lc-nums b { color: #fff; font-weight: 600; }
+
+  /* TOAST */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    max-width: 520px; z-index: 100; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* BUTTONS */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 16px; background: #1a1a1a; border: 1px solid #2a2a2a;
+    color: #ddd; border-radius: 8px; cursor: pointer; font-size: 12.5px;
+    font-family: inherit; font-weight: 500;
+  }
+  .btn:hover { background: #222; border-color: #333; color: #fff; }
+  .btn-primary { background: #1e3a5f; border-color: #2d5a8a; color: #fff; }
+  .btn-primary:hover { background: #2d5a8a; }
+  .btn-good { background: #1e3a2c; border-color: #2e5e3e; color: #86efac; }
+  .btn-good:hover { background: #2e5e3e; color: #fff; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover { background: #141414; color: #fff; }
+
+  @media (max-width: 920px) {
+    .pipeline { grid-template-columns: repeat(2, 1fr); }
+    .recent-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 600px) {
+    .pipeline { grid-template-columns: 1fr; }
+    .main { padding: 20px 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div style="display:flex; align-items:center; gap:4px;">
+      <span class="logo"><b>MillSuite</b></span>
+      <nav class="nav">
+        <div class="nav-item active" onclick="toast('Clicking Sales lands you here — the parser-first dashboard.')">
+          Sales <span class="chev">▾</span>
+          <div class="subnav">
+            <div class="subnav-item" onclick="event.stopPropagation(); toast('Already on dashboard.')">
+              <span>Dashboard</span>
+              <span class="sn-desc">Parser + pipeline overview</span>
+            </div>
+            <div class="subnav-item" onclick="event.stopPropagation(); toast('Opens Kanban pipeline.')">
+              <span>Kanban pipeline</span>
+              <span class="sn-desc">Drag leads through stages</span>
+            </div>
+            <div class="subnav-item" onclick="event.stopPropagation(); toast('Opens clients list.')">
+              <span>Clients</span>
+              <span class="sn-desc">CRM · contacts · history</span>
+            </div>
+          </div>
+        </div>
+        <div class="nav-item" onclick="toast('Opens Projects — active jobs in the shop.')">Projects</div>
+        <div class="nav-item" onclick="toast('Opens Scheduling module.')">Schedule</div>
+        <div class="nav-item" onclick="toast('Opens Financials.')">Financials</div>
+        <div class="nav-item" onclick="toast('Opens Team.')">Team</div>
+      </nav>
+    </div>
+    <div class="user-chip">Henderson Millwork · AW</div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="container">
+
+      <div class="page-head">
+        <h1>Sales</h1>
+        <div class="sub">New work starts here. Drop a set of drawings and we'll pull the project together.</div>
+      </div>
+
+      <!-- HERO: PARSER -->
+      <div class="hero" id="hero">
+        <div class="hero-inner">
+          <div class="hero-eyebrow">◆ Start with drawings</div>
+          <h2>Drop a PDF. We'll start the project for you.</h2>
+          <div class="hero-lede">
+            We'll pull the client, address, and LF counts off the drawings, match to your existing clients, and pre-fill the subprojects. Review and confirm — most projects go from drop to draft in under a minute.
+          </div>
+
+          <div class="dropzone" id="dz" onclick="simulateParse()">
+            <div class="dz-icon">⤓</div>
+            <div class="dz-main">Drop drawings here to start a project</div>
+            <div class="dz-sub">PDF, PNG, JPG · up to 10 files · 40 MB each</div>
+            <div class="dz-browse">Browse files</div>
+          </div>
+
+          <div class="hero-alt">
+            No drawings yet? <a onclick="startBlank()">Start a blank project</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- PARSED STATE -->
+      <div class="parsed-panel" id="parsed">
+
+        <div class="parsed-head">
+          <div>
+            <h3>Review what we found</h3>
+            <div class="parsed-sub">Tweak anything that's off, then create the project. Nothing updates until you click Create.</div>
+          </div>
+          <div class="parsed-files">
+            <span class="file-chip">📄 A-1.0 Cover.pdf</span>
+            <span class="file-chip">📄 A-2.1 Kitchen Plan.pdf</span>
+            <span class="file-chip">📄 A-4.3 Elevations.pdf</span>
+          </div>
+        </div>
+
+        <div class="miss-banner">
+          ⚠ We couldn't pull everything from these drawings — probably scanned images or tight title blocks. Fill in what's missing below, then create the project.
+        </div>
+
+        <!-- CLIENT -->
+        <div class="review-section">
+          <div class="rv-label">
+            <span>Who's the client?</span>
+            <span class="conf-chip">High confidence · 2 candidates</span>
+          </div>
+          <div class="candidates" id="clientRow">
+            <div class="cand" data-role="client">
+              Henderson family <span class="c-meta">· contract block</span>
+              <span class="c-existing">existing client</span>
+            </div>
+            <div class="cand" data-role="client">
+              Sarah Henderson <span class="c-meta">· title block owner</span>
+            </div>
+            <div class="cand ignored" data-role="client">
+              Ridgeview Design LLC <span class="c-meta">· architect</span>
+            </div>
+            <div class="cand cand-add" onclick="toast('Add a new client — opens inline entry.')">
+              + Add new client
+            </div>
+          </div>
+          <div class="miss-fallback">
+            <input class="miss-input" placeholder="Client name — search existing or type new">
+            <div style="font-size:11px; color:#666; margin-top:6px;">We didn't find a clear client on the drawings. Pick from your CRM or add new.</div>
+          </div>
+          <div style="font-size:11.5px; color:#666; margin-top:10px;">
+            Click to select. Click again to ignore. Nothing is pre-selected — you must confirm the client.
+          </div>
+        </div>
+
+        <!-- ADDRESS -->
+        <div class="review-section">
+          <div class="rv-label">
+            <span>Project address</span>
+            <span class="conf-chip">High confidence</span>
+          </div>
+          <div class="addr-field" onclick="this.outerHTML='<input class=addr-input value=\'1842 Ridgeview Ln, Nashville TN 37203\'>'">
+            1842 Ridgeview Ln, Nashville TN 37203
+          </div>
+          <div class="miss-fallback">
+            <input class="miss-input" placeholder="Street address, city, state ZIP">
+          </div>
+        </div>
+
+        <!-- OTHER ROLES -->
+        <div class="review-section">
+          <div class="rv-label">
+            <span>Other names on the drawings</span>
+            <span class="conf-chip med">Review · auto-ignored architects &amp; engineers</span>
+          </div>
+
+          <div class="role-row">
+            <div>
+              <div class="role-name">Mark Thompson, AIA</div>
+              <div class="role-detail">title block · architect</div>
+            </div>
+            <div class="role-actions">
+              <select>
+                <option selected>Ignore (default)</option>
+                <option>Save as architect contact</option>
+                <option>Set as client</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="role-row">
+            <div>
+              <div class="role-name">BuildRight Construction</div>
+              <div class="role-detail">GC · cover sheet</div>
+            </div>
+            <div class="role-actions">
+              <select>
+                <option>Ignore</option>
+                <option selected>Save as GC contact</option>
+                <option>Set as client</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="role-row">
+            <div>
+              <div class="role-name">Stonehill Engineering</div>
+              <div class="role-detail">structural engineer · sheet A-4.3</div>
+            </div>
+            <div class="role-actions">
+              <select>
+                <option selected>Ignore</option>
+                <option>Save as contact</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUBPROJECTS -->
+        <div class="review-section">
+          <div class="rv-label">
+            <span>Subprojects we detected</span>
+            <span class="conf-chip">3 detected · 48 LF total</span>
+          </div>
+
+          <div class="sub-detect" onclick="toggleSD(this)">
+            <div class="sd-check">✓</div>
+            <div>
+              <div class="sd-name">Kitchen</div>
+              <div class="sd-meta">22 LF base · 18 LF upper · shaker doors visible in elevations · 12 drawer fronts detected</div>
+            </div>
+            <div class="sd-tag">sheet A-2.1</div>
+          </div>
+
+          <div class="sub-detect" onclick="toggleSD(this)">
+            <div class="sd-check">✓</div>
+            <div>
+              <div class="sd-name">Butler's pantry</div>
+              <div class="sd-meta">8 LF base · 8 LF upper · inferred from plan callout</div>
+            </div>
+            <div class="sd-tag">sheet A-2.1</div>
+          </div>
+
+          <div class="sub-detect" onclick="toggleSD(this)">
+            <div class="sd-check">✓</div>
+            <div>
+              <div class="sd-name">Mudroom built-in</div>
+              <div class="sd-meta">10 LF · bench + lockers shown in elevation</div>
+            </div>
+            <div class="sd-tag">sheet A-4.3</div>
+          </div>
+
+          <div class="miss-fallback">
+            No subprojects detected. You'll add them after creating the project — parse more drawings from inside the project, or add blank subprojects manually.
+          </div>
+          <div style="font-size:11.5px; color:#666; margin-top:10px;">
+            Click to deselect. You can add, rename, or split subprojects after the project is created.
+          </div>
+        </div>
+
+        <!-- ACTIONS -->
+        <div class="parsed-actions">
+          <div class="left">
+            <button class="btn btn-ghost" onclick="closeParsed()">← Cancel</button>
+            <a style="font-size:11.5px; color:#666; margin-left:8px; border-bottom:1px dashed #333; cursor:pointer; padding:9px 0" onclick="showMissState()">Show parse-miss state →</a>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap: wrap">
+            <button class="btn btn-primary" onclick="toast('Project created as a New Lead. Kitchen, Butler&#39;s pantry, and Mudroom pre-populated with detected LF. Jumping into the subproject editor.')">Create project &amp; open editor</button>
+          </div>
+        </div>
+        <div style="font-size:11px; color:#555; margin-top:12px; text-align:right; font-style:italic;">
+          No lead-only save — every parse becomes a project. If it doesn't move, mark it lost.
+        </div>
+      </div>
+
+      <!-- PIPELINE -->
+      <div class="section-title">
+        Pipeline this month
+        <a onclick="toast('Opens full Kanban pipeline view.')">Open Kanban →</a>
+      </div>
+      <div class="pipeline">
+        <div class="pipe-col">
+          <div class="pc-label">New lead <span style="color:#4a9eff">●</span></div>
+          <div class="pc-count">4</div>
+          <div class="pc-value">$92K pipeline</div>
+          <div class="pc-top">Top: Walsh kitchen remodel · $28K</div>
+        </div>
+        <div class="pipe-col">
+          <div class="pc-label">50/50</div>
+          <div class="pc-count">3</div>
+          <div class="pc-value">$78K pipeline</div>
+          <div class="pc-top">Top: Henderson kitchen · $48K</div>
+        </div>
+        <div class="pipe-col">
+          <div class="pc-label">90%</div>
+          <div class="pc-count">2</div>
+          <div class="pc-value">$41K pipeline</div>
+          <div class="pc-top">Top: Park Ave library · $26K</div>
+        </div>
+        <div class="pipe-col sold">
+          <div class="pc-label">Sold MTD</div>
+          <div class="pc-count">5</div>
+          <div class="pc-value">$112K booked</div>
+          <div class="pc-top">Close rate: 62%</div>
+        </div>
+        <div class="pipe-col lost">
+          <div class="pc-label">Lost MTD</div>
+          <div class="pc-count">3</div>
+          <div class="pc-value">$54K missed</div>
+          <div class="pc-top">2 on price, 1 on timeline</div>
+        </div>
+      </div>
+
+      <!-- RECENT -->
+      <div class="section-title">
+        Recently parsed
+        <a onclick="toast('Opens full list of leads and projects.')">View all →</a>
+      </div>
+      <div class="recent-grid">
+        <div class="lead-card" onclick="toast('Opens Henderson kitchen project detail.')">
+          <div class="lc-head">
+            <div class="lc-name">Henderson kitchen remodel</div>
+            <div class="lc-stage st-50">50/50</div>
+          </div>
+          <div class="lc-meta">1842 Ridgeview Ln · parsed from 3 PDFs · 2 days ago</div>
+          <div class="lc-nums">
+            <span>subs <b>4</b></span>
+            <span>LF <b>48</b></span>
+            <span>est. <b>$48,320</b></span>
+          </div>
+        </div>
+
+        <div class="lead-card" onclick="toast('Opens Walsh project detail.')">
+          <div class="lc-head">
+            <div class="lc-name">Walsh kitchen remodel</div>
+            <div class="lc-stage st-new">New</div>
+          </div>
+          <div class="lc-meta">318 Maple Ave · parsed from 2 PDFs · yesterday</div>
+          <div class="lc-nums">
+            <span>subs <b>2</b></span>
+            <span>LF <b>28</b></span>
+            <span>est. <b>—</b></span>
+          </div>
+        </div>
+
+        <div class="lead-card" onclick="toast('Opens Park Ave library project detail.')">
+          <div class="lc-head">
+            <div class="lc-name">Park Ave library built-in</div>
+            <div class="lc-stage st-90">90%</div>
+          </div>
+          <div class="lc-meta">422 Park Ave · manual entry · 5 days ago</div>
+          <div class="lc-nums">
+            <span>subs <b>1</b></span>
+            <span>LF <b>18</b></span>
+            <span>est. <b>$26,000</b></span>
+          </div>
+        </div>
+
+        <div class="lead-card" onclick="toast('Opens Nguyen kitchen project detail.')">
+          <div class="lc-head">
+            <div class="lc-name">Nguyen kitchen</div>
+            <div class="lc-stage st-sold">Sold</div>
+          </div>
+          <div class="lc-meta">51 Oakdale Dr · parsed from 4 PDFs · last month</div>
+          <div class="lc-nums">
+            <span>subs <b>3</b></span>
+            <span>LF <b>40</b></span>
+            <span>est. <b>$21,800</b></span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============== HELPERS ==============
+function $(id) { return document.getElementById(id); }
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ============== PARSE SIMULATION ==============
+function simulateParse() {
+  toast('Parsing 3 PDFs · extracting names, address, LF counts…');
+  setTimeout(() => {
+    $('hero').style.display = 'none';
+    $('parsed').classList.add('open');
+    $('parsed').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 900);
+}
+
+function closeParsed() {
+  $('parsed').classList.remove('open');
+  $('parsed').classList.remove('miss');
+  $('hero').style.display = 'block';
+  $('hero').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function showMissState() {
+  const p = $('parsed');
+  if (p.classList.contains('miss')) {
+    p.classList.remove('miss');
+    toast('Back to happy path — parser found everything.');
+  } else {
+    p.classList.add('miss');
+    toast('Parse miss state: some fields came back empty. Same panel, editable fallbacks.');
+  }
+}
+
+function startBlank() {
+  toast('Opens a blank project form — manual entry. Parser available later from inside the project.');
+}
+
+// ============== CLIENT CANDIDATES ==============
+document.querySelectorAll('[data-role="client"]').forEach(el => {
+  el.addEventListener('click', () => {
+    if (el.classList.contains('selected')) {
+      el.classList.remove('selected');
+      el.classList.add('ignored');
+      return;
+    }
+    if (el.classList.contains('ignored')) {
+      el.classList.remove('ignored');
+      return;
+    }
+    // Select this one; unselect siblings
+    document.querySelectorAll('[data-role="client"]').forEach(e => e.classList.remove('selected'));
+    el.classList.add('selected');
+  });
+});
+
+// ============== SUBPROJECT TOGGLE ==============
+function toggleSD(el) {
+  el.classList.toggle('off');
+}
+
+// ============== DRAG & DROP (visual only) ==============
+const dz = $('dz');
+['dragenter','dragover'].forEach(e => dz.addEventListener(e, ev => {
+  ev.preventDefault(); dz.classList.add('dragging');
+}));
+['dragleave','drop'].forEach(e => dz.addEventListener(e, ev => {
+  ev.preventDefault(); dz.classList.remove('dragging');
+  if (e === 'drop') simulateParse();
+}));
+</script>
+</body>
+</html>

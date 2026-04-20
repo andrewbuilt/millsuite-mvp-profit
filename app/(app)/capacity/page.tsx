@@ -533,7 +533,7 @@ function ProjectCard({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       className="bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
-      onClick={onNavigate}
+      onClick={onSplit}
     >
       <button
         onClick={onRemove}

@@ -46,6 +46,8 @@ import {
   Wrench,
   Package,
   User,
+  FileText as FileLock,
+  AlertCircle,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
@@ -54,17 +56,24 @@ import {
   loadEstimateLines,
   computeSubprojectRollup,
   type EstimateLine,
-  type RateBookItem,
-  type MaterialVariant,
+  type PricingContext,
   type SubprojectRollup,
-  type PricingDefaults,
 } from '@/lib/estimate-lines'
+import type { RateBookItemRow, RateBookOptionRow } from '@/lib/rate-book-v2'
+import { listShopLaborRates, laborRateMap } from '@/lib/rate-book-v2'
+import { DEFAULT_LABOR_RATES, type LaborDept } from '@/lib/rate-book-seed'
 import {
   proposeSlotsForLine,
   createApprovalItemsFromProposals,
   type ProposedApprovalSlot,
 } from '@/lib/approvals'
 import { updateProjectStage } from '@/lib/sales'
+import {
+  loadMilestones,
+  TRIGGER_LABEL,
+  sumMilestonePct,
+  type ProjectMilestone,
+} from '@/lib/milestones'
 import PlanGate from '@/components/plan-gate'
 
 // ── Types ──
@@ -102,21 +111,8 @@ function hoursFmt(n: number): string {
   return `${(Math.round(n * 10) / 10).toFixed(1)} hrs`
 }
 
-// The mockup shows a specific deposit cascade. Matches the rollup page copy.
-const PAYMENT_TERMS: { label: string; pct: number; when: string }[] = [
-  { label: 'Deposit', pct: 0.3, when: 'Sends now to QuickBooks as an invoice' },
-  {
-    label: 'At production start',
-    pct: 0.4,
-    when: 'Queued as draft, fires when production kicks off',
-  },
-  {
-    label: 'At install start',
-    pct: 0.2,
-    when: 'Queued as draft, fires when install begins',
-  },
-  { label: 'Final', pct: 0.1, when: 'Queued, fires at install completion' },
-]
+// Milestones are loaded from loadMilestones() — no hardcoded cascade. The
+// rollup page is where the user composes them; handoff is strictly preview.
 
 // Suggest a production window N business weeks out. Purely cosmetic — the
 // real capacity engine lives on /schedule and isn't wired into handoff yet.
@@ -152,13 +148,15 @@ function HandoffPageInner() {
   const router = useRouter()
   const { org } = useAuth()
 
-  const pricingDefaults: PricingDefaults = useMemo(
+  const [laborRates, setLaborRates] = useState<Record<LaborDept, number>>(DEFAULT_LABOR_RATES)
+
+  const pricingCtx: PricingContext = useMemo(
     () => ({
-      shopRate: org?.shop_rate || 75,
-      consumableMarkupPct: org?.consumable_markup_pct ?? 15,
+      laborRates,
+      consumableMarkupPct: org?.consumable_markup_pct ?? 10,
       profitMarginPct: org?.profit_margin_pct ?? 35,
     }),
-    [org?.shop_rate, org?.consumable_markup_pct, org?.profit_margin_pct]
+    [laborRates, org?.consumable_markup_pct, org?.profit_margin_pct]
   )
 
   const [project, setProject] = useState<Project | null>(null)
@@ -170,12 +168,13 @@ function HandoffPageInner() {
     Record<string, SubprojectRollup>
   >({})
   const [rateBook, setRateBook] = useState<{
-    items: RateBookItem[]
-    variantsByItem: Record<string, MaterialVariant[]>
-  }>({ items: [], variantsByItem: {} })
+    items: RateBookItemRow[]
+    itemsById: Map<string, RateBookItemRow>
+  }>({ items: [], itemsById: new Map() })
   const [loading, setLoading] = useState(true)
   const [confirming, setConfirming] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [milestones, setMilestones] = useState<ProjectMilestone[]>([])
 
   // ── Load ──
 
@@ -184,7 +183,7 @@ function HandoffPageInner() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const [projRes, subsRes, rb] = await Promise.all([
+      const [projRes, subsRes, rb, rates] = await Promise.all([
         supabase.from('projects').select('*').eq('id', projectId).single(),
         supabase
           .from('subprojects')
@@ -192,9 +191,11 @@ function HandoffPageInner() {
           .eq('project_id', projectId)
           .order('sort_order'),
         loadRateBook(org!.id),
+        listShopLaborRates(org!.id),
       ])
       if (cancelled) return
       const subList = (subsRes.data || []) as Subproject[]
+      const ratesMap = { ...DEFAULT_LABOR_RATES, ...laborRateMap(rates) }
 
       const linesBySub: Record<string, EstimateLine[]> = {}
       const rbSub: Record<string, SubprojectRollup> = {}
@@ -202,54 +203,61 @@ function HandoffPageInner() {
         subList.map(async (sub) => {
           const lines = await loadEstimateLines(sub.id)
           linesBySub[sub.id] = lines
-          const perSubDefaults: PricingDefaults = {
-            ...pricingDefaults,
+          const perSubCtx: PricingContext = {
+            laborRates: ratesMap,
             consumableMarkupPct:
-              sub.consumable_markup_pct ?? pricingDefaults.consumableMarkupPct,
+              sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
             profitMarginPct:
-              sub.profit_margin_pct ?? pricingDefaults.profitMarginPct,
+              sub.profit_margin_pct ?? (org?.profit_margin_pct ?? 35),
           }
-          rbSub[sub.id] = computeSubprojectRollup(lines, rb, perSubDefaults)
+          // No per-line options loaded here — handoff rollup uses the base buildup.
+          rbSub[sub.id] = computeSubprojectRollup(lines, rb.itemsById, new Map(), perSubCtx)
         })
       )
+      // Milestones composed on the rollup page — preview panel below reads
+      // from this; if empty, the user gets a go-back-and-compose nudge.
+      const ms = await loadMilestones(projectId)
       if (cancelled) return
 
+      setLaborRates(ratesMap)
       setProject(projRes.data as Project)
       setSubs(subList)
       setLineBySub(linesBySub)
       setRollupBySub(rbSub)
       setRateBook(rb)
+      setMilestones(ms)
       setLoading(false)
     }
     load()
     return () => {
       cancelled = true
     }
-  }, [projectId, org?.id, pricingDefaults])
+  }, [projectId, org?.id, org?.consumable_markup_pct, org?.profit_margin_pct])
 
   // ── Derived: proposed approval slots (one per effective callout) ──
 
   const proposals: ProposedApprovalSlot[] = useMemo(() => {
     const all: ProposedApprovalSlot[] = []
-    const itemById = new Map(rateBook.items.map((i) => [i.id, i]))
-    const variantById = new Map<string, MaterialVariant>()
-    for (const list of Object.values(rateBook.variantsByItem)) {
-      for (const v of list) variantById.set(v.id, v)
-    }
+    const itemById = rateBook.itemsById
     for (const sub of subs) {
       const lines = lineBySub[sub.id] || []
       for (const line of lines) {
         const item = line.rate_book_item_id
           ? itemById.get(line.rate_book_item_id) ?? null
           : null
-        const variant = line.rate_book_material_variant_id
-          ? variantById.get(line.rate_book_material_variant_id) ?? null
-          : null
+        // Phase 2 finish specs replace the variant concept; build a display
+        // name from the first finish spec so approval proposals still have
+        // a material hint.
+        const firstFinish = (line.finish_specs || [])[0]
+        const variantName =
+          firstFinish?.material
+            ? [firstFinish.material, firstFinish.finish].filter(Boolean).join(' / ')
+            : null
         all.push(
-          ...proposeSlotsForLine(line, {
+          ...proposeSlotsForLine(line as any, {
             subproject_name: sub.name,
-            item_default_callouts: item?.default_callouts ?? null,
-            variant_name: variant?.material_name ?? null,
+            item_default_callouts: null,
+            variant_name: variantName,
           })
         )
       }
@@ -313,16 +321,28 @@ function HandoffPageInner() {
     if (confirming) return
     setConfirming(true)
     try {
+      // Order matters. Approvals first — if that fails, the project stays
+      // 90%-bid and the user can retry. Only once approvals are in do we
+      // flip stage=sold, which is the lock signal + unlock trigger for the
+      // rest of the system. Milestones don't need an activation call: they
+      // were persisted as status='projected' on the rollup, and Phase 9's
+      // QB watcher advances them to 'received' as payments arrive.
       const created = await createApprovalItemsFromProposals(proposals)
       await updateProjectStage(project.id, 'sold')
+      const mParts =
+        milestones.length > 0
+          ? ` · ${milestones.length} milestone${
+              milestones.length === 1 ? '' : 's'
+            } active (watching QB)`
+          : ''
       showToast(
-        `Project sold. ${created} selection card${
+        `Project sold. ${created} approval card${
           created === 1 ? '' : 's'
-        } live in pre-production. Estimate locked.`
+        } in pre-production · estimate locked${mParts}.`
       )
       setTimeout(() => {
         router.push(`/projects/${project.id}`)
-      }, 1200)
+      }, 1400)
     } catch (err) {
       console.error(err)
       showToast('Could not commit the handoff. Check console for details.')
@@ -364,7 +384,12 @@ function HandoffPageInner() {
 
   const alreadySold = project.stage === 'sold'
 
-  const depositAmount = Math.round(projectTotals.total * PAYMENT_TERMS[0].pct)
+  const milestonePctSum = sumMilestonePct(milestones)
+  const milestonesBalanced = Math.abs(milestonePctSum - 100) < 0.01
+  const depositMilestone = milestones[0]
+  const depositAmount = depositMilestone
+    ? Math.round((projectTotals.total * depositMilestone.pct) / 100)
+    : 0
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -445,20 +470,110 @@ function HandoffPageInner() {
             </h1>
             <div className="text-sm text-[#374151] leading-relaxed max-w-2xl">
               When you confirm, this stops being an estimate and becomes a{' '}
-              <b>committed production job</b>. Every line item&apos;s callouts
-              flow into pre-production as selection cards, the deposit invoice
-              fires to QuickBooks, and the estimate locks — future edits
-              become change orders. Review each section below, then confirm.
+              <b>committed production job</b>. Approval cards spawn into
+              pre-production, the estimate locks (future edits become change
+              orders), a best-case schedule slot is suggested, and your
+              milestones activate — MillSuite watches QuickBooks and flips
+              each milestone to &ldquo;received&rdquo; when the payment lands.
+              Review each section below, then confirm.
             </div>
           </div>
         )}
 
+        {/* ESTIMATE LOCK SNAPSHOT PANEL */}
+        <Panel
+          title={`Estimate snapshot · ${subs.length} subproject${
+            subs.length === 1 ? '' : 's'
+          }, ${money(projectTotals.total)}`}
+          subtitle="This is what locks. Any edits after sold go through a change order."
+          icon={<FileLock className="w-4 h-4 text-[#7C3AED]" />}
+          iconBg="bg-[#F3E8FF]"
+          rightAction={
+            <Link
+              href={`/projects/${project.id}/rollup`}
+              className="text-xs text-[#2563EB] hover:text-[#1D4ED8]"
+            >
+              Review in rollup →
+            </Link>
+          }
+        >
+          {subs.length === 0 ? (
+            <div className="text-sm text-[#6B7280] border border-dashed border-[#E5E7EB] rounded-lg px-4 py-6 text-center">
+              No subprojects on this project yet — nothing to lock.
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {/* header */}
+              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                <div>Subproject</div>
+                <div className="text-right">Lines</div>
+                <div className="text-right">Finish specs</div>
+                <div className="text-right">Total</div>
+              </div>
+              {subs.map((sub) => {
+                const lines = lineBySub[sub.id] || []
+                const specCount = lines.reduce(
+                  (s, l) => s + ((l.finish_specs || []).length || 0),
+                  0
+                )
+                const r = rollupBySub[sub.id]
+                return (
+                  <div
+                    key={sub.id}
+                    className="grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center px-1 py-2 border-b border-[#F3F4F6] last:border-b-0"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-[#111] truncate">
+                        {sub.name}
+                      </div>
+                      {(sub.activity_type || sub.material_finish) && (
+                        <div className="text-[11px] text-[#6B7280] truncate">
+                          {[sub.activity_type, sub.material_finish]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right text-xs font-mono text-[#374151]">
+                      {lines.length}
+                    </div>
+                    <div className="text-right text-xs font-mono text-[#374151]">
+                      {specCount}
+                    </div>
+                    <div className="text-right text-sm font-mono font-semibold text-[#111] tabular-nums">
+                      {money(r?.total || 0)}
+                    </div>
+                  </div>
+                )
+              })}
+              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center px-1 pt-3 mt-1 border-t-2 border-[#111]">
+                <div className="text-sm font-semibold text-[#111]">
+                  Project total
+                </div>
+                <div />
+                <div />
+                <div className="text-base font-bold text-[#111] font-mono tabular-nums">
+                  {money(projectTotals.total)}
+                </div>
+              </div>
+              <div className="text-[11px] text-[#6B7280] mt-3 bg-[#F9FAFB] border border-[#F3F4F6] rounded px-2.5 py-2 leading-relaxed">
+                <b className="text-[#111]">What locks on confirm:</b> line
+                items, per-project rate overrides, finish specs, subproject
+                scope, and this project total. <b className="text-[#111]">
+                  What stays editable:
+                </b>{' '}
+                notes, approval status, schedule, and change orders.
+              </div>
+            </div>
+          )}
+        </Panel>
+
         {/* PREPRODUCTION PANEL */}
         <Panel
-          title={`Pre-production · ${proposals.length} selection card${
+          title={`Pre-production · ${proposals.length} approval card${
             proposals.length === 1 ? '' : 's'
           }`}
-          subtitle="Each estimate-line callout becomes one selection card. Specs travel unchanged."
+          subtitle="Each estimate-line finish spec becomes one approval card. Specs travel unchanged."
           icon={<Wrench className="w-4 h-4 text-[#2563EB]" />}
           iconBg="bg-[#EFF6FF]"
         >
@@ -574,10 +689,16 @@ function HandoffPageInner() {
           </div>
         </Panel>
 
-        {/* INVOICE PANEL */}
+        {/* MILESTONE ACTIVATION PANEL */}
         <Panel
-          title="Client & QuickBooks · deposit invoice fires"
-          subtitle="30% deposit bills immediately. Remaining milestones queue as draft invoices."
+          title={
+            milestones.length > 0
+              ? `Milestones · ${milestones.length} payment${
+                  milestones.length === 1 ? '' : 's'
+                } activate`
+              : 'Milestones · not composed yet'
+          }
+          subtitle="MillSuite watches QuickBooks and flips each milestone when the payment lands. We never push to QB."
           icon={<DollarSign className="w-4 h-4 text-[#059669]" />}
           iconBg="bg-[#DCFCE7]"
           rightAction={
@@ -585,59 +706,96 @@ function HandoffPageInner() {
               href={`/projects/${project.id}/rollup`}
               className="text-xs text-[#2563EB] hover:text-[#1D4ED8]"
             >
-              Review in rollup →
+              Edit in rollup →
             </Link>
           }
         >
-          <div className="space-y-1">
-            {PAYMENT_TERMS.map((term, i) => {
-              const amount = Math.round(projectTotals.total * term.pct)
-              const isDeposit = i === 0
-              return (
-                <div
-                  key={term.label}
-                  className={
-                    isDeposit
-                      ? 'flex items-center justify-between rounded-lg bg-[#F0FDF4] border border-[#BBF7D0] px-3 py-3 mb-2'
-                      : 'flex items-center justify-between px-3 py-2.5 border-b border-[#F3F4F6] last:border-0'
-                  }
+          {milestones.length === 0 ? (
+            <div className="bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-3 py-3 flex items-start gap-2 text-[12.5px] text-[#92400E]">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <div className="leading-relaxed">
+                No payment milestones composed for this project. The handoff
+                will still confirm, but there&apos;ll be nothing for the QB
+                watcher to match payments against.{' '}
+                <Link
+                  href={`/projects/${project.id}/rollup`}
+                  className="underline hover:text-[#78350F]"
                 >
-                  <div>
+                  Compose them in the rollup
+                </Link>
+                {' '}before confirming — or proceed and add them after.
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1">
+                {milestones.map((m, i) => {
+                  const amount = Math.round((projectTotals.total * m.pct) / 100)
+                  const isDeposit = i === 0
+                  return (
                     <div
+                      key={m.id}
                       className={
                         isDeposit
-                          ? 'text-sm font-semibold text-[#111]'
-                          : 'text-sm text-[#374151]'
+                          ? 'flex items-center justify-between rounded-lg bg-[#F0FDF4] border border-[#BBF7D0] px-3 py-3 mb-2'
+                          : 'flex items-center justify-between px-3 py-2.5 border-b border-[#F3F4F6] last:border-0'
                       }
                     >
-                      {term.label} · {Math.round(term.pct * 100)}%
+                      <div>
+                        <div
+                          className={
+                            isDeposit
+                              ? 'text-sm font-semibold text-[#111]'
+                              : 'text-sm text-[#374151]'
+                          }
+                        >
+                          {m.label} · {m.pct.toFixed(0)}%
+                        </div>
+                        <div className="text-xs text-[#6B7280] mt-0.5">
+                          Activates on:{' '}
+                          <span className="font-medium text-[#374151]">
+                            {TRIGGER_LABEL[m.trigger]}
+                          </span>
+                          {isDeposit
+                            ? ' · watcher flips this to "received" when QB shows the deposit'
+                            : ''}
+                        </div>
+                      </div>
+                      <div
+                        className={
+                          isDeposit
+                            ? 'text-base font-bold text-[#059669] tabular-nums'
+                            : 'text-sm font-semibold text-[#111] tabular-nums'
+                        }
+                      >
+                        {money(amount)}
+                      </div>
                     </div>
-                    <div className="text-xs text-[#6B7280] mt-0.5">
-                      {term.when}
-                    </div>
-                  </div>
-                  <div
-                    className={
-                      isDeposit
-                        ? 'text-base font-bold text-[#059669] tabular-nums'
-                        : 'text-sm font-semibold text-[#111] tabular-nums'
-                    }
-                  >
-                    {money(amount)}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                  )
+                })}
+              </div>
 
-          <div className="mt-4 text-xs text-[#6B7280] bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-3 py-2 leading-relaxed">
-            <b className="text-[#111]">Goes to:</b>{' '}
-            {project.client_name || 'the client on file'}. <br />
-            <b className="text-[#111]">Terms:</b> Deposit due on receipt.
-            Remaining balance billed at milestones per the terms block on the
-            estimate. The QB sync is stubbed in this release — the deposit
-            line is drafted but the invoice doesn&apos;t auto-send yet.
-          </div>
+              {!milestonesBalanced && (
+                <div className="mt-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-3 py-2 flex items-start gap-2 text-[11.5px] text-[#92400E]">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <span>
+                    Milestones total {milestonePctSum.toFixed(0)}% — fix in the
+                    rollup so the percentages add to 100 before confirming.
+                  </span>
+                </div>
+              )}
+
+              <div className="mt-4 text-xs text-[#6B7280] bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-3 py-2 leading-relaxed">
+                <b className="text-[#111]">Goes to:</b>{' '}
+                {project.client_name || 'the client on file'}. <br />
+                <b className="text-[#111]">How this works:</b> you invoice
+                through QuickBooks as normal. MillSuite watches QB for
+                deposit/payment events that match this project (Phase 9) and
+                flips each milestone to &ldquo;received&rdquo; automatically —
+                nothing is pushed from MillSuite to QB.
+              </div>
+            </>
+          )}
         </Panel>
 
         {/* LOCK PANEL */}
@@ -656,7 +814,7 @@ function HandoffPageInner() {
                 'Estimate line items — edits require a change order',
                 'Pricing and rate overrides for this project',
                 'Subproject scope (add/remove via change order only)',
-                'QB estimate → becomes a committed invoice series',
+                'Finish specs — travel unchanged into approval cards',
               ]}
             />
             <LockBox
@@ -664,10 +822,10 @@ function HandoffPageInner() {
               title="Unlocks"
               icon={<Unlock className="w-3.5 h-3.5 text-[#059669]" />}
               items={[
-                'Pre-production selection cards (live for shop + client)',
-                'Schedule slot committed & visible to the team',
+                'Pre-production approval cards (finish specs + drawings)',
+                'Best-case schedule slot (movable — never auto-committed)',
                 'Time tracking against this project’s subprojects',
-                'Change-order workflow for any post-sold adjustments',
+                'Change-order workflow + QB milestone watcher listening',
               ]}
             />
           </div>
@@ -697,7 +855,19 @@ function HandoffPageInner() {
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={confirming || proposals.length === 0 && subs.length === 0}
+                disabled={
+                  confirming ||
+                  (proposals.length === 0 && subs.length === 0) ||
+                  // If milestones exist but don't balance, block. If none
+                  // exist, allow — user can add later (warning is already
+                  // shown in the milestone panel).
+                  (milestones.length > 0 && !milestonesBalanced)
+                }
+                title={
+                  milestones.length > 0 && !milestonesBalanced
+                    ? 'Fix milestone percentages in the rollup first.'
+                    : undefined
+                }
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-[#059669] hover:bg-[#047857] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <CheckCircle2 className="w-4 h-4" />

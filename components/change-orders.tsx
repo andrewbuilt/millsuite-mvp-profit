@@ -40,6 +40,7 @@ import {
   loadChangeOrdersForProject,
   markQbHandoff,
   openCoCount,
+  qbReconciliationText,
   rejectCo,
   sendCoToClient,
   sumApprovedNetChange,
@@ -48,6 +49,8 @@ import {
 
 interface Props {
   projectId: string
+  /** Project name, used in the QB reconciliation copy block. */
+  projectName?: string
   /** Pricing inputs snapshot from the project's org defaults. */
   pricing: PricingInputs
   /** Subproject list for the "CO against which subproject" picker. */
@@ -56,7 +59,7 @@ interface Props {
   onChange?: () => void
 }
 
-export default function ChangeOrders({ projectId, pricing, subprojects, onChange }: Props) {
+export default function ChangeOrders({ projectId, projectName, pricing, subprojects, onChange }: Props) {
   const [cos, setCos] = useState<ChangeOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [busyCoId, setBusyCoId] = useState<string | null>(null)
@@ -137,6 +140,7 @@ export default function ChangeOrders({ projectId, pricing, subprojects, onChange
         <CoCard
           key={co.id}
           co={co}
+          projectName={projectName}
           subprojects={subprojects}
           isExpanded={expanded.has(co.id)}
           isBusy={busyCoId === co.id}
@@ -176,6 +180,7 @@ export default function ChangeOrders({ projectId, pricing, subprojects, onChange
 
 interface CoCardProps {
   co: ChangeOrder
+  projectName?: string
   subprojects: { id: string; name: string }[]
   isExpanded: boolean
   isBusy: boolean
@@ -189,6 +194,7 @@ interface CoCardProps {
 
 function CoCard({
   co,
+  projectName,
   subprojects,
   isExpanded,
   isBusy,
@@ -271,6 +277,15 @@ function CoCard({
             onReject={onReject}
             onVoid={onVoid}
           />
+
+          {/* QB reconciliation copy block — Phase 7 D3 (plain English, copyable) */}
+          {co.state === 'approved' && (
+            <QbReconciliationBlock
+              co={co}
+              projectName={projectName}
+              subprojectName={subName}
+            />
+          )}
 
           {/* QB handoff section */}
           {co.state === 'approved' && (
@@ -451,6 +466,68 @@ function QbHandoffControls({
         placeholder="Handoff note (e.g. 'Added to invoice #1234 on 4/22')"
         className="w-full text-xs border border-neutral-300 rounded px-2 py-1.5"
       />
+    </div>
+  )
+}
+
+function QbReconciliationBlock({
+  co,
+  projectName,
+  subprojectName,
+}: {
+  co: ChangeOrder
+  projectName?: string
+  subprojectName: string | null | undefined
+}) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const text = useMemo(
+    () => qbReconciliationText(co, { projectName, subprojectName }),
+    [co, projectName, subprojectName]
+  )
+  const onCopy = async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setCopyState('copied')
+      setTimeout(() => setCopyState('idle'), 2400)
+    } catch (e) {
+      console.error(e)
+      setCopyState('error')
+      setTimeout(() => setCopyState('idle'), 2400)
+    }
+  }
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded px-3 py-2 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-medium text-blue-800">
+          QuickBooks reconciliation note
+        </div>
+        <button
+          onClick={onCopy}
+          className={`text-[11px] px-2 py-1 rounded border ${
+            copyState === 'copied'
+              ? 'bg-emerald-600 text-white border-emerald-600'
+              : copyState === 'error'
+              ? 'bg-rose-600 text-white border-rose-600'
+              : 'bg-white text-blue-800 border-blue-300 hover:border-blue-500'
+          }`}
+        >
+          {copyState === 'copied' ? 'Copied ✓' : copyState === 'error' ? 'Copy failed' : 'Copy'}
+        </button>
+      </div>
+      <pre className="text-[11px] text-neutral-800 whitespace-pre-wrap font-mono leading-snug">
+        {text}
+      </pre>
     </div>
   )
 }

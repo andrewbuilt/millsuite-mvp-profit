@@ -1,0 +1,1391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Material + finish approvals — Henderson kitchen — MillSuite</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%; background: #0a0a0a; color: #e5e5e5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  .app { min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* TOP BAR */
+  .topbar {
+    height: 48px; padding: 0 20px; background: #111; border-bottom: 1px solid #1a1a1a;
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+  }
+  .crumb { font-size: 12px; color: #888; display: flex; align-items: center; gap: 8px; }
+  .crumb .sep { color: #333; }
+  .crumb a { color: #888; cursor: pointer; }
+  .crumb a:hover { color: #fff; }
+  .crumb .curr { color: #ddd; font-weight: 500; }
+  .logo { font-size: 12px; color: #888; letter-spacing: 0.5px; font-weight: 600; }
+  .logo b { color: #fff; font-weight: 700; }
+
+  /* MAIN */
+  .main { flex: 1; overflow-y: auto; padding: 24px 28px 44px; }
+  .container { max-width: 1180px; margin: 0 auto; }
+
+  /* PROJECT STRIP */
+  .project-strip {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 18px; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 10px; margin-bottom: 16px;
+  }
+  .ps-name { font-size: 14px; color: #fff; font-weight: 600; }
+  .ps-meta { font-size: 11.5px; color: #888; margin-top: 2px; }
+  .ps-right { text-align: right; }
+  .ps-total { font-size: 18px; font-weight: 700; color: #fff;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .ps-stage { font-size: 10.5px; color: #86efac; text-transform: uppercase;
+    letter-spacing: 0.8px; font-weight: 600; margin-top: 2px;
+  }
+
+  /* GATE BANNER */
+  .gate {
+    border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 18px;
+  }
+  .gate.blocked {
+    background: linear-gradient(180deg, #2a1a0e 0%, #1a120a 100%);
+    border: 1px solid #4a2e15;
+  }
+  .gate.ready {
+    background: linear-gradient(180deg, #0f1a0e 0%, #0a120a 100%);
+    border: 1px solid #2e4a25;
+  }
+  .gate .gate-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .gate.blocked .gate-icon { background: #2a1a0e; color: #fbbf24; }
+  .gate.ready .gate-icon { background: #14291c; color: #86efac; }
+  .gate .gate-body { flex: 1; min-width: 0; }
+  .gate .gate-eyebrow {
+    font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+    font-weight: 600; margin-bottom: 3px;
+  }
+  .gate.blocked .gate-eyebrow { color: #fbbf24; }
+  .gate.ready .gate-eyebrow { color: #86efac; }
+  .gate .gate-title { font-size: 14px; color: #fff; font-weight: 600; }
+  .gate .gate-detail { font-size: 12px; color: #aaa; margin-top: 4px; }
+  .gate .gate-detail b { color: #ddd; }
+  .gate .gate-count {
+    display: flex; gap: 22px; margin-left: auto; flex-shrink: 0;
+    padding-left: 18px; border-left: 1px solid #2a2a2a;
+  }
+  .gate-count .gc-item { text-align: center; }
+  .gate-count .gc-num {
+    font-size: 18px; font-weight: 700;
+    font-family: "SF Mono", Menlo, monospace;
+    color: #fff;
+  }
+  .gate-count .gc-num.amber { color: #fbbf24; }
+  .gate-count .gc-num.green { color: #86efac; }
+  .gate-count .gc-num.grey { color: #888; }
+  .gate-count .gc-label {
+    font-size: 9.5px; letter-spacing: 0.7px; text-transform: uppercase;
+    color: #666; font-weight: 600; margin-top: 3px;
+  }
+
+  /* SUBPROJECT PANEL */
+  .sub {
+    background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 14px;
+  }
+  .sub-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px; gap: 14px;
+    padding-bottom: 12px; border-bottom: 1px solid #1a1a1a;
+  }
+  .sub-head .sh-left { display: flex; align-items: center; gap: 12px; }
+  .sub-icon {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; flex-shrink: 0; background: #1a1a1a;
+  }
+  .sub-head .sh-title { font-size: 14px; color: #fff; font-weight: 600; }
+  .sub-head .sh-sub { font-size: 11px; color: #888; margin-top: 2px; }
+
+  .sub-status {
+    padding: 4px 10px; border-radius: 14px; font-size: 10.5px;
+    letter-spacing: 0.6px; text-transform: uppercase; font-weight: 600;
+  }
+  .sub-status.blocked { background: #2a1a0e; color: #fbbf24; border: 1px solid #4a2e15; }
+  .sub-status.ready { background: #14291c; color: #86efac; border: 1px solid #2e4a25; }
+
+  /* BALL-IN-COURT CHIP */
+  .bic {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 7px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 10px; font-size: 10px; color: #999;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .bic .bic-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .bic.client .bic-dot { background: #fbbf24; }
+  .bic.shop .bic-dot { background: #4a9eff; }
+  .bic.stale {
+    border-color: #4a2e15; background: #1a120a; color: #fbbf24;
+  }
+  .bic.stale .bic-dot { background: #f87171; }
+
+  /* TRACKS LAYOUT */
+  .tracks {
+    display: grid; grid-template-columns: 1fr 280px; gap: 18px;
+  }
+  @media (max-width: 920px) {
+    .tracks { grid-template-columns: 1fr; }
+  }
+  .track-label {
+    font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase;
+    color: #666; font-weight: 600; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .track-label .tl-count {
+    padding: 2px 8px; background: #1a1a1a; color: #ccc;
+    border-radius: 10px; font-size: 10px; letter-spacing: 0.3px;
+    text-transform: none; font-weight: 500;
+  }
+  .track-label .tl-note {
+    color: #555; font-weight: 400; text-transform: none; letter-spacing: 0;
+    font-size: 10.5px;
+  }
+
+  /* SLOT CARD — much simpler */
+  .slot {
+    background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 6px; cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .slot:hover { border-color: #2a2a2a; background: #0c0c0c; }
+  .slot.expanded { border-color: #2a2a2a; background: #0c0c0c; }
+  .slot-row1 {
+    display: grid; grid-template-columns: 12px 1fr auto auto;
+    gap: 12px; align-items: center;
+  }
+  .slot-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+  }
+  .slot.approved .slot-dot { background: #86efac; box-shadow: 0 0 0 3px rgba(134,239,172,0.12); }
+  .slot.review .slot-dot { background: #fbbf24; box-shadow: 0 0 0 3px rgba(251,191,36,0.12); }
+  .slot.pending .slot-dot { background: #666; }
+
+  .slot-head {
+    font-size: 10px; letter-spacing: 0.9px; text-transform: uppercase;
+    color: #888; font-weight: 600;
+  }
+  .slot-spec {
+    font-size: 13px; color: #fff; font-weight: 500; margin-top: 3px;
+    line-height: 1.45;
+  }
+  .slot-spec .delta { color: #fbbf24; }
+  .slot-source {
+    font-size: 10.5px; color: #666; margin-top: 4px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .slot-source .arrow { color: #444; }
+  .slot-source b { color: #888; font-weight: 500; }
+  .slot-rev {
+    font-size: 10.5px; color: #888; padding: 3px 8px;
+    background: #141414; border-radius: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .slot-badge {
+    padding: 4px 9px; border-radius: 14px; font-size: 10px;
+    letter-spacing: 0.6px; text-transform: uppercase; font-weight: 600;
+  }
+  .slot.approved .slot-badge { background: #14291c; color: #86efac; }
+  .slot.review .slot-badge { background: #2a2515; color: #fbbf24; }
+  .slot.pending .slot-badge { background: #1a1a1a; color: #aaa; }
+
+  .slot-expand {
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid #1a1a1a;
+    display: none;
+  }
+  .slot.expanded .slot-expand { display: block; }
+
+  /* MATERIAL + FINISH PAIR (the only thing that gets approved here) */
+  .mf {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 540px) { .mf { grid-template-columns: 1fr; } }
+  .mf-cell {
+    padding: 10px 12px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 8px;
+  }
+  .mf-label {
+    font-size: 9.5px; letter-spacing: 0.9px; text-transform: uppercase;
+    color: #666; font-weight: 600; margin-bottom: 4px;
+  }
+  .mf-val { font-size: 13px; color: #fff; font-weight: 500; }
+  .mf-cell.delta { border-color: #4a2e15; background: #1a120a; }
+  .mf-cell.delta .mf-val { color: #fbbf24; }
+  .mf-cell.delta .mf-was {
+    font-size: 11px; color: #888; margin-top: 3px;
+    text-decoration: line-through;
+  }
+
+  .slot-bic-row {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;
+  }
+
+  /* INLINE CO BANNER inside the slot */
+  .co-banner {
+    margin-bottom: 12px; padding: 10px 12px;
+    background: #1a120a; border: 1px solid #4a2e15;
+    border-radius: 8px; font-size: 11.5px; color: #fcd34d;
+    display: flex; gap: 10px; align-items: center;
+  }
+  .co-banner .cb-icon { font-size: 13px; }
+  .co-banner b { color: #fff; }
+  .co-banner .cb-link {
+    color: #4a9eff; cursor: pointer; margin-left: auto;
+    border-bottom: 1px dashed #2d5a8a; flex-shrink: 0;
+  }
+  .co-banner .cb-link:hover { color: #93c5fd; }
+
+  /* TIMELINE */
+  .timeline { margin-top: 6px; }
+  .timeline-head {
+    font-size: 10px; letter-spacing: 0.9px; text-transform: uppercase;
+    color: #666; font-weight: 600; margin-bottom: 8px;
+  }
+  .tl-item {
+    display: grid; grid-template-columns: 14px 1fr;
+    gap: 10px; padding: 6px 0; position: relative;
+  }
+  .tl-item:not(:last-child)::after {
+    content: ''; position: absolute; left: 6px; top: 18px;
+    bottom: -6px; width: 1px; background: #1e1e1e;
+  }
+  .tl-marker {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid #1a1a1a; margin-top: 4px;
+    background: #0a0a0a;
+  }
+  .tl-item.submitted .tl-marker { border-color: #4a9eff; background: #0c1a2e; }
+  .tl-item.revise .tl-marker { border-color: #fbbf24; background: #2a2515; }
+  .tl-item.approved .tl-marker { border-color: #86efac; background: #14291c; }
+  .tl-item.pending-client .tl-marker {
+    border-color: #fbbf24; background: #0a0a0a;
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(251,191,36,0); }
+  }
+  .tl-body { min-width: 0; }
+  .tl-title { font-size: 12px; color: #fff; font-weight: 500; }
+  .tl-detail { font-size: 11.5px; color: #999; margin-top: 1px; }
+  .tl-detail b { color: #ccc; }
+  .tl-time {
+    font-size: 10.5px; color: #666; margin-top: 2px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+
+  .slot-actions {
+    display: flex; gap: 6px; margin-top: 10px;
+    padding-top: 10px; border-top: 1px solid #1a1a1a;
+    flex-wrap: wrap;
+  }
+
+  /* DRAWING CARD */
+  .drawing {
+    background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .drawing .dw-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  }
+  .drawing .dw-dot { width: 9px; height: 9px; border-radius: 50%; }
+  .drawing.approved .dw-dot { background: #86efac; box-shadow: 0 0 0 3px rgba(134,239,172,0.12); }
+  .drawing.review .dw-dot { background: #fbbf24; box-shadow: 0 0 0 3px rgba(251,191,36,0.12); }
+  .drawing .dw-head {
+    font-size: 10px; letter-spacing: 0.9px; text-transform: uppercase;
+    color: #888; font-weight: 600;
+  }
+  .drawing .dw-title { font-size: 12.5px; color: #fff; font-weight: 500; margin-top: 3px; }
+  .drawing .dw-rev { font-size: 10.5px; color: #888; margin-top: 2px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .drawing .dw-note {
+    padding: 8px 10px; background: #0a0a0a; border-left: 2px solid #fbbf24;
+    border-radius: 4px; font-size: 11px; color: #ddd; line-height: 1.5;
+    margin: 8px 0;
+  }
+  .drawing .dw-note i { color: #888; font-style: normal; font-size: 10px; }
+  .drawing.approved .dw-note { border-left-color: #86efac; }
+
+  /* CHANGE-ORDER PANEL — looks like an estimate line diff */
+  .co-panel {
+    background: #0d0d0d; border: 1px solid #4a2e15; border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 14px;
+    border-left: 4px solid #fbbf24;
+  }
+  .co-head {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 14px; margin-bottom: 14px;
+    padding-bottom: 14px; border-bottom: 1px solid #1a1a1a;
+  }
+  .co-head .ch-left { display: flex; align-items: center; gap: 12px; }
+  .co-icon {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: #1a120a; color: #fbbf24;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0; font-weight: 700;
+  }
+  .co-id {
+    font-size: 14px; color: #fff; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .co-id .co-num {
+    font-family: "SF Mono", Menlo, monospace;
+    color: #fbbf24; font-weight: 700;
+  }
+  .co-sub { font-size: 11.5px; color: #888; margin-top: 3px; }
+  .co-sub b { color: #ccc; }
+  .co-status-chip {
+    padding: 4px 10px; border-radius: 14px;
+    background: #1a1a1a; color: #aaa;
+    font-size: 10.5px; letter-spacing: 0.5px;
+    text-transform: uppercase; font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  /* ESTIMATE LINE DIFF */
+  .co-diff {
+    display: grid; grid-template-columns: 1fr 28px 1fr; gap: 10px;
+    margin-bottom: 14px; align-items: stretch;
+  }
+  @media (max-width: 740px) {
+    .co-diff { grid-template-columns: 1fr; }
+    .cd-arrow { transform: rotate(90deg); }
+  }
+  .cd-card {
+    padding: 14px 16px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 10px; display: flex; flex-direction: column;
+  }
+  .cd-card.original { opacity: 0.85; }
+  .cd-card.proposed { border-color: #4a3f25; background: #1a120a; }
+  .cd-eyebrow {
+    font-size: 10px; letter-spacing: 0.9px; text-transform: uppercase;
+    color: #888; font-weight: 600; margin-bottom: 8px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .cd-card.proposed .cd-eyebrow { color: #fbbf24; }
+  .cd-eyebrow .cd-edit {
+    padding: 2px 8px; background: #141414; border: 1px solid #2a2a2a;
+    color: #aaa; border-radius: 10px; font-size: 10px;
+    text-transform: none; letter-spacing: 0; font-weight: 500;
+    cursor: pointer;
+  }
+  .cd-eyebrow .cd-edit:hover { color: #fff; border-color: #333; }
+  .cd-spec {
+    font-size: 13px; color: #fff; font-weight: 500; margin-bottom: 10px;
+    padding-bottom: 10px; border-bottom: 1px solid #1a1a1a;
+  }
+  .cd-card.proposed .cd-spec { color: #fcd34d; }
+  .cd-rows { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .cd-row {
+    display: flex; justify-content: space-between; gap: 8px;
+    font-size: 11.5px; color: #999;
+  }
+  .cd-row span:last-child {
+    color: #ccc; font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+  }
+  .cd-row.total {
+    padding-top: 8px; margin-top: auto; border-top: 1px solid #1a1a1a;
+    font-size: 12.5px; color: #fff; font-weight: 600;
+  }
+  .cd-row.total span:last-child { color: #fff; font-size: 13px; }
+  .cd-arrow {
+    display: flex; align-items: center; justify-content: center;
+    color: #555; font-size: 20px; font-weight: 300;
+  }
+
+  /* NET */
+  .co-net {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; background: #1a120a; border: 1px solid #4a2e15;
+    border-radius: 10px; margin-bottom: 10px;
+  }
+  .cn-label {
+    font-size: 11px; color: #fcd34d; font-weight: 600;
+    letter-spacing: 0.6px; text-transform: uppercase;
+  }
+  .cn-amt {
+    font-size: 22px; font-weight: 700;
+    font-family: "SF Mono", Menlo, monospace; color: #f87171;
+  }
+  .cn-amt.pos { color: #86efac; }
+  .cn-amt.zero { color: #aaa; font-size: 13px; }
+
+  .co-no-price {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11.5px; color: #888; margin-bottom: 14px;
+    cursor: pointer; user-select: none;
+  }
+  .co-no-price input { accent-color: #4a9eff; }
+
+  /* MANUAL APPROVAL BLOCK */
+  .co-manual {
+    padding: 14px 16px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 10px; margin-bottom: 10px;
+  }
+  .cm-head {
+    font-size: 11px; letter-spacing: 0.9px; text-transform: uppercase;
+    color: #888; font-weight: 600; margin-bottom: 6px;
+  }
+  .cm-body {
+    font-size: 11.5px; color: #999; line-height: 1.55; margin-bottom: 12px;
+  }
+  .cm-body b { color: #ddd; }
+  .cm-form {
+    display: grid; grid-template-columns: minmax(160px,1fr) minmax(140px,180px); gap: 10px 12px;
+  }
+  .cm-form .full { grid-column: 1 / -1; }
+  .cm-form label {
+    font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase;
+    color: #666; font-weight: 600; margin-bottom: 4px; display: block;
+  }
+  .cm-form select, .cm-form input {
+    width: 100%; background: #0a0a0a; border: 1px solid #1e1e1e;
+    color: #eee; padding: 7px 10px; border-radius: 6px;
+    font-size: 12px; font-family: inherit;
+  }
+
+  /* QB TODO BLOCK */
+  .co-qb {
+    padding: 12px 14px; background: #0a0f1a; border: 1px solid #1a2033;
+    border-radius: 10px; margin-bottom: 12px;
+    display: flex; gap: 10px; align-items: flex-start;
+    font-size: 12px; color: #aac1e5; line-height: 1.55;
+  }
+  .co-qb .cqb-icon {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #1a2d4a; color: #4a9eff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; flex-shrink: 0; font-family: Georgia, serif;
+  }
+  .co-qb b { color: #fff; }
+  .co-qb ul { margin: 6px 0 0 16px; padding: 0; }
+  .co-qb li { margin: 2px 0; }
+
+  .co-actions {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding-top: 12px; border-top: 1px solid #1a1a1a;
+  }
+
+  /* BUTTONS */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 13px; background: #1a1a1a; border: 1px solid #2a2a2a;
+    color: #ddd; border-radius: 7px; cursor: pointer; font-size: 12px;
+    font-family: inherit; font-weight: 500;
+  }
+  .btn:hover { background: #222; border-color: #333; color: #fff; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover { background: #141414; color: #fff; }
+  .btn-primary {
+    background: #1e3a2c; border-color: #2e5e3e; color: #86efac; font-weight: 600;
+  }
+  .btn-primary:hover { background: #2e5e3e; color: #fff; }
+  .btn-warn {
+    background: #2a1a0e; border-color: #4a2e15; color: #fbbf24; font-weight: 600;
+  }
+  .btn-warn:hover { background: #3a2415; color: #fff; }
+  .btn-sm { padding: 5px 10px; font-size: 11.5px; }
+
+  /* MODAL */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center;
+    z-index: 200; padding: 24px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 14px;
+    width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+    padding: 22px 24px;
+  }
+  .modal h3 { font-size: 15px; color: #fff; font-weight: 600; margin-bottom: 6px; }
+  .modal .m-sub { font-size: 12px; color: #888; margin-bottom: 16px; }
+  .modal label {
+    display: block; font-size: 10px; letter-spacing: 0.9px;
+    text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 6px;
+  }
+  .modal input, .modal textarea, .modal select {
+    width: 100%; background: #0a0a0a; border: 1px solid #1e1e1e;
+    color: #eee; padding: 9px 11px; border-radius: 7px; font-size: 12.5px;
+    font-family: inherit; margin-bottom: 14px;
+  }
+  .modal input:focus, .modal textarea:focus, .modal select:focus {
+    outline: none; border-color: #2d5a8a;
+  }
+  .modal textarea { resize: vertical; min-height: 70px; }
+  .modal .m-actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding-top: 12px; border-top: 1px solid #1a1a1a; margin-top: 6px;
+  }
+  .modal .m-radio-group {
+    display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;
+  }
+  .modal .m-radio {
+    padding: 11px 13px; background: #0a0a0a; border: 1px solid #1e1e1e;
+    border-radius: 8px; cursor: pointer; display: flex; gap: 10px;
+    align-items: flex-start;
+  }
+  .modal .m-radio:hover { border-color: #2a2a2a; }
+  .modal .m-radio.sel { border-color: #2d5a8a; background: #0a0f1a; }
+  .modal .m-radio .mr-rad {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid #444; flex-shrink: 0; margin-top: 2px;
+  }
+  .modal .m-radio.sel .mr-rad {
+    border-color: #4a9eff;
+    background: radial-gradient(circle, #4a9eff 40%, transparent 45%);
+  }
+  .modal .m-radio .mr-body { min-width: 0; }
+  .modal .m-radio .mr-title { font-size: 13px; color: #fff; font-weight: 500; }
+  .modal .m-radio .mr-sub { font-size: 11.5px; color: #999; margin-top: 3px; line-height: 1.5; }
+
+  /* TOAST */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 11px 17px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    max-width: 560px; z-index: 300; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.green { background: #0f2517; border-color: #2e5e3e; color: #bbf7d0; }
+  .toast.amber { background: #2a1a0e; border-color: #4a2e15; color: #fcd34d; }
+
+  /* EXPLAINER FOOTER */
+  .explainer {
+    margin-top: 24px; padding: 18px 20px; background: #0a0f1a;
+    border: 1px solid #1a2033; border-radius: 12px;
+  }
+  .explainer h4 {
+    font-size: 12px; color: #aac1e5; font-weight: 600;
+    letter-spacing: 0.4px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .explainer h4::before {
+    content: 'i'; width: 18px; height: 18px; border-radius: 50%;
+    background: #1a2d4a; color: #4a9eff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-family: Georgia, serif;
+  }
+  .explainer p { font-size: 12px; color: #8ca5c9; line-height: 1.7; margin-bottom: 8px; }
+  .explainer p:last-child { margin-bottom: 0; }
+  .explainer code {
+    font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+    background: #0a0a0a; padding: 1px 6px; border-radius: 3px;
+    color: #ccc; border: 1px solid #1a1a1a;
+  }
+  .explainer b { color: #dbeafe; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="crumb">
+      <a>Projects</a>
+      <span class="sep">/</span>
+      <a>Henderson residence</a>
+      <span class="sep">/</span>
+      <span class="curr">Material + finish approvals</span>
+    </div>
+    <div class="logo"><b>Mill</b>Suite</div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="container">
+
+      <!-- PROJECT STRIP -->
+      <div class="project-strip">
+        <div>
+          <div class="ps-name">Henderson residence · Kitchen + island</div>
+          <div class="ps-meta">Sold Mar 14 · Install Jun 2 · 2 subprojects</div>
+        </div>
+        <div class="ps-right">
+          <div class="ps-total">$87,400</div>
+          <div class="ps-stage">Pre-production</div>
+        </div>
+      </div>
+
+      <!-- GATE BANNER -->
+      <div class="gate blocked" id="gate-banner">
+        <div class="gate-icon">◐</div>
+        <div class="gate-body">
+          <div class="gate-eyebrow">Production gate · Blocked</div>
+          <div class="gate-title">Main kitchen ready · Island held by 1 active CO + 1 sample</div>
+          <div class="gate-detail">
+            Nothing moves to scheduling until every approval item AND drawings on a subproject read <b>approved</b>.
+          </div>
+        </div>
+        <div class="gate-count">
+          <div class="gc-item">
+            <div class="gc-num green" id="gc-approved">5</div>
+            <div class="gc-label">Approved</div>
+          </div>
+          <div class="gc-item">
+            <div class="gc-num amber" id="gc-review">1</div>
+            <div class="gc-label">In review</div>
+          </div>
+          <div class="gc-item">
+            <div class="gc-num grey" id="gc-pending">1</div>
+            <div class="gc-label">Pending</div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ============ MAIN KITCHEN ============ -->
+      <div class="sub" id="sub-main">
+        <div class="sub-head">
+          <div class="sh-left">
+            <div class="sub-icon">🍳</div>
+            <div>
+              <div class="sh-title">Main kitchen · Cabinet set A</div>
+              <div class="sh-sub">32 LF</div>
+            </div>
+          </div>
+          <div class="sub-status ready" id="status-main">Ready for scheduling</div>
+        </div>
+
+        <div class="tracks">
+          <div>
+            <div class="track-label">
+              Approval items
+              <span class="tl-count">4 of 4 approved</span>
+              <span class="tl-note">· pulled from estimate callouts</span>
+            </div>
+
+            <!-- main-ext -->
+            <div class="slot approved" data-slot="main-ext">
+              <div class="slot-row1">
+                <div class="slot-dot"></div>
+                <div>
+                  <div class="slot-head">Cabinet exterior</div>
+                  <div class="slot-spec">White oak veneer · Rubio Pure (matte clear)</div>
+                  <div class="slot-source">
+                    <span class="arrow">↳</span> from estimate line <b>K-01</b>
+                  </div>
+                </div>
+                <div class="slot-rev">rev 2</div>
+                <div class="slot-badge">Approved</div>
+              </div>
+              <div class="slot-expand">
+                <div class="mf">
+                  <div class="mf-cell">
+                    <div class="mf-label">Material</div>
+                    <div class="mf-val">White oak veneer</div>
+                  </div>
+                  <div class="mf-cell">
+                    <div class="mf-label">Finish</div>
+                    <div class="mf-val">Rubio Monocoat Pure</div>
+                  </div>
+                </div>
+                <div class="timeline">
+                  <div class="timeline-head">Sample history</div>
+                  <div class="tl-item submitted"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Rev 1 sent</div>
+                    <div class="tl-detail">White oak + Rubio Pure-tint sample</div>
+                    <div class="tl-time">Mar 28</div>
+                  </div></div>
+                  <div class="tl-item revise"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Client: "too yellow"</div>
+                    <div class="tl-detail">Asked for a quieter tone</div>
+                    <div class="tl-time">Apr 2</div>
+                  </div></div>
+                  <div class="tl-item submitted"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Rev 2 sent</div>
+                    <div class="tl-detail">Same oak, Rubio Pure (no tint)</div>
+                    <div class="tl-time">Apr 6</div>
+                  </div></div>
+                  <div class="tl-item approved"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Approved · Sara Henderson</div>
+                    <div class="tl-time">Apr 9 · locked</div>
+                  </div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- main-int -->
+            <div class="slot approved" data-slot="main-int">
+              <div class="slot-row1">
+                <div class="slot-dot"></div>
+                <div>
+                  <div class="slot-head">Cabinet interior</div>
+                  <div class="slot-spec">Maple ply · Pre-finished UV clear</div>
+                  <div class="slot-source">
+                    <span class="arrow">↳</span> from estimate line <b>K-01</b> · shop standard
+                  </div>
+                </div>
+                <div class="slot-rev">rev 1</div>
+                <div class="slot-badge">Approved</div>
+              </div>
+              <div class="slot-expand">
+                <div class="mf">
+                  <div class="mf-cell">
+                    <div class="mf-label">Material</div>
+                    <div class="mf-val">Maple ply</div>
+                  </div>
+                  <div class="mf-cell">
+                    <div class="mf-label">Finish</div>
+                    <div class="mf-val">Pre-finished UV clear</div>
+                  </div>
+                </div>
+                <div class="timeline">
+                  <div class="timeline-head">Sample history</div>
+                  <div class="tl-item approved"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Approved on spec sheet</div>
+                    <div class="tl-detail">Shop standard — no sample needed</div>
+                    <div class="tl-time">Mar 16 · at signing</div>
+                  </div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- main-hw -->
+            <div class="slot approved" data-slot="main-hw">
+              <div class="slot-row1">
+                <div class="slot-dot"></div>
+                <div>
+                  <div class="slot-head">Hardware</div>
+                  <div class="slot-spec">Matte black · Amerock Monument</div>
+                  <div class="slot-source">
+                    <span class="arrow">↳</span> from estimate allowance <b>ALLOW-HW</b>
+                  </div>
+                </div>
+                <div class="slot-rev">rev 1</div>
+                <div class="slot-badge">Approved</div>
+              </div>
+              <div class="slot-expand">
+                <div class="mf">
+                  <div class="mf-cell">
+                    <div class="mf-label">Material / product</div>
+                    <div class="mf-val">Amerock Monument pull</div>
+                  </div>
+                  <div class="mf-cell">
+                    <div class="mf-label">Finish</div>
+                    <div class="mf-val">Matte black</div>
+                  </div>
+                </div>
+                <div class="timeline">
+                  <div class="timeline-head">Sample history</div>
+                  <div class="tl-item submitted"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Rev 1 sent</div>
+                    <div class="tl-detail">Single pull dropped at job site</div>
+                    <div class="tl-time">Mar 31</div>
+                  </div></div>
+                  <div class="tl-item approved"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Approved via text</div>
+                    <div class="tl-time">Apr 3</div>
+                  </div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- main-glass -->
+            <div class="slot approved" data-slot="main-glass">
+              <div class="slot-row1">
+                <div class="slot-dot"></div>
+                <div>
+                  <div class="slot-head">Glass shelves · uppers</div>
+                  <div class="slot-spec">Low-iron tempered · polished edge</div>
+                  <div class="slot-source">
+                    <span class="arrow">↳</span> from estimate line <b>K-04</b>
+                  </div>
+                </div>
+                <div class="slot-rev">rev 1</div>
+                <div class="slot-badge">Approved</div>
+              </div>
+              <div class="slot-expand">
+                <div class="mf">
+                  <div class="mf-cell">
+                    <div class="mf-label">Material</div>
+                    <div class="mf-val">Low-iron tempered glass</div>
+                  </div>
+                  <div class="mf-cell">
+                    <div class="mf-label">Finish</div>
+                    <div class="mf-val">Polished edge</div>
+                  </div>
+                </div>
+                <div class="timeline">
+                  <div class="timeline-head">Sample history</div>
+                  <div class="tl-item approved"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Approved on spec sheet</div>
+                    <div class="tl-time">Mar 16</div>
+                  </div></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- DRAWINGS -->
+          <div>
+            <div class="track-label">Drawings</div>
+            <div class="drawing approved">
+              <div class="dw-row">
+                <div class="dw-dot"></div>
+                <div>
+                  <div class="dw-head">Shop drawings</div>
+                  <div class="dw-title">Main kitchen plan + elevations</div>
+                  <div class="dw-rev">rev 3 · 18 sheets</div>
+                </div>
+              </div>
+              <div><span class="bic"><span class="bic-dot"></span>signed Apr 11</span></div>
+              <div class="timeline" style="margin-top:8px">
+                <div class="tl-item submitted"><div class="tl-marker"></div><div class="tl-body">
+                  <div class="tl-title">Rev 1 → 2 → 3</div>
+                  <div class="tl-detail">Hood depth redlined; fixed</div>
+                  <div class="tl-time">Mar 24 — Apr 8</div>
+                </div></div>
+                <div class="tl-item approved"><div class="tl-marker"></div><div class="tl-body">
+                  <div class="tl-title">Signed PDF on file</div>
+                  <div class="tl-time">Apr 11</div>
+                </div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ============ ISLAND ============ -->
+      <div class="sub" id="sub-island">
+        <div class="sub-head">
+          <div class="sh-left">
+            <div class="sub-icon">◼</div>
+            <div>
+              <div class="sh-title">Island · Cabinet set B</div>
+              <div class="sh-sub">12 LF · integrated finger pull (no hardware)</div>
+            </div>
+          </div>
+          <div class="sub-status blocked" id="status-island">Blocked · 2 items open</div>
+        </div>
+
+        <div class="tracks">
+          <div>
+            <div class="track-label">
+              Approval items
+              <span class="tl-count">1 of 3 approved</span>
+              <span class="tl-note">· pulled from estimate callouts</span>
+            </div>
+
+            <!-- island-ext (the active one with CO) -->
+            <div class="slot review expanded" data-slot="island-ext">
+              <div class="slot-row1">
+                <div class="slot-dot"></div>
+                <div>
+                  <div class="slot-head">Cabinet exterior</div>
+                  <div class="slot-spec">
+                    <span class="delta">Rift white oak veneer · Rubio Pure</span>
+                    <span style="color:#666;font-weight:400"> · was: walnut, oil</span>
+                  </div>
+                  <div class="slot-source">
+                    <span class="arrow">↳</span> from estimate line <b>K-02</b>
+                  </div>
+                </div>
+                <div class="slot-rev">rev 3</div>
+                <div class="slot-badge">In review</div>
+              </div>
+              <div class="slot-expand">
+                <div class="slot-bic-row">
+                  <span class="bic stale"><span class="bic-dot"></span>ball in court · client · 2 days</span>
+                </div>
+
+                <div class="mf">
+                  <div class="mf-cell delta">
+                    <div class="mf-label">Material</div>
+                    <div class="mf-val">Rift white oak veneer</div>
+                    <div class="mf-was">Walnut slab</div>
+                  </div>
+                  <div class="mf-cell delta">
+                    <div class="mf-label">Finish</div>
+                    <div class="mf-val">Rubio Pure (matching main)</div>
+                    <div class="mf-was">Oil finish</div>
+                  </div>
+                </div>
+
+                <div class="co-banner">
+                  <span class="cb-icon">±</span>
+                  <div><b>Material change · CO-002 drafted.</b> Review pricing, then send to client manually.</div>
+                  <span class="cb-link" onclick="document.getElementById('co-panel').scrollIntoView({behavior:'smooth',block:'center'})">View CO →</span>
+                </div>
+
+                <div class="timeline">
+                  <div class="timeline-head">Sample history</div>
+                  <div class="tl-item submitted"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Rev 1 — walnut slab</div>
+                    <div class="tl-time">Mar 30</div>
+                  </div></div>
+                  <div class="tl-item revise"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">"Too busy against the main"</div>
+                    <div class="tl-time">Apr 4</div>
+                  </div></div>
+                  <div class="tl-item submitted"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Rev 2 — quarter-sawn walnut</div>
+                    <div class="tl-time">Apr 10</div>
+                  </div></div>
+                  <div class="tl-item revise"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">"Just match the main kitchen"</div>
+                    <div class="tl-detail"><b style="color:#fbbf24">material change</b> — switch to rift white oak</div>
+                    <div class="tl-time">Apr 14</div>
+                  </div></div>
+                  <div class="tl-item pending-client"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Rev 3 — rift white oak sample sent</div>
+                    <div class="tl-time">Apr 16 · waiting</div>
+                  </div></div>
+                </div>
+
+                <div class="slot-actions">
+                  <button class="btn btn-primary btn-sm" onclick="openClientResponseModal('island-ext')">Log client response</button>
+                  <button class="btn btn-sm" onclick="openSubmitModal('island-ext', 4)">Send another sample</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- island-int (linked, approved) -->
+            <div class="slot approved" data-slot="island-int">
+              <div class="slot-row1">
+                <div class="slot-dot"></div>
+                <div>
+                  <div class="slot-head">Cabinet interior</div>
+                  <div class="slot-spec">Maple ply · Pre-finished UV clear</div>
+                  <div class="slot-source">
+                    <span class="arrow">↳</span> linked to <b>main-int</b> · auto-approved
+                  </div>
+                </div>
+                <div class="slot-rev">rev 1</div>
+                <div class="slot-badge">Approved</div>
+              </div>
+              <div class="slot-expand">
+                <div class="mf">
+                  <div class="mf-cell">
+                    <div class="mf-label">Material</div>
+                    <div class="mf-val">Maple ply</div>
+                  </div>
+                  <div class="mf-cell">
+                    <div class="mf-label">Finish</div>
+                    <div class="mf-val">Pre-finished UV clear</div>
+                  </div>
+                </div>
+                <div class="timeline">
+                  <div class="timeline-head">Sample history</div>
+                  <div class="tl-item approved"><div class="tl-marker"></div><div class="tl-body">
+                    <div class="tl-title">Linked to main kitchen interior</div>
+                    <div class="tl-time">Mar 16</div>
+                  </div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- island-toe (custom, pending) -->
+            <div class="slot pending" data-slot="island-toe">
+              <div class="slot-row1">
+                <div class="slot-dot"></div>
+                <div>
+                  <div class="slot-head">Metal toe kick</div>
+                  <div class="slot-spec">Blackened steel · matte clear</div>
+                  <div class="slot-source">
+                    <span class="arrow">↳</span> from estimate line <b>K-02-MET</b> · <b style="color:#fbbf24">custom (no rate-book match)</b>
+                  </div>
+                </div>
+                <div class="slot-rev">rev 0</div>
+                <div class="slot-badge">Pending</div>
+              </div>
+              <div class="slot-expand">
+                <div class="mf">
+                  <div class="mf-cell">
+                    <div class="mf-label">Material</div>
+                    <div class="mf-val">Blackened steel</div>
+                  </div>
+                  <div class="mf-cell">
+                    <div class="mf-label">Finish</div>
+                    <div class="mf-val">Matte clear</div>
+                  </div>
+                </div>
+                <div class="timeline">
+                  <div class="timeline-head">Sample history</div>
+                  <div class="tl-item" style="opacity:0.6">
+                    <div class="tl-marker" style="border-color:#2a2a2a"></div>
+                    <div class="tl-body">
+                      <div class="tl-title" style="color:#888">Nothing submitted yet</div>
+                      <div class="tl-detail">Get a 4" × 4" swatch from Ironclad to confirm patina depth</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="slot-actions">
+                  <button class="btn btn-primary btn-sm" onclick="openSubmitModal('island-toe', 1)">Request swatch</button>
+                  <button class="btn btn-sm btn-ghost">No sample needed</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- DRAWINGS -->
+          <div>
+            <div class="track-label">Drawings</div>
+            <div class="drawing review">
+              <div class="dw-row">
+                <div class="dw-dot"></div>
+                <div>
+                  <div class="dw-head">Shop drawings</div>
+                  <div class="dw-title">Island plan + overhang</div>
+                  <div class="dw-rev">rev 2 · redlined</div>
+                </div>
+              </div>
+              <div><span class="bic shop"><span class="bic-dot"></span>ball in court · shop · 3 days</span></div>
+              <div class="dw-note">
+                "Push overhang to 14" — need knee room." <i>— Sara, Apr 15</i>
+              </div>
+              <div class="timeline">
+                <div class="tl-item submitted"><div class="tl-marker"></div><div class="tl-body">
+                  <div class="tl-title">Rev 1 → 2</div>
+                  <div class="tl-time">Mar 27 — Apr 9</div>
+                </div></div>
+                <div class="tl-item revise"><div class="tl-marker"></div><div class="tl-body">
+                  <div class="tl-title">Client redline</div>
+                  <div class="tl-time">Apr 15</div>
+                </div></div>
+                <div class="tl-item pending-client"><div class="tl-marker"></div><div class="tl-body">
+                  <div class="tl-title">Rev 3 in progress</div>
+                  <div class="tl-time">ETA Apr 21</div>
+                </div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ============ CHANGE ORDER PANEL ============ -->
+      <div class="co-panel" id="co-panel">
+        <div class="co-head">
+          <div class="ch-left">
+            <div class="co-icon">±</div>
+            <div>
+              <div class="co-id">Change order <span class="co-num">CO-002</span></div>
+              <div class="co-sub">For: <b>Island · cabinet exterior</b> · material change</div>
+            </div>
+          </div>
+          <div class="co-status-chip">Draft · not sent yet</div>
+        </div>
+
+        <!-- ESTIMATE LINE DIFF -->
+        <div class="co-diff">
+          <div class="cd-card original">
+            <div class="cd-eyebrow">Original estimate line K-02</div>
+            <div class="cd-spec">Walnut slab · oil finish</div>
+            <div class="cd-rows">
+              <div class="cd-row"><span>12 LF × 9.2 labor hrs / LF</span><span>$8,280</span></div>
+              <div class="cd-row"><span>Material · walnut + oil</span><span>$3,650</span></div>
+              <div class="cd-row total"><span>Line total</span><span>$11,930</span></div>
+            </div>
+          </div>
+          <div class="cd-arrow">→</div>
+          <div class="cd-card proposed">
+            <div class="cd-eyebrow">
+              Proposed change
+              <span class="cd-edit">Edit spec</span>
+            </div>
+            <div class="cd-spec">Rift white oak veneer · Rubio Pure</div>
+            <div class="cd-rows">
+              <div class="cd-row"><span>12 LF × 9.0 labor hrs / LF</span><span>$8,100</span></div>
+              <div class="cd-row"><span>Material · rift oak + Rubio</span><span>$2,410</span></div>
+              <div class="cd-row total"><span>New line total</span><span>$10,510</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="co-net">
+          <div class="cn-label">Net change to client</div>
+          <div class="cn-amt">−$1,420</div>
+        </div>
+
+        <label class="co-no-price">
+          <input type="checkbox"> No price change — this is a material swap only, no estimate adjustment
+        </label>
+
+        <!-- MANUAL APPROVAL -->
+        <div class="co-manual">
+          <div class="cm-head">Client approval</div>
+          <div class="cm-body">
+            No portal or email automation yet — send the CO to Sara how you normally would
+            (<b>email, call, in person</b>) and mark the outcome here when you hear back.
+          </div>
+          <div class="cm-form">
+            <div>
+              <label>Status</label>
+              <select>
+                <option>Not yet asked</option>
+                <option selected>Sent to client</option>
+                <option>Approved</option>
+                <option>Declined</option>
+              </select>
+            </div>
+            <div>
+              <label>Date</label>
+              <input type="date" value="2026-04-17">
+            </div>
+            <div class="full">
+              <label>Notes</label>
+              <input type="text" placeholder="How the client responded, any conditions..." value="Sent CO to Sara by email Apr 17. Waiting.">
+            </div>
+          </div>
+        </div>
+
+        <!-- QB HANDOFF — honest about the limits -->
+        <div class="co-qb">
+          <div class="cqb-icon">i</div>
+          <div>
+            <b>QuickBooks stays manual for now.</b> The original invoice already has a down payment
+            on it, and repeatedly editing it while the client flip-flops on materials is asking for trouble.
+            When this CO is marked approved, open QB and reconcile it one of these ways:
+            <ul>
+              <li><b>Edit the existing invoice</b> — add a line "CO-002 · island material change · −$1,420." Simple, but every revision re-touches the invoice.</li>
+              <li><b>Separate CO invoice</b> — issue a credit/additional invoice against the project. Original invoice untouched; CO lives on its own line.</li>
+            </ul>
+            We'll pick a pattern once a few real COs run through.
+          </div>
+        </div>
+
+        <div class="co-actions">
+          <button class="btn btn-primary btn-sm">Mark approved</button>
+          <button class="btn btn-sm">Mark declined</button>
+          <button class="btn btn-sm btn-ghost" style="margin-left:auto">Cancel CO</button>
+        </div>
+      </div>
+
+
+      <!-- EXPLAINER -->
+      <div class="explainer">
+        <h4>What this page is — and what's manual for V1</h4>
+        <p>
+          <b>Approval items are derived from estimate line callouts.</b>
+          Each one is a single decision: <b>what material + what finish</b>.
+          Construction details (door style, edge profile, drawer joinery, dimensions, hardware quantities)
+          live on the production drawing, not here. If a drawing changes, the drawings track moves —
+          this page doesn't pretend to mirror it.
+        </p>
+        <p>
+          A subproject can't move to scheduling until every item AND its drawings are marked approved.
+          A <b>ball-in-court</b> timer surfaces who's holding things up. When a client picks a
+          different material, a change order is drafted as an <b>estimate-line diff</b> — original line on the left,
+          proposed line on the right, edit the spec to reprice. Sometimes there's no price change at all (just check the box).
+        </p>
+        <p>
+          <b>Everything else stays manual for V1.</b> No portal signing. No email automation.
+          No auto-pushing to QuickBooks — the down payment on the original invoice + repeated material flip-flops
+          is too much risk. Client approval is a status field you mark by hand after talking to them.
+          QuickBooks reconciliation is a manual step in QB. We pick a pattern (edit invoice vs. separate CO invoice)
+          once a few real COs have run through. Automation comes later, not first.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ========= MODALS ========= -->
+
+<!-- Submit sample modal -->
+<div class="modal-backdrop" id="modal-submit">
+  <div class="modal">
+    <h3>Submit sample — revision <span id="submit-rev">1</span></h3>
+    <div class="m-sub" id="submit-slot-title">Item: —</div>
+
+    <label>What are you sending?</label>
+    <input type="text" placeholder="e.g. rift white oak + Rubio Pure swatch">
+
+    <label>Delivery method</label>
+    <select>
+      <option>Hand-delivered</option>
+      <option>FedEx / UPS</option>
+      <option>Drop off at job site</option>
+      <option>Photo only</option>
+    </select>
+
+    <label>Notes for the client</label>
+    <textarea placeholder="Context to send with the sample..."></textarea>
+
+    <div class="m-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-submit')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitSample()">Send sample</button>
+    </div>
+  </div>
+</div>
+
+<!-- Client response modal -->
+<div class="modal-backdrop" id="modal-response">
+  <div class="modal">
+    <h3>Log client response</h3>
+    <div class="m-sub" id="response-slot-title">Item: —</div>
+
+    <label>Client decision</label>
+    <div class="m-radio-group" id="response-radios">
+      <div class="m-radio sel" data-val="approve" onclick="pickResponse(this)">
+        <div class="mr-rad"></div>
+        <div class="mr-body">
+          <div class="mr-title">Approved</div>
+          <div class="mr-sub">Lock material + finish, close item, update gate.</div>
+        </div>
+      </div>
+      <div class="m-radio" data-val="revise" onclick="pickResponse(this)">
+        <div class="mr-rad"></div>
+        <div class="mr-body">
+          <div class="mr-title">Requested a revision</div>
+          <div class="mr-sub">Same material — try a different finish/tone.</div>
+        </div>
+      </div>
+      <div class="m-radio" data-val="material" onclick="pickResponse(this)">
+        <div class="mr-rad"></div>
+        <div class="mr-body">
+          <div class="mr-title">Wants a different material</div>
+          <div class="mr-sub">Triggers a change order against the rate book.</div>
+        </div>
+      </div>
+    </div>
+
+    <label>Notes from the client</label>
+    <textarea placeholder="Their words, exactly..."></textarea>
+
+    <div class="m-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-response')">Cancel</button>
+      <button class="btn btn-primary" onclick="logResponse()">Save response</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ===== EXPAND/COLLAPSE SLOTS =====
+  document.querySelectorAll('.slot').forEach(slot => {
+    slot.addEventListener('click', (e) => {
+      if (e.target.closest('button') || e.target.closest('input') || e.target.closest('textarea') || e.target.closest('select') || e.target.closest('.cb-link')) return;
+      slot.classList.toggle('expanded');
+    });
+  });
+
+  // ===== TOAST =====
+  function showToast(msg, variant) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (variant ? ' ' + variant : '');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => {
+      t.className = 'toast' + (variant ? ' ' + variant : '');
+    }, 2800);
+  }
+
+  // ===== MODAL HELPERS =====
+  let currentSlot = null;
+  let currentRev = 1;
+  let currentResponseVal = 'approve';
+
+  function openModal(id) { document.getElementById(id).classList.add('show'); }
+  function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+  document.querySelectorAll('.modal-backdrop').forEach(m => {
+    m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('show'); });
+  });
+
+  function openSubmitModal(slotKey, rev) {
+    currentSlot = slotKey; currentRev = rev;
+    document.getElementById('submit-rev').textContent = rev;
+    document.getElementById('submit-slot-title').textContent = 'Item: ' + slotLabel(slotKey);
+    openModal('modal-submit');
+  }
+  function openClientResponseModal(slotKey) {
+    currentSlot = slotKey;
+    document.getElementById('response-slot-title').textContent = 'Item: ' + slotLabel(slotKey);
+    openModal('modal-response');
+  }
+  function pickResponse(el) {
+    document.querySelectorAll('#response-radios .m-radio').forEach(r => r.classList.remove('sel'));
+    el.classList.add('sel');
+    currentResponseVal = el.dataset.val;
+  }
+  function slotLabel(key) {
+    return ({
+      'main-ext': 'Main kitchen · Cabinet exterior',
+      'main-int': 'Main kitchen · Cabinet interior',
+      'main-hw':  'Main kitchen · Hardware',
+      'main-glass': 'Main kitchen · Glass shelves',
+      'island-ext': 'Island · Cabinet exterior',
+      'island-int': 'Island · Cabinet interior',
+      'island-toe': 'Island · Metal toe kick',
+    })[key] || key;
+  }
+  function submitSample() {
+    closeModal('modal-submit');
+    showToast('Sample sent · item moves to "in review" on client receipt', 'green');
+  }
+  function logResponse() {
+    closeModal('modal-response');
+    if (currentResponseVal === 'approve') approveSlot(currentSlot);
+    else if (currentResponseVal === 'revise') showToast('Revision logged · ready for next sample', 'amber');
+    else if (currentResponseVal === 'material') showToast('Material change captured · CO drafted', 'amber');
+  }
+
+  // ===== APPROVE =====
+  function approveSlot(slotKey) {
+    const slot = document.querySelector(`[data-slot="${slotKey}"]`);
+    if (!slot) return;
+    const wasReview = slot.classList.contains('review');
+    const wasPending = slot.classList.contains('pending');
+    slot.classList.remove('review', 'pending');
+    slot.classList.add('approved');
+    slot.querySelector('.slot-badge').textContent = 'Approved';
+
+    const a = document.getElementById('gc-approved');
+    const r = document.getElementById('gc-review');
+    const p = document.getElementById('gc-pending');
+    a.textContent = parseInt(a.textContent) + 1;
+    if (wasReview) r.textContent = Math.max(0, parseInt(r.textContent) - 1);
+    if (wasPending) p.textContent = Math.max(0, parseInt(p.textContent) - 1);
+
+    const islandSlots = document.querySelectorAll('#sub-island .slot');
+    const allApproved = Array.from(islandSlots).every(s => s.classList.contains('approved'));
+    const stillOpen = Array.from(islandSlots).filter(s => !s.classList.contains('approved')).length;
+
+    if (!allApproved) {
+      const s = document.getElementById('status-island');
+      s.textContent = 'Blocked · ' + stillOpen + ' item' + (stillOpen === 1 ? '' : 's') + ' open';
+      showToast('Item approved · ' + slotLabel(slotKey), 'green');
+    } else {
+      const s = document.getElementById('status-island');
+      s.textContent = 'Ready for scheduling';
+      s.classList.remove('blocked'); s.classList.add('ready');
+      const banner = document.getElementById('gate-banner');
+      banner.classList.remove('blocked'); banner.classList.add('ready');
+      banner.querySelector('.gate-icon').textContent = '✓';
+      banner.querySelector('.gate-eyebrow').textContent = 'Production gate · Clear';
+      banner.querySelector('.gate-title').textContent = 'All subprojects ready for scheduling';
+      banner.querySelector('.gate-detail').innerHTML =
+        'Every approval item is cleared. Both subprojects can move to the scheduling queue.';
+      showToast('✓ Both subprojects ready for scheduling', 'green');
+    }
+  }
+</script>
+
+</body>
+</html>

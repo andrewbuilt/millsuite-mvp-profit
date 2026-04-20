@@ -1,13 +1,14 @@
 // lib/types.ts
-// MillSuite OS type definitions — adapted from Built OS for MVP's simpler schema.
-// Projects use `name` (not project_name). Status enum is 4-state with a separate
-// nullable `production_phase` column for Pro tier.
+// MillSuite OS type definitions.
+// Phase 0 cleanup: removed Lead/LeadSubproject (projects.stage is the pipeline),
+// Selection (BUILT OS clone — rebuilt as finish specs in Phase 2/6), and client
+// portal types (out of scope).
 
 // ── Core ──
 
 export type ProjectStatus = 'bidding' | 'active' | 'complete' | 'archived'
 export type ProductionPhase = 'pre_production' | 'scheduling' | 'in_production' | null
-export type LeadStatus = 'new_lead' | 'fifty_fifty' | 'ninety_percent' | 'sold' | 'lost'
+export type ProjectStage = 'new_lead' | 'fifty_fifty' | 'ninety_percent' | 'sold' | 'lost'
 
 export interface Client {
   id: string
@@ -33,12 +34,12 @@ export interface Contact {
   created_at: string
 }
 
-// ── Leads ──
+// ── Payment milestones (now per-project; Phase 4 wires the builder) ──
 
 export interface PaymentMilestone {
   label: string
   pct: number
-  trigger?: string // e.g. 'on_sold', 'on_approvals', 'on_delivery'
+  trigger?: string // 'on_sold' | 'on_approvals' | 'on_delivery' | custom
 }
 
 export interface PaymentTerms {
@@ -46,66 +47,7 @@ export interface PaymentTerms {
   net_days?: number
 }
 
-export interface Lead {
-  id: string
-  org_id: string | null
-  created_at: string
-  updated_at: string
-  lead_name: string
-  client_id: string | null
-  contact_id: string | null
-  client_name: string | null
-  client_email: string | null
-  client_phone: string | null
-  delivery_address: string | null
-  status: LeadStatus
-  estimated_price: number | null
-  estimated_hours: number | null
-  labor_rate: number | null
-  scope_description: string | null
-  target_quarter: string | null
-  payment_terms: PaymentTerms | null
-  converted_to_project_id: string | null
-  drive_folder_id: string | null
-  drive_folder_url: string | null
-  source_parse_id: string | null
-
-  // Joined relations
-  client?: Client | null
-  contact?: Contact | null
-  lead_subprojects?: LeadSubproject[]
-}
-
-export interface LeadSubproject {
-  id: string
-  lead_id: string
-  created_at: string
-  name: string
-  description: string | null
-  sequence_order: number
-  estimated_hours: number | null
-  estimated_price: number | null
-  quantity: number | null
-  linear_feet: number | null
-  quality_type: string | null
-  rate_per_lf: number | null
-  hours_per_lf: number | null
-  material_cost: number | null
-  material_finish: string | null
-  activity_type: string | null
-  dimensions: string | null
-  details_json: any | null
-  exclusions_json: any | null
-  pricing_lines_json: any | null
-  dept_hours: Record<string, number> | null
-  specs_json: any[] | null
-  spec_lines_json: any | null
-  assembly_lines_json: any | null
-  drive_folder_id: string | null
-  drive_approval_folder_id: string | null
-}
-
-// ── Projects (extends MVP's existing Project interface) ──
+// ── Projects ──
 
 export interface Project {
   id: string
@@ -114,6 +56,7 @@ export interface Project {
   client_name: string | null // fallback string
   client_id: string | null
   contact_id: string | null
+  stage: ProjectStage
   status: ProjectStatus
   production_phase: ProductionPhase
   bid_total: number
@@ -123,7 +66,6 @@ export interface Project {
   due_date: string | null
 
   // Pro-tier fields (nullable for Starter)
-  source_lead_id: string | null
   delivery_address: string | null
   estimated_price: number | null
   estimated_hours: number | null
@@ -136,11 +78,6 @@ export interface Project {
   target_start_date: string | null
   drive_folder_id: string | null
   drive_folder_url: string | null
-
-  // Portal
-  portal_slug: string | null
-  portal_password_hash: string | null
-  portal_step: PortalStep | null
 
   // Joined
   client?: Client | null
@@ -165,7 +102,10 @@ export interface Subproject {
   price: number | null
   manual_price: number | null
 
-  // Pro / v2+v3 (nullable for Starter)
+  // Pro / v2+v3 (nullable for Starter).
+  // NOTE: some of these jsonb columns (spec_lines_json, specs_json,
+  // assembly_lines_json, selections_confirmed*) are legacy BUILT OS shapes.
+  // Phase 2 replaces the subproject editor; this struct will be trimmed then.
   description: string | null
   estimated_hours: number | null
   estimated_price: number | null
@@ -187,59 +127,10 @@ export interface Subproject {
   assembly_lines_json: any | null
   drive_folder_id: string | null
   drive_approval_folder_id: string | null
-  selections_confirmed: boolean | null
-  selections_confirmed_date: string | null
   ready_for_production: boolean | null
 }
 
-// ── Portal ──
-
-export const PORTAL_STEPS = [
-  'down_payment',
-  'approvals',
-  'scheduling',
-  'in_production',
-  'assembly',
-  'ready_for_install',
-  'complete',
-] as const
-
-export type PortalStep = typeof PORTAL_STEPS[number]
-
-export interface PortalTimelineEntry {
-  id: string
-  project_id: string
-  created_at: string
-  event_type: string
-  event_label: string
-  event_detail: string | null
-  portal_step: PortalStep | null
-  actor_type: 'shop' | 'client' | 'system' | null
-  triggered_by: string | null
-}
-
-// ── Selections + Drawings ──
-
-export type SelectionStatus = 'unconfirmed' | 'pending_review' | 'confirmed' | 'voided'
-
-export interface Selection {
-  id: string
-  project_id: string
-  subproject_id: string | null
-  category: string
-  label: string
-  spec_value: string | null
-  status: SelectionStatus
-  display_order: number
-  confirmed_date: string | null
-  confirmed_by: string | null
-  client_signed_off_at: string | null
-  client_signed_off_by: string | null
-  spec_library_item_id: string | null
-  notes: string | null
-  created_at: string
-  updated_at: string
-}
+// ── Drawings (kept; Phase 6 will revisit) ──
 
 export interface DrawingRevision {
   id: string
@@ -250,7 +141,6 @@ export interface DrawingRevision {
   drive_file_id: string | null
   drive_file_url: string | null
   is_stale: boolean
-  selection_snapshot: any | null
   notes: string | null
   submitted_at: string | null
   client_signed_off_at: string | null
@@ -259,7 +149,7 @@ export interface DrawingRevision {
   created_by: string | null
 }
 
-// ── Rate book ──
+// ── Rate book (Phase 1 will rebuild on top of this; kept for now) ──
 
 export type RateBookItemType =
   | 'door_style'
@@ -315,7 +205,7 @@ export interface MaterialPricing {
   updated_at: string
 }
 
-// ── Change orders, cash flow, vendors (foundation only, no UI this week) ──
+// ── Change orders, cash flow (foundation) ──
 
 export interface ChangeOrder {
   id: string
@@ -350,13 +240,12 @@ export interface CashFlowReceivable {
 
 export interface Comment {
   id: string
-  entity_type: 'lead' | 'project'
+  entity_type: 'project'
   entity_id: string
   content: string
   author: string
   author_id: string | null
   mentions: string[] | null
-  source_lead_id: string | null
   created_at: string
   updated_at: string
 }

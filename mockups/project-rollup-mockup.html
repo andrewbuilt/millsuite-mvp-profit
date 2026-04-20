@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MillSuite · Project Rollup (Clickable Mockup)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #0a0a0a; color: #e5e5e5; height: 100vh; overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* TOP BAR */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: #0d0d0d; border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+  }
+  .breadcrumb {
+    font-size: 12px; color: #888;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .breadcrumb .sep { color: #444; }
+  .breadcrumb .here { color: #fff; font-weight: 600; }
+  .breadcrumb .diamond { color: #3b82f6; }
+  .status-pill {
+    padding: 3px 10px; border-radius: 10px; font-size: 11px;
+    font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+    background: #2a200a; color: #fbbf24; border: 1px solid #4a3a15;
+  }
+
+  .btn {
+    background: #1e1e1e; border: 1px solid #2a2a2a; color: #ddd;
+    padding: 5px 11px; font-size: 12px; border-radius: 6px;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+  }
+  .btn:hover { background: #252525; border-color: #333; color: #fff; }
+  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-good { background: #14532d; border-color: #166534; color: #bbf7d0; }
+  .btn-good:hover { background: #166534; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover { color: #ccc; background: #1a1a1a; }
+  .topbar .btns { display: flex; gap: 8px; }
+
+  /* PROJECT HEADER */
+  .proj-header {
+    padding: 22px 28px; background: #0d0d0d;
+    border-bottom: 1px solid #1a1a1a;
+    display: grid; grid-template-columns: 1fr auto; gap: 20px;
+    align-items: start;
+  }
+  .proj-header h1 {
+    font-size: 22px; color: #fff; font-weight: 600; letter-spacing: -0.3px;
+    margin-bottom: 8px;
+  }
+  .proj-meta {
+    display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+    font-size: 12px; color: #888;
+  }
+  .proj-meta .pill {
+    padding: 3px 10px; background: #141414; border: 1px solid #2a2a2a;
+    border-radius: 10px; font-size: 11.5px; color: #ccc;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .proj-meta .sep { color: #333; }
+  .proj-meta .dates { color: #666; }
+
+  .proj-total-mini {
+    text-align: right;
+  }
+  .proj-total-mini .tval {
+    font-size: 28px; color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace; letter-spacing: -0.5px;
+  }
+  .proj-total-mini .tmargin {
+    font-size: 12px; font-weight: 600; margin-top: 2px;
+  }
+  .margin-ok { color: #4ade80; }
+  .margin-warn { color: #fbbf24; }
+  .margin-bad { color: #f87171; }
+
+  /* MAIN */
+  .main {
+    flex: 1; overflow-y: auto;
+    padding: 24px 28px;
+  }
+  .grid {
+    display: grid; grid-template-columns: 1fr 380px; gap: 24px;
+    max-width: 1240px; margin: 0 auto;
+  }
+  @media (max-width: 960px) {
+    .grid { grid-template-columns: 1fr; }
+    .fin-panel { position: static !important; }
+    .hist-grid { grid-template-columns: 1fr !important; }
+    .actions-bar { flex-direction: column; align-items: stretch !important; }
+    .actions-bar .left-side, .actions-bar .right-side { width: 100%; justify-content: flex-start; }
+  }
+
+  /* SECTION */
+  .section-title {
+    font-size: 11px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 12px;
+  }
+
+  /* SUBPROJECT CARDS */
+  .sp-grid {
+    display: grid; gap: 10px;
+  }
+  .sp-card {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 10px;
+    padding: 16px 18px; cursor: pointer; transition: all 0.15s;
+    display: grid; grid-template-columns: 1fr auto; gap: 20px;
+    align-items: center;
+  }
+  .sp-card:hover { border-color: #3b82f6; background: #0f1a2a; }
+  .sp-card.install { border-style: dashed; }
+  .sp-card .sp-left { min-width: 0; }
+  .sp-card .sp-name {
+    font-size: 14.5px; color: #fff; font-weight: 600; margin-bottom: 3px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sp-card .sp-tag {
+    font-size: 9.5px; padding: 1px 6px; border-radius: 3px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    background: #1a2d4a; color: #93c5fd;
+  }
+  .sp-card .sp-tag.install { background: #2a1e3a; color: #c4b5fd; }
+  .sp-card .sp-sub {
+    font-size: 12px; color: #888; margin-bottom: 10px;
+  }
+  .sp-card .sp-stats {
+    display: flex; gap: 18px; font-size: 11.5px; color: #888;
+  }
+  .sp-card .sp-stats .k {
+    color: #ccc; font-family: "SF Mono", Menlo, monospace; font-size: 11.5px;
+    margin-right: 4px;
+  }
+  .sp-card .sp-right {
+    text-align: right;
+  }
+  .sp-card .sp-total {
+    font-size: 18px; color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .sp-card .sp-margin {
+    font-size: 11.5px; margin-top: 3px; font-weight: 600;
+  }
+  .sp-card .sp-status {
+    font-size: 10px; color: #666; margin-top: 6px;
+    text-transform: uppercase; letter-spacing: 0.7px;
+  }
+  .sp-card .sp-status.ready { color: #4ade80; }
+  .sp-card .sp-status.draft { color: #fbbf24; }
+
+  .sp-add {
+    padding: 14px; background: transparent; border: 1px dashed #2a2a2a;
+    border-radius: 10px; text-align: center; color: #666; cursor: pointer;
+    font-size: 12.5px; transition: all 0.15s;
+  }
+  .sp-add:hover { color: #93c5fd; border-color: #3b82f6; background: #0c1a2e; }
+
+  /* FINANCIAL PANEL */
+  .fin-panel {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+    padding: 22px; position: sticky; top: 0;
+  }
+  .fin-total {
+    padding-bottom: 18px; border-bottom: 1px solid #1a1a1a; margin-bottom: 18px;
+  }
+  .fin-total .t-label {
+    font-size: 11px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 6px;
+  }
+  .fin-total .t-num {
+    font-size: 32px; color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace; letter-spacing: -0.5px;
+    margin-bottom: 4px;
+  }
+  .fin-total .t-margin-block {
+    display: flex; align-items: center; gap: 10px; margin-top: 10px;
+  }
+  .fin-total .t-margin-pct {
+    font-size: 18px; font-weight: 700; font-family: "SF Mono", Menlo, monospace;
+  }
+  .fin-total .t-margin-label {
+    font-size: 11.5px; color: #888; line-height: 1.4;
+  }
+
+  .fin-row {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 10px; align-items: center;
+    padding: 8px 0; font-size: 12.5px;
+    border-bottom: 1px solid #141414;
+  }
+  .fin-row:last-of-type { border-bottom: none; }
+  .fin-row .k { color: #ccc; }
+  .fin-row .hrs {
+    color: #666; font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+  }
+  .fin-row .v {
+    color: #fff; font-family: "SF Mono", Menlo, monospace; font-size: 12.5px;
+  }
+  .fin-row.expandable { cursor: pointer; }
+  .fin-row.expandable:hover { background: #111; margin: 0 -10px; padding: 8px 10px; border-radius: 4px; }
+  .fin-row .caret { font-size: 9px; color: #666; transition: transform 0.2s; }
+  .fin-row.expandable.open .caret { transform: rotate(90deg); }
+  .dept-sub {
+    display: none; padding: 6px 0 10px 14px; border-left: 1px solid #1e3a5f;
+    margin-left: 2px; margin-bottom: 6px;
+  }
+  .dept-sub.open { display: block; }
+  .dept-sub .dept-line {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 10px; padding: 3px 0; font-size: 11.5px; color: #aaa;
+  }
+  .dept-sub .dept-line .dv {
+    font-family: "SF Mono", Menlo, monospace; color: #ddd;
+  }
+
+  /* HISTORICAL */
+  .historical {
+    margin-top: 24px;
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+    padding: 18px 22px;
+  }
+  .hist-header {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+  }
+  .hist-header:hover .hist-caret { color: #fff; }
+  .hist-header .hist-title {
+    font-size: 11px; letter-spacing: 0.9px; text-transform: uppercase;
+    color: #888; font-weight: 600;
+  }
+  .hist-caret {
+    color: #666; font-size: 12px; transition: transform 0.15s;
+  }
+  .historical.open .hist-caret { transform: rotate(90deg); color: #fff; }
+  .hist-body { display: none; margin-top: 16px; }
+  .historical.open .hist-body { display: block; }
+  .hist-summary-inline {
+    font-size: 12px; color: #86efac; font-weight: 500;
+  }
+  .historical.open .hist-summary-inline { color: #888; font-weight: 400; }
+  .hist-compare {
+    display: flex; align-items: center; gap: 20px;
+    padding: 14px 16px; background: #0c1a2e; border: 1px solid #1e3a5f;
+    border-radius: 8px; margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .hist-compare .hcn {
+    font-size: 24px; font-weight: 700; font-family: "SF Mono", Menlo, monospace;
+    color: #fff;
+  }
+  .hist-compare .hcl {
+    font-size: 12px; color: #93c5fd; line-height: 1.4;
+  }
+  .hist-compare .sep-v {
+    width: 1px; align-self: stretch; background: #1e3a5f;
+  }
+  .hist-compare .check { color: #4ade80; font-size: 18px; }
+
+  .hist-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  }
+  .hist-card {
+    background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .hist-card .hc-name {
+    font-size: 12.5px; color: #fff; font-weight: 600; margin-bottom: 4px;
+  }
+  .hist-card .hc-meta { font-size: 11px; color: #777; margin-bottom: 8px; }
+  .hist-card .hc-nums {
+    display: flex; gap: 12px; font-size: 11px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .hist-card .hc-nums .n-label { color: #666; }
+  .hist-card .hc-nums .n-val { color: #fff; font-weight: 600; }
+  .hist-card .hc-margin {
+    font-size: 13px; font-weight: 700; font-family: "SF Mono", Menlo, monospace;
+    margin-top: 8px;
+  }
+
+  /* CASH FLOW */
+  .cashflow {
+    margin-top: 16px; padding-top: 18px;
+    border-top: 1px solid #1a1a1a;
+  }
+  .cf-row {
+    display: grid; grid-template-columns: 1fr 80px auto;
+    gap: 10px; padding: 8px 0; font-size: 12.5px;
+    border-bottom: 1px solid #141414;
+  }
+  .cf-row:last-child { border-bottom: none; }
+  .cf-row .cfk { color: #ccc; }
+  .cf-row .cfm { color: #666; font-size: 11px; font-family: "SF Mono", Menlo, monospace; }
+  .cf-row .cfv { color: #fff; font-family: "SF Mono", Menlo, monospace; text-align: right; }
+  .cf-row.deposit .cfv { color: #4ade80; }
+
+  /* ACTIONS BAR */
+  .actions-bar {
+    margin-top: 24px; padding: 16px 20px;
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px;
+    max-width: 1240px; margin-left: auto; margin-right: auto;
+  }
+  .actions-bar .left-side { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions-bar .right-side { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .actions-bar .hint {
+    font-size: 11.5px; color: #666;
+  }
+
+  .proposal-setting {
+    font-size: 11px; color: #888;
+    padding: 4px 10px; background: #141414; border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer;
+  }
+  .proposal-setting:hover { color: #ccc; border-color: #333; }
+  .proposal-setting .toggle {
+    width: 22px; height: 12px; background: #2a2a2a; border-radius: 6px;
+    position: relative; flex-shrink: 0;
+  }
+  .proposal-setting .toggle::after {
+    content: ''; position: absolute; width: 8px; height: 8px;
+    background: #666; border-radius: 50%; top: 2px; left: 2px;
+    transition: all 0.2s;
+  }
+  .proposal-setting.on .toggle { background: #1e4a2c; }
+  .proposal-setting.on .toggle::after { background: #4ade80; left: 12px; }
+
+  /* QB PREVIEW MODAL */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    display: none; align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: #111; border: 1px solid #2a2a2a; border-radius: 12px;
+    width: 90%; max-width: 720px; max-height: 85vh; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .modal-head {
+    padding: 18px 22px; border-bottom: 1px solid #1a1a1a;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-head h3 { font-size: 16px; color: #fff; font-weight: 600; }
+  .modal-head .qb-logo {
+    font-size: 10px; padding: 2px 8px; background: #1e3a2c;
+    color: #86efac; border-radius: 4px; font-weight: 700;
+    letter-spacing: 0.6px; margin-left: 8px;
+  }
+  .modal-close { cursor: pointer; color: #666; font-size: 18px; }
+  .modal-close:hover { color: #fff; }
+  .modal-body { padding: 18px 22px; overflow-y: auto; }
+  .qb-line {
+    display: grid; grid-template-columns: 1fr auto auto auto;
+    gap: 14px; padding: 8px 0; font-size: 12px;
+    border-bottom: 1px solid #1a1a1a; align-items: start;
+  }
+  .qb-line:last-child { border-bottom: none; }
+  .qb-line .qb-desc { color: #fff; }
+  .qb-line .qb-spec {
+    color: #888; font-size: 11px; margin-top: 3px;
+  }
+  .qb-line .qb-qty, .qb-line .qb-rate, .qb-line .qb-amount {
+    font-family: "SF Mono", Menlo, monospace; text-align: right; color: #ddd;
+  }
+  .qb-line .qb-amount { color: #fff; font-weight: 600; }
+  .qb-desc-edit, .qb-spec-edit {
+    width: 100%; background: transparent; color: inherit; border: 1px solid transparent;
+    padding: 4px 6px; border-radius: 4px; font: inherit; resize: vertical;
+    font-family: inherit;
+  }
+  .qb-desc-edit { color: #fff; font-size: 12px; font-weight: 500; }
+  .qb-spec-edit { color: #aaa; font-size: 11px; margin-top: 3px; line-height: 1.5; min-height: 60px; }
+  .qb-desc-edit:hover, .qb-spec-edit:hover {
+    border-color: #222; background: #0c0c0c;
+  }
+  .qb-desc-edit:focus, .qb-spec-edit:focus {
+    border-color: #2d5a8a; background: #0c1a2e; outline: none; color: #fff;
+  }
+  .qb-edit-hint {
+    font-size: 10.5px; color: #666; margin: 10px 0 14px; font-style: italic;
+  }
+  .qb-terms-block {
+    margin-top: 18px; padding: 14px; background: #0a0a0a;
+    border: 1px solid #1a1a1a; border-radius: 8px;
+  }
+  .qb-terms-block h4 {
+    font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase;
+    color: #888; font-weight: 600; margin-bottom: 8px;
+  }
+  .qb-terms-edit {
+    width: 100%; min-height: 72px; background: #050505; color: #ccc;
+    border: 1px solid #1a1a1a; border-radius: 6px; padding: 10px 12px;
+    font-size: 11.5px; line-height: 1.6; font-family: inherit; resize: vertical;
+  }
+  .qb-terms-edit:focus { border-color: #2d5a8a; outline: none; }
+  .qb-totalrow {
+    display: grid; grid-template-columns: 1fr auto;
+    padding: 8px 0; font-size: 13px;
+  }
+  .qb-totalrow.total {
+    border-top: 1px solid #2a2a2a; margin-top: 8px; padding-top: 14px;
+    font-size: 15px; color: #fff; font-weight: 600;
+  }
+
+  /* TOAST */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    max-width: 520px; z-index: 100; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span class="diamond">◆</span>
+      <span>Built OS</span>
+      <span class="sep">›</span>
+      <span>Projects</span>
+      <span class="sep">›</span>
+      <span class="here">Henderson kitchen remodel</span>
+      <span style="margin-left:14px" class="status-pill">Draft</span>
+    </div>
+    <div class="btns">
+      <button class="btn" onclick="toast('Open drawings panel — upload new or review parsed line items.')">📐 Drawings</button>
+      <button class="btn" onclick="toast('Opens the project in the subproject editor on the Kitchen tab.')">✎ Edit lines</button>
+    </div>
+  </div>
+
+  <!-- PROJECT HEADER -->
+  <div class="proj-header">
+    <div>
+      <h1>Henderson kitchen remodel</h1>
+      <div class="proj-meta">
+        <span class="pill">👤 Henderson family</span>
+        <span class="pill">📍 1842 Ridgeview Ln, Nashville TN</span>
+        <span class="sep">·</span>
+        <span class="dates">Created Apr 8 · Updated 2 hours ago</span>
+      </div>
+    </div>
+    <div class="proj-total-mini">
+      <div class="tval" id="proj-total">$48,320</div>
+      <div class="tmargin margin-ok" id="proj-margin-mini">34% margin · above 32% target</div>
+    </div>
+  </div>
+
+  <!-- MAIN GRID -->
+  <div class="main">
+    <div class="grid">
+      <!-- LEFT: Subprojects -->
+      <div>
+        <div class="section-title">Subprojects · click any to edit</div>
+        <div class="sp-grid" id="spGrid"></div>
+        <div class="sp-add" onclick="toast('+ New subproject — blank, cloned, or parsed from drawings.')" style="margin-top:10px">+ Add subproject (blank, clone, or parse from drawings)</div>
+      </div>
+
+      <!-- RIGHT: Financial -->
+      <div>
+        <div class="fin-panel" id="finPanel"></div>
+      </div>
+    </div>
+
+    <!-- HISTORICAL -->
+    <div class="historical" id="historical" style="max-width: 1240px; margin-left:auto; margin-right:auto;">
+      <div class="hist-header" onclick="toggleHistorical()">
+        <div class="hist-title">
+          <span class="hist-caret">▸</span> How this project compares to past work
+        </div>
+        <div class="hist-summary-inline">✓ 2% above your avg on similar shaker kitchens</div>
+      </div>
+
+      <div class="hist-body">
+        <div class="hist-compare">
+          <div>
+            <div class="hcn">34%</div>
+            <div class="hcl">this project</div>
+          </div>
+          <div class="sep-v"></div>
+          <div>
+            <div class="hcn">32%</div>
+            <div class="hcl">your avg on similar shaker kitchens</div>
+          </div>
+          <div class="sep-v"></div>
+          <div class="check">✓</div>
+          <div style="font-size:12.5px; color:#86efac; flex:1">
+            <b>Looking healthy.</b> This project is 2% above your rolling average for shaker kitchens in this LF range. No action needed.
+          </div>
+        </div>
+
+        <div class="section-title" style="margin-top:18px">Similar past projects</div>
+        <div class="hist-grid" id="histGrid"></div>
+      </div>
+    </div>
+
+    <!-- ACTIONS BAR -->
+    <div class="actions-bar">
+      <div class="left-side">
+        <button class="btn" onclick="toast('Draft saved.')">Save draft</button>
+        <button class="btn" onclick="toast('Opens QB preview — what the estimate looks like in QuickBooks.')" onclick="openQb()" id="qbPrev">Preview QB export</button>
+      </div>
+      <div class="right-side">
+        <button class="btn" id="btnProposal" onclick="toast('Client-facing proposal PDF sent. Hosted link generated.')" style="display:none">📤 Send proposal</button>
+        <button class="btn btn-good" onclick="openQb()">Send to QB as estimate</button>
+        <button class="btn btn-primary" onclick="toast('Project marked as sold. Now locked — all edits become change orders. Live schedule, preproduction, and QB invoicing unlock.')">✓ Mark as sold</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- QB PREVIEW MODAL -->
+<div class="modal-bg" id="qbModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>
+        QuickBooks estimate preview
+        <span class="qb-logo">QBO</span>
+      </h3>
+      <span class="modal-close" onclick="closeQb()">✕</span>
+    </div>
+    <div class="modal-body" id="qbBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============== DATA ==============
+const subprojects = [
+  {
+    id:'kitchen', name:'Kitchen', sub:'22 LF base · 18 LF upper · engineering included',
+    lines: 16, hours: 95, total: 22400, margin: 33, status:'ready'
+  },
+  {
+    id:'butler', name:"Butler's pantry", sub:'8 LF base · 8 LF upper',
+    lines: 6, hours: 38, total: 9800, margin: 32, status:'ready'
+  },
+  {
+    id:'mudroom', name:'Mudroom', sub:'10 LF built-in',
+    lines: 4, hours: 30, total: 7100, margin: 31, status:'ready'
+  },
+  {
+    id:'install', name:'Install', sub:'3 days · 2nd floor premium',
+    lines: 2, hours: 30, total: 2820, margin: 37, status:'ready', isInstall: true
+  }
+];
+
+const historical = [
+  { name:'Nguyen kitchen', client:'Nguyen family', meta:'Shaker · paint · 22 LF · 3 mo ago',
+    hours:91, total:21800, margin:33 },
+  { name:'Walsh remodel', client:'Walsh family', meta:'Shaker · paint · 18 LF · 6 weeks ago',
+    hours:82, total:19400, margin:32 },
+  { name:'Grant bungalow', client:'Grant', meta:'Shaker · paint · 20 LF · 5 mo ago',
+    hours:88, total:20600, margin:31 }
+];
+
+const project = {
+  total: 48320,
+  labor: { hours: 193, cost: 15890, dept: {
+    Engineering: { hours: 8.5, cost: 808 },
+    CNC:         { hours: 14.2, cost: 1207 },
+    Assembly:    { hours: 124.5, cost: 10583 },
+    Finish:      { hours: 16.8, cost: 1512 },
+    Install:     { hours: 30.0, cost: 2400 }
+  }},
+  material: { cost: 12400, consumables: 1240 },
+  hardware: { cost: 1820, count: 12 },
+  install: { cost: 2820 },
+  margin: 34,
+  marginTarget: 32,
+  marginAvg: 32
+};
+
+let proposalOn = true;
+let deptOpen = false;
+
+// ============== HELPERS ==============
+function money(n) { return '$' + Math.round(n).toLocaleString(); }
+function hoursFmt(n) { return (Math.round(n*10)/10).toFixed(1) + ' hr'; }
+function $(id) { return document.getElementById(id); }
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+function marginCls(m, target) {
+  if (m >= target) return 'margin-ok';
+  if (m >= target - 5) return 'margin-warn';
+  return 'margin-bad';
+}
+
+// ============== RENDER ==============
+function renderSubprojects() {
+  const cards = subprojects.map(sp => {
+    const mCls = marginCls(sp.margin, project.marginTarget);
+    const mText = sp.margin + '% margin';
+    const statusCls = sp.status === 'ready' ? 'ready' : 'draft';
+    const statusText = sp.status === 'ready' ? '● Complete' : '○ Draft';
+    const installTag = sp.isInstall ? '<span class="sp-tag install">install</span>' : '';
+    return `<div class="sp-card ${sp.isInstall?'install':''}" onclick="toast('Opens ${sp.name} in the subproject editor.')">
+      <div class="sp-left">
+        <div class="sp-name">${sp.name}${installTag}</div>
+        <div class="sp-sub">${sp.sub}</div>
+        <div class="sp-stats">
+          <span><span class="k">${sp.lines}</span>lines</span>
+          <span><span class="k">${sp.hours}</span>hr</span>
+        </div>
+      </div>
+      <div class="sp-right">
+        <div class="sp-total">${money(sp.total)}</div>
+        <div class="sp-margin ${mCls}">${mText}</div>
+        <div class="sp-status ${statusCls}">${statusText}</div>
+      </div>
+    </div>`;
+  }).join('');
+  $('spGrid').innerHTML = cards;
+}
+
+function renderFinancial() {
+  const p = project;
+  const mCls = marginCls(p.margin, p.marginTarget);
+  const avgCls = p.margin >= p.marginAvg ? 'margin-ok' : 'margin-warn';
+  const avgDir = p.margin >= p.marginAvg ? 'above' : 'below';
+
+  const deptRows = Object.entries(p.labor.dept).map(([d, v]) => `
+    <div class="dept-line">
+      <span>${d}</span>
+      <span class="dv">${hoursFmt(v.hours)}</span>
+      <span class="dv">${money(v.cost)}</span>
+    </div>`).join('');
+
+  $('finPanel').innerHTML = `
+    <div class="fin-total">
+      <div class="t-label">Project total</div>
+      <div class="t-num">${money(p.total)}</div>
+      <div class="t-margin-block">
+        <div class="t-margin-pct ${mCls}">${p.margin}%</div>
+        <div class="t-margin-label">
+          margin · target ${p.marginTarget}%<br>
+          ${p.margin >= p.marginTarget ? 'You\'re above target.' : `You\'re ${p.marginTarget - p.margin}% below target.`}
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title" style="margin-bottom:8px">Breakdown</div>
+
+    <div class="fin-row expandable ${deptOpen ? 'open' : ''}" onclick="toggleDept()">
+      <span class="k"><span class="caret">▸</span> Labor</span>
+      <span class="hrs">${hoursFmt(p.labor.hours)}</span>
+      <span class="v">${money(p.labor.cost)}</span>
+    </div>
+    <div class="dept-sub ${deptOpen ? 'open' : ''}">${deptRows}</div>
+
+    <div class="fin-row">
+      <span class="k">Material</span>
+      <span class="hrs"></span>
+      <span class="v">${money(p.material.cost)}</span>
+    </div>
+    <div class="fin-row">
+      <span class="k">Consumables <span style="color:#666;font-size:10px">(10% of material)</span></span>
+      <span class="hrs"></span>
+      <span class="v">${money(p.material.consumables)}</span>
+    </div>
+    <div class="fin-row">
+      <span class="k">Specialty hardware</span>
+      <span class="hrs">${p.hardware.count} items</span>
+      <span class="v">${money(p.hardware.cost)}</span>
+    </div>
+    <div class="fin-row">
+      <span class="k">Install (subproject)</span>
+      <span class="hrs"></span>
+      <span class="v">${money(p.install.cost)}</span>
+    </div>
+
+    <div class="cashflow">
+      <div class="section-title" style="margin-bottom:8px">Cash flow · QB-linked</div>
+      <div class="cf-row deposit">
+        <span class="cfk">Deposit at signing</span>
+        <span class="cfm">30%</span>
+        <span class="cfv">${money(p.total * 0.30)}</span>
+      </div>
+      <div class="cf-row">
+        <span class="cfk">Progress at rough-in</span>
+        <span class="cfm">40%</span>
+        <span class="cfv">${money(p.total * 0.40)}</span>
+      </div>
+      <div class="cf-row">
+        <span class="cfk">Progress at install start</span>
+        <span class="cfm">20%</span>
+        <span class="cfv">${money(p.total * 0.20)}</span>
+      </div>
+      <div class="cf-row">
+        <span class="cfk">Final at punchout</span>
+        <span class="cfm">10%</span>
+        <span class="cfv">${money(p.total * 0.10)}</span>
+      </div>
+      <div style="font-size:11px;color:#666;margin-top:10px;line-height:1.5">
+        Payment milestones auto-create QB invoices when the project is marked sold.
+      </div>
+    </div>
+  `;
+}
+
+function renderHistorical() {
+  $('histGrid').innerHTML = historical.map(h => {
+    const mCls = h.margin >= project.marginAvg ? 'margin-ok' : 'margin-warn';
+    return `<div class="hist-card">
+      <div class="hc-name">${h.name}</div>
+      <div class="hc-meta">${h.meta}</div>
+      <div class="hc-nums">
+        <span><span class="n-label">Hours</span> <span class="n-val">${h.hours}</span></span>
+        <span><span class="n-label">Total</span> <span class="n-val">${money(h.total)}</span></span>
+      </div>
+      <div class="hc-margin ${mCls}">${h.margin}% margin</div>
+    </div>`;
+  }).join('');
+}
+
+function toggleDept() {
+  deptOpen = !deptOpen;
+  renderFinancial();
+}
+
+function toggleHistorical() {
+  const el = $('historical');
+  el.classList.toggle('open');
+}
+
+function toggleProposal() {
+  proposalOn = !proposalOn;
+  const el = $('propToggle');
+  el.classList.toggle('on', proposalOn);
+  el.querySelector('span').textContent = proposalOn ? 'Client proposal enabled' : 'Client proposal disabled';
+  const btn = $('btnProposal');
+  btn.style.display = proposalOn ? '' : 'none';
+  toast(proposalOn
+    ? 'Client proposals enabled. You can send PDF/hosted proposals from here.'
+    : 'Client proposals disabled. Estimates go through QuickBooks only.'
+  );
+}
+
+// ============== QB PREVIEW MODAL ==============
+// Descriptions and specs here are DIFFERENT from internal estimate lines.
+// More detail, plain language for the client, plus exclusions baked in.
+// Install day count is intentionally NOT surfaced — in case fewer days are used.
+const qbItems = [
+  {
+    desc:'Kitchen — custom millwork',
+    spec:'22 LF of base cabinetry and 18 LF of upper cabinetry. Shaker-style doors and drawer fronts in paint-grade maple. Soft-close standard drawer glides. Engineering and shop drawings included.\nExcludes: appliances, plumbing, countertops, backsplash, paint touch-up after install.',
+    qty:'1', rate:22400, amount:22400
+  },
+  {
+    desc:"Butler's pantry — custom millwork",
+    spec:'8 LF base and 8 LF upper cabinetry. Shaker doors, paint grade. Adjustable shelves throughout.\nExcludes: countertop, under-cabinet lighting.',
+    qty:'1', rate:9800, amount:9800
+  },
+  {
+    desc:'Mudroom built-in',
+    spec:'10 LF built-in with lockers, bench seat, and upper cubbies. Inset face-frame construction, shaker doors in paint grade.\nExcludes: cushions, decorative hooks.',
+    qty:'1', rate:7100, amount:7100
+  },
+  {
+    desc:'Installation',
+    spec:'On-site installation and final adjustment of all millwork above. Includes second-floor carry and shimming.\nExcludes: electrical, plumbing, drywall repair, disposal of existing cabinetry.',
+    qty:'1', rate:2820, amount:2820
+  },
+  {
+    desc:'Deposit (30%)',
+    spec:'Due at contract signing. Balance billed at production milestones.',
+    qty:'1', rate:14496, amount:14496, deposit:true
+  }
+];
+
+const qbTerms =
+`Estimate valid for 30 days. 30% deposit due at contract signing. Remaining balance billed per production milestones. Lead time quoted separately. Change orders in writing only.`;
+
+function openQb() {
+  const rows = qbItems.map((i, idx) => `
+    <div class="qb-line">
+      <div>
+        <textarea class="qb-desc-edit" rows="1" oninput="autoGrow(this)" data-i="${idx}" data-f="desc">${i.desc}</textarea>
+        <textarea class="qb-spec-edit" oninput="autoGrow(this); syncQbItem(${idx}, 'spec', this.value)">${i.spec}</textarea>
+      </div>
+      <div class="qb-qty">${i.qty}</div>
+      <div class="qb-rate">${money(i.rate)}</div>
+      <div class="qb-amount">${money(i.amount)}</div>
+    </div>
+  `).join('');
+
+  $('qbBody').innerHTML = `
+    <div style="font-size:12.5px;color:#888;margin-bottom:4px;line-height:1.55">
+      This is how the estimate will appear in QuickBooks. Descriptions are client-facing — edit anything before sending. Specs, exclusions, and terms travel with the estimate <b>and into preproduction</b> so your team builds exactly what was quoted.
+    </div>
+    <div class="qb-edit-hint">Click any description or spec to edit. Changes here don't alter your internal line items.</div>
+    <div class="qb-line" style="border-bottom:1px solid #2a2a2a;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.7px;font-weight:600">
+      <div>Item / Description / Exclusions</div>
+      <div class="qb-qty">Qty</div>
+      <div class="qb-rate">Rate</div>
+      <div class="qb-amount">Amount</div>
+    </div>
+    ${rows}
+    <div class="qb-totalrow total">
+      <span>Estimate total</span>
+      <span style="font-family:'SF Mono',Menlo,monospace">${money(48320)}</span>
+    </div>
+
+    <div class="qb-terms-block">
+      <h4>Terms &amp; conditions</h4>
+      <textarea class="qb-terms-edit" oninput="qbTermsValue = this.value">${qbTerms}</textarea>
+    </div>
+
+    <div style="margin-top:20px; padding-top:16px; border-top:1px solid #1a1a1a; display:flex; gap:10px; justify-content:flex-end">
+      <button class="btn" onclick="closeQb()">Back</button>
+      <button class="btn btn-good" onclick="toast('Estimate sent to QuickBooks with your edits. Cash flow milestones queued as invoices.'); closeQb();">Send to QuickBooks</button>
+    </div>
+  `;
+  $('qbModal').classList.add('open');
+  // auto-size all textareas
+  $('qbBody').querySelectorAll('textarea').forEach(autoGrow);
+}
+
+let qbTermsValue = qbTerms;
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+function syncQbItem(i, f, v) { qbItems[i][f] = v; }
+
+function closeQb() { $('qbModal').classList.remove('open'); }
+
+// ============== INIT ==============
+function render() {
+  renderSubprojects();
+  renderFinancial();
+  renderHistorical();
+}
+render();
+</script>
+</body>
+</html>

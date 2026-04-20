@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MillSuite · Suggestions (Clickable Mockup)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #0a0a0a; color: #e5e5e5; height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: #111; border-bottom: 1px solid #222;
+    flex-shrink: 0;
+  }
+  .topbar h1 { font-size: 13px; font-weight: 600; color: #fff; letter-spacing: 0.3px; }
+  .topbar .sub { font-size: 11px; color: #666; margin-left: 10px; font-weight: 400; }
+  .btns { display: flex; gap: 8px; }
+  .btn {
+    background: #1e1e1e; border: 1px solid #333; color: #ddd;
+    padding: 5px 11px; font-size: 12px; border-radius: 6px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn:hover { background: #2a2a2a; border-color: #444; color: #fff; }
+  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-warn { background: #7c2d12; border-color: #9a3412; color: #fed7aa; }
+  .btn-warn:hover { background: #9a3412; }
+  .btn-good { background: #14532d; border-color: #166534; color: #bbf7d0; }
+  .btn-good:hover { background: #166534; }
+  .btn-ghost { background: transparent; border-color: #2a2a2a; color: #888; }
+  .btn-ghost:hover { color: #ccc; border-color: #444; }
+
+  .context-strip {
+    padding: 9px 20px; font-size: 12px; color: #93c5fd;
+    background: #0c1a2e; border-bottom: 1px solid #1e3a5f;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .context-strip .lbl {
+    font-size: 10px; background: #1e3a5f; color: #dbeafe;
+    padding: 2px 7px; border-radius: 4px; font-weight: 600;
+    letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .context-strip .hint { color: #6b8cc4; font-size: 11.5px; }
+
+  .summary-strip {
+    display: flex; gap: 10px; padding: 14px 20px;
+    background: #0d0d0d; border-bottom: 1px solid #1a1a1a; flex-wrap: wrap;
+  }
+  .summary-pill {
+    padding: 6px 12px; background: #141414; border: 1px solid #242424;
+    border-radius: 18px; font-size: 12px; color: #ccc;
+    display: inline-flex; align-items: center; gap: 8px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .summary-pill:hover { border-color: #3a3a3a; color: #fff; }
+  .summary-pill .count {
+    font-weight: 700; color: #fff; font-size: 13px;
+    min-width: 16px; text-align: center;
+  }
+  .summary-pill.big-up    { border-color: #5a1f1f; }
+  .summary-pill.big-up .count { color: #f87171; }
+  .summary-pill.big-down  { border-color: #1e4a2c; }
+  .summary-pill.big-down .count { color: #4ade80; }
+  .summary-pill.minor     { border-color: #4a3a15; }
+  .summary-pill.minor .count { color: #facc15; }
+  .summary-pill.split { border-color: #3a2a5a; }
+  .summary-pill.split .count { color: #a78bfa; }
+  .summary-pill.quiet { border-color: #2a2a2a; }
+  .summary-pill.quiet .count { color: #9ca3af; }
+  .summary-pill.health { margin-left: auto; }
+  .summary-pill.active { background: #1a1a1a; border-color: #3b82f6; color: #fff; }
+
+  .main { flex: 1; overflow-y: auto; padding: 20px 24px 60px; }
+  .main-inner { max-width: 920px; margin: 0 auto; }
+
+  .section-divider {
+    padding: 18px 4px 8px; font-size: 10px; color: #666;
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
+  }
+
+  .card {
+    background: #111; border: 1px solid #1e1e1e; border-radius: 10px;
+    margin-bottom: 12px; overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .card.big-up   { border-color: #3a1f1f; }
+  .card.big-up   .card-head { background: linear-gradient(90deg, #1e0d0d 0%, #0f0708 100%); }
+  .card.big-down { border-color: #1e3a2c; }
+  .card.big-down .card-head { background: linear-gradient(90deg, #0d1e18 0%, #070f0c 100%); }
+  .card.minor    .card-head { background: linear-gradient(90deg, #1e170d 0%, #0f0c07 100%); }
+  .card.split   .card-head { background: linear-gradient(90deg, #140d1e 0%, #080611 100%); }
+  .card.quiet   .card-head { background: linear-gradient(90deg, #141414 0%, #0a0a0a 100%); }
+
+  .card-head {
+    padding: 14px 18px; cursor: pointer;
+    display: flex; align-items: flex-start; gap: 14px;
+  }
+  .card-icon {
+    font-size: 20px; width: 24px; text-align: center;
+    flex-shrink: 0; padding-top: 0;
+    font-weight: 700;
+  }
+  .card.big-up   .card-icon { color: #f87171; }
+  .card.big-down .card-icon { color: #4ade80; }
+  .card.minor    .card-icon { color: #facc15; }
+  .card.split    .card-icon { color: #a78bfa; }
+  .card.quiet    .card-icon { color: #9ca3af; }
+
+  .card-body { flex: 1; }
+  .card-title {
+    font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .card-type {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 2px 7px; border-radius: 4px; font-weight: 600;
+  }
+  .card.big-up   .card-type { background: #3a1f1f; color: #fca5a5; }
+  .card.big-down .card-type { background: #1e4a2c; color: #86efac; }
+  .card.minor    .card-type { background: #4a3a15; color: #fde047; }
+  .card.split    .card-type { background: #3a2a5a; color: #c4b5fd; }
+  .card.quiet    .card-type { background: #2a2a2a; color: #d1d5db; }
+
+  .card-summary {
+    font-size: 13px; color: #bbb; line-height: 1.45; margin-bottom: 6px;
+  }
+  .card-summary .metric {
+    color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace; font-size: 12.5px;
+  }
+  .card-meta {
+    font-size: 11.5px; color: #777;
+    display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+  }
+  .card-meta .trust {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; padding: 1px 7px; border-radius: 10px;
+    border: 1px solid transparent;
+  }
+  .trust.high { background: #0f2a17; color: #22c55e; border-color: #1a4a2c; }
+  .trust.med  { background: #2a200a; color: #eab308; border-color: #4a3a15; }
+  .trust.low  { background: #2a0f0f; color: #f87171; border-color: #4a1f1f; }
+
+  .card-chevron {
+    flex-shrink: 0; color: #666; font-size: 12px;
+    padding-top: 2px; transition: transform 0.2s;
+  }
+  .card.open .card-chevron { transform: rotate(90deg); color: #aaa; }
+
+  .card-expand { display: none; }
+  .card.open .card-expand { display: block; }
+
+  .expand-body {
+    padding: 4px 18px 18px 56px; border-top: 1px solid #1a1a1a;
+  }
+
+  .job-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+    margin: 8px 0 14px;
+  }
+  .job-table th {
+    text-align: left; padding: 8px 8px 6px; font-size: 10px;
+    font-weight: 600; color: #666; text-transform: uppercase;
+    letter-spacing: 0.7px; border-bottom: 1px solid #222;
+  }
+  .job-table th.right, .job-table td.right { text-align: right; }
+  .job-table td {
+    padding: 8px; border-bottom: 1px solid #181818; color: #ccc;
+    font-family: "SF Mono", Menlo, monospace; font-size: 11.5px;
+  }
+  .job-table tr:last-child td { border-bottom: none; }
+  .job-table tr.excluded td { opacity: 0.35; text-decoration: line-through; }
+  .job-table .job-name {
+    font-family: -apple-system, BlinkMacSystemFont, system-ui;
+    color: #ddd; font-size: 12px;
+  }
+  .job-table .diff.pos { color: #fbbf24; }
+  .job-table .diff.neg { color: #4ade80; }
+  .job-table .diff.strong-pos { color: #f87171; font-weight: 600; }
+  .job-table .diff.strong-neg { color: #4ade80; font-weight: 600; }
+  .job-toggle {
+    width: 16px; height: 16px; border: 1px solid #2a2a2a;
+    border-radius: 3px; cursor: pointer; display: inline-block;
+    vertical-align: middle; position: relative;
+    background: #1a1a1a;
+  }
+  .job-toggle.on { background: #3b82f6; border-color: #3b82f6; }
+  .job-toggle.on::after {
+    content: '✓'; color: white; font-size: 11px; font-weight: bold;
+    position: absolute; top: -2px; left: 2px;
+  }
+
+  .summary-row {
+    background: #0f1a2a; border: 1px solid #1e3a5f; border-radius: 6px;
+    padding: 10px 12px; margin: 12px 0; font-size: 12.5px; color: #dbeafe;
+    line-height: 1.5;
+  }
+  .summary-row .hl { color: #fff; font-weight: 600; }
+  .summary-row .metric {
+    font-family: "SF Mono", Menlo, monospace; color: #93c5fd;
+  }
+
+  .impact-box {
+    background: #0d0d0d; border: 1px dashed #2a2a2a; border-radius: 6px;
+    padding: 10px 12px; margin: 10px 0; font-size: 12px; color: #bbb;
+    line-height: 1.5;
+  }
+  .impact-box .impact-title {
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 0.7px; margin-bottom: 4px; font-weight: 600;
+  }
+  .impact-box .amt { color: #fff; font-weight: 600; font-family: "SF Mono", monospace; }
+  .impact-box .at-rate {
+    color: #777; font-size: 11px; display: block; margin-top: 4px;
+    font-style: italic;
+  }
+
+  .note-box {
+    background: #1e0d0d; border: 1px solid #3a1f1f; border-radius: 6px;
+    padding: 10px 12px; margin: 10px 0; font-size: 12px; color: #fca5a5;
+    line-height: 1.5;
+  }
+  .note-box .note-title {
+    font-size: 10px; color: #f87171; text-transform: uppercase;
+    letter-spacing: 0.7px; margin-bottom: 4px; font-weight: 700;
+  }
+  .note-box.good { background: #0d1e14; border-color: #1e4a2c; color: #86efac; }
+  .note-box.good .note-title { color: #4ade80; }
+
+  .card-actions {
+    display: flex; gap: 8px; padding: 10px 18px 14px 56px;
+    flex-wrap: wrap;
+  }
+
+  .split-preview {
+    background: #0d0d11; border: 1px solid #2a1e3a; border-radius: 8px;
+    padding: 12px 14px; margin: 12px 0; font-size: 12.5px;
+  }
+  .split-preview .split-row {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 12px; padding: 6px 0; border-bottom: 1px solid #1a1a1a;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .split-preview .split-row:last-child { border-bottom: none; }
+  .split-preview .split-row .name { font-family: -apple-system, system-ui; color: #ddd; }
+  .split-preview .split-row .jobs { color: #888; font-size: 11px; }
+  .split-preview .split-row .rate { color: #a78bfa; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    max-width: 520px; z-index: 100; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  .empty-card {
+    text-align: center; color: #555; padding: 60px 20px;
+    font-size: 13px; font-style: italic;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div>
+      <span style="color:#3b82f6">◆</span>
+      <h1 style="display:inline-block">MillSuite · Suggestions</h1>
+      <span class="sub">what the system learned from your recent jobs</span>
+    </div>
+    <div class="btns">
+      <button class="btn" onclick="toast('Data health — percent of closed jobs with actuals tracked, items with no recent data, jobs pending review.')">📊 Data health</button>
+      <button class="btn" onclick="toast('Settings — minimum jobs before suggesting, defer defaults, shop rate.')">⚙ Settings</button>
+    </div>
+  </div>
+
+  <div class="context-strip">
+    <span class="lbl">Back-end</span>
+    <span class="hint">The system watches closed jobs and proposes updates — in both directions. Nothing changes unless you accept. Each proposal shows its source jobs, so you can untick any to recalculate.</span>
+  </div>
+
+  <div class="summary-strip" id="pills"></div>
+
+  <div class="main">
+    <div class="main-inner" id="feed"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// Your current shop rate — used to translate hours to dollars in impact lines.
+const SHOP_RATE = 85;
+
+// Sample suggestions
+// Types:
+//   big-up    — large over (>10%)
+//   big-down  — large under (>10%) — opportunity to sharpen down
+//   minor     — small change either direction (<=10%)
+//   split     — pattern says one item should be two
+//   quiet     — not enough recent data
+const suggestions = [
+  {
+    id: 's1', type: 'big-up', item: 'Pantry tower',
+    direction: 'up',
+    title: 'Pantry tower is running over',
+    summary: 'Assembly is averaging <span class="metric">4.7 hr/LF</span> vs <span class="metric">3.8 hr/LF</span> estimated. That\'s <span class="metric">23%</span> more than you quoted — across the last 4 jobs.',
+    trust: 'med', trustLabel: 'consistent pattern',
+    meta: '4 jobs · last 45 days',
+    suggested: { field: 'Assembly hours', from: 3.8, to: 4.7, unit: 'hr/LF' },
+    note: 'Check if recent pantries had inset face frames or crown. If it\'s a real pattern, update the rate. If it\'s scope, ignore so the suggestion clears.',
+    impactHours: 'If accepted: estimate rises by <span class="amt">0.9 hr per LF</span>. A typical 8 LF pantry would estimate <span class="amt">7 more hours</span> of assembly — roughly a full shop day.',
+    impactDollars: 'At your current shop rate of $' + SHOP_RATE + '/hr, that\'s about <span class="amt">+$612</span> on a typical pantry bid.',
+    jobs: [
+      { name: 'Henderson pantry',  lf: 4, est: 15.2, actual: 18.8, pct: 24, included: true },
+      { name: 'Marsh closet',      lf: 6, est: 22.8, actual: 28.2, pct: 24, included: true },
+      { name: 'Palmer bar hutch',  lf: 5, est: 19.0, actual: 24.0, pct: 26, included: true },
+      { name: 'Sato shoe tower',   lf: 3, est: 11.4, actual: 14.2, pct: 25, included: true }
+    ],
+    actions: ['accept-up','review','ignore-scope']
+  },
+  {
+    id: 's2', type: 'big-down', item: 'Shaker kitchen — assembly',
+    direction: 'down',
+    title: 'Shaker kitchens are running under — you could bid tighter',
+    summary: 'Assembly is averaging <span class="metric">3.2 hr/LF</span> vs <span class="metric">3.8 hr/LF</span> estimated. That\'s <span class="metric">16% under</span> across the last 5 jobs. You\'re consistently beating the clock on these.',
+    trust: 'high', trustLabel: '5 jobs · stable under',
+    meta: '5 jobs · last 90 days',
+    suggested: { field: 'Assembly hours', from: 3.8, to: 3.2, unit: 'hr/LF' },
+    noteGood: 'Sharpening this down could win you more bids on competitive shaker kitchens without eating your margin. Your actuals stay the same — you just stop leaving room on the table.',
+    impactHours: 'If accepted: estimate drops by <span class="amt">0.6 hr per LF</span>. A typical 22 LF shaker kitchen would estimate <span class="amt">13 fewer hours</span> of assembly.',
+    impactDollars: 'At your current shop rate of $' + SHOP_RATE + '/hr, that\'s about <span class="amt">$1,100 less</span> on a typical shaker bid — tighter pricing without changing how you build.',
+    jobs: [
+      { name: 'Nguyen shaker kitchen', lf: 22, est: 83.6, actual: 71.5, pct: -14, included: true },
+      { name: 'Walsh shaker remodel',  lf: 18, est: 68.4, actual: 57.0, pct: -17, included: true },
+      { name: 'Henderson kitchen',     lf: 24, est: 91.2, actual: 76.8, pct: -16, included: true },
+      { name: 'Palmer galley',         lf: 14, est: 53.2, actual: 44.1, pct: -17, included: true },
+      { name: 'Grant bungalow',        lf: 20, est: 76.0, actual: 64.0, pct: -16, included: true }
+    ],
+    actions: ['accept-down','review','not-now']
+  },
+  {
+    id: 's3', type: 'big-up', item: 'Blind corner base',
+    direction: 'up',
+    title: 'Blind corner base is running over',
+    summary: 'Assembly is averaging <span class="metric">3.4 hr</span> vs <span class="metric">2.8 hr</span> estimated. That\'s <span class="metric">21% more</span> than you quoted — across the last 3 jobs.',
+    trust: 'low', trustLabel: 'small sample',
+    meta: '3 jobs · last 60 days',
+    suggested: { field: 'Assembly hours', from: 2.8, to: 3.4, unit: 'hr' },
+    impactHours: 'If accepted: estimate rises by <span class="amt">0.6 hr per corner</span>. Only affects corner-heavy jobs.',
+    impactDollars: 'At your current shop rate of $' + SHOP_RATE + '/hr, that\'s about <span class="amt">+$51 per corner</span>.',
+    jobs: [
+      { name: 'Henderson kitchen', lf: 1, est: 2.8, actual: 3.5, pct: 25, included: true },
+      { name: 'Palmer galley',     lf: 2, est: 5.6, actual: 6.8, pct: 21, included: true },
+      { name: 'Grant loft',        lf: 1, est: 2.8, actual: 3.4, pct: 21, included: true }
+    ],
+    actions: ['accept-up','review','ignore-scope']
+  },
+  {
+    id: 's4', type: 'minor', item: 'Shaker door',
+    direction: 'up',
+    title: 'Shaker door finish time trending up',
+    summary: 'Finish is averaging <span class="metric">0.38 hr</span> vs <span class="metric">0.35 hr</span> estimated. That\'s <span class="metric">9% more</span> across the last 4 jobs.',
+    trust: 'high', trustLabel: 'well-tested · consistent',
+    meta: '4 jobs · last 30 days',
+    suggested: { field: 'Finish hours', from: 0.35, to: 0.38, unit: 'hr' },
+    impactHours: 'If accepted: estimate rises by <span class="amt">0.03 hr per door</span>. A typical 28-door kitchen adds <span class="amt">0.8 hours</span> of finish time.',
+    impactDollars: 'At your current shop rate of $' + SHOP_RATE + '/hr, that\'s about <span class="amt">+$68</span> on a typical kitchen.',
+    jobs: [
+      { name: 'Henderson kitchen', lf: 28, est: 9.8, actual: 10.4, pct: 6, included: true },
+      { name: 'Marsh remodel',     lf: 18, est: 6.3, actual: 7.2,  pct: 14, included: true },
+      { name: 'Palmer pantry',     lf: 6,  est: 2.1, actual: 2.2,  pct: 3, included: true },
+      { name: 'Sato built-in',     lf: 8,  est: 2.8, actual: 3.1,  pct: 11, included: true }
+    ],
+    actions: ['accept-up','defer','reject']
+  },
+  {
+    id: 's5', type: 'minor', item: 'Standard base carcass',
+    direction: 'up',
+    title: 'Standard base material up slightly',
+    summary: 'Sheet use is averaging <span class="metric">1.25 sh/LF</span> vs <span class="metric">1.20 sh/LF</span> estimated. That\'s <span class="metric">4% more</span> — POs matched to jobs.',
+    trust: 'med', trustLabel: 'small sample',
+    meta: '3 jobs · vendor POs matched',
+    suggested: { field: 'Sheets per LF', from: 1.20, to: 1.25, unit: 'sh/LF' },
+    impactHours: null,
+    impactDollars: 'If accepted: <span class="amt">+$3.40 per LF</span> of base. A typical 22 LF of base rises by about <span class="amt">$75</span>.',
+    jobs: [
+      { name: 'Henderson kitchen', lf: 22, est: 26.4, actual: 27.8, pct: 5, included: true },
+      { name: 'Marsh remodel',     lf: 14, est: 16.8, actual: 17.5, pct: 4, included: true },
+      { name: 'Palmer pantry',     lf: 8,  est: 9.6,  actual: 9.9,  pct: 3, included: true }
+    ],
+    actions: ['accept-up','defer','reject']
+  },
+  {
+    id: 's6', type: 'split', item: 'Shaker door',
+    title: 'You\'ve been pricing stain-grade shakers differently — make it a separate item?',
+    summary: 'In your last 6 shaker jobs, you manually adjusted finish time for stain-grade doors 3 times (consistently <span class="metric">15% higher</span>). The system can split these into two permanent items so you don\'t have to keep adjusting.',
+    trust: 'med', trustLabel: '6 jobs · pattern noticed',
+    meta: '3 paint · 3 stain',
+    splitPreview: [
+      { name: 'Shaker door — paint grade', jobs: '3 jobs', rate: '$89.50 / each', note: 'faster finish' },
+      { name: 'Shaker door — stain grade', jobs: '3 jobs', rate: '$103.00 / each', note: 'slower finish' }
+    ],
+    note: 'Splitting is usually something you\'d do yourself the first time you price a new variant. The system is just noticing you\'ve been doing it manually and offering to make it permanent. Past estimates are unaffected.',
+    actions: ['see-split','not-now']
+  },
+  {
+    id: 's7', type: 'quiet', item: 'Glass insert door',
+    title: 'Glass insert door hasn\'t been used in 60 days',
+    summary: 'Only <span class="metric">3 total jobs</span> in history, nothing recent. Heads up — in case you\'re not offering this anymore.',
+    trust: 'low', trustLabel: 'low volume',
+    meta: 'Last used 62 days ago',
+    impactDollars: 'Options: keep the item as-is and wait for the next job, or archive it if you\'ve moved on.',
+    actions: ['keep','archive']
+  }
+];
+
+const state = {
+  open: new Set(['s1','s2','s6']),
+  excluded: {},
+  filter: null,
+  dismissed: new Set()
+};
+
+const $ = id => document.getElementById(id);
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+function filterBy(type) {
+  state.filter = state.filter === type ? null : type;
+  render();
+}
+
+function toggleCard(id) {
+  if (state.open.has(id)) state.open.delete(id);
+  else state.open.add(id);
+  render();
+}
+
+function toggleJob(sid, idx) {
+  if (!state.excluded[sid]) state.excluded[sid] = new Set();
+  const set = state.excluded[sid];
+  if (set.has(idx)) set.delete(idx);
+  else set.add(idx);
+  render();
+}
+
+function recalc(s) {
+  const excluded = state.excluded[s.id] || new Set();
+  const active = s.jobs ? s.jobs.filter((_,i) => !excluded.has(i)) : [];
+  if (!active.length) return null;
+  const pcts = active.map(j => j.pct);
+  const avg = pcts.reduce((a,b)=>a+b,0) / pcts.length;
+  const hi = Math.max(...pcts), lo = Math.min(...pcts);
+  return {
+    avg: Math.round(avg), hi: Math.round(hi), lo: Math.round(lo), n: active.length,
+    newVal: s.suggested ? +(s.suggested.from * (1 + avg/100)).toFixed(2) : null
+  };
+}
+
+function actionFor(act, s) {
+  const map = {
+    'accept-up': { label: 'Accept — raise the estimate', cls: 'btn-warn',
+      fn: () => toast(`Updated "${s.item}" — ${s.suggested.field} is now ${recalc(s).newVal} ${s.suggested.unit}. Old value saved in Changes tab.`) },
+    'accept-down': { label: 'Sharpen the estimate', cls: 'btn-good',
+      fn: () => toast(`Sharpened "${s.item}" — ${s.suggested.field} is now ${recalc(s).newVal} ${s.suggested.unit}. Your bids on shaker kitchens just got more competitive.`) },
+    'defer':   { label: 'Remind me in 30 days', cls: 'btn-ghost',
+      fn: () => toast(`Deferred. We'll bring this back in 30 days or if the pattern strengthens.`) },
+    'reject':  { label: 'Reject', cls: 'btn-ghost',
+      fn: () => toast(`Rejected. We'll suggest again only if the pattern changes meaningfully.`) },
+    'review':  { label: 'Review the jobs', cls: '',
+      fn: () => toast(`Opens each source job so you can check scope, actuals, and notes before deciding.`) },
+    'ignore-scope': { label: 'Ignore — scope change', cls: 'btn-ghost',
+      fn: () => toast(`Marked as scope-driven. Suggestion clears. We won't re-raise the same pattern for 60 days.`) },
+    'see-split': { label: 'See the split', cls: 'btn-primary',
+      fn: () => toast(`Opens the split wizard — creates paint-grade and stain-grade as separate items, reassigns past jobs, keeps parent as fallback.`) },
+    'not-now': { label: 'Not now', cls: 'btn-ghost',
+      fn: () => toast(`Dismissed for now. We'll suggest again if the pattern strengthens.`) },
+    'keep':    { label: 'Keep item', cls: 'btn-ghost',
+      fn: () => toast(`Kept. We'll check again in 60 days.`) },
+    'archive': { label: 'Archive item', cls: 'btn-ghost',
+      fn: () => toast(`Archived. Past jobs still reference it, but it's hidden from pricing.`) }
+  };
+  return map[act];
+}
+
+function typeLabel(s) {
+  if (s.type === 'big-up')   return 'RUNNING OVER';
+  if (s.type === 'big-down') return 'RUNNING UNDER';
+  if (s.type === 'minor')    return s.direction === 'down' ? 'MINOR (DOWN)' : 'MINOR (UP)';
+  if (s.type === 'split')    return 'SPLIT';
+  if (s.type === 'quiet')    return 'QUIET';
+  return s.type.toUpperCase();
+}
+
+function typeIcon(s) {
+  if (s.type === 'big-up')   return '↑';
+  if (s.type === 'big-down') return '↓';
+  if (s.type === 'minor')    return s.direction === 'down' ? '↓' : '↑';
+  if (s.type === 'split')    return '◆';
+  if (s.type === 'quiet')    return '○';
+  return '•';
+}
+
+function renderCard(s) {
+  const isOpen = state.open.has(s.id);
+  const excluded = state.excluded[s.id] || new Set();
+  const recalcData = s.jobs ? recalc(s) : null;
+
+  const trustCls = { high: 'high', med: 'med', low: 'low' }[s.trust] || 'med';
+
+  let expandContent = '';
+
+  if (s.jobs && s.jobs.length) {
+    const rows = s.jobs.map((j, i) => {
+      const excl = excluded.has(i);
+      const pctAbs = Math.abs(j.pct);
+      let diffCls;
+      if (j.pct > 20) diffCls = 'strong-pos';
+      else if (j.pct > 0) diffCls = 'pos';
+      else if (j.pct < -15) diffCls = 'strong-neg';
+      else diffCls = 'neg';
+      const sign = j.pct > 0 ? '+' : '';
+      return `
+        <tr class="${excl ? 'excluded' : ''}">
+          <td><span class="job-toggle ${excl ? '' : 'on'}" onclick="toggleJob('${s.id}', ${i})"></span></td>
+          <td class="job-name">${j.name}</td>
+          <td class="right">${j.est}</td>
+          <td class="right">${j.actual}</td>
+          <td class="right diff ${diffCls}">${sign}${j.pct}%</td>
+        </tr>`;
+    }).join('');
+
+    let sumText;
+    if (recalcData) {
+      const avgSign = recalcData.avg > 0 ? '+' : '';
+      const loSign  = recalcData.lo  > 0 ? '+' : '';
+      const hiSign  = recalcData.hi  > 0 ? '+' : '';
+      sumText = `<span class="hl">${recalcData.n} jobs included.</span> Average difference <span class="metric">${avgSign}${recalcData.avg}%</span>, range <span class="metric">${loSign}${recalcData.lo}% to ${hiSign}${recalcData.hi}%</span>. Suggested new value: <span class="metric">${recalcData.newVal} ${s.suggested.unit}</span>.`;
+    } else {
+      sumText = `<span class="hl">No jobs included.</span> Tick some back on to see the suggestion recalculate.`;
+    }
+
+    expandContent += `
+      <table class="job-table">
+        <thead>
+          <tr><th style="width:30px"></th><th>Job</th><th class="right">Estimated</th><th class="right">Actual</th><th class="right">Difference</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="summary-row">${sumText}</div>`;
+  }
+
+  if (s.splitPreview) {
+    expandContent += `<div class="split-preview">
+      <div style="font-size:10px;color:#a78bfa;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;font-weight:600">Proposed split</div>
+      ${s.splitPreview.map(sp => `
+        <div class="split-row">
+          <span class="name">${sp.name}</span>
+          <span class="jobs">${sp.jobs}</span>
+          <span class="rate">${sp.rate}</span>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  if (s.note) {
+    expandContent += `<div class="note-box">
+      <div class="note-title">Worth a look before accepting</div>
+      ${s.note}
+    </div>`;
+  }
+
+  if (s.noteGood) {
+    expandContent += `<div class="note-box good">
+      <div class="note-title">Why this matters</div>
+      ${s.noteGood}
+    </div>`;
+  }
+
+  if (s.impactHours || s.impactDollars) {
+    expandContent += `<div class="impact-box">
+      <div class="impact-title">If accepted</div>
+      ${s.impactHours ? s.impactHours : ''}
+      ${s.impactDollars ? `<div class="at-rate">${s.impactDollars}</div>` : ''}
+    </div>`;
+  }
+
+  const actions = (s.actions || []).map(act => {
+    const a = actionFor(act, s);
+    if (!a) return '';
+    return `<button class="btn ${a.cls}" onclick="event.stopPropagation(); (${a.fn.toString()})()">${a.label}</button>`;
+  }).join('');
+
+  return `
+    <div class="card ${s.type} ${isOpen ? 'open' : ''}" data-id="${s.id}">
+      <div class="card-head" onclick="toggleCard('${s.id}')">
+        <div class="card-icon">${typeIcon(s)}</div>
+        <div class="card-body">
+          <div class="card-title">
+            <span>${s.title}</span>
+            <span class="card-type">${typeLabel(s)}</span>
+          </div>
+          <div class="card-summary">${s.summary}</div>
+          <div class="card-meta">
+            <span>${s.meta}</span>
+            <span class="trust ${trustCls}">${s.trustLabel}</span>
+          </div>
+        </div>
+        <div class="card-chevron">▸</div>
+      </div>
+      <div class="card-expand">
+        <div class="expand-body">${expandContent}</div>
+        <div class="card-actions">${actions}</div>
+      </div>
+    </div>`;
+}
+
+function renderPills() {
+  const counts = { 'big-up': 0, 'big-down': 0, minor: 0, split: 0, quiet: 0 };
+  suggestions.forEach(s => { counts[s.type]++; });
+  const isActive = t => state.filter === t ? 'active' : '';
+  const healthHtml = `<div class="summary-pill health" onclick="toast('8 of 10 recent jobs have actuals tracked. 2 jobs closed but pending review.')">
+    <span style="color:#4ade80">●</span> data health <span class="count">80%</span>
+  </div>`;
+  $('pills').innerHTML = `
+    <div class="summary-pill big-up ${isActive('big-up')}" onclick="filterBy('big-up')"><span class="count">${counts['big-up']}</span> running over</div>
+    <div class="summary-pill big-down ${isActive('big-down')}" onclick="filterBy('big-down')"><span class="count">${counts['big-down']}</span> running under (opportunity)</div>
+    <div class="summary-pill minor ${isActive('minor')}" onclick="filterBy('minor')"><span class="count">${counts.minor}</span> minor updates</div>
+    <div class="summary-pill split ${isActive('split')}" onclick="filterBy('split')"><span class="count">${counts.split}</span> split suggestion</div>
+    <div class="summary-pill quiet ${isActive('quiet')}" onclick="filterBy('quiet')"><span class="count">${counts.quiet}</span> quiet</div>
+    ${healthHtml}
+  `;
+}
+
+function render() {
+  renderPills();
+
+  const filtered = state.filter
+    ? suggestions.filter(s => s.type === state.filter)
+    : suggestions;
+
+  const byType = { 'big-up': [], 'big-down': [], minor: [], split: [], quiet: [] };
+  for (const s of filtered) byType[s.type].push(s);
+
+  const order = [
+    ['big-up',   'Running over — estimates too low'],
+    ['big-down', 'Running under — room to sharpen your bids'],
+    ['minor',    'Minor updates'],
+    ['split',    'Possible splits'],
+    ['quiet',    'Low volume']
+  ];
+
+  let html = '';
+  for (const [type, label] of order) {
+    if (!byType[type].length) continue;
+    html += `<div class="section-divider">${label}</div>`;
+    html += byType[type].map(renderCard).join('');
+  }
+
+  if (!filtered.length) {
+    html = '<div class="empty-card">No suggestions in this view.</div>';
+  }
+
+  $('feed').innerHTML = html;
+}
+
+render();
+</script>
+</body>
+</html>

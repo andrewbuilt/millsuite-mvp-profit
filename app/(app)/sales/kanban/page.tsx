@@ -20,12 +20,13 @@ import {
   STAGE_LABEL,
   SalesProject,
   SalesStage,
+  addProjectNote,
   loadSalesProjects,
   updateProjectStage,
 } from '@/lib/sales'
 import { useConfirm } from '@/components/confirm-dialog'
 import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight } from 'lucide-react'
 
 function fmtMoney(n: number | null | undefined) {
   if (n == null || n === 0) return '—'
@@ -50,13 +51,16 @@ export default function SalesKanbanPage() {
 
 function KanbanInner() {
   const router = useRouter()
-  const { org } = useAuth()
+  const { org, user } = useAuth()
   const { confirm } = useConfirm()
 
   const [projects, setProjects] = useState<SalesProject[]>([])
   const [loading, setLoading] = useState(true)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<SalesStage | null>(null)
+  const [noteFor, setNoteFor] = useState<SalesProject | null>(null)
+  const [noteBody, setNoteBody] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
 
   useEffect(() => {
     if (!org?.id) return
@@ -179,6 +183,8 @@ function KanbanInner() {
                           key={p.id}
                           project={p}
                           onOpen={() => router.push(`/projects/${p.id}`)}
+                          onOpenRollup={() => router.push(`/projects/${p.id}/rollup`)}
+                          onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
                           onDragStart={() => setDragId(p.id)}
                           onDragEnd={() => { setDragId(null); setDragOver(null) }}
                           isDragging={dragId === p.id}
@@ -192,6 +198,64 @@ function KanbanInner() {
           </div>
         )}
       </div>
+
+      {noteFor && (
+        <div
+          className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4"
+          onClick={() => setNoteFor(null)}
+        >
+          <div
+            className="bg-white border border-[#E5E7EB] rounded-xl w-full max-w-md p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              Quick note
+            </div>
+            <div className="text-base font-semibold text-[#111] truncate">{noteFor.name}</div>
+            <textarea
+              autoFocus
+              value={noteBody}
+              onChange={(e) => setNoteBody(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && noteBody.trim() && !savingNote) {
+                  setSavingNote(true)
+                  if (org?.id && noteFor) {
+                    await addProjectNote({ org_id: org.id, project_id: noteFor.id, body: noteBody.trim(), created_by: user?.id })
+                  }
+                  setSavingNote(false)
+                  setNoteFor(null)
+                }
+              }}
+              rows={4}
+              placeholder="Left a VM. Sent revised quote on materials."
+              className="mt-3 w-full text-sm bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 outline-none focus:border-[#2563EB] resize-none"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                onClick={() => setNoteFor(null)}
+                className="px-3 py-2 text-sm text-[#6B7280] hover:text-[#111]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!noteBody.trim() || savingNote) return
+                  setSavingNote(true)
+                  if (org?.id && noteFor) {
+                    await addProjectNote({ org_id: org.id, project_id: noteFor.id, body: noteBody.trim(), created_by: user?.id })
+                  }
+                  setSavingNote(false)
+                  setNoteFor(null)
+                }}
+                disabled={!noteBody.trim() || savingNote}
+                className="px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50"
+              >
+                {savingNote ? 'Saving…' : 'Save note (⌘↩)'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -199,30 +263,51 @@ function KanbanInner() {
 function KanbanCard({
   project,
   onOpen,
+  onOpenRollup,
+  onQuickNote,
   onDragStart,
   onDragEnd,
   isDragging,
 }: {
   project: SalesProject
   onOpen: () => void
+  onOpenRollup: () => void
+  onQuickNote: () => void
   onDragStart: () => void
   onDragEnd: () => void
   isDragging: boolean
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
   return (
     <div
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onClick={onOpen}
-      className={`bg-white border border-[#E5E7EB] rounded-lg px-3 py-2.5 cursor-grab active:cursor-grabbing hover:border-[#9CA3AF] transition-all ${
+      onClick={(e) => {
+        // Don't open when clicking the kebab.
+        if ((e.target as HTMLElement).closest('[data-kebab]')) return
+        onOpen()
+      }}
+      className={`relative bg-white border border-[#E5E7EB] rounded-lg px-3 py-2.5 cursor-grab active:cursor-grabbing hover:border-[#9CA3AF] transition-all ${
         isDragging ? 'opacity-40 scale-95' : ''
       }`}
     >
-      <div className="text-sm font-semibold text-[#111] truncate">{project.name}</div>
-      {project.client_name && (
-        <div className="text-[11px] text-[#6B7280] truncate mt-0.5">{project.client_name}</div>
-      )}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-[#111] truncate">{project.name}</div>
+          {project.client_name && (
+            <div className="text-[11px] text-[#6B7280] truncate mt-0.5">{project.client_name}</div>
+          )}
+        </div>
+        <button
+          data-kebab
+          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
+          className="p-0.5 text-[#9CA3AF] hover:text-[#111] rounded flex-shrink-0"
+          aria-label="More actions"
+        >
+          <MoreHorizontal className="w-3.5 h-3.5" />
+        </button>
+      </div>
       <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2 flex items-center justify-between">
         <span>{fmtMoney(project.bid_total || project.estimated_price)}</span>
         {project.status === 'active' && (
@@ -231,6 +316,36 @@ function KanbanCard({
           </span>
         )}
       </div>
+
+      {menuOpen && (
+        <>
+          <div
+            data-kebab
+            className="fixed inset-0 z-10"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }}
+          />
+          <div
+            data-kebab
+            className="absolute right-2 top-8 z-20 w-44 bg-white border border-[#E5E7EB] rounded-lg shadow-lg py-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => { setMenuOpen(false); onQuickNote() }}
+              className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
+            >
+              <StickyNote className="w-3.5 h-3.5 text-[#9CA3AF]" />
+              Add a note
+            </button>
+            <button
+              onClick={() => { setMenuOpen(false); onOpenRollup() }}
+              className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
+            >
+              <ArrowRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
+              Open rollup
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

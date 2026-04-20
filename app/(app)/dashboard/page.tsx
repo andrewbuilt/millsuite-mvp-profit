@@ -318,10 +318,10 @@ function DashboardContent() {
                     <Plus className="w-4 h-4" /> New sale
                   </Link>
                   <Link
-                    href="/projects"
+                    href="/sales"
                     className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-[#E5E7EB] text-[#111] text-sm font-medium rounded-lg hover:bg-[#F9FAFB] transition-colors"
                   >
-                    New project
+                    Drop drawings
                   </Link>
                 </>
               ) : (

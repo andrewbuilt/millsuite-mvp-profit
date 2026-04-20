@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MillSuite · Onboarding (Clickable Mockup)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #0a0a0a; color: #e5e5e5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* Top bar */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; background: #0d0d0d; border-bottom: 1px solid #1a1a1a;
+  }
+  .brand { font-size: 13px; color: #fff; font-weight: 600; letter-spacing: 0.3px; }
+  .brand .diamond { color: #3b82f6; margin-right: 6px; }
+  .exit { font-size: 11.5px; color: #666; cursor: pointer; }
+  .exit:hover { color: #ccc; }
+
+  /* Progress */
+  .progress-bar {
+    height: 2px; background: #1a1a1a; position: relative;
+  }
+  .progress-fill {
+    height: 100%; background: #3b82f6; transition: width 0.4s cubic-bezier(.4,0,.2,1);
+  }
+
+  /* Main content */
+  .content {
+    flex: 1; display: flex; justify-content: center; align-items: flex-start;
+    padding: 48px 24px; overflow-y: auto;
+  }
+  .step {
+    width: 100%; max-width: 960px;
+    animation: fadeIn 0.35s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .step-num {
+    font-size: 11px; color: #3b82f6; text-transform: uppercase;
+    letter-spacing: 1.2px; font-weight: 600; margin-bottom: 10px;
+  }
+  .step h1 {
+    font-size: 28px; color: #fff; font-weight: 600; letter-spacing: -0.4px;
+    margin-bottom: 10px; line-height: 1.2;
+  }
+  .step .lede {
+    font-size: 15px; color: #999; line-height: 1.55;
+    margin-bottom: 32px; max-width: 640px;
+  }
+
+  /* Split layout for steps with preview */
+  .split {
+    display: grid; grid-template-columns: 1fr 380px; gap: 32px;
+    align-items: flex-start;
+  }
+  .split .form { min-width: 0; }
+  .split .preview {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 10px;
+    padding: 18px; position: sticky; top: 20px;
+  }
+  .preview .preview-title {
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 12px; font-weight: 600;
+  }
+
+  /* Form elements */
+  .field {
+    margin-bottom: 22px;
+  }
+  .field label {
+    display: block; font-size: 12px; color: #999;
+    margin-bottom: 8px; font-weight: 500;
+  }
+  .field label .req { color: #666; font-weight: 400; margin-left: 4px; }
+  .field input[type="text"], .field input[type="number"] {
+    width: 100%; padding: 11px 14px; font-size: 14px;
+    background: #111; border: 1px solid #2a2a2a; border-radius: 8px;
+    color: #fff; font-family: inherit;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .field input:focus {
+    outline: none; border-color: #3b82f6; background: #141820;
+  }
+  .field .help {
+    font-size: 11.5px; color: #666; margin-top: 6px;
+  }
+
+  /* Choice grid */
+  .choices {
+    display: grid; gap: 10px;
+  }
+  .choices.two { grid-template-columns: 1fr 1fr; }
+  .choices.three { grid-template-columns: repeat(3, 1fr); }
+  .choices.four { grid-template-columns: repeat(2, 1fr); }
+  @media (min-width: 768px) {
+    .choices.four { grid-template-columns: repeat(4, 1fr); }
+  }
+  .choice {
+    padding: 14px 14px; background: #111; border: 1px solid #2a2a2a;
+    border-radius: 8px; cursor: pointer; transition: all 0.15s;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .choice:hover { border-color: #3a3a3a; background: #141414; }
+  .choice.selected {
+    border-color: #3b82f6; background: #0f1a2a;
+  }
+  .choice .emoji { font-size: 18px; margin-bottom: 4px; }
+  .choice .t { font-size: 13px; color: #fff; font-weight: 500; }
+  .choice .d { font-size: 11.5px; color: #888; line-height: 1.4; }
+  .choice.selected .t { color: #dbeafe; }
+
+  /* Button row */
+  .actions {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-top: 20px; margin-top: 24px;
+    border-top: 1px solid #1a1a1a;
+  }
+  .actions-right { display: flex; gap: 10px; }
+  .btn {
+    padding: 10px 20px; font-size: 13px; font-weight: 500;
+    border-radius: 8px; cursor: pointer; transition: all 0.15s;
+    background: #1e1e1e; border: 1px solid #2a2a2a; color: #ddd;
+    font-family: inherit;
+  }
+  .btn:hover:not(:disabled) { background: #252525; border-color: #333; color: #fff; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary {
+    background: #3b82f6; border-color: #3b82f6; color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) { background: #2563eb; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover:not(:disabled) { color: #ccc; background: #1a1a1a; }
+  .btn-big {
+    padding: 18px 22px; font-size: 14px; font-weight: 600; text-align: left;
+    width: 100%; justify-content: flex-start;
+  }
+
+  /* Shop rate specific */
+  .rate-mode {
+    display: flex; gap: 8px; margin-bottom: 20px;
+  }
+  .rate-mode-btn {
+    padding: 8px 14px; font-size: 12px; background: #111; border: 1px solid #2a2a2a;
+    border-radius: 6px; cursor: pointer; color: #888;
+  }
+  .rate-mode-btn.active { background: #0f1a2a; border-color: #3b82f6; color: #dbeafe; }
+  .dept-rates { display: grid; gap: 8px; }
+  .dept-rate {
+    display: grid; grid-template-columns: 140px 1fr auto;
+    gap: 12px; align-items: center;
+    padding: 10px 14px; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 8px;
+  }
+  .dept-rate .dept-name { color: #ccc; font-size: 13px; }
+  .dept-rate input {
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
+    padding: 6px 10px; color: #fff; width: 90px; text-align: right;
+    font-family: "SF Mono", Menlo, monospace; font-size: 13px;
+  }
+  .dept-rate .unit { color: #666; font-size: 12px; }
+
+  /* Preview — tree */
+  .tree { font-family: -apple-system, BlinkMacSystemFont, system-ui; }
+  .tree-group {
+    margin-bottom: 8px;
+  }
+  .tree-group-head {
+    font-size: 11px; color: #999; font-weight: 600;
+    padding: 6px 0 4px; text-transform: uppercase; letter-spacing: 0.8px;
+  }
+  .tree-item {
+    padding: 4px 8px; font-size: 12px; color: #aaa;
+    display: flex; justify-content: space-between; align-items: center;
+    border-radius: 4px;
+  }
+  .tree-item.new {
+    animation: slideIn 0.35s ease-out;
+    background: rgba(59, 130, 246, 0.08);
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .tree-item .rate {
+    font-family: "SF Mono", Menlo, monospace; color: #666; font-size: 11px;
+  }
+
+  /* Preview — calculation */
+  .calc-row {
+    display: flex; justify-content: space-between; padding: 6px 0;
+    font-size: 12px; color: #bbb;
+    border-bottom: 1px solid #141414;
+  }
+  .calc-row.total {
+    border-top: 1px solid #2a2a2a; border-bottom: none;
+    margin-top: 6px; padding-top: 10px;
+    color: #fff; font-weight: 600; font-size: 13px;
+  }
+  .calc-row .v { font-family: "SF Mono", Menlo, monospace; color: #ddd; }
+
+  /* Calibration step */
+  .calibration-q {
+    padding: 20px 22px; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 10px; margin-bottom: 14px;
+  }
+  .calibration-q h3 {
+    font-size: 14px; color: #fff; font-weight: 600; margin-bottom: 4px;
+  }
+  .calibration-q .qhint {
+    font-size: 12px; color: #777; margin-bottom: 14px;
+  }
+
+  /* Tool connections */
+  .tool-list { display: grid; gap: 10px; }
+  .tool-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 18px; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 10px;
+  }
+  .tool-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700; flex-shrink: 0;
+  }
+  .tool-icon.qbo  { background: #1e3a2c; color: #86efac; }
+  .tool-icon.gd   { background: #1a2d4a; color: #93c5fd; }
+  .tool-icon.harv { background: #3a2a0d; color: #fbbf24; }
+  .tool-info { flex: 1; }
+  .tool-info .name { font-size: 13px; color: #fff; font-weight: 600; }
+  .tool-info .desc { font-size: 11.5px; color: #888; margin-top: 2px; }
+  .tool-status { font-size: 11.5px; padding: 4px 10px; border-radius: 12px; }
+  .tool-status.unconnected { background: #1a1a1a; color: #888; }
+  .tool-status.connected  { background: #0f2a17; color: #22c55e; }
+
+  /* First estimate step */
+  .path-grid {
+    display: grid; gap: 14px;
+  }
+  .path-card {
+    padding: 22px; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 12px; cursor: pointer; transition: all 0.2s;
+  }
+  .path-card:hover {
+    border-color: #3b82f6; background: #0f1a2a; transform: translateY(-1px);
+  }
+  .path-card h3 {
+    font-size: 16px; color: #fff; font-weight: 600; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .path-card .path-tag {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px;
+    padding: 2px 7px; border-radius: 4px; font-weight: 600;
+    background: #1a2d4a; color: #93c5fd;
+  }
+  .path-card p { font-size: 13px; color: #999; line-height: 1.5; }
+
+  /* Explainer — final step */
+  .explainer {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+    margin: 8px 0 32px;
+  }
+  .exp-card {
+    padding: 22px; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 10px;
+  }
+  .exp-card .num {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #1a2d4a; color: #93c5fd;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px; margin-bottom: 12px;
+  }
+  .exp-card h4 { font-size: 14px; color: #fff; margin-bottom: 6px; font-weight: 600; }
+  .exp-card p { font-size: 12.5px; color: #999; line-height: 1.5; }
+
+  .final-cta {
+    display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+  }
+  .final-cta .btn { padding: 12px 24px; font-size: 14px; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    max-width: 520px; z-index: 100; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  .hint-box {
+    padding: 10px 14px; background: #0c1a2e; border: 1px solid #1e3a5f;
+    border-radius: 8px; font-size: 12px; color: #93c5fd; line-height: 1.5;
+    margin-bottom: 18px;
+  }
+  .hint-box b { color: #dbeafe; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><span class="diamond">◆</span>MillSuite</div>
+    <div class="exit" onclick="toast('You can finish setup later. Your progress is saved.')">Save &amp; exit</div>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+
+  <div class="content">
+    <div class="step" id="step"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SHOPRATE_DEFAULT = 85;
+
+const state = {
+  step: 0,
+  shop: {
+    name: '',
+    owner: 'Andrew Watson',
+    workType: null,      // 'kitchens' | 'builtins' | 'commercial' | 'mixed'
+    crewSize: null,      // 'solo' | '2-5' | '6-15' | '15plus'
+    departments: ['Engineering','CNC','Assembly','Finish','Install']
+  },
+  rate: {
+    mode: 'single',      // 'single' | 'bydept'
+    single: 85,
+    byDept: {
+      'Engineering': 95, 'CNC': 85, 'Assembly': 85, 'Finish': 90, 'Install': 80
+    }
+  },
+  calibration: {
+    kitchenStyle: null,  // 'shaker' | 'slab' | 'inset' | 'mixed'
+    crewSpeed: null,     // 'fast' | 'standard' | 'thorough'
+    finish: null         // 'paint' | 'stain' | 'both'
+  },
+  tools: {
+    qbo: false, gd: false, harv: false
+  },
+  path: null             // 'recreate' | 'fresh' | 'skip'
+};
+
+const TOTAL_STEPS = 6;
+
+const $ = id => document.getElementById(id);
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+function next() {
+  if (state.step < TOTAL_STEPS - 1) state.step++;
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function back() {
+  if (state.step > 0) state.step--;
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function goto(n) { state.step = n; render(); window.scrollTo({top:0}); }
+
+function setField(path, val) {
+  const parts = path.split('.');
+  let obj = state;
+  for (let i = 0; i < parts.length - 1; i++) obj = obj[parts[i]];
+  obj[parts[parts.length - 1]] = val;
+  render();
+}
+
+// ---------- STEP 1: Welcome ----------
+function renderWelcome() {
+  const workChoices = [
+    { id: 'kitchens',    emoji: '🍽', t: 'Kitchens',        d: 'Residential kitchens are my core.' },
+    { id: 'builtins',    emoji: '📚', t: 'Built-ins',       d: 'Libraries, closets, entertainment.' },
+    { id: 'commercial',  emoji: '🏢', t: 'Commercial',      d: 'Offices, retail, institutional.' },
+    { id: 'mixed',       emoji: '🔀', t: 'Mixed',           d: 'Bit of everything.' }
+  ];
+  const sizeChoices = [
+    { id: 'solo',    t: 'Just me',   d: 'Solo operator' },
+    { id: '2-5',     t: '2–5',       d: 'Small shop' },
+    { id: '6-15',    t: '6–15',      d: 'Mid-size shop' },
+    { id: '15plus',  t: '15+',       d: 'Larger operation' }
+  ];
+
+  const workBtns = workChoices.map(c => `
+    <div class="choice ${state.shop.workType === c.id ? 'selected' : ''}"
+         onclick="setField('shop.workType', '${c.id}')">
+      <div class="emoji">${c.emoji}</div>
+      <div class="t">${c.t}</div>
+      <div class="d">${c.d}</div>
+    </div>`).join('');
+
+  const sizeBtns = sizeChoices.map(c => `
+    <div class="choice ${state.shop.crewSize === c.id ? 'selected' : ''}"
+         onclick="setField('shop.crewSize', '${c.id}')">
+      <div class="t">${c.t}</div>
+      <div class="d">${c.d}</div>
+    </div>`).join('');
+
+  const canContinue = state.shop.name && state.shop.workType && state.shop.crewSize;
+
+  return `
+    <div class="step-num">Step 1 of ${TOTAL_STEPS}</div>
+    <h1>Welcome. Let's get your shop priced.</h1>
+    <p class="lede">A few quick questions so we can load the right starter library and get you to a real estimate fast. You can change anything later.</p>
+
+    <div class="field">
+      <label>Shop name</label>
+      <input type="text" id="shopName" value="${state.shop.name}"
+             oninput="state.shop.name = this.value; updateContinue();"
+             placeholder="e.g. Watson Millwork" />
+    </div>
+
+    <div class="field">
+      <label>What do you primarily build?</label>
+      <div class="choices four">${workBtns}</div>
+    </div>
+
+    <div class="field">
+      <label>How big is your crew?</label>
+      <div class="choices four">${sizeBtns}</div>
+    </div>
+
+    <div class="actions">
+      <div></div>
+      <div class="actions-right">
+        <button class="btn btn-primary" id="continueBtn" ${canContinue ? '' : 'disabled'} onclick="next()">Continue →</button>
+      </div>
+    </div>
+  `;
+}
+
+function updateContinue() {
+  const canContinue = state.shop.name && state.shop.workType && state.shop.crewSize;
+  const btn = $('continueBtn');
+  if (btn) btn.disabled = !canContinue;
+}
+
+// ---------- STEP 2: Shop rate ----------
+function renderShopRate() {
+  const isBydept = state.rate.mode === 'bydept';
+  const deptRows = state.shop.departments.map(d => `
+    <div class="dept-rate">
+      <div class="dept-name">${d}</div>
+      <div style="text-align:right"><span class="unit">$</span><input type="number" value="${state.rate.byDept[d] || SHOPRATE_DEFAULT}"
+        onchange="state.rate.byDept['${d}'] = +this.value; render();" /><span class="unit"> / hr</span></div>
+    </div>`).join('');
+
+  return `
+    <div class="step-num">Step 2 of ${TOTAL_STEPS}</div>
+    <h1>What's your shop rate?</h1>
+    <p class="lede">This is what you charge per hour of shop time. It's used to translate labor hours into dollars on estimates. Don't overthink it — you can adjust anytime.</p>
+
+    <div class="split">
+      <div class="form">
+        <div class="rate-mode">
+          <div class="rate-mode-btn ${!isBydept ? 'active' : ''}" onclick="state.rate.mode='single'; render();">One shop rate</div>
+          <div class="rate-mode-btn ${isBydept ? 'active' : ''}" onclick="state.rate.mode='bydept'; render();">Per department</div>
+        </div>
+
+        ${!isBydept ? `
+          <div class="field">
+            <label>Shop rate <span class="req">(what you charge per shop hour)</span></label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="color:#666;font-size:16px">$</span>
+              <input type="number" value="${state.rate.single}"
+                onchange="state.rate.single = +this.value; render();" style="max-width:180px" />
+              <span style="color:#666;font-size:13px">/ hour</span>
+            </div>
+            <div class="help">Industry average for custom millwork is $75–$110/hr. You can break this down per department later if you want more precision.</div>
+          </div>
+        ` : `
+          <div class="field">
+            <label>Rate per department</label>
+            <div class="dept-rates">${deptRows}</div>
+            <div class="help">Different departments can have different effective rates (e.g. finish work tends to cost more than CNC).</div>
+          </div>
+        `}
+
+        <div class="actions">
+          <button class="btn btn-ghost" onclick="back()">← Back</button>
+          <div class="actions-right">
+            <button class="btn btn-primary" onclick="next()">Continue →</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="preview">
+        <div class="preview-title">Sample calculation</div>
+        <div style="font-size:12px;color:#888;margin-bottom:10px">An 8 LF pantry tower at 3.8 hr/LF assembly:</div>
+        <div class="calc-row">
+          <span>Assembly hours</span>
+          <span class="v">30.4 hr</span>
+        </div>
+        <div class="calc-row">
+          <span>× ${isBydept ? 'Assembly rate' : 'Shop rate'}</span>
+          <span class="v">$${isBydept ? state.rate.byDept['Assembly'] : state.rate.single}/hr</span>
+        </div>
+        <div class="calc-row total">
+          <span>Labor cost</span>
+          <span class="v">$${(30.4 * (isBydept ? state.rate.byDept['Assembly'] : state.rate.single)).toFixed(0)}</span>
+        </div>
+        <div style="font-size:11px;color:#666;margin-top:12px;line-height:1.4">Plus material, consumables, and install — you'll see the full build-up on every estimate.</div>
+      </div>
+    </div>
+  `;
+}
+
+// ---------- STEP 3: Starter library + calibration ----------
+function renderCalibration() {
+  const kitchenChoices = [
+    { id: 'shaker', t: 'Shaker', d: 'Most of my kitchens are shaker' },
+    { id: 'slab',   t: 'Slab / flat', d: 'Modern slab doors' },
+    { id: 'inset',  t: 'Inset / traditional', d: 'Inset face frame work' },
+    { id: 'mixed',  t: 'Mixed', d: 'Depends on the job' }
+  ];
+  const speedChoices = [
+    { id: 'fast',     t: 'Fast — 1.5 hr',   d: 'Lean crew, tight process' },
+    { id: 'standard', t: 'Standard — 2 hr', d: 'Most custom shops' },
+    { id: 'thorough', t: 'Thorough — 2.5 hr', d: 'Heavy customization' }
+  ];
+  const finishChoices = [
+    { id: 'paint', t: 'Mostly paint', d: 'Painted kitchens dominate' },
+    { id: 'stain', t: 'Mostly stain', d: 'Wood grain finishes' },
+    { id: 'both',  t: 'Both', d: 'Even split' }
+  ];
+
+  const btnGrid = (arr, key) => arr.map(c => `
+    <div class="choice ${state.calibration[key] === c.id ? 'selected' : ''}"
+         onclick="state.calibration['${key}'] = '${c.id}'; render();">
+      <div class="t">${c.t}</div>
+      <div class="d">${c.d}</div>
+    </div>`).join('');
+
+  const completeCount = Object.values(state.calibration).filter(Boolean).length;
+
+  // Starter library based on work type
+  const lib = getStarterLibrary();
+
+  return `
+    <div class="step-num">Step 3 of ${TOTAL_STEPS}</div>
+    <h1>Your starter library is ready. Let's tune it.</h1>
+    <p class="lede">We've loaded ${lib.count} items based on the work you do. Three quick questions help us adjust the starting rates so your first estimate lands in the ballpark. The learning loop sharpens from there.</p>
+
+    <div class="split">
+      <div class="form">
+        <div class="hint-box">
+          <b>How this tuning works:</b> your answers shift the starter rates up or down by small amounts. We're not trying to make these perfect — we're trying to make them reasonable, so your first few jobs give the system real data to learn from.
+        </div>
+
+        <div class="calibration-q">
+          <h3>What kind of kitchens do you build most?</h3>
+          <div class="qhint">Adjusts door and drawer starter rates.</div>
+          <div class="choices four">${btnGrid(kitchenChoices, 'kitchenStyle')}</div>
+        </div>
+
+        <div class="calibration-q">
+          <h3>How long does a base cabinet take your crew to build?</h3>
+          <div class="qhint">Calibrates assembly hours across the library.</div>
+          <div class="choices three">${btnGrid(speedChoices, 'crewSpeed')}</div>
+        </div>
+
+        <div class="calibration-q">
+          <h3>Is your finish work mostly paint or stain?</h3>
+          <div class="qhint">Paint and stain have very different hour profiles — we'll bias accordingly.</div>
+          <div class="choices three">${btnGrid(finishChoices, 'finish')}</div>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-ghost" onclick="back()">← Back</button>
+          <div class="actions-right">
+            <button class="btn btn-ghost" onclick="next()">Skip — use defaults</button>
+            <button class="btn btn-primary" ${completeCount === 3 ? '' : 'disabled'} onclick="next()">
+              ${completeCount === 3 ? 'Apply & continue →' : `${completeCount}/3 answered`}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="preview">
+        <div class="preview-title">Starter library · ${lib.count} items</div>
+        <div class="tree">${renderLibraryPreview(lib)}</div>
+        <div style="font-size:11px;color:#666;margin-top:14px;line-height:1.5">Rates shown are the current defaults. Once you apply calibration, we'll nudge them based on your answers.</div>
+      </div>
+    </div>
+  `;
+}
+
+function getStarterLibrary() {
+  const w = state.shop.workType;
+  const base = {
+    'Carcasses': ['Std base', 'Sink base', 'Corner base', 'Std upper', 'Pantry tower', 'Oven tower'],
+    'Doors': ['Shaker door', 'Slab door', 'Glass insert'],
+    'Drawers': ['Std drawer', 'Deep drawer'],
+    'Panels & scribes': ['End panel', 'Fridge panel', 'Toe kick', 'Filler'],
+    'Lighting': ['LED strip', 'Puck light'],
+    'Specialty hardware': ['TIP-ON', 'Door lift', 'Pullout trash'],
+    'Trim': ['Crown', 'Base trim', 'Shoe'],
+    'Install': ['Install day', '2nd floor', 'Hoist'],
+    'Engineering': ['Shop drawings', 'CNC prep']
+  };
+  if (w === 'commercial') {
+    base['Carcasses'].push('Casework modular');
+    base['Trim'].push('Reveal trim');
+    delete base['Lighting']; // commercial less likely
+  }
+  if (w === 'builtins') {
+    base['Carcasses'] = ['Std upper', 'Pantry tower', 'Built-in base'];
+  }
+  const count = Object.values(base).reduce((a,b) => a + b.length, 0);
+  return { groups: base, count };
+}
+
+function renderLibraryPreview(lib) {
+  return Object.entries(lib.groups).map(([g, items]) => `
+    <div class="tree-group">
+      <div class="tree-group-head">${g}</div>
+      ${items.slice(0, 4).map(i => `
+        <div class="tree-item">
+          <span>${i}</span>
+          <span class="rate">loaded</span>
+        </div>`).join('')}
+      ${items.length > 4 ? `<div class="tree-item"><span style="color:#555;font-style:italic">+ ${items.length - 4} more</span></div>` : ''}
+    </div>
+  `).join('');
+}
+
+// ---------- STEP 4: Connect tools ----------
+function renderTools() {
+  const toolToggle = (key) => {
+    state.tools[key] = !state.tools[key];
+    render();
+  };
+  window.toolToggle = toolToggle;
+
+  return `
+    <div class="step-num">Step 4 of ${TOTAL_STEPS} · Optional</div>
+    <h1>Connect your tools.</h1>
+    <p class="lede">Skippable. Each of these makes MillSuite better but none are required. You can connect any of them later from Settings.</p>
+
+    <div class="tool-list">
+      <div class="tool-item">
+        <div class="tool-icon qbo">Q</div>
+        <div class="tool-info">
+          <div class="name">QuickBooks Online</div>
+          <div class="desc">Turn accepted estimates into invoices. Track material costs against POs so the learning loop has real data.</div>
+        </div>
+        <button class="btn ${state.tools.qbo ? 'btn-primary' : ''}" onclick="toolToggle('qbo')">
+          ${state.tools.qbo ? '✓ Connected' : 'Connect'}
+        </button>
+      </div>
+
+      <div class="tool-item">
+        <div class="tool-icon gd">◆</div>
+        <div class="tool-info">
+          <div class="name">Google Drive</div>
+          <div class="desc">Pull shop drawings, proposals, and sign-offs straight from client project folders.</div>
+        </div>
+        <button class="btn ${state.tools.gd ? 'btn-primary' : ''}" onclick="toolToggle('gd')">
+          ${state.tools.gd ? '✓ Connected' : 'Connect'}
+        </button>
+      </div>
+
+    </div>
+
+    <div class="hint-box" style="margin-top:24px">
+      <b>Heads up on time tracking:</b> MillSuite has time tracking built in — your crew clocks in/out on jobs natively. Those hours are what feed the learning loop. No third-party tool to connect.
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="back()">← Back</button>
+      <div class="actions-right">
+        <button class="btn btn-ghost" onclick="next()">Skip for now</button>
+        <button class="btn btn-primary" onclick="next()">Continue →</button>
+      </div>
+    </div>
+  `;
+}
+
+// ---------- STEP 5: First estimate ----------
+function renderFirstEstimate() {
+  const go = (p) => { state.path = p; next(); };
+  window.choosePath = go;
+
+  return `
+    <div class="step-num">Step 5 of ${TOTAL_STEPS}</div>
+    <h1>Your first estimate.</h1>
+    <p class="lede">Two ways to kick the tires. The first is the best trust-builder — it lets you compare the system's numbers to work you've already priced.</p>
+
+    <div class="path-grid">
+      <div class="path-card" onclick="choosePath('recreate')">
+        <h3>Recreate an estimate you've already done <span class="path-tag">Recommended</span></h3>
+        <p>Upload a PDF or enter the line items from a past quote. MillSuite shows how it would have broken down the same job. Compare, decide if it matches, and tune your rates if something looks off. This is how you build trust before betting a real bid on the system.</p>
+      </div>
+
+      <div class="path-card" onclick="choosePath('fresh')">
+        <h3>Start a fresh estimate</h3>
+        <p>Jump straight into a new project. We'll walk you through adding a subproject, picking items from your library, and applying options. You'll see the build-up at every step.</p>
+      </div>
+
+      <div class="path-card" onclick="choosePath('skip')">
+        <h3>Skip for now — show me around first</h3>
+        <p>Take the grand tour. Explore the rate book, learning loop, and project pages without committing to pricing anything. You can start your first estimate whenever you're ready.</p>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="back()">← Back</button>
+      <div></div>
+    </div>
+  `;
+}
+
+// ---------- STEP 6: How this gets smarter ----------
+function renderFinal() {
+  const destLabel = {
+    'recreate': 'Recreate my existing estimate',
+    'fresh':    'Start my first estimate',
+    'skip':     'Take me to the dashboard'
+  }[state.path] || 'Start my first estimate';
+
+  return `
+    <div class="step-num">Step 6 of ${TOTAL_STEPS} · Almost done</div>
+    <h1>You're set. Here's how MillSuite gets smarter from here.</h1>
+    <p class="lede">Your starter library is loaded and calibrated. You haven't priced anything yet, so the system is still leaning on defaults. That changes fast once you start closing jobs.</p>
+
+    <div class="explainer">
+      <div class="exp-card">
+        <div class="num">1</div>
+        <h4>Starter rates are calibrated guesses</h4>
+        <p>Based on your shop size, what you build, and the three calibration questions. Good enough to quote with — not perfect, but honest.</p>
+      </div>
+      <div class="exp-card">
+        <div class="num">2</div>
+        <h4>Every closed job teaches the system</h4>
+        <p>When a job ships and actuals come in, the learning loop compares what you estimated to what actually happened. Patterns surface in Suggestions — both when you're running over and when you could bid tighter.</p>
+      </div>
+      <div class="exp-card">
+        <div class="num">3</div>
+        <h4>You always decide what changes</h4>
+        <p>Nothing updates silently. Every suggestion shows its source jobs, lets you untick outliers, and requires your click. If you never accept a suggestion, the system never changes.</p>
+      </div>
+    </div>
+
+    <div class="hint-box" style="margin-bottom:28px">
+      <b>Expect the first 3–5 jobs to be calibration.</b> The suggestions will be tentative early on (labeled "small sample" or "low trust"). Once the system has 5–10 closed jobs of a given type, the confidence on those suggestions gets much stronger and the starter defaults start fading into the background.
+    </div>
+
+    <div class="final-cta">
+      <button class="btn btn-primary" onclick="toast('Taking you to: ${destLabel}')">${destLabel}</button>
+      <button class="btn" onclick="toast('Opens the dashboard with nothing started yet — you can pick any surface.')">Explore on my own</button>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="back()">← Back</button>
+      <div></div>
+    </div>
+  `;
+}
+
+// ---------- Render ----------
+function render() {
+  const pct = ((state.step + 1) / TOTAL_STEPS) * 100;
+  $('progressFill').style.width = pct + '%';
+
+  let html;
+  switch (state.step) {
+    case 0: html = renderWelcome(); break;
+    case 1: html = renderShopRate(); break;
+    case 2: html = renderCalibration(); break;
+    case 3: html = renderTools(); break;
+    case 4: html = renderFirstEstimate(); break;
+    case 5: html = renderFinal(); break;
+  }
+  $('step').innerHTML = html;
+}
+
+render();
+</script>
+</body>
+</html>

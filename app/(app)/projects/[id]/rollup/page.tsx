@@ -36,7 +36,8 @@ import {
   Pencil,
   Plus,
   FileText,
-  Send,
+  Copy,
+  GitBranch,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
@@ -46,8 +47,25 @@ import {
   computeSubprojectRollup,
   type EstimateLine,
   type SubprojectRollup,
-  type PricingDefaults,
+  type PricingContext,
 } from '@/lib/estimate-lines'
+import { listShopLaborRates, laborRateMap } from '@/lib/rate-book-v2'
+import { DEFAULT_LABOR_RATES, type LaborDept } from '@/lib/rate-book-seed'
+import {
+  loadSubprojectActualHours,
+  fmtActualHours,
+  type SubActualsMap,
+} from '@/lib/actual-hours'
+import {
+  loadMilestones,
+  saveMilestones,
+  sumMilestonePct,
+  TRIGGER_LABEL,
+  TRIGGER_ORDER,
+  type MilestoneTrigger,
+  type ProjectMilestone,
+} from '@/lib/milestones'
+import { Trash2, AlertCircle } from 'lucide-react'
 // Mark-as-sold now routes to /projects/[id]/handoff instead of flipping the
 // stage inline — import intentionally dropped.
 
@@ -94,6 +112,7 @@ interface SubCardData {
   sub: Subproject
   rollup: SubprojectRollup
   lineCount: number
+  finishSpecCount: number
 }
 
 // Aggregate project-level rollup.
@@ -106,9 +125,15 @@ interface ProjectRollup {
   laborCost: number
   materialCost: number
   hardwareCost: number
-  sheetCost: number
-  consumables: number
+  installCost: number
+  consumablesCost: number
+  optionsCost: number
   installSubprojectTotal: number
+  finishSpecCount: number
+  // Phase 8: actuals summed across every subproject's time_entries.
+  actualMinutes: number
+  actualByDept: { eng: number; cnc: number; assembly: number; finish: number; install: number }
+  actualUnmappedMinutes: number
 }
 
 // QB export line — editable, client-facing copy. Lives in component state only.
@@ -150,17 +175,25 @@ export default function ProjectRollupPage() {
 
   const shopRate = org?.shop_rate || 75
   const marginTarget = org?.profit_margin_pct ?? 32
-  const pricingDefaults: PricingDefaults = useMemo(
+  const [laborRates, setLaborRates] = useState<Record<LaborDept, number>>(DEFAULT_LABOR_RATES)
+  const pricingCtx: PricingContext = useMemo(
     () => ({
-      shopRate,
-      consumableMarkupPct: org?.consumable_markup_pct ?? 15,
+      laborRates,
+      consumableMarkupPct: org?.consumable_markup_pct ?? 10,
       profitMarginPct: org?.profit_margin_pct ?? 35,
     }),
-    [shopRate, org?.consumable_markup_pct, org?.profit_margin_pct]
+    [laborRates, org?.consumable_markup_pct, org?.profit_margin_pct]
   )
 
   const [project, setProject] = useState<Project | null>(null)
   const [cards, setCards] = useState<SubCardData[]>([])
+  // Phase 8: actuals come from time_entries and are surfaced next to every
+  // estimated-hours number on this page.
+  const [subActuals, setSubActuals] = useState<SubActualsMap>({})
+  // Map department_id → canonical LaborDept key (by matching on departments.name).
+  // Needed because hoursByDept is keyed by LaborDept but time_entries.department_id
+  // is a UUID. Falls back to null for custom / unmapped departments.
+  const [deptKeyById, setDeptKeyById] = useState<Record<string, LaborDept>>({})
   const [loading, setLoading] = useState(true)
   const [deptOpen, setDeptOpen] = useState(false)
   const [historicalOpen, setHistoricalOpen] = useState(false)
@@ -175,6 +208,9 @@ export default function ProjectRollupPage() {
   const [historical, setHistorical] = useState<
     { id: string; name: string; client: string | null; meta: string; total: number }[]
   >([])
+  const [milestones, setMilestones] = useState<ProjectMilestone[]>([])
+  const [milestonesDirty, setMilestonesDirty] = useState(false)
+  const [milestonesSaving, setMilestonesSaving] = useState(false)
 
   // ── Load ──
 
@@ -183,7 +219,7 @@ export default function ProjectRollupPage() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const [projRes, subsRes, rateBook] = await Promise.all([
+      const [projRes, subsRes, rateBook, rates, deptRes] = await Promise.all([
         supabase.from('projects').select('*').eq('id', projectId).single(),
         supabase
           .from('subprojects')
@@ -191,7 +227,14 @@ export default function ProjectRollupPage() {
           .eq('project_id', projectId)
           .order('sort_order'),
         loadRateBook(org!.id),
+        listShopLaborRates(org!.id),
+        supabase
+          .from('departments')
+          .select('id, name')
+          .eq('org_id', org!.id),
       ])
+      const ratesMap = { ...DEFAULT_LABOR_RATES, ...laborRateMap(rates) }
+      if (!cancelled) setLaborRates(ratesMap)
       if (cancelled) return
       const subs = (subsRes.data || []) as Subproject[]
 
@@ -207,16 +250,38 @@ export default function ProjectRollupPage() {
       const cardData: SubCardData[] = subs.map((sub) => {
         const subLines =
           linesBySub.find((x) => x.subId === sub.id)?.lines || ([] as EstimateLine[])
-        const perSubDefaults: PricingDefaults = {
-          ...pricingDefaults,
+        const perSubCtx: PricingContext = {
+          laborRates: ratesMap,
           consumableMarkupPct:
-            sub.consumable_markup_pct ?? pricingDefaults.consumableMarkupPct,
+            sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
           profitMarginPct:
-            sub.profit_margin_pct ?? pricingDefaults.profitMarginPct,
+            sub.profit_margin_pct ?? (org?.profit_margin_pct ?? 35),
         }
-        const rollup = computeSubprojectRollup(subLines, rateBook, perSubDefaults)
-        return { sub, rollup, lineCount: subLines.length }
+        const rollup = computeSubprojectRollup(subLines, rateBook.itemsById, new Map(), perSubCtx)
+        const finishSpecCount = subLines.reduce(
+          (s, l) => s + ((l.finish_specs || []).length || 0),
+          0
+        )
+        return { sub, rollup, lineCount: subLines.length, finishSpecCount }
       })
+
+      // Phase 8 actuals: load time_entries totals per subproject + build a
+      // deptId → LaborDept key map so the per-dept drawer can show actuals
+      // alongside estimates. Matches by departments.name (case-insensitive)
+      // against the canonical LaborDept labels; custom depts stay unmapped.
+      const subIds = subs.map((s) => s.id)
+      const actuals = subIds.length > 0
+        ? await loadSubprojectActualHours(subIds)
+        : ({} as SubActualsMap)
+      const deptKeyMap: Record<string, LaborDept> = {}
+      for (const d of (deptRes.data || []) as Array<{ id: string; name: string }>) {
+        const n = (d.name || '').toLowerCase()
+        if (n.includes('eng')) deptKeyMap[d.id] = 'eng'
+        else if (n.includes('cnc')) deptKeyMap[d.id] = 'cnc'
+        else if (n.includes('assembly') || n.includes('bench')) deptKeyMap[d.id] = 'assembly'
+        else if (n.includes('finish') || n.includes('paint') || n.includes('sand')) deptKeyMap[d.id] = 'finish'
+        else if (n.includes('install')) deptKeyMap[d.id] = 'install'
+      }
 
       // Historical: three most-recently-sold projects by the same org, other
       // than this one. Good enough for "similar past projects" MVP.
@@ -229,9 +294,16 @@ export default function ProjectRollupPage() {
         .order('updated_at', { ascending: false })
         .limit(3)
 
+      // Milestones.
+      const ms = await loadMilestones(projectId)
+
       if (cancelled) return
       setProject(projRes.data as Project)
       setCards(cardData)
+      setSubActuals(actuals)
+      setDeptKeyById(deptKeyMap)
+      setMilestones(ms)
+      setMilestonesDirty(false)
       setHistorical(
         (histData || []).map((h: any) => ({
           id: h.id,
@@ -268,7 +340,7 @@ export default function ProjectRollupPage() {
     return () => {
       cancelled = true
     }
-  }, [projectId, org?.id, pricingDefaults])
+  }, [projectId, org?.id, org?.consumable_markup_pct, org?.profit_margin_pct])
 
   // ── Project-level rollup (summed across subs) ──
 
@@ -282,11 +354,16 @@ export default function ProjectRollupPage() {
       laborCost: 0,
       materialCost: 0,
       hardwareCost: 0,
-      sheetCost: 0,
-      consumables: 0,
+      installCost: 0,
+      consumablesCost: 0,
+      optionsCost: 0,
       installSubprojectTotal: 0,
+      finishSpecCount: 0,
+      actualMinutes: 0,
+      actualByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
+      actualUnmappedMinutes: 0,
     }
-    for (const { sub, rollup } of cards) {
+    for (const { sub, rollup, finishSpecCount } of cards) {
       acc.total += rollup.total
       acc.subtotal += rollup.subtotal
       acc.hoursByDept.eng += rollup.hoursByDept.eng
@@ -298,14 +375,27 @@ export default function ProjectRollupPage() {
       acc.laborCost += rollup.laborCost
       acc.materialCost += rollup.materialCost
       acc.hardwareCost += rollup.hardwareCost
-      acc.sheetCost += rollup.sheetCost
-      acc.consumables += rollup.consumables
+      acc.installCost += rollup.installCost
+      acc.consumablesCost += rollup.consumablesCost
+      acc.optionsCost += rollup.optionsCost
+      acc.finishSpecCount += finishSpecCount
       if (isInstallSub(sub)) acc.installSubprojectTotal += rollup.total
+
+      // Phase 8: fold in actuals for this sub.
+      const a = subActuals[sub.id]
+      if (a) {
+        acc.actualMinutes += a.totalMinutes
+        for (const [deptId, mins] of Object.entries(a.byDeptMinutes)) {
+          const key = deptKeyById[deptId]
+          if (key) acc.actualByDept[key] += mins
+          else acc.actualUnmappedMinutes += mins
+        }
+      }
     }
     acc.marginPct =
       acc.total > 0 ? ((acc.total - acc.subtotal) / acc.total) * 100 : 0
     return acc
-  }, [cards])
+  }, [cards, subActuals, deptKeyById])
 
   // ── Actions ──
 
@@ -430,10 +520,16 @@ export default function ProjectRollupPage() {
                   No subprojects yet.
                 </div>
               )}
-              {cards.map(({ sub, rollup, lineCount }) => {
+              {cards.map(({ sub, rollup, lineCount, finishSpecCount }) => {
                 const mCls = marginColor(rollup.marginPct, marginTarget)
                 const install = isInstallSub(sub)
                 const statusReady = !!sub.ready_for_production
+                // Phase 8 actuals for this sub (may be undefined briefly on first paint).
+                const actual = subActuals[sub.id]
+                const actualHrs = (actual?.totalMinutes || 0) / 60
+                const hasActuals = actualHrs > 0
+                const actualPctOfEst =
+                  rollup.totalHours > 0 ? (actualHrs / rollup.totalHours) * 100 : 0
                 return (
                   <Link
                     key={sub.id}
@@ -477,11 +573,65 @@ export default function ProjectRollupPage() {
                             </span>
                             lines
                           </span>
-                          <span>
+                          <span
+                            title={
+                              hasActuals
+                                ? `${fmtActualHours(actual!.totalMinutes)} clocked against ${hoursFmt(rollup.totalHours)} estimated (${actualPctOfEst.toFixed(0)}% of estimate)`
+                                : 'No time clocked yet'
+                            }
+                          >
                             <span className="font-mono text-[#111] mr-1">
                               {hoursFmt(rollup.totalHours)}
                             </span>
+                            est
+                            {hasActuals && (
+                              <>
+                                <span className="mx-1 text-[#D1D5DB]">·</span>
+                                <span
+                                  className={`font-mono mr-1 ${
+                                    actualPctOfEst > 100
+                                      ? 'text-[#DC2626]'
+                                      : 'text-[#059669]'
+                                  }`}
+                                >
+                                  {fmtActualHours(actual!.totalMinutes)}
+                                </span>
+                                actual
+                              </>
+                            )}
                           </span>
+                          <span>
+                            <span className="font-mono text-[#111] mr-1">
+                              {finishSpecCount}
+                            </span>
+                            finish{finishSpecCount === 1 ? ' spec' : ' specs'}
+                          </span>
+                        </div>
+                        {/* dept-hour mini-strip: small bars per dept so the
+                            user can eyeball the labor mix without opening
+                            the sub */}
+                        <div className="mt-2 flex gap-1 text-[10px] font-mono tabular-nums text-[#6B7280]">
+                          {(
+                            [
+                              ['Eng', 'eng'],
+                              ['CNC', 'cnc'],
+                              ['Asm', 'assembly'],
+                              ['Fin', 'finish'],
+                              ['Ins', 'install'],
+                            ] as const
+                          ).map(([label, key]) => {
+                            const h = rollup.hoursByDept[key]
+                            if (h <= 0) return null
+                            return (
+                              <span
+                                key={key}
+                                className="px-1.5 py-0.5 bg-[#F3F4F6] rounded"
+                              >
+                                {label}{' '}
+                                <span className="text-[#111]">{hoursFmt(h)}</span>
+                              </span>
+                            )
+                          })}
                         </div>
                       </div>
                       <div className="text-right">
@@ -573,8 +723,22 @@ export default function ProjectRollupPage() {
                     />
                     Labor
                   </span>
-                  <span className="text-[11px] font-mono text-[#9CA3AF]">
-                    {hoursFmt(proj.totalHours)}
+                  <span className="text-[11px] font-mono text-[#9CA3AF] text-right">
+                    {hoursFmt(proj.totalHours)} est
+                    {proj.actualMinutes > 0 && (
+                      <>
+                        <br />
+                        <span
+                          className={
+                            proj.actualMinutes / 60 > proj.totalHours
+                              ? 'text-[#DC2626]'
+                              : 'text-[#059669]'
+                          }
+                        >
+                          {fmtActualHours(proj.actualMinutes)} actual
+                        </span>
+                      </>
+                    )}
                   </span>
                   <span className="font-mono text-[#111] tabular-nums">
                     {money(proj.laborCost)}
@@ -593,13 +757,28 @@ export default function ProjectRollupPage() {
                     ).map(([label, key]) => {
                       const hrs = proj.hoursByDept[key]
                       const cost = hrs * shopRate
-                      if (hrs <= 0) return null
+                      const actMins = proj.actualByDept[key] || 0
+                      if (hrs <= 0 && actMins <= 0) return null
                       return (
                         <div
                           key={key}
                           className="grid grid-cols-[1fr_auto_auto] gap-2.5 py-0.5 text-[11.5px] text-[#6B7280]"
                         >
-                          <span>{label}</span>
+                          <span>
+                            {label}
+                            {actMins > 0 && (
+                              <span
+                                className={`ml-1.5 font-mono text-[10px] ${
+                                  actMins / 60 > hrs
+                                    ? 'text-[#DC2626]'
+                                    : 'text-[#059669]'
+                                }`}
+                                title={`${fmtActualHours(actMins)} clocked`}
+                              >
+                                · {fmtActualHours(actMins)} act
+                              </span>
+                            )}
+                          </span>
                           <span className="font-mono">{hoursFmt(hrs)}</span>
                           <span className="font-mono text-[#374151]">
                             {money(cost)}
@@ -607,59 +786,75 @@ export default function ProjectRollupPage() {
                         </div>
                       )
                     })}
+                    {proj.actualUnmappedMinutes > 0 && (
+                      <div
+                        className="grid grid-cols-[1fr_auto_auto] gap-2.5 py-0.5 text-[10.5px] text-[#9CA3AF] italic"
+                        title="Clock-ins against departments that don't map to a canonical labor bucket"
+                      >
+                        <span>Other dept actuals</span>
+                        <span className="font-mono">
+                          {fmtActualHours(proj.actualUnmappedMinutes)}
+                        </span>
+                        <span />
+                      </div>
+                    )}
                   </div>
                 )}
 
-                <FinRow label="Material" value={money(proj.materialCost + proj.sheetCost)} />
+                <FinRow label="Material" value={money(proj.materialCost)} />
                 <FinRow
                   label={
                     <>
                       Consumables
                       <span className="text-[10px] text-[#9CA3AF] ml-1">
-                        ({(pricingDefaults.consumableMarkupPct).toFixed(0)}% of material)
+                        ({(pricingCtx.consumableMarkupPct).toFixed(0)}% of material)
                       </span>
                     </>
                   }
-                  value={money(proj.consumables)}
+                  value={money(proj.consumablesCost)}
                 />
                 <FinRow label="Specialty hardware" value={money(proj.hardwareCost)} />
+                <FinRow label="Options" value={money(proj.optionsCost)} />
                 <FinRow
                   label="Install (subproject)"
                   value={money(proj.installSubprojectTotal)}
                 />
               </div>
 
-              {/* Cash flow */}
-              <div className="mt-4 pt-4 border-t border-[#F3F4F6]">
-                <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
-                  Cash flow · QB-linked
-                </div>
-                <CfRow
-                  label="Deposit at signing"
-                  pct="30%"
-                  amt={money(proj.total * 0.3)}
-                  accent
-                />
-                <CfRow
-                  label="Progress at rough-in"
-                  pct="40%"
-                  amt={money(proj.total * 0.4)}
-                />
-                <CfRow
-                  label="Progress at install start"
-                  pct="20%"
-                  amt={money(proj.total * 0.2)}
-                />
-                <CfRow
-                  label="Final at punchout"
-                  pct="10%"
-                  amt={money(proj.total * 0.1)}
-                />
-                <div className="text-[11px] text-[#9CA3AF] mt-2.5 leading-relaxed">
-                  Payment milestones become QB invoices when the project is
-                  marked sold.
-                </div>
-              </div>
+              {/* Milestones — per-project builder */}
+              <MilestoneBuilder
+                milestones={milestones}
+                total={proj.total}
+                onChange={(next) => {
+                  setMilestones(next)
+                  setMilestonesDirty(true)
+                }}
+                onSave={async () => {
+                  if (!org?.id) return
+                  setMilestonesSaving(true)
+                  const ok = await saveMilestones({
+                    org_id: org.id,
+                    project_id: projectId,
+                    project_total: proj.total,
+                    milestones: milestones.map((m) => ({
+                      label: m.label,
+                      pct: m.pct,
+                      trigger: m.trigger,
+                      expected_date: m.expected_date,
+                    })),
+                  })
+                  setMilestonesSaving(false)
+                  if (ok) {
+                    setMilestonesDirty(false)
+                    showToast('Milestones saved.')
+                    // Reload to pick up server-assigned ids.
+                    const fresh = await loadMilestones(projectId)
+                    setMilestones(fresh)
+                  }
+                }}
+                dirty={milestonesDirty}
+                saving={milestonesSaving}
+              />
             </div>
           </div>
         </div>
@@ -754,8 +949,8 @@ export default function ProjectRollupPage() {
               disabled={cards.length === 0}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#059669] text-white hover:bg-[#047857] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              <Send className="w-4 h-4" />
-              Send to QB as estimate
+              <Copy className="w-4 h-4" />
+              Copy for QuickBooks
             </button>
             {!isSold ? (
               <button
@@ -767,10 +962,20 @@ export default function ProjectRollupPage() {
                 Mark as sold
               </button>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#DCFCE7] text-[#15803D]">
-                <CheckCircle2 className="w-4 h-4" />
-                Already sold
-              </span>
+              <>
+                <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#DCFCE7] text-[#15803D]">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Already sold
+                </span>
+                {/* Phase 7: deep-link to the CO panel on the project detail page */}
+                <Link
+                  href={`/projects/${projectId}#change-orders`}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium border border-[#E5E7EB] text-[#374151] hover:bg-[#F3F4F6] transition-colors"
+                >
+                  <GitBranch className="w-4 h-4" />
+                  Change orders
+                </Link>
+              </>
             )}
           </div>
         </div>
@@ -783,14 +988,15 @@ export default function ProjectRollupPage() {
           terms={qbTerms}
           total={qbTotal}
           deposit={depositAmount}
+          projectName={project.name}
+          clientName={project.client_name}
           onClose={() => setQbOpen(false)}
           onUpdateLine={updateQbLine}
           onUpdateTerms={setQbTerms}
-          onSend={() => {
+          onCopied={() => {
             showToast(
-              'Estimate staged for QuickBooks. (Integration stub — no request sent.)'
+              'Copied for QuickBooks. Paste into a new estimate — descriptions, specs, and terms are all there.'
             )
-            setQbOpen(false)
           }}
         />
       )}
@@ -822,28 +1028,234 @@ function FinRow({
   )
 }
 
-function CfRow({
-  label,
-  pct,
-  amt,
-  accent,
+// ── Milestone builder ──
+// Per-project list of {label, pct, trigger}. Validates total pct = 100
+// before allowing save. No default is shipped — users compose their own
+// (50/25/25 or 30/10/10/10/10 etc.). Rows persist as cash_flow_receivables
+// with status='projected'.
+
+function MilestoneBuilder({
+  milestones,
+  total,
+  onChange,
+  onSave,
+  dirty,
+  saving,
 }: {
-  label: string
-  pct: string
-  amt: string
-  accent?: boolean
+  milestones: ProjectMilestone[]
+  total: number
+  onChange: (next: ProjectMilestone[]) => void
+  onSave: () => void
+  dirty: boolean
+  saving: boolean
 }) {
+  const sum = sumMilestonePct(milestones)
+  const balanced = Math.abs(sum - 100) < 0.01
+  const empty = milestones.length === 0
+
+  function updateOne(idx: number, patch: Partial<ProjectMilestone>) {
+    const next = milestones.slice()
+    next[idx] = { ...next[idx], ...patch }
+    onChange(next)
+  }
+  function remove(idx: number) {
+    const next = milestones.slice()
+    next.splice(idx, 1)
+    onChange(next)
+  }
+  function addRow() {
+    const next = milestones.slice()
+    // Seed new rows with whatever slack is left so the sum auto-balances.
+    const slack = Math.max(0, 100 - sum)
+    next.push({
+      id: `new-${Math.random().toString(36).slice(2, 8)}`,
+      project_id: milestones[0]?.project_id || '',
+      label: next.length === 0 ? 'Deposit' : `Milestone ${next.length + 1}`,
+      pct: slack > 0 ? slack : 0,
+      trigger: next.length === 0 ? 'signing' : 'manual',
+      amount: Math.round((total * (slack > 0 ? slack : 0)) / 100),
+      status: 'projected',
+      expected_date: null,
+      sort_order: next.length,
+    })
+    onChange(next)
+  }
+  function seedPreset(preset: 'half_quarter_quarter' | 'standard' | 'half_half') {
+    let template: Array<Pick<ProjectMilestone, 'label' | 'pct' | 'trigger'>>
+    switch (preset) {
+      case 'half_quarter_quarter':
+        template = [
+          { label: 'Deposit', pct: 50, trigger: 'signing' },
+          { label: 'Production kickoff', pct: 25, trigger: 'production' },
+          { label: 'Final', pct: 25, trigger: 'punchout' },
+        ]
+        break
+      case 'standard':
+        template = [
+          { label: 'Deposit', pct: 30, trigger: 'signing' },
+          { label: 'Rough-in', pct: 40, trigger: 'production' },
+          { label: 'Install start', pct: 20, trigger: 'install_start' },
+          { label: 'Final punchout', pct: 10, trigger: 'punchout' },
+        ]
+        break
+      case 'half_half':
+        template = [
+          { label: 'Deposit', pct: 50, trigger: 'signing' },
+          { label: 'On delivery', pct: 50, trigger: 'delivery' },
+        ]
+        break
+    }
+    onChange(
+      template.map((t, i) => ({
+        id: `new-${i}`,
+        project_id: milestones[0]?.project_id || '',
+        label: t.label,
+        pct: t.pct,
+        trigger: t.trigger,
+        amount: Math.round((total * t.pct) / 100),
+        status: 'projected',
+        expected_date: null,
+        sort_order: i,
+      }))
+    )
+  }
+
   return (
-    <div className="grid grid-cols-[1fr_60px_auto] gap-2.5 py-1.5 text-sm border-b border-[#F3F4F6] last:border-b-0">
-      <span className="text-[#374151]">{label}</span>
-      <span className="text-[11px] font-mono text-[#9CA3AF]">{pct}</span>
-      <span
-        className={`font-mono tabular-nums text-right ${
-          accent ? 'text-[#059669] font-semibold' : 'text-[#111]'
-        }`}
-      >
-        {amt}
-      </span>
+    <div className="mt-4 pt-4 border-t border-[#F3F4F6]">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+          Payment milestones
+        </div>
+        <div className="text-[11px] text-[#9CA3AF]">
+          {empty ? (
+            <span>No milestones yet</span>
+          ) : (
+            <>
+              Sum:{' '}
+              <span
+                className={`font-mono font-semibold ${
+                  balanced ? 'text-[#059669]' : 'text-[#D97706]'
+                }`}
+              >
+                {sum.toFixed(0)}%
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {empty && (
+        <div className="px-3 py-3 bg-[#F9FAFB] border border-dashed border-[#E5E7EB] rounded-lg mb-2 text-xs text-[#6B7280]">
+          Compose the payment schedule for this project. Examples:
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            <button
+              onClick={() => seedPreset('half_quarter_quarter')}
+              className="px-2 py-1 text-[11px] bg-white border border-[#E5E7EB] rounded hover:border-[#2563EB]"
+            >
+              50 / 25 / 25
+            </button>
+            <button
+              onClick={() => seedPreset('standard')}
+              className="px-2 py-1 text-[11px] bg-white border border-[#E5E7EB] rounded hover:border-[#2563EB]"
+            >
+              30 / 40 / 20 / 10
+            </button>
+            <button
+              onClick={() => seedPreset('half_half')}
+              className="px-2 py-1 text-[11px] bg-white border border-[#E5E7EB] rounded hover:border-[#2563EB]"
+            >
+              50 / 50
+            </button>
+            <button
+              onClick={addRow}
+              className="px-2 py-1 text-[11px] bg-white border border-[#E5E7EB] rounded hover:border-[#2563EB]"
+            >
+              Start empty
+            </button>
+          </div>
+        </div>
+      )}
+
+      {milestones.map((m, i) => (
+        <div
+          key={m.id}
+          className="grid grid-cols-[1fr_54px_auto_24px] gap-1.5 items-center py-1.5 border-b border-[#F3F4F6] last:border-b-0"
+        >
+          <input
+            value={m.label}
+            onChange={(e) => updateOne(i, { label: e.target.value })}
+            placeholder="Milestone name"
+            className="text-xs bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-[#111]"
+          />
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={m.pct}
+            onChange={(e) =>
+              updateOne(i, {
+                pct: Number(e.target.value) || 0,
+                amount: Math.round((total * (Number(e.target.value) || 0)) / 100),
+              })
+            }
+            className="text-xs font-mono bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-right text-[#111]"
+          />
+          <select
+            value={m.trigger}
+            onChange={(e) => updateOne(i, { trigger: e.target.value as MilestoneTrigger })}
+            className="text-[11px] bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1 py-1 outline-none text-[#6B7280]"
+          >
+            {TRIGGER_ORDER.map((t) => (
+              <option key={t} value={t}>{TRIGGER_LABEL[t]}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => remove(i)}
+            className="p-1 text-[#9CA3AF] hover:text-[#DC2626] rounded"
+            title="Remove milestone"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ))}
+
+      {!empty && (
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            onClick={addRow}
+            className="text-[11px] text-[#2563EB] hover:underline"
+          >
+            + Add milestone
+          </button>
+          <div className="flex-1" />
+          {dirty && (
+            <button
+              onClick={onSave}
+              disabled={!balanced || saving}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-[#2563EB] text-white rounded hover:bg-[#1D4ED8] disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : balanced ? 'Save' : 'Must total 100%'}
+            </button>
+          )}
+          {!dirty && !empty && (
+            <span className="text-[10px] text-[#9CA3AF]">Saved</span>
+          )}
+        </div>
+      )}
+
+      {!empty && !balanced && (
+        <div className="mt-2 px-2 py-1.5 bg-[#FEF3C7] border border-[#FDE68A] rounded text-[10.5px] text-[#92400E] flex items-start gap-1.5">
+          <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+          <span>
+            Milestones total {sum.toFixed(0)}% — must equal 100% before saving.
+          </span>
+        </div>
+      )}
+
+      <div className="text-[10.5px] text-[#9CA3AF] mt-2.5 leading-relaxed">
+        These become the payment plan. QB payments matched by the watcher flip
+        each milestone to &ldquo;received&rdquo;.
+      </div>
     </div>
   )
 }
@@ -855,20 +1267,96 @@ function QbPreviewModal({
   terms,
   total,
   deposit,
+  projectName,
+  clientName,
   onClose,
   onUpdateLine,
   onUpdateTerms,
-  onSend,
+  onCopied,
 }: {
   lines: QbLine[]
   terms: string
   total: number
   deposit: number
+  projectName: string
+  clientName: string | null
   onClose: () => void
   onUpdateLine: (subId: string, patch: Partial<QbLine>) => void
   onUpdateTerms: (v: string) => void
-  onSend: () => void
+  onCopied: () => void
 }) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+
+  // Build a plain-text block optimised for pasting into a fresh QuickBooks
+  // estimate. One paragraph per line item (description → specs → qty/rate/
+  // amount), then deposit, total, and terms. No markdown — QB is plain text.
+  function buildClipboardText(): string {
+    const lead = [
+      `Estimate — ${projectName}`,
+      clientName ? `Client: ${clientName}` : null,
+      `Date: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
+      '',
+    ]
+      .filter((l) => l !== null)
+      .join('\n')
+
+    const items = lines
+      .map((l) => {
+        const spec = (l.spec || '').trim()
+        const body = [
+          l.desc,
+          spec ? spec.split('\n').map((s) => `  ${s}`).join('\n') : null,
+          `  Qty ${l.qty} × ${money(l.rate)} = ${money(l.amount)}`,
+        ]
+          .filter(Boolean)
+          .join('\n')
+        return body
+      })
+      .join('\n\n')
+
+    const depositBlock = [
+      '',
+      `Deposit (30%): ${money(deposit)}`,
+      '  Due at contract signing. Balance billed at production milestones.',
+    ].join('\n')
+
+    const totalBlock = ['', `ESTIMATE TOTAL: ${money(total)}`].join('\n')
+
+    const termsBlock = [
+      '',
+      'Terms & Conditions',
+      terms,
+    ].join('\n')
+
+    return [lead, items, depositBlock, totalBlock, termsBlock].join('\n')
+  }
+
+  async function handleCopy() {
+    const text = buildClipboardText()
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        // Fallback — old browsers / non-secure contexts.
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.left = '-9999px'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setCopyState('copied')
+      onCopied()
+      setTimeout(() => setCopyState('idle'), 2400)
+    } catch (err) {
+      console.error('QB copy failed', err)
+      setCopyState('error')
+      setTimeout(() => setCopyState('idle'), 3000)
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center px-4"
@@ -895,10 +1383,10 @@ function QbPreviewModal({
 
         <div className="px-5 py-4 overflow-y-auto flex-1">
           <div className="text-[12.5px] text-[#6B7280] mb-1 leading-relaxed">
-            This is how the estimate will appear in QuickBooks. Descriptions are
-            client-facing — edit anything before sending. Specs, exclusions,
-            and terms travel with the estimate <b>and into preproduction</b> so
-            your team builds exactly what was quoted.
+            This is the client-facing version of your estimate. Edit any
+            description or spec, then <b>copy</b> to paste into a fresh
+            QuickBooks estimate. We don't push to QB — the watcher flips your
+            milestones to &ldquo;received&rdquo; when payments land.
           </div>
           <div className="text-[10.5px] text-[#9CA3AF] italic mb-3">
             Click any description or spec to edit. Changes here don't alter
@@ -996,19 +1484,43 @@ function QbPreviewModal({
           </div>
         </div>
 
-        <div className="px-5 py-3.5 border-t border-[#E5E7EB] flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-3.5 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:bg-[#F3F4F6] border border-[#E5E7EB] transition-colors"
-          >
-            Back
-          </button>
-          <button
-            onClick={onSend}
-            className="px-3.5 py-2 rounded-lg text-sm font-medium bg-[#059669] text-white hover:bg-[#047857] transition-colors"
-          >
-            Send to QuickBooks
-          </button>
+        <div className="px-5 py-3.5 border-t border-[#E5E7EB] flex items-center justify-between gap-2">
+          <div className="text-[10.5px] text-[#9CA3AF] italic">
+            Paste into a new QuickBooks estimate. We watch QB for payments —
+            we don't push to it.
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="px-3.5 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:bg-[#F3F4F6] border border-[#E5E7EB] transition-colors"
+            >
+              Back
+            </button>
+            <button
+              onClick={handleCopy}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium text-white transition-colors ${
+                copyState === 'copied'
+                  ? 'bg-[#15803D]'
+                  : copyState === 'error'
+                  ? 'bg-[#DC2626]'
+                  : 'bg-[#059669] hover:bg-[#047857]'
+              }`}
+            >
+              {copyState === 'copied' ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  Copied
+                </>
+              ) : copyState === 'error' ? (
+                <>Copy failed — try again</>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4" />
+                  Copy for QuickBooks
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

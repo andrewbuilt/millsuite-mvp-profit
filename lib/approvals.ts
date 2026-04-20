@@ -364,9 +364,10 @@ export interface ProposedApprovalSlot {
   rate_book_item_id: string | null
   rate_book_material_variant_id: string | null
   material: string | null
+  finish: string | null
   label: string
-  // Heuristic owner: 'client' = finish/color/style decision, 'vendor' = hardware
-  // order, 'shop' = everything else (locked from estimate).
+  // Heuristic owner: 'client' = finish/material decision (default for
+  // finish-spec cards), 'vendor' = hardware PO, 'shop' = locked from estimate.
   owner: 'client' | 'shop' | 'vendor'
 }
 
@@ -406,21 +407,28 @@ export function guessSlotOwner(label: string): 'client' | 'shop' | 'vendor' {
 }
 
 /**
- * Expand a single estimate_line into the slots it would create on handoff.
- * Mirrors what `createApprovalItemsForProject` writes — caller reads this to
- * preview the selection-cards section of the handoff page before committing.
+ * Expand a single estimate_line into the approval slots it would create on
+ * handoff. Phase 6: finish_specs are the primary source. Each {material,
+ * finish} spec on a line becomes one card. Cards with identical (material,
+ * finish) across lines inside the same subproject merge via the dedupe in
+ * createApprovalItemsFromProposals (label is the dedupe key).
  *
- * One slot per effective callout (line.callouts if non-null, else the item's
- * default_callouts). A line with zero callouts produces zero slots.
+ * Back-compat: if a line has no finish_specs but does have legacy callouts,
+ * fall through to callout-based slot creation so old projects still generate
+ * cards on re-handoff.
+ *
+ * Returns [] if the line has no finish_specs AND no callouts — a "lump" line
+ * with no client-facing decisions doesn't need approval.
  */
 export function proposeSlotsForLine(
   line: {
     id: string
     subproject_id: string
     description: string
+    finish_specs?: Array<{ material?: string; finish?: string; edge?: string; notes?: string }> | null
     callouts: string[] | null
     rate_book_item_id: string | null
-    rate_book_material_variant_id: string | null
+    rate_book_material_variant_id?: string | null
   },
   ctx: {
     subproject_name: string
@@ -428,6 +436,35 @@ export function proposeSlotsForLine(
     variant_name: string | null
   }
 ): ProposedApprovalSlot[] {
+  // Primary path: structured finish_specs → one card each.
+  const specs = (line.finish_specs || []).filter(
+    (s) => (s?.material || '').trim().length > 0 || (s?.finish || '').trim().length > 0
+  )
+  if (specs.length > 0) {
+    return specs.map((s) => {
+      const mat = (s.material || '').trim()
+      const fin = (s.finish || '').trim()
+      // Label is the dedupe key — "Material · Finish" reads cleanly and
+      // collapses identical specs on other lines of the same sub.
+      const label = [mat, fin].filter(Boolean).join(' · ') || 'Finish spec'
+      return {
+        subproject_id: line.subproject_id,
+        subproject_name: ctx.subproject_name,
+        source_estimate_line_id: line.id,
+        source_line_description: line.description,
+        rate_book_item_id: line.rate_book_item_id,
+        rate_book_material_variant_id: line.rate_book_material_variant_id ?? null,
+        material: mat || ctx.variant_name,
+        finish: fin || null,
+        label,
+        // Finish decisions always need client sign-off.
+        owner: 'client' as const,
+      }
+    })
+  }
+
+  // Back-compat: legacy callouts. Kept so re-handoff on pre-Phase-2 projects
+  // still spawns cards. New projects should use finish_specs.
   const callouts = line.callouts ?? ctx.item_default_callouts ?? []
   return callouts
     .filter((c) => (c || '').trim().length > 0)
@@ -437,8 +474,9 @@ export function proposeSlotsForLine(
       source_estimate_line_id: line.id,
       source_line_description: line.description,
       rate_book_item_id: line.rate_book_item_id,
-      rate_book_material_variant_id: line.rate_book_material_variant_id,
+      rate_book_material_variant_id: line.rate_book_material_variant_id ?? null,
       material: ctx.variant_name,
+      finish: null,
       label,
       owner: guessSlotOwner(label),
     }))
@@ -468,18 +506,29 @@ export async function createApprovalItemsFromProposals(
     (existing || []).map((r: any) => `${r.subproject_id}::${r.label}`)
   )
 
-  const toInsert = proposals
-    .filter((p) => !existingKey.has(`${p.subproject_id}::${p.label}`))
-    .map((p) => ({
-      subproject_id: p.subproject_id,
-      source_estimate_line_id: p.source_estimate_line_id,
-      rate_book_item_id: p.rate_book_item_id,
-      rate_book_material_variant_id: p.rate_book_material_variant_id,
-      material: p.material,
-      label: p.label,
-      state: 'pending' as ApprovalState,
-      ball_in_court: (p.owner === 'client' ? 'client' : 'shop') as BallInCourt,
-    }))
+  // Dedupe within the incoming proposals too — multiple lines on the same
+  // sub with the same (material, finish) collapse to one card. First proposal
+  // wins for source_estimate_line_id, which is fine — the card represents the
+  // spec, not the line, and both lines share it.
+  const seenProp = new Set<string>()
+  const uniqueProposals = proposals.filter((p) => {
+    const key = `${p.subproject_id}::${p.label}`
+    if (seenProp.has(key) || existingKey.has(key)) return false
+    seenProp.add(key)
+    return true
+  })
+
+  const toInsert = uniqueProposals.map((p) => ({
+    subproject_id: p.subproject_id,
+    source_estimate_line_id: p.source_estimate_line_id,
+    rate_book_item_id: p.rate_book_item_id,
+    rate_book_material_variant_id: p.rate_book_material_variant_id,
+    material: p.material,
+    finish: p.finish,
+    label: p.label,
+    state: 'pending' as ApprovalState,
+    ball_in_court: (p.owner === 'client' ? 'client' : 'shop') as BallInCourt,
+  }))
 
   if (toInsert.length === 0) return 0
 

@@ -9,6 +9,7 @@ import { Play, Square } from 'lucide-react'
 
 interface Project { id: string; name: string }
 interface Subproject { id: string; project_id: string; name: string }
+interface Department { id: string; name: string; display_order: number }
 
 const TIMER_KEY = 'millsuite_timer'
 
@@ -23,21 +24,26 @@ export default function MobileTimerPage() {
   const { org, user } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
 
   const [timerActive, setTimerActive] = useState(false)
   const [projectId, setProjectId] = useState('')
   const [subprojectId, setSubprojectId] = useState('')
+  const [departmentId, setDepartmentId] = useState('')
   const [notes, setNotes] = useState('')
   const [startedAt, setStartedAt] = useState<Date | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [saved, setSaved] = useState(false)
 
-  // Load projects
+  // Load projects + departments (Phase 8: crew needs to pick a dept too)
   useEffect(() => {
     if (!org?.id) return
     supabase.from('projects').select('id, name').eq('org_id', org.id).in('status', ['active', 'bidding']).order('name').then(({ data }) => {
       if (data) setProjects(data)
+    })
+    supabase.from('departments').select('id, name, display_order').eq('org_id', org.id).eq('active', true).order('display_order').then(({ data }) => {
+      if (data) setDepartments(data.filter(d => !d.name.toLowerCase().includes('management')))
     })
   }, [org?.id])
 
@@ -57,6 +63,7 @@ export default function MobileTimerPage() {
         const state = JSON.parse(raw)
         setProjectId(state.projectId)
         setSubprojectId(state.subprojectId)
+        setDepartmentId(state.departmentId || '')
         setNotes(state.notes || '')
         setStartedAt(new Date(state.startedAt))
         setTimerActive(true)
@@ -79,7 +86,7 @@ export default function MobileTimerPage() {
     const now = new Date()
     setStartedAt(now)
     setTimerActive(true)
-    localStorage.setItem(TIMER_KEY, JSON.stringify({ projectId, subprojectId, startedAt: now.toISOString(), notes }))
+    localStorage.setItem(TIMER_KEY, JSON.stringify({ projectId, subprojectId, departmentId, startedAt: now.toISOString(), notes }))
   }
 
   async function handleStop() {
@@ -92,6 +99,7 @@ export default function MobileTimerPage() {
       user_id: user?.id,
       project_id: projectId,
       subproject_id: subprojectId || null,
+      department_id: departmentId || null,
       duration_minutes: Math.max(durationMinutes, 1),
       notes: notes || null,
       started_at: startedAt.toISOString(),
@@ -106,6 +114,7 @@ export default function MobileTimerPage() {
     setTimerActive(false)
     setStartedAt(null)
     setNotes('')
+    setDepartmentId('')
     setElapsed(0)
     localStorage.removeItem(TIMER_KEY)
     setSaved(true)
@@ -166,6 +175,16 @@ export default function MobileTimerPage() {
               >
                 <option value="">Subproject (optional)</option>
                 {subprojects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+            {departments.length > 0 && (
+              <select
+                value={departmentId}
+                onChange={e => setDepartmentId(e.target.value)}
+                className="w-full px-4 py-3 text-sm border border-[#E5E7EB] rounded-xl bg-white"
+              >
+                <option value="">Department (optional)</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             )}
             <input

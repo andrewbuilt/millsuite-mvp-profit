@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MillSuite · Pricing (Clickable Mockup)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #0a0a0a;
+    color: #e5e5e5;
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: #111; border-bottom: 1px solid #222;
+  }
+  .topbar h1 { font-size: 13px; font-weight: 600; color: #fff; letter-spacing: 0.3px; }
+  .topbar .sub { font-size: 11px; color: #666; margin-left: 10px; font-weight: 400; }
+  .btns { display: flex; gap: 8px; }
+  .btn {
+    background: #1e1e1e; border: 1px solid #333; color: #ddd;
+    padding: 5px 11px; font-size: 12px; border-radius: 6px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn:hover { background: #2a2a2a; border-color: #444; color: #fff; }
+  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+
+  .context-strip {
+    padding: 9px 20px; font-size: 12px; color: #93c5fd;
+    background: #0c1a2e; border-bottom: 1px solid #1e3a5f;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .context-strip .lbl {
+    font-size: 10px; background: #1e3a5f; color: #dbeafe;
+    padding: 2px 7px; border-radius: 4px; font-weight: 600;
+    letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .context-strip .hint { color: #6b8cc4; font-size: 11.5px; }
+
+  .main { display: grid; grid-template-columns: 280px 1fr 300px; flex: 1; overflow: hidden; }
+
+  .pane { border-right: 1px solid #222; overflow-y: auto; background: #0a0a0a; }
+  .pane:last-child { border-right: none; }
+  .pane-header {
+    padding: 10px 16px; font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.8px; color: #888;
+    border-bottom: 1px solid #222; background: #0d0d0d;
+    position: sticky; top: 0; z-index: 2;
+  }
+
+  .search {
+    width: calc(100% - 24px);
+    background: #1a1a1a; border: 1px solid #2a2a2a; color: #e5e5e5;
+    padding: 6px 10px; font-size: 12px; border-radius: 6px;
+    margin: 12px; font-family: inherit;
+  }
+  .search:focus { outline: none; border-color: #3b82f6; }
+
+  .tree { padding: 0 6px 12px; }
+  .tree-node {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 8px; border-radius: 5px;
+    cursor: pointer; font-size: 13px; color: #ccc;
+    user-select: none; line-height: 1.2;
+  }
+  .tree-node:hover { background: #161616; }
+  .tree-node.selected { background: #182b45; color: #fff; }
+  .tree-toggle {
+    width: 12px; display: inline-block; color: #666; font-size: 9px;
+    text-align: center;
+  }
+  .tree-name { flex: 1; }
+  .tree-badge { font-size: 10px; }
+  .badge-green { color: #22c55e; }
+  .badge-yellow { color: #eab308; }
+  .badge-gray { color: #555; }
+  .badge-red { color: #ef4444; }
+
+  .detail { padding: 24px 32px 40px; max-width: 820px; }
+  .breadcrumb { font-size: 11px; color: #777; margin-bottom: 6px; letter-spacing: 0.3px; }
+  .detail-title { font-size: 22px; font-weight: 600; margin-bottom: 10px; color: #fff; }
+  .detail-meta {
+    font-size: 12px; color: #888;
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    margin-bottom: 22px;
+  }
+  .detail-meta .spacer { flex: 1; }
+  .detail-meta .inline-action {
+    cursor: pointer; color: #888; padding: 3px 8px; border-radius: 4px;
+  }
+  .detail-meta .inline-action:hover { background: #1a1a1a; color: #fff; }
+
+  .confidence-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500;
+    border: 1px solid transparent;
+  }
+  .confidence-pill.green { background: #0f2a17; color: #22c55e; border-color: #1a4a2c; }
+  .confidence-pill.yellow { background: #2a200a; color: #eab308; border-color: #4a3a15; }
+  .confidence-pill.gray { background: #1a1a1a; color: #888; border-color: #333; }
+  .confidence-pill.red { background: #2a0f0f; color: #ef4444; border-color: #4a1515; }
+
+  .banner {
+    padding: 12px 16px;
+    background: linear-gradient(90deg, #1e2d4a 0%, #0f172a 100%);
+    border: 1px solid #2d5a8a; border-radius: 8px;
+    margin-bottom: 20px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .banner-text { font-size: 12px; color: #dbeafe; line-height: 1.4; }
+  .banner-text strong { color: #fff; }
+  .banner-btn {
+    background: #3b82f6; border: none; color: #fff; padding: 6px 12px;
+    font-size: 11px; border-radius: 5px; cursor: pointer; white-space: nowrap;
+  }
+  .banner-btn:hover { background: #2563eb; }
+
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid #222; margin-bottom: 16px; }
+  .tab {
+    padding: 9px 14px; font-size: 12px; color: #888;
+    cursor: pointer; border-bottom: 2px solid transparent;
+    transition: color 0.1s;
+  }
+  .tab:hover { color: #ccc; }
+  .tab.active { color: #fff; border-bottom-color: #3b82f6; }
+
+  .section {
+    background: #111; border: 1px solid #1e1e1e; border-radius: 8px;
+    margin-bottom: 14px; overflow: hidden;
+  }
+  .section-header {
+    padding: 10px 16px; border-bottom: 1px solid #1e1e1e;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; font-weight: 600; color: #aaa;
+    text-transform: uppercase; letter-spacing: 0.7px;
+  }
+  .section-header .aside {
+    font-size: 10px; color: #666; text-transform: none; letter-spacing: 0;
+    font-weight: 400;
+  }
+  .section-body { padding: 14px 16px; }
+
+  .buildup { font-family: "SF Mono", Menlo, Monaco, monospace; font-size: 13px; }
+  .buildup-row {
+    display: grid; grid-template-columns: 90px 1fr auto;
+    padding: 9px 6px; border-bottom: 1px dashed #1f1f1f;
+    align-items: center; gap: 12px; cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.1s;
+  }
+  .buildup-row:hover { background: #151515; }
+  .buildup-row:last-child { border-bottom: none; }
+  .buildup-row.sub {
+    grid-template-columns: 90px 1fr auto;
+    padding: 5px 6px 5px 20px; font-size: 12px; border-bottom: none;
+    color: #999;
+  }
+  .buildup-row.sub:hover { background: #131313; }
+  .buildup-row.sub .sub-label { color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; }
+  .buildup-row.sub .sub-formula { color: #aaa; font-size: 11.5px; }
+  .buildup-row.sub .sub-formula .value { color: #60a5fa; }
+  .buildup-row.sub .sub-amount { color: #bbb; font-size: 12px; text-align: right; }
+  .buildup-label { color: #888; font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; }
+  .buildup-formula { color: #ccc; font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+  .buildup-formula .value { color: #60a5fa; }
+  .buildup-formula .muted { color: #555; font-size: 11px; }
+  .buildup-formula .expand {
+    font-size: 10px; color: #6b7280; background: #1a1a1a; padding: 1px 6px;
+    border-radius: 3px; border: 1px solid #2a2a2a; margin-left: 6px;
+  }
+  .buildup-amount { color: #fff; font-weight: 500; text-align: right; }
+  .buildup-total {
+    display: grid; grid-template-columns: 90px 1fr auto;
+    padding: 12px 6px 4px; border-top: 2px solid #2a2a2a; gap: 12px;
+    margin-top: 4px;
+  }
+  .buildup-total .label { color: #fff; font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600; }
+  .buildup-total .amount { font-size: 18px; font-weight: 700; color: #fff; text-align: right; }
+  .buildup-total .amount .unit { font-size: 13px; font-weight: 400; color: #888; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 14px; font-size: 12px; color: #ccc;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .chip:hover { background: #222; border-color: #3a3a3a; }
+  .chip.attached { background: #1e3a5f; border-color: #2d5a8a; color: #dbeafe; }
+  .chip .chip-effect { font-family: "SF Mono", monospace; font-size: 10px; color: #888; }
+  .chip.attached .chip-effect { color: #93c5fd; }
+  .chip-x { color: #888; font-size: 12px; margin-left: 2px; }
+  .chip.attached .chip-x { color: #93c5fd; }
+  .chips-empty { font-size: 12px; color: #666; font-style: italic; }
+
+  .history-row, .job-row {
+    display: grid; grid-template-columns: 100px 1fr auto;
+    padding: 10px 4px; border-bottom: 1px solid #1a1a1a;
+    font-size: 12px; gap: 14px; align-items: center;
+  }
+  .history-row:last-child, .job-row:last-child { border-bottom: none; }
+  .history-row .date, .job-row .date { color: #888; font-family: "SF Mono", monospace; font-size: 11px; }
+  .history-row .desc, .job-row .desc { color: #ddd; }
+  .history-row .src { color: #60a5fa; font-size: 11px; }
+  .job-row .amt { color: #aaa; font-size: 11px; font-family: "SF Mono", monospace; }
+  .job-row { cursor: pointer; border-radius: 4px; }
+  .job-row:hover { background: #151515; }
+
+  .empty-state { text-align: center; color: #666; padding: 28px 20px; font-size: 12px; font-style: italic; }
+
+  .mod-group { margin: 10px 12px 16px; }
+  .mod-group-title {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.7px; color: #666; margin-bottom: 6px;
+    padding: 0 2px;
+  }
+  .mod-item {
+    padding: 7px 10px; background: #141414; border: 1px solid #1f1f1f;
+    border-radius: 6px; margin-bottom: 5px; cursor: pointer;
+    font-size: 12px; color: #ccc;
+    display: flex; align-items: center; justify-content: space-between;
+    transition: all 0.1s;
+  }
+  .mod-item:hover { background: #1c1c1c; border-color: #333; }
+  .mod-item.attached { background: #1e3a5f; border-color: #2d5a8a; color: #dbeafe; }
+  .mod-effect { color: #777; font-size: 10px; font-family: "SF Mono", monospace; }
+  .mod-item.attached .mod-effect { color: #93c5fd; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    max-width: 460px; z-index: 100; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+    backdrop-filter: blur(3px);
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: #141414; border: 1px solid #333; border-radius: 10px;
+    padding: 22px 24px; width: 460px; max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .modal h2 { font-size: 15px; margin-bottom: 6px; color: #fff; font-weight: 600; }
+  .modal p { font-size: 13px; color: #aaa; margin-bottom: 16px; line-height: 1.5; }
+  .modal-row { margin-bottom: 12px; }
+  .modal-row label {
+    display: block; font-size: 10px; color: #888; margin-bottom: 4px;
+    text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600;
+  }
+  .modal input, .modal select {
+    width: 100%; padding: 7px 10px; background: #1a1a1a; border: 1px solid #2a2a2a;
+    color: #e5e5e5; border-radius: 6px; font-size: 13px; font-family: inherit;
+  }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  .legend {
+    padding: 10px 14px; font-size: 11px; color: #666;
+    border-top: 1px solid #1a1a1a; background: #0d0d0d; line-height: 1.6;
+  }
+  .legend strong { color: #aaa; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div>
+      <span style="color:#3b82f6">◆</span>
+      <h1 style="display:inline-block">MillSuite · Pricing</h1>
+      <span class="sub">clickable mockup — try everything</span>
+    </div>
+    <div class="btns">
+      <button class="btn" onclick="toast('New item wizard — pick where it lives, the unit (LF / EA / SF), and seed prices.')">+ Item</button>
+      <button class="btn" onclick="toast('Settings — shop-wide labor rates per department, waste %, defaults.')">⚙ Settings</button>
+    </div>
+  </div>
+
+  <div class="context-strip">
+    <span class="lbl">Back-end</span>
+    <span class="hint">This is where prices live and history gets written. You usually won't come here — pricing happens in projects, and the system learns as you go. Come back to audit, tune, or add items.</span>
+  </div>
+
+  <div class="main">
+    <div class="pane">
+      <div class="pane-header">Items</div>
+      <input class="search" id="treeSearch" placeholder="Search items...">
+      <div class="tree" id="treeRoot"></div>
+      <div class="legend">
+        <strong>Trust badges</strong><br>
+        <span class="badge-green">●</span> well-tested &nbsp;
+        <span class="badge-yellow">●</span> few jobs<br>
+        <span class="badge-gray">○</span> new / untested &nbsp;
+        <span class="badge-red">⚠</span> looking weird
+      </div>
+    </div>
+    <div class="pane">
+      <div class="detail" id="detail"></div>
+    </div>
+    <div class="pane">
+      <div class="pane-header">Options</div>
+      <input class="search" id="modSearch" placeholder="Search options...">
+      <div id="modRoot"></div>
+      <div class="legend">
+        <strong>Two layers.</strong> Here in the back-end you create options, set defaults, and scope which items they apply to. At the project level, users just toggle them per line. One-job overrides don't change the default — but if you keep overriding, the loop suggests the default move.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <h2 id="modalTitle">Edit labor hours</h2>
+    <p id="modalBody">Change labor hours?</p>
+    <div class="modal-row">
+      <label>Apply to</label>
+      <select id="modalApply">
+        <option>This item only</option>
+        <option>This + all items beneath it</option>
+        <option>Everywhere this rate appears</option>
+      </select>
+    </div>
+    <div class="modal-row">
+      <label>Reason</label>
+      <select id="modalReason">
+        <option>Manual correction</option>
+        <option>Better data available</option>
+        <option>Accepting a learning suggestion</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmEdit()">Save change</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Shop-wide labor rates (change once, flows everywhere)
+const laborRates = {
+  eng:      { label: 'Engineering', rate: 95 },
+  cnc:      { label: 'CNC',         rate: 75 },
+  assembly: { label: 'Assembly',    rate: 85 },
+  finish:   { label: 'Finish',      rate: 70 },
+  install:  { label: 'Install',     rate: 90 }
+};
+
+// Items — custom millwork components, not big-box combos
+const items = {
+  root: { name: 'Root', children: ['cabinets','doors','drawers','panels','lighting','hardware','trim','install','engineering'] },
+
+  cabinets: { name: 'Cabinets', children: ['base','upper','tall'] },
+    base: { name: 'Base carcasses', parent: 'cabinets', children: ['std-base','sink-base','corner-base'] },
+      'std-base': {
+        name: 'Standard base carcass', parent: 'base',
+        unit: 'LF', usage: 22, confidence: 'green', lastUsed: '2 days ago',
+        labor: { eng: 0.08, cnc: 0.25, assembly: 1.40, finish: 0.10, install: 0 },
+        sheets: 1.2, sheetCost: 68, material: '¾" maple ply',
+        hardware: 6, hardwareNote: 'levelers, french cleat — structural only',
+        options: [],
+        history: [
+          { date: '2026-04-05', desc: 'assembly 1.35 → 1.40 hrs', src: 'learned · Henderson, Marsh, Palmer' },
+          { date: '2026-03-02', desc: 'sheet cost $64 → $68', src: 'vendor import' },
+          { date: '2026-02-01', desc: 'initial seed', src: 'manual' }
+        ],
+        jobs: [
+          { date: '2026-03-12', desc: 'Henderson kitchen',    amt: '22 LF · $6,040' },
+          { date: '2026-02-28', desc: 'Marsh remodel',        amt: '14 LF · $3,844' },
+          { date: '2026-02-14', desc: 'Palmer pantry',        amt: '8 LF · $2,196' },
+          { date: '2026-01-22', desc: 'Sato built-in',        amt: '6 LF · $1,647' }
+        ]
+      },
+      'sink-base': {
+        name: 'Sink base carcass', parent: 'base',
+        unit: 'LF', usage: 9, confidence: 'green', lastUsed: '1 week ago',
+        labor: { eng: 0.10, cnc: 0.30, assembly: 1.60, finish: 0.10, install: 0 },
+        sheets: 1.3, sheetCost: 68, material: '¾" maple ply, marine core',
+        hardware: 10, hardwareNote: 'levelers, drip strip',
+        options: [], history: [], jobs: []
+      },
+      'corner-base': {
+        name: 'Blind corner base', parent: 'base',
+        unit: 'EA', usage: 4, confidence: 'yellow', lastUsed: '3 weeks ago',
+        labor: { eng: 0.25, cnc: 0.45, assembly: 2.80, finish: 0.20, install: 0 },
+        sheets: 2.1, sheetCost: 68, material: '¾" maple ply',
+        hardware: 48, hardwareNote: 'Lazy Susan — specialty',
+        options: [], history: [], jobs: []
+      },
+
+    upper: { name: 'Upper carcasses', parent: 'cabinets', children: ['std-upper','hood-upper'] },
+      'std-upper': {
+        name: 'Standard upper carcass', parent: 'upper',
+        unit: 'LF', usage: 18, confidence: 'green', lastUsed: 'yesterday',
+        labor: { eng: 0.06, cnc: 0.20, assembly: 1.10, finish: 0.08, install: 0 },
+        sheets: 0.9, sheetCost: 68, material: '¾" maple ply',
+        hardware: 5, hardwareNote: 'french cleat',
+        options: [], history: [], jobs: []
+      },
+      'hood-upper': {
+        name: 'Above-hood upper', parent: 'upper',
+        unit: 'EA', usage: 5, confidence: 'yellow', lastUsed: '2 weeks ago',
+        labor: { eng: 0.15, cnc: 0.30, assembly: 1.50, finish: 0.10, install: 0 },
+        sheets: 0.8, sheetCost: 68, material: '¾" maple ply',
+        hardware: 5, hardwareNote: 'french cleat',
+        options: [], history: [], jobs: []
+      },
+
+    tall: { name: 'Tall / full-height', parent: 'cabinets', children: ['pantry','oven-tower'] },
+      'pantry': {
+        name: 'Pantry tower', parent: 'tall',
+        unit: 'LF', usage: 4, confidence: 'yellow', lastUsed: '1 month ago',
+        labor: { eng: 0.20, cnc: 0.50, assembly: 3.80, finish: 0.30, install: 0 },
+        sheets: 2.2, sheetCost: 68, material: '¾" maple ply',
+        hardware: 12, hardwareNote: 'levelers, french cleat — pullouts priced separately',
+        options: [], history: [], jobs: []
+      },
+      'oven-tower': {
+        name: 'Double oven tower', parent: 'tall',
+        unit: 'EA', usage: 0, confidence: 'gray', lastUsed: 'never',
+        labor: { eng: 0.50, cnc: 0.80, assembly: 5.00, finish: 0.40, install: 0 },
+        sheets: 3.0, sheetCost: 68, material: '¾" maple ply',
+        hardware: 18, hardwareNote: 'levelers, cleats',
+        options: [], history: [], jobs: []
+      },
+
+  doors: { name: 'Doors', children: ['shaker','slab','micro-shaker','glass'] },
+    'shaker': {
+      name: 'Shaker door', parent: 'doors',
+      unit: 'EA', usage: 68, confidence: 'green', lastUsed: 'today',
+      labor: { eng: 0.05, cnc: 0.15, assembly: 0.40, finish: 0.35, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 14, material: 'paint-grade poplar',
+      hardware: 0, hardwareNote: 'hinges are consumables — in the 10% material markup',
+      options: ['paint-grade'],
+      history: [
+        { date: '2026-04-10', desc: 'finish 0.30 → 0.35 hrs', src: 'learned · 4 recent jobs' },
+        { date: '2026-01-15', desc: 'initial seed', src: 'manual' }
+      ],
+      jobs: [
+        { date: '2026-04-10', desc: 'Henderson kitchen — 28 doors', amt: '28 EA · $2,660' },
+        { date: '2026-03-02', desc: 'Marsh remodel — 18 doors',     amt: '18 EA · $1,710' }
+      ]
+    },
+    'slab': {
+      name: 'Slab door', parent: 'doors',
+      unit: 'EA', usage: 22, confidence: 'green', lastUsed: '1 week ago',
+      labor: { eng: 0.04, cnc: 0.12, assembly: 0.20, finish: 0.40, install: 0 },
+      sheets: 0.25, sheetCost: 72, material: 'prefinished ply',
+      hardware: 0, hardwareNote: 'hinges are consumables',
+      options: ['prefin'], history: [], jobs: []
+    },
+    'micro-shaker': {
+      name: 'Micro-shaker door', parent: 'doors',
+      unit: 'EA', usage: 11, confidence: 'green', lastUsed: '4 days ago',
+      labor: { eng: 0.06, cnc: 0.18, assembly: 0.50, finish: 0.40, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 16, material: 'paint-grade poplar',
+      hardware: 0, hardwareNote: 'hinges are consumables',
+      options: [], history: [], jobs: []
+    },
+    'glass': {
+      name: 'Glass insert door', parent: 'doors',
+      unit: 'EA', usage: 3, confidence: 'yellow', lastUsed: '2 months ago',
+      labor: { eng: 0.10, cnc: 0.20, assembly: 0.60, finish: 0.40, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 22, material: 'paint-grade poplar + seeded glass',
+      hardware: 0, hardwareNote: 'hinges are consumables',
+      options: [], history: [], jobs: []
+    },
+
+  drawers: { name: 'Drawers', children: ['std-drawer','deep-drawer','spice-drawer'] },
+    'std-drawer': {
+      name: 'Standard drawer (dovetailed box)', parent: 'drawers',
+      unit: 'EA', usage: 54, confidence: 'green', lastUsed: 'today',
+      labor: { eng: 0.03, cnc: 0.10, assembly: 0.45, finish: 0.20, install: 0 },
+      sheets: 0.15, sheetCost: 85, material: 'soft maple dovetail box',
+      hardware: 28, hardwareNote: 'Blum soft-close undermount slides (included)',
+      options: [], history: [], jobs: []
+    },
+    'deep-drawer': {
+      name: 'Deep / pot drawer', parent: 'drawers',
+      unit: 'EA', usage: 19, confidence: 'green', lastUsed: '3 days ago',
+      labor: { eng: 0.03, cnc: 0.12, assembly: 0.55, finish: 0.25, install: 0 },
+      sheets: 0.22, sheetCost: 85, material: 'soft maple dovetail box',
+      hardware: 38, hardwareNote: 'heavy-duty soft-close slides (included)',
+      options: [], history: [], jobs: []
+    },
+    'spice-drawer': {
+      name: 'Spice drawer (with insert)', parent: 'drawers',
+      unit: 'EA', usage: 7, confidence: 'yellow', lastUsed: '1 month ago',
+      labor: { eng: 0.04, cnc: 0.15, assembly: 0.50, finish: 0.20, install: 0 },
+      sheets: 0.12, sheetCost: 85, material: 'soft maple + walnut insert',
+      hardware: 34, hardwareNote: 'slides included',
+      options: [], history: [], jobs: []
+    },
+
+  panels: { name: 'Panels & scribes', children: ['end-base','end-tall','fridge-panel','toe-kick','filler'] },
+    'end-base': {
+      name: 'End panel — base', parent: 'panels',
+      unit: 'EA', usage: 18, confidence: 'green', lastUsed: '2 days ago',
+      labor: { eng: 0.03, cnc: 0.15, assembly: 0.30, finish: 0.35, install: 0 },
+      sheets: 0.7, sheetCost: 72, material: 'prefinished ply + edgebanding',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+    'end-tall': {
+      name: 'End panel — tall', parent: 'panels',
+      unit: 'EA', usage: 6, confidence: 'green', lastUsed: '1 week ago',
+      labor: { eng: 0.04, cnc: 0.20, assembly: 0.35, finish: 0.50, install: 0 },
+      sheets: 1.2, sheetCost: 72, material: 'prefinished ply',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+    'fridge-panel': {
+      name: 'Refrigerator panel', parent: 'panels',
+      unit: 'EA', usage: 4, confidence: 'yellow', lastUsed: '3 weeks ago',
+      labor: { eng: 0.06, cnc: 0.25, assembly: 0.40, finish: 0.55, install: 0 },
+      sheets: 1.4, sheetCost: 72, material: 'prefinished ply',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+    'toe-kick': {
+      name: 'Toe kick', parent: 'panels',
+      unit: 'LF', usage: 42, confidence: 'green', lastUsed: 'today',
+      labor: { eng: 0, cnc: 0.04, assembly: 0.08, finish: 0.06, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 4, material: 'painted MDF',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+    'filler': {
+      name: 'Filler strip', parent: 'panels',
+      unit: 'LF', usage: 14, confidence: 'green', lastUsed: '1 week ago',
+      labor: { eng: 0, cnc: 0.03, assembly: 0.05, finish: 0.10, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 6, material: 'paint-grade poplar',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+
+  lighting: { name: 'Lighting', children: ['led-strip','puck'] },
+    'led-strip': {
+      name: 'LED under-cabinet strip', parent: 'lighting',
+      unit: 'LF', usage: 12, confidence: 'green', lastUsed: '5 days ago',
+      labor: { eng: 0.02, cnc: 0, assembly: 0.05, finish: 0, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 18, material: 'LED tape + channel',
+      hardware: 0, hardwareNote: 'includes driver share',
+      options: [], history: [], jobs: []
+    },
+    'puck': {
+      name: 'Puck light', parent: 'lighting',
+      unit: 'EA', usage: 8, confidence: 'yellow', lastUsed: '2 weeks ago',
+      labor: { eng: 0.02, cnc: 0, assembly: 0.05, finish: 0, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 14, material: 'LED puck + driver share',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+
+  hardware: { name: 'Specialty hardware', children: ['tip-on','door-lift','pullout-trash'] },
+    'tip-on': {
+      name: 'TIP-ON opening system', parent: 'hardware',
+      unit: 'EA', usage: 6, confidence: 'yellow', lastUsed: '3 weeks ago',
+      labor: { eng: 0.05, cnc: 0.05, assembly: 0.30, finish: 0, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 0, material: '',
+      hardware: 85, hardwareNote: 'Blum TIP-ON Blumotion',
+      options: [], history: [], jobs: []
+    },
+    'door-lift': {
+      name: 'Pneumatic door lift', parent: 'hardware',
+      unit: 'EA', usage: 4, confidence: 'yellow', lastUsed: '2 months ago',
+      labor: { eng: 0.08, cnc: 0.08, assembly: 0.40, finish: 0, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 0, material: '',
+      hardware: 140, hardwareNote: 'AVENTOS HK-XS or similar',
+      options: [], history: [], jobs: []
+    },
+    'pullout-trash': {
+      name: 'Pull-out trash', parent: 'hardware',
+      unit: 'EA', usage: 9, confidence: 'green', lastUsed: '1 week ago',
+      labor: { eng: 0.04, cnc: 0.10, assembly: 0.40, finish: 0.10, install: 0 },
+      sheets: 0.3, sheetCost: 68, material: '¾" ply insert',
+      hardware: 92, hardwareNote: 'Rev-A-Shelf unit + bins',
+      options: [], history: [], jobs: []
+    },
+
+  trim: { name: 'Trim & moulding', children: ['crown','base-trim','shoe'] },
+    'crown': {
+      name: 'Crown moulding', parent: 'trim',
+      unit: 'LF', usage: 18, confidence: 'green', lastUsed: '2 weeks ago',
+      labor: { eng: 0, cnc: 0, assembly: 0.08, finish: 0.10, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 14, material: 'paint-grade poplar',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+    'base-trim': {
+      name: 'Base trim', parent: 'trim',
+      unit: 'LF', usage: 22, confidence: 'green', lastUsed: '4 days ago',
+      labor: { eng: 0, cnc: 0, assembly: 0.05, finish: 0.08, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 8, material: 'paint-grade poplar',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+    'shoe': {
+      name: 'Shoe moulding', parent: 'trim',
+      unit: 'LF', usage: 8, confidence: 'yellow', lastUsed: '1 month ago',
+      labor: { eng: 0, cnc: 0, assembly: 0.03, finish: 0.05, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 4, material: 'paint-grade poplar',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+
+  install: { name: 'Install', children: ['install-day','2nd-floor','hoist'] },
+    'install-day': {
+      name: 'Install day (2-person crew)', parent: 'install',
+      unit: 'DAY', usage: 38, confidence: 'green', lastUsed: '3 days ago',
+      labor: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 14 },
+      sheets: 0, sheetCost: 0, linearCost: 0, material: '',
+      hardware: 0, hardwareNote: 'per crew day, includes drive',
+      options: [], history: [], jobs: []
+    },
+    '2nd-floor': {
+      name: '2nd floor premium', parent: 'install',
+      unit: 'JOB', usage: 6, confidence: 'yellow', lastUsed: '2 weeks ago',
+      labor: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 2.0 },
+      sheets: 0, sheetCost: 0, linearCost: 0, material: '',
+      hardware: 0, hardwareNote: 'extra handling / stair',
+      options: [], history: [], jobs: []
+    },
+    'hoist': {
+      name: 'Hoist required', parent: 'install',
+      unit: 'JOB', usage: 2, confidence: 'yellow', lastUsed: '2 months ago',
+      labor: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 5.0 },
+      sheets: 0, sheetCost: 0, linearCost: 450, material: 'hoist rental',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    },
+
+  engineering: { name: 'Engineering', children: ['shop-drawings','cnc-prep'] },
+    'shop-drawings': {
+      name: 'Shop drawings (per project)', parent: 'engineering',
+      unit: 'HR', usage: 34, confidence: 'green', lastUsed: 'today',
+      labor: { eng: 1.0, cnc: 0, assembly: 0, finish: 0, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 0, material: '',
+      hardware: 0, hardwareNote: 'billed hourly',
+      options: [], history: [], jobs: []
+    },
+    'cnc-prep': {
+      name: 'CNC programming', parent: 'engineering',
+      unit: 'HR', usage: 22, confidence: 'green', lastUsed: '2 days ago',
+      labor: { eng: 0, cnc: 1.0, assembly: 0, finish: 0, install: 0 },
+      sheets: 0, sheetCost: 0, linearCost: 0, material: '',
+      hardware: 0, hardwareNote: '',
+      options: [], history: [], jobs: []
+    }
+};
+
+// Options (was "modifiers") — stackable variations
+const options = {
+  'curved':      { name: 'Curved',          scope: 'Shop-wide', effect: '×1.25 hours' },
+  'rush':        { name: 'Rush (<3 wk)',    scope: 'Shop-wide', effect: '×1.25 rate' },
+  'exotic':      { name: 'Exotic species',  scope: 'Shop-wide', effect: '×1.4 material' },
+  'paint-grade': { name: 'Paint grade',     scope: 'Cabinets & doors', effect: '×0.85 material' },
+  'inset':       { name: 'Inset construction', scope: 'Cabinets & doors', effect: '×1.30 assembly' },
+  'prefin':      { name: 'Prefinished ply', scope: 'Cabinets',  effect: '+$12/sheet' },
+  'dovetail':    { name: 'Dovetail box',    scope: 'Drawers',   effect: '+$25/drawer' },
+  '2nd-floor':   { name: '2nd floor',       scope: 'Install',   effect: '+$120/job' },
+  'no-elev':     { name: 'No elevator',     scope: 'Install',   effect: '+$200/job' }
+};
+
+const state = {
+  selected: 'std-base',
+  expanded: new Set(['cabinets','base','upper','tall','doors','drawers','panels','trim']),
+  tab: 'buildup',
+  laborExpanded: false,
+  searchTree: '',
+  searchMod: '',
+  pendingConfirm: null
+};
+
+const $ = id => document.getElementById(id);
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+function openModal(title, body, onConfirm) {
+  $('modalTitle').textContent = title;
+  $('modalBody').textContent = body;
+  state.pendingConfirm = onConfirm;
+  $('modal').classList.add('show');
+}
+function closeModal() { $('modal').classList.remove('show'); state.pendingConfirm = null; }
+function confirmEdit() {
+  const fn = state.pendingConfirm;
+  closeModal();
+  if (fn) fn();
+}
+
+function toggleExpand(id) {
+  if (state.expanded.has(id)) state.expanded.delete(id);
+  else state.expanded.add(id);
+  renderTree();
+}
+
+function selectItem(id) {
+  if (!items[id]) return;
+  state.selected = id;
+  state.tab = 'buildup';
+  state.laborExpanded = false;
+  renderTree(); renderDetail(); renderOptions();
+}
+
+function confBadge(c) {
+  if (c === 'green')  return '<span class="tree-badge badge-green">●</span>';
+  if (c === 'yellow') return '<span class="tree-badge badge-yellow">●</span>';
+  if (c === 'gray')   return '<span class="tree-badge badge-gray">○</span>';
+  if (c === 'red')    return '<span class="tree-badge badge-red">⚠</span>';
+  return '';
+}
+function confText(c) {
+  return {
+    green:  { cls: 'green',  text: 'well-tested' },
+    yellow: { cls: 'yellow', text: 'few jobs' },
+    gray:   { cls: 'gray',   text: 'new / untested' },
+    red:    { cls: 'red',    text: 'looking weird' }
+  }[c] || null;
+}
+
+function renderTree() {
+  const search = state.searchTree.toLowerCase();
+  const root = $('treeRoot');
+
+  function matches(id) {
+    if (!search) return true;
+    const c = items[id];
+    if (c.name.toLowerCase().includes(search)) return true;
+    if (c.children) return c.children.some(matches);
+    return false;
+  }
+
+  function node(id, depth = 0) {
+    const c = items[id];
+    if (!c || !matches(id)) return '';
+    const hasChildren = c.children && c.children.length;
+    const expanded = state.expanded.has(id) || !!search;
+    const selected = state.selected === id;
+    let h = `<div class="tree-node ${selected?'selected':''}" data-id="${id}" style="padding-left:${depth*14+8}px">`;
+    h += hasChildren
+      ? `<span class="tree-toggle" data-toggle="${id}">${expanded?'▾':'▸'}</span>`
+      : `<span class="tree-toggle"></span>`;
+    h += `<span class="tree-name">${c.name}</span>`;
+    if (c.confidence) h += confBadge(c.confidence);
+    h += `</div>`;
+    if (hasChildren && expanded) for (const ch of c.children) h += node(ch, depth+1);
+    return h;
+  }
+
+  let html = '';
+  for (const top of items.root.children) html += node(top);
+  root.innerHTML = html;
+
+  root.querySelectorAll('.tree-node').forEach(n => {
+    n.addEventListener('click', e => {
+      const t = e.target.closest('[data-toggle]');
+      if (t) { e.stopPropagation(); toggleExpand(t.dataset.toggle); return; }
+      const id = n.dataset.id;
+      const it = items[id];
+      if (it && it.children && it.children.length) toggleExpand(id);
+      selectItem(id);
+    });
+  });
+}
+
+function totalLaborHours(item) {
+  return Object.values(item.labor).reduce((a,b) => a+b, 0);
+}
+function totalLaborCost(item) {
+  return Object.entries(item.labor).reduce((sum, [dept, hrs]) => sum + hrs * laborRates[dept].rate, 0);
+}
+
+function renderDetail() {
+  const item = items[state.selected];
+  if (!item) return;
+
+  const crumbs = [];
+  let c = item;
+  while (c.parent) { crumbs.unshift(items[c.parent].name); c = items[c.parent]; }
+  const bc = crumbs.length ? crumbs.join(' / ') : 'Root';
+
+  // Group item (no labor — just a folder)
+  if (!item.labor) {
+    const groupNotes = {
+      install: 'Install items live in a dedicated <strong>Install subproject</strong> on every project — not scattered across kitchen / mudroom / etc. Add install days + premiums once for the whole job.',
+      engineering: 'Engineering time is allocated <strong>per subproject</strong>. Each subproject carries its own shop-drawing and CNC-prep hours.',
+      hardware: '<strong>Specialty hardware</strong> only. Hinges are consumables (in the 10% material markup). Drawer slides are priced inside each drawer item. Pulls are client-provided or speced per project.'
+    };
+    const note = groupNotes[state.selected] || 'A folder grouping related items.';
+    const kids = (item.children || []).map(cid => {
+      const k = items[cid];
+      if (!k) return '';
+      let sub = 0;
+      if (k.labor) {
+        sub = totalLaborCost(k) + ((k.sheets||0)*(k.sheetCost||0)) + (k.linearCost||0);
+        sub = sub * 1.10 + (k.hardware||0); // approximate: labor + material*1.1 + hw (consumables on material only)
+        const labCost = totalLaborCost(k);
+        const matSub = (k.sheets||0)*(k.sheetCost||0) + (k.linearCost||0);
+        sub = labCost + matSub + matSub * 0.10 + (k.hardware||0);
+      }
+      return `
+        <div class="job-row" onclick="selectItem('${cid}')">
+          <span class="date" style="color:#ccc;font-family:inherit;font-size:12.5px">${k.name}</span>
+          <span class="desc" style="color:#888;font-size:11px">${k.children ? (k.children.length + ' items') : (k.unit + ' · ' + (k.usage||0) + ' jobs')}</span>
+          <span class="amt">${k.labor ? '$'+sub.toFixed(0)+' / '+k.unit : '▸ open'}</span>
+        </div>`;
+    }).join('');
+
+    $('detail').innerHTML = `
+      <div class="breadcrumb">${bc}</div>
+      <div class="detail-title">${item.name}</div>
+      <div class="detail-meta">
+        <span>${(item.children||[]).length} items inside</span>
+      </div>
+      <div class="banner" style="background:linear-gradient(90deg,#1e2d4a 0%,#0f172a 100%)">
+        <div class="banner-text">${note}</div>
+      </div>
+      <div class="section">
+        <div class="section-header"><span>Items in this group</span><span class="aside">click any row to open</span></div>
+        <div class="section-body">${kids}</div>
+      </div>`;
+    return;
+  }
+
+  const laborHrs = totalLaborHours(item);
+  const laborAmt = totalLaborCost(item);
+  const matlAmt  = (item.sheets || 0) * (item.sheetCost || 0);
+  const linCost  = item.linearCost || 0;
+  const materialSubtotal = matlAmt + linCost;
+  const consumables = materialSubtotal * 0.10;
+  const hw       = item.hardware || 0;
+  const total    = laborAmt + materialSubtotal + consumables + hw;
+
+  const conf = confText(item.confidence);
+  const confHtml = conf ? `<span class="confidence-pill ${conf.cls}">${conf.text}</span>` : '';
+
+  const splitBanner = state.selected === 'shaker' ? `
+    <div class="banner">
+      <div class="banner-text">
+        <strong>Split suggestion:</strong> the last 4 paint-grade shaker doors took ~15% less finish time than stain-grade. Worth splitting into two items?
+      </div>
+      <button class="banner-btn" onclick="toast('Split wizard — creates paint-grade / stain-grade children, reassigns past jobs, keeps the parent as fallback.')">Review split</button>
+    </div>` : '';
+
+  // Build-up
+  let buildup = '';
+
+  // Labor — collapsible
+  const laborRow = `
+    <div class="buildup-row" onclick="toggleLabor()">
+      <span class="buildup-label">Labor</span>
+      <span class="buildup-formula">
+        ${laborHrs.toFixed(2)} hr total <span class="muted">· across 5 depts</span>
+        <span class="expand">${state.laborExpanded ? '▾ hide breakdown' : '▸ show breakdown'}</span>
+      </span>
+      <span class="buildup-amount">$${laborAmt.toFixed(2)}</span>
+    </div>`;
+  buildup += laborRow;
+
+  if (state.laborExpanded) {
+    for (const [dept, hrs] of Object.entries(item.labor)) {
+      if (hrs === 0) continue;
+      const rate = laborRates[dept].rate;
+      const amt = hrs * rate;
+      buildup += `
+        <div class="buildup-row sub" onclick="toast('Drill into ${laborRates[dept].label} rate — shop-wide at \\$${rate}/hr. Change affects every item using this department.')">
+          <span class="sub-label">${laborRates[dept].label}</span>
+          <span class="sub-formula">${hrs.toFixed(2)} hr × <span class="value">$${rate}</span>/hr</span>
+          <span class="sub-amount">$${amt.toFixed(2)}</span>
+        </div>`;
+    }
+  }
+
+  if (matlAmt > 0) {
+    buildup += `
+      <div class="buildup-row" onclick="toast('Drill into material recipe — ${item.sheets} sheets per ${item.unit} of ${item.material}, 10% waste assumed.')">
+        <span class="buildup-label">Material</span>
+        <span class="buildup-formula">${item.sheets} sh × <span class="value">$${item.sheetCost}</span><span class="muted"> · ${item.material}</span></span>
+        <span class="buildup-amount">$${matlAmt.toFixed(2)}</span>
+      </div>`;
+  }
+  if (linCost > 0) {
+    buildup += `
+      <div class="buildup-row" onclick="toast('Drill into linear material — flat \\$/${item.unit}. ${item.material || ''}')">
+        <span class="buildup-label">Material</span>
+        <span class="buildup-formula">flat <span class="value">$${linCost}</span>/${item.unit}${item.material ? ' · <span class="muted">'+item.material+'</span>' : ''}</span>
+        <span class="buildup-amount">$${linCost.toFixed(2)}</span>
+      </div>`;
+  }
+  if (materialSubtotal > 0) {
+    buildup += `
+      <div class="buildup-row" onclick="toast('Consumables markup — shop-wide 10% on material. Covers hinges, glue, sandpaper, fasteners, shelf pins, finish supplies. Editable in Settings.')">
+        <span class="buildup-label">Consumables</span>
+        <span class="buildup-formula">10% of material<span class="muted"> · hinges, glue, fasteners, finish supplies</span></span>
+        <span class="buildup-amount">$${consumables.toFixed(2)}</span>
+      </div>`;
+  }
+  if (hw > 0) {
+    buildup += `
+      <div class="buildup-row" onclick="toast('Hardware — ${item.hardwareNote || 'per unit rollup'}.')">
+        <span class="buildup-label">Hardware</span>
+        <span class="buildup-formula">per ${item.unit}${item.hardwareNote ? ' · <span class="muted">'+item.hardwareNote+'</span>' : ''}</span>
+        <span class="buildup-amount">$${hw.toFixed(2)}</span>
+      </div>`;
+  }
+
+  buildup += `
+    <div class="buildup-total">
+      <span class="label">Total</span>
+      <span></span>
+      <span class="amount">$${total.toFixed(2)} <span class="unit">/ ${item.unit}</span></span>
+    </div>`;
+
+  // Options chips
+  let chips = '';
+  if (item.options && item.options.length) {
+    chips = item.options.map(m => `
+      <div class="chip attached" onclick="toggleOption('${m}')">
+        ${options[m].name}
+        <span class="chip-effect">${options[m].effect}</span>
+        <span class="chip-x">×</span>
+      </div>`).join('');
+  } else {
+    chips = '<span class="chips-empty">No options on. Click one in the right pane to add.</span>';
+  }
+
+  // Tab body
+  let tabBody = '';
+  if (state.tab === 'buildup') {
+    tabBody = `
+      <div class="section">
+        <div class="section-header">
+          <span>What's in this price</span>
+          <span class="aside">click any line to drill in</span>
+        </div>
+        <div class="section-body"><div class="buildup">${buildup}</div></div>
+      </div>
+      <div class="section">
+        <div class="section-header"><span>Options on this item</span></div>
+        <div class="section-body"><div class="chips">${chips}</div></div>
+      </div>`;
+  } else if (state.tab === 'history') {
+    const rows = (item.history && item.history.length)
+      ? item.history.map(h => `
+          <div class="history-row">
+            <span class="date">${h.date}</span>
+            <span class="desc">${h.desc}</span>
+            <span class="src">${h.src}</span>
+          </div>`).join('')
+      : '<div class="empty-state">No changes yet.</div>';
+    tabBody = `<div class="section"><div class="section-body">${rows}</div></div>`;
+  } else if (state.tab === 'jobs') {
+    const rows = (item.jobs && item.jobs.length)
+      ? item.jobs.map(j => `
+          <div class="job-row" onclick="toast('Open job: ${j.desc}')">
+            <span class="date">${j.date}</span>
+            <span class="desc">${j.desc}</span>
+            <span class="amt">${j.amt}</span>
+          </div>`).join('')
+      : '<div class="empty-state">Not used in any jobs yet.</div>';
+    tabBody = `<div class="section"><div class="section-body">${rows}</div></div>`;
+  } else if (state.tab === 'notes') {
+    tabBody = `<div class="section"><div class="section-body">
+      <div class="empty-state">No notes. Shop-specific context lives here — "runs long with inset face frames," "Palmer always wants soft-close," etc.</div>
+    </div></div>`;
+  }
+
+  $('detail').innerHTML = `
+    <div class="breadcrumb">${bc}</div>
+    <div class="detail-title">${item.name}</div>
+    <div class="detail-meta">
+      <span>Used in <strong style="color:#ddd">${item.usage || 0}</strong> jobs</span>
+      ${confHtml}
+      <span>Last used: ${item.lastUsed || 'never'}</span>
+      <span class="spacer"></span>
+      <span class="inline-action" onclick="triggerEdit()">✎ Edit</span>
+      <span class="inline-action" onclick="toast('Clone — keeps structure and options, new name, clean usage.')">⎘ Clone</span>
+    </div>
+    ${splitBanner}
+    <div class="tabs">
+      <div class="tab ${state.tab==='buildup'?'active':''}" onclick="setTab('buildup')">Price</div>
+      <div class="tab ${state.tab==='history'?'active':''}" onclick="setTab('history')">Changes</div>
+      <div class="tab ${state.tab==='jobs'?'active':''}" onclick="setTab('jobs')">Past jobs</div>
+      <div class="tab ${state.tab==='notes'?'active':''}" onclick="setTab('notes')">Notes</div>
+    </div>
+    ${tabBody}`;
+}
+
+function setTab(t) { state.tab = t; renderDetail(); }
+function toggleLabor() { state.laborExpanded = !state.laborExpanded; renderDetail(); }
+
+function triggerEdit() {
+  const item = items[state.selected];
+  const hrs = totalLaborHours(item).toFixed(2);
+  openModal(
+    'Edit this item',
+    `"${item.name}" — current total labor is ${hrs} hrs. Inline editing would open per-department fields, material recipe, and hardware.`,
+    () => { toast('Edit saved. A row is written to the Changes tab — old values preserved.'); }
+  );
+}
+
+function renderOptions() {
+  const item = items[state.selected];
+  const attached = new Set(item.options || []);
+  const search = state.searchMod.toLowerCase();
+  const groups = {};
+  for (const [id, m] of Object.entries(options)) {
+    if (search && !m.name.toLowerCase().includes(search) && !m.effect.toLowerCase().includes(search)) continue;
+    if (!groups[m.scope]) groups[m.scope] = [];
+    groups[m.scope].push({ id, ...m });
+  }
+  let html = '';
+  const order = ['Shop-wide','Cabinets & doors','Cabinets','Drawers','Install'];
+  for (const scope of order) {
+    if (!groups[scope]) continue;
+    html += `<div class="mod-group"><div class="mod-group-title">Applies to · ${scope}</div>`;
+    for (const m of groups[scope]) {
+      const a = attached.has(m.id);
+      html += `<div class="mod-item ${a?'attached':''}" onclick="toggleOption('${m.id}')">
+        <span>${m.name}</span>
+        <span class="mod-effect">${m.effect}</span>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  html += `<div class="mod-group">
+    <button class="btn" style="width:100%" onclick="toast('New option — name it, pick what it applies to, choose effect (hours / material / rate / flat).')">+ New option</button>
+  </div>`;
+  $('modRoot').innerHTML = html;
+}
+
+function toggleOption(id) {
+  const item = items[state.selected];
+  if (!item.options) item.options = [];
+  if (item.options.includes(id)) {
+    item.options = item.options.filter(x => x !== id);
+    toast(`Removed "${options[id].name}" from "${item.name}"`);
+  } else {
+    item.options.push(id);
+    toast(`Added "${options[id].name}" to "${item.name}"`);
+  }
+  renderDetail(); renderOptions();
+}
+
+$('treeSearch').addEventListener('input', e => { state.searchTree = e.target.value; renderTree(); });
+$('modSearch').addEventListener('input',  e => { state.searchMod  = e.target.value; renderOptions(); });
+
+renderTree(); renderDetail(); renderOptions();
+</script>
+</body>
+</html>

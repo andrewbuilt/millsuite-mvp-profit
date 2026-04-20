@@ -19,10 +19,18 @@ interface Subproject {
   name: string
 }
 
+interface Department {
+  id: string
+  name: string
+  display_order: number
+  active: boolean
+}
+
 interface TimeEntry {
   id: string
   project_id: string
   subproject_id: string | null
+  department_id: string | null
   duration_minutes: number
   notes: string | null
   started_at: string | null
@@ -30,11 +38,13 @@ interface TimeEntry {
   created_at: string
   project?: Project
   subproject?: Subproject
+  department?: Department
 }
 
 interface TimerState {
   projectId: string
   subprojectId: string
+  departmentId: string
   startedAt: string // ISO string
   notes: string
 }
@@ -81,6 +91,7 @@ export default function TimePage() {
   // Shared data
   const [projects, setProjects] = useState<Project[]>([])
   const [subprojectsMap, setSubprojectsMap] = useState<Record<string, Subproject[]>>({})
+  const [departments, setDepartments] = useState<Department[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -88,6 +99,7 @@ export default function TimePage() {
   const [timerActive, setTimerActive] = useState(false)
   const [timerProjectId, setTimerProjectId] = useState('')
   const [timerSubprojectId, setTimerSubprojectId] = useState('')
+  const [timerDepartmentId, setTimerDepartmentId] = useState('')
   const [timerNotes, setTimerNotes] = useState('')
   const [timerStartedAt, setTimerStartedAt] = useState<Date | null>(null)
   const [elapsed, setElapsed] = useState(0)
@@ -98,6 +110,7 @@ export default function TimePage() {
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [manualProjectId, setManualProjectId] = useState('')
   const [manualSubprojectId, setManualSubprojectId] = useState('')
+  const [manualDepartmentId, setManualDepartmentId] = useState('')
   const [manualHours, setManualHours] = useState('')
   const [manualNotes, setManualNotes] = useState('')
   const [manualSaving, setManualSaving] = useState(false)
@@ -115,6 +128,24 @@ export default function TimePage() {
       .eq('org_id', org.id)
       .order('name')
     if (data) setProjects(data)
+  }, [org?.id])
+
+  // ── Fetch departments ─────────────────────────────────────────────
+  // Active departments only; filter management out the same way /schedule
+  // does, since time entries should count against production depts.
+  const fetchDepartments = useCallback(async () => {
+    if (!org?.id) return
+    const { data } = await supabase
+      .from('departments')
+      .select('id, name, display_order, active')
+      .eq('org_id', org.id)
+      .eq('active', true)
+      .order('display_order')
+    if (data) {
+      setDepartments(
+        data.filter((d) => !d.name.toLowerCase().includes('management'))
+      )
+    }
   }, [org?.id])
 
   // ── Fetch subprojects for a project (cached) ─────────────────────
@@ -139,7 +170,7 @@ export default function TimePage() {
 
     const { data } = await supabase
       .from('time_entries')
-      .select('*, project:projects(id, name, status), subproject:subprojects(id, project_id, name)')
+      .select('*, project:projects(id, name, status), subproject:subprojects(id, project_id, name), department:departments(id, name)')
       .eq('org_id', org.id)
       .gte('created_at', sevenDaysAgo.toISOString())
       .order('created_at', { ascending: false })
@@ -155,6 +186,7 @@ export default function TimePage() {
         const state: TimerState = JSON.parse(raw)
         setTimerProjectId(state.projectId)
         setTimerSubprojectId(state.subprojectId)
+        setTimerDepartmentId(state.departmentId || '')
         setTimerNotes(state.notes || '')
         setTimerStartedAt(new Date(state.startedAt))
         setTimerActive(true)
@@ -183,8 +215,10 @@ export default function TimePage() {
 
   // ── Init data ─────────────────────────────────────────────────────
   useEffect(() => {
-    Promise.all([fetchProjects(), fetchEntries()]).then(() => setLoading(false))
-  }, [fetchProjects, fetchEntries])
+    Promise.all([fetchProjects(), fetchDepartments(), fetchEntries()]).then(() =>
+      setLoading(false)
+    )
+  }, [fetchProjects, fetchDepartments, fetchEntries])
 
   // ── Timer project change → load subs ──────────────────────────────
   useEffect(() => {
@@ -204,6 +238,7 @@ export default function TimePage() {
     localStorage.setItem(TIMER_KEY, JSON.stringify({
       projectId: timerProjectId,
       subprojectId: timerSubprojectId,
+      departmentId: timerDepartmentId,
       startedAt: now.toISOString(),
       notes: timerNotes,
     } as TimerState))
@@ -220,6 +255,7 @@ export default function TimePage() {
       user_id: user?.id,
       project_id: timerProjectId,
       subproject_id: timerSubprojectId || null,
+      department_id: timerDepartmentId || null,
       duration_minutes: Math.max(durationMinutes, 1),
       notes: timerNotes || null,
       started_at: timerStartedAt.toISOString(),
@@ -236,6 +272,7 @@ export default function TimePage() {
     setTimerActive(false)
     setTimerStartedAt(null)
     setTimerNotes('')
+    setTimerDepartmentId('')
     setElapsed(0)
     localStorage.removeItem(TIMER_KEY)
     setSaved(true)
@@ -256,6 +293,7 @@ export default function TimePage() {
       user_id: user?.id,
       project_id: manualProjectId,
       subproject_id: manualSubprojectId || null,
+      department_id: manualDepartmentId || null,
       duration_minutes: durationMinutes,
       notes: manualNotes || null,
       started_at: startedAt.toISOString(),
@@ -269,6 +307,7 @@ export default function TimePage() {
 
     setManualHours('')
     setManualNotes('')
+    setManualDepartmentId('')
     setManualSaving(false)
     fetchEntries()
   }
@@ -289,7 +328,9 @@ export default function TimePage() {
     fetchEntries()
   }
 
-  // ── Persist timer notes to localStorage ───────────────────────────
+  // ── Persist timer notes + department to localStorage ──────────────
+  // Users can switch department mid-span if they realize they miscategorized
+  // — keep localStorage in sync so a page refresh doesn't lose the change.
   useEffect(() => {
     if (timerActive) {
       const raw = localStorage.getItem(TIMER_KEY)
@@ -297,11 +338,12 @@ export default function TimePage() {
         try {
           const state: TimerState = JSON.parse(raw)
           state.notes = timerNotes
+          state.departmentId = timerDepartmentId
           localStorage.setItem(TIMER_KEY, JSON.stringify(state))
         } catch { /* noop */ }
       }
     }
-  }, [timerNotes, timerActive])
+  }, [timerNotes, timerDepartmentId, timerActive])
 
   // ── Shared styles ─────────────────────────────────────────────────
   const selectClass =
@@ -363,6 +405,16 @@ export default function TimePage() {
                 >
                   <option value="">Subproject (optional)</option>
                   {timerSubs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              )}
+              {departments.length > 0 && (
+                <select
+                  value={timerDepartmentId}
+                  onChange={e => setTimerDepartmentId(e.target.value)}
+                  className="w-full px-4 py-3 text-base border border-[#E5E7EB] rounded-xl bg-white"
+                >
+                  <option value="">Department (optional)</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               )}
               <input
@@ -484,8 +536,11 @@ export default function TimePage() {
             <h2 className="text-sm font-semibold text-[#6B7280] uppercase tracking-wider">Timer</h2>
           </div>
 
-          {/* Selects row */}
-          <div className="grid grid-cols-2 gap-4 mb-5">
+          {/* Selects row — Phase 8: department is now a required dimension
+              for actuals-by-dept rollups. The select itself stays optional
+              (the DB column is nullable for legacy parity), but it's the
+              canonical way to clock in for Phase 8. */}
+          <div className="grid grid-cols-3 gap-4 mb-5">
             <div>
               <label className="block text-xs font-medium text-[#6B7280] mb-1.5">Project</label>
               <select
@@ -514,6 +569,19 @@ export default function TimePage() {
                 <option value="">None</option>
                 {timerSubs.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#6B7280] mb-1.5">Department</label>
+              <select
+                className={selectClass}
+                value={timerDepartmentId}
+                onChange={e => setTimerDepartmentId(e.target.value)}
+              >
+                <option value="">None</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
             </div>
@@ -568,7 +636,7 @@ export default function TimePage() {
             <h2 className="text-sm font-semibold text-[#6B7280] uppercase tracking-wider">Log Hours Manually</h2>
           </div>
 
-          <div className="grid grid-cols-5 gap-4 mb-5">
+          <div className="grid grid-cols-6 gap-4 mb-5">
             <div>
               <label className="block text-xs font-medium text-[#6B7280] mb-1.5">Date</label>
               <input
@@ -605,6 +673,19 @@ export default function TimePage() {
                 <option value="">None</option>
                 {(subprojectsMap[manualProjectId] || []).map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#6B7280] mb-1.5">Department</label>
+              <select
+                className={selectClass}
+                value={manualDepartmentId}
+                onChange={e => setManualDepartmentId(e.target.value)}
+              >
+                <option value="">None</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
             </div>
@@ -671,12 +752,17 @@ export default function TimePage() {
                           key={entry.id}
                           className="flex items-center gap-4 px-4 py-3 bg-[#F9FAFB] rounded-xl group"
                         >
-                          {/* Project / subproject */}
+                          {/* Project / subproject / department */}
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium text-[#111] truncate">
                               {(entry.project as any)?.name || 'Unknown Project'}
                               {(entry.subproject as any)?.name && (
                                 <span className="text-[#9CA3AF] font-normal"> / {(entry.subproject as any).name}</span>
+                              )}
+                              {(entry.department as any)?.name && (
+                                <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] bg-[#F3F4F6] rounded px-1.5 py-0.5 align-middle">
+                                  {(entry.department as any).name}
+                                </span>
                               )}
                             </div>
                             {entry.notes && (
