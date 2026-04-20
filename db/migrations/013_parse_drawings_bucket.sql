@@ -35,6 +35,10 @@ ON CONFLICT (id) DO UPDATE
 -- 2. Allow authenticated users to upload under {orgId}/... paths. The route
 --    handler validates org membership before delete, so we trust the first
 --    path segment here for insert-only.
+--
+--    NOTE: users.id is the app-level user id; users.auth_user_id is the
+--    Supabase-auth uid. auth.uid() returns the latter — matching how every
+--    other RLS check in the app resolves the current user's org.
 DROP POLICY IF EXISTS "parse_drawings_upload_own_org" ON storage.objects;
 CREATE POLICY "parse_drawings_upload_own_org"
   ON storage.objects
@@ -45,7 +49,7 @@ CREATE POLICY "parse_drawings_upload_own_org"
     AND (storage.foldername(name))[1] IN (
       SELECT u.org_id::text
         FROM users u
-       WHERE u.id = auth.uid()
+       WHERE u.auth_user_id = auth.uid()
     )
   );
 
@@ -62,7 +66,24 @@ CREATE POLICY "parse_drawings_read_own_org"
     AND (storage.foldername(name))[1] IN (
       SELECT u.org_id::text
         FROM users u
-       WHERE u.id = auth.uid()
+       WHERE u.auth_user_id = auth.uid()
+    )
+  );
+
+-- 4. Allow users to delete their own org's uploads so the browser-side
+--    cleanup path (on API failure) works without falling back to silent
+--    orphans.
+DROP POLICY IF EXISTS "parse_drawings_delete_own_org" ON storage.objects;
+CREATE POLICY "parse_drawings_delete_own_org"
+  ON storage.objects
+  FOR DELETE
+  TO authenticated
+  USING (
+    bucket_id = 'parse-drawings'
+    AND (storage.foldername(name))[1] IN (
+      SELECT u.org_id::text
+        FROM users u
+       WHERE u.auth_user_id = auth.uid()
     )
   );
 
