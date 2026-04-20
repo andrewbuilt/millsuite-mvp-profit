@@ -44,42 +44,61 @@ export default function Nav() {
 
   return (
     <nav className="bg-white border-b border-[#E5E7EB] sticky top-0 z-50">
-      <div className="px-4 sm:px-6 flex items-center justify-between h-14">
-        <div className="flex items-center gap-4 sm:gap-8">
-          <div className="flex items-center gap-2">
-            <Link href={isMember ? '/time' : '/dashboard'} className="flex items-center gap-2 text-base font-semibold tracking-tight text-[#111]">
-              <MLogo size={20} color="#111" />
-              <span className="hidden sm:inline">MillSuite</span>
-            </Link>
-            {org && (
-              <span className="text-xs text-[#9CA3AF] hidden sm:inline">· {org.name}</span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
+      <div className="px-4 sm:px-6 flex items-center gap-4 h-14">
+        {/* Brand — fixed width, doesn't shrink */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Link
+            href={isMember ? '/time' : '/dashboard'}
+            className="flex items-center gap-2 text-base font-semibold tracking-tight text-[#111]"
+          >
+            <MLogo size={20} color="#111" />
+            <span className="hidden sm:inline">MillSuite</span>
+          </Link>
+          {org && (
+            <span className="text-xs text-[#9CA3AF] hidden xl:inline truncate max-w-[140px]">
+              · {org.name}
+            </span>
+          )}
+        </div>
+
+        {/* Primary nav — scrolls horizontally on narrow viewports, no wrap */}
+        <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1 whitespace-nowrap">
             {navItems.map(item => {
               const isActive = pathname.startsWith(item.href)
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
                     isActive
                       ? 'bg-[#F3F4F6] text-[#111]'
                       : 'text-[#6B7280] hover:text-[#111] hover:bg-[#F9FAFB]'
                   }`}
                 >
-                  <item.icon className="w-4 h-4" />
+                  <item.icon className="w-4 h-4 flex-shrink-0" />
                   <span className="hidden sm:inline">{item.label}</span>
                 </Link>
               )
             })}
           </div>
         </div>
-        <div className="flex items-center gap-1 sm:gap-2">
-          {/* Cross-tool links */}
-          <div className="hidden lg:flex items-center gap-3 mr-2 text-xs text-[#9CA3AF]">
-            <a href="https://tools.millsuite.com/dashboard" className="hover:text-[#111] transition-colors">Shop Rate</a>
-            <a href="https://takeoff.millsuite.com" className="hover:text-[#111] transition-colors">Takeoff</a>
+
+        {/* Right-side utility cluster — fixed, doesn't shrink */}
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+          <div className="hidden xl:flex items-center gap-3 mr-2 text-xs text-[#9CA3AF] whitespace-nowrap">
+            <a
+              href="https://tools.millsuite.com/dashboard"
+              className="hover:text-[#111] transition-colors"
+            >
+              Shop Rate
+            </a>
+            <a
+              href="https://takeoff.millsuite.com"
+              className="hover:text-[#111] transition-colors"
+            >
+              Takeoff
+            </a>
           </div>
           {!isMember && (
             <Link

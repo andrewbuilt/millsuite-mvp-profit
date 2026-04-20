@@ -1,16 +1,17 @@
 // ============================================================================
-// lib/pdf-parser.ts — real PDF parser for the sales-dashboard intake flow
+// lib/pdf-parser.ts — PDF parser for the sales-dashboard intake flow
 // ============================================================================
-// Replaces the Phase 2 filename-read stub. Given a PDF (or image) file, we:
-//   1. extract text using pdfjs-dist (dynamic-imported in the browser, so it
-//      doesn't balloon the server bundle or blow up SSR)
-//   2. run lightweight regex entity extractors over the text: emails, phones,
-//      street-style addresses, money amounts, dates, and Title-Case name or
-//      company candidates
-//   3. return a ParsedPdf object the UI turns into role-tagged candidate chips
+// Primary path: POST the PDF to /api/parse-drawings, which asks Claude to pull
+// structured intake + shop scope off the drawing set (header fields, rooms,
+// items with LF). We transform that into the ParsedPdf envelope the sales UI
+// already understands — header fields become role-tagged candidates with
+// pre-assigned roles, rooms become `kind: 'room'` chips, and items get
+// stashed on the envelope so subproject seeding can pass LF through.
 //
-// Intentionally pragmatic — this is V1 of "real parsing," not an ML model.
-// Phase 10 closes the suggestion loop; ingestion accuracy can climb there.
+// Fallback path: if the API call fails (no API key, 500, 413 too large, etc.)
+// we drop back to the pdfjs + regex extractor so the user still gets chips to
+// work with. The regex extractor is intentionally conservative — it's the
+// safety net, not the headline feature.
 // ============================================================================
 
 export type CandidateRole =
@@ -32,7 +33,18 @@ export interface ParsedCandidate {
   kind: 'email' | 'phone' | 'address' | 'amount' | 'date' | 'name' | 'company' | 'room'
   value: string
   role?: CandidateRole // user picks via dropdown in the UI
+  defaultRole?: CandidateRole // API-assigned default; overrides kind-based defaultRoleFor()
   confidence: 'high' | 'medium' | 'low'
+}
+
+/** Scope item returned by the AI parser. Used for LF-aware subproject seeding. */
+export interface ParsedScopeItem {
+  name: string
+  room: string
+  category: string
+  linear_feet: number | null
+  quantity: number
+  notes: string
 }
 
 export interface ParsedPdf {
@@ -42,6 +54,11 @@ export interface ParsedPdf {
   candidates: ParsedCandidate[]
   projectNameGuess: string | null
   parseSucceeded: boolean // false → UI should drop into manual-entry fallback
+  // Optional — populated when the AI parser succeeds. The sales page can thread
+  // these through to createRoomSubprojects so LF lands on subprojects.
+  items?: ParsedScopeItem[]
+  scopeSummary?: string | null
+  source?: 'api' | 'regex' | 'none'
 }
 
 // Short id helper; we don't need crypto-strong ids for react keys.
@@ -391,23 +408,153 @@ function guessProjectName(text: string, fileName: string): string | null {
   return cleanedFile || null
 }
 
-// ── Public entry point ──
+// ── API-backed parser (primary path) ──
 
-export async function parsePdfFile(file: File): Promise<ParsedPdf> {
-  // Images bypass text extraction — we just seed the filename guess and let
-  // the UI drop into the manual/chip-driven path.
-  const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
-  if (!isPdf) {
-    return {
-      fileName: file.name,
-      pageCount: 0,
-      text: '',
-      candidates: [],
-      projectNameGuess: file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
-      parseSucceeded: false,
-    }
+// Encode a File as base64 without blowing the call stack on large PDFs.
+async function fileToBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer()
+  const bytes = new Uint8Array(buf)
+  // String.fromCharCode.apply has a max-arguments ceiling; chunk the bytes so
+  // a 20 MB PDF doesn't throw RangeError.
+  let binary = ''
+  const chunk = 0x8000 // 32 KB
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const slice = bytes.subarray(i, Math.min(i + chunk, bytes.length))
+    binary += String.fromCharCode.apply(null, Array.from(slice) as any)
+  }
+  if (typeof btoa === 'function') return btoa(binary)
+  // Node fallback (shouldn't trigger in the browser)
+  return Buffer.from(binary, 'binary').toString('base64')
+}
+
+interface ApiResponse {
+  project_name: string | null
+  scope_summary: string | null
+  file_name: string | null
+  header: {
+    client_name: string | null
+    client_company: string | null
+    designer_name: string | null
+    gc_name: string | null
+    address: string | null
+    email: string | null
+    phone: string | null
+    estimated_price: number | null
+    date: string | null
+  }
+  rooms: string[]
+  items: ParsedScopeItem[]
+}
+
+// Shape a header field into a ParsedCandidate with the correct kind + pre-
+// assigned role. `kind` controls which icon + dropdown options the UI shows;
+// `defaultRole` is what the page seeds into the role dropdown.
+function headerCandidate(
+  value: string,
+  kind: ParsedCandidate['kind'],
+  role: CandidateRole,
+): ParsedCandidate {
+  return {
+    id: rid(),
+    kind,
+    value,
+    defaultRole: role,
+    confidence: 'high',
+  }
+}
+
+function formatAmount(n: number): string {
+  // The rest of the app sees amounts as "$12,345" strings — keep that shape so
+  // Number(value.replace(/[$,]/g, '')) still works in the sales page.
+  return `$${Math.round(n).toLocaleString('en-US')}`
+}
+
+function buildCandidatesFromApi(api: ApiResponse): ParsedCandidate[] {
+  const out: ParsedCandidate[] = []
+  const h = api.header || ({} as ApiResponse['header'])
+
+  if (h.client_name) out.push(headerCandidate(h.client_name, 'name', 'client_name'))
+  if (h.client_company) out.push(headerCandidate(h.client_company, 'company', 'client_company'))
+  if (h.designer_name) {
+    // Designer-like values can be a person or a firm; COMPANY_TAILS distinguishes.
+    const kind: ParsedCandidate['kind'] = COMPANY_TAILS.test(h.designer_name) ? 'company' : 'name'
+    out.push(headerCandidate(h.designer_name, kind, 'designer'))
+  }
+  if (h.gc_name) {
+    const kind: ParsedCandidate['kind'] = COMPANY_TAILS.test(h.gc_name) ? 'company' : 'name'
+    out.push(headerCandidate(h.gc_name, kind, 'gc'))
+  }
+  if (h.address) out.push(headerCandidate(h.address, 'address', 'address'))
+  if (h.email) out.push(headerCandidate(h.email, 'email', 'email'))
+  if (h.phone) out.push(headerCandidate(h.phone, 'phone', 'phone'))
+  if (typeof h.estimated_price === 'number' && h.estimated_price > 0) {
+    out.push(headerCandidate(formatAmount(h.estimated_price), 'amount', 'amount'))
+  }
+  if (h.date) out.push(headerCandidate(h.date, 'date', 'date'))
+
+  // Rooms — one chip per room, pre-assigned to the `room` role. The sales page
+  // uses `pickAll('room')` to collect them and seed subprojects.
+  const roomSet = new Set<string>()
+  for (const r of api.rooms || []) {
+    const label = typeof r === 'string' ? r.trim() : ''
+    if (!label) continue
+    const key = label.toLowerCase()
+    if (roomSet.has(key)) continue
+    roomSet.add(key)
+    out.push({
+      id: rid(),
+      kind: 'room',
+      value: label,
+      defaultRole: 'room',
+      confidence: 'high',
+    })
   }
 
+  return out
+}
+
+async function parseViaApi(file: File): Promise<ParsedPdf | null> {
+  try {
+    const base64 = await fileToBase64(file)
+    const resp = await fetch('/api/parse-drawings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base64_content: base64,
+        file_name: file.name,
+        mime_type: file.type || 'application/pdf',
+      }),
+    })
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '')
+      console.warn('parse-drawings API failed', resp.status, body.slice(0, 240))
+      return null
+    }
+    const api = (await resp.json()) as ApiResponse
+    const candidates = buildCandidatesFromApi(api)
+    return {
+      fileName: file.name,
+      pageCount: 0, // API doesn't report page count; we don't need it downstream
+      text: '',
+      candidates,
+      projectNameGuess:
+        api.project_name ||
+        file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() ||
+        null,
+      parseSucceeded: candidates.length > 0,
+      items: Array.isArray(api.items) ? api.items : [],
+      scopeSummary: api.scope_summary || null,
+      source: 'api',
+    }
+  } catch (err) {
+    console.warn('parse-drawings API call threw', err)
+    return null
+  }
+}
+
+// ── Regex fallback (used when the API is unavailable) ──
+
+async function parseViaRegex(file: File): Promise<ParsedPdf> {
   try {
     const { text, pageCount } = await extractTextFromPdf(file)
     const candidates: ParsedCandidate[] = [
@@ -420,7 +567,7 @@ export async function parsePdfFile(file: File): Promise<ParsedPdf> {
       ...extractNamesAndCompanies(text),
     ]
     // Ranking: high confidence first, then by kind order so the UI groups
-    // nicely. Also cap names/companies to the 6 strongest since these are
+    // nicely. Also cap names/companies to the 8 strongest since these are
     // the noisiest extractors.
     const strong = candidates.filter(
       (c) => c.kind !== 'name' && c.kind !== 'company' && c.kind !== 'room'
@@ -438,11 +585,10 @@ export async function parsePdfFile(file: File): Promise<ParsedPdf> {
       candidates: sorted,
       projectNameGuess: guessProjectName(text, file.name),
       parseSucceeded: sorted.length > 0,
+      source: 'regex',
     }
   } catch (err) {
-    // pdfjs failure (encrypted PDF, scanned-only, etc.) → fall back to the
-    // manual-entry path with filename seed.
-    console.warn('parsePdfFile failed', err)
+    console.warn('parsePdfFile regex fallback failed', err)
     return {
       fileName: file.name,
       pageCount: 0,
@@ -450,13 +596,45 @@ export async function parsePdfFile(file: File): Promise<ParsedPdf> {
       candidates: [],
       projectNameGuess: file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
       parseSucceeded: false,
+      source: 'none',
     }
   }
 }
 
+// ── Public entry point ──
+
+export async function parsePdfFile(file: File): Promise<ParsedPdf> {
+  // Images bypass the API (it only accepts PDFs) and the regex path (pdfjs
+  // only speaks PDF). Drop straight into the manual-entry flow with a
+  // filename seed.
+  const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
+  if (!isPdf) {
+    return {
+      fileName: file.name,
+      pageCount: 0,
+      text: '',
+      candidates: [],
+      projectNameGuess: file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
+      parseSucceeded: false,
+      source: 'none',
+    }
+  }
+
+  // Try the Claude-backed API first; fall through to the regex extractor if
+  // it's unavailable. A `null` return means "API said no" — but an empty
+  // candidate list from the API still counts as a successful parse (drawings
+  // with no header), so we only fall back on null.
+  const viaApi = await parseViaApi(file)
+  if (viaApi) return viaApi
+  return parseViaRegex(file)
+}
+
 // Default role guess for a candidate. Used when populating dropdowns so the
-// user's first click is usually accept-not-correct.
+// user's first click is usually accept-not-correct. The API parser pre-assigns
+// roles via defaultRole (e.g. a name extracted from the "Designed by" field is
+// tagged `designer`), so honor that first before falling back to kind heuristics.
 export function defaultRoleFor(c: ParsedCandidate): CandidateRole {
+  if (c.defaultRole) return c.defaultRole
   switch (c.kind) {
     case 'email':
       return 'email'
