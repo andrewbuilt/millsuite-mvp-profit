@@ -96,7 +96,7 @@ const STAGE_CHIP_CLASS: Record<SalesStage, string> = {
 
 export default function SalesPage() {
   return (
-    <PlanGate requires="leads">
+    <PlanGate requires="sales">
       <SalesInner />
     </PlanGate>
   )

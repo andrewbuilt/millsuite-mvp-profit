@@ -43,7 +43,7 @@ const COLUMN_HINT: Record<SalesStage, string> = {
 
 export default function SalesKanbanPage() {
   return (
-    <PlanGate requires="leads">
+    <PlanGate requires="sales">
       <KanbanInner />
     </PlanGate>
   )
