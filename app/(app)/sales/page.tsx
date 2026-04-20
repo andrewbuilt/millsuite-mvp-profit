@@ -160,7 +160,7 @@ function SalesInner() {
     setParsing(true)
     setParsed(null)
     try {
-      const result = await parsePdfFile(file)
+      const result = await parsePdfFile(file, org?.id)
       setParsed(result)
       // Seed per-candidate role dropdowns with sensible defaults.
       const seededRoles: Record<string, CandidateRole> = {}
@@ -634,6 +634,25 @@ function ParsePreview({
           <X className="w-4 h-4" />
         </button>
       </div>
+
+      {parsed.apiError && (
+        <div className="mb-4 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-xs text-[#92400E] flex items-start gap-2">
+          <span className="font-semibold">AI parser failed —</span>
+          <span className="flex-1">
+            showing fallback chips from raw text scan. Reason: {parsed.apiError}
+          </span>
+        </div>
+      )}
+      {!parsed.apiError && parsed.source === 'api' && (
+        <div className="mb-4 px-3 py-2 bg-[#ECFDF5] border border-[#A7F3D0] rounded-lg text-[11px] text-[#047857] flex items-center gap-2">
+          <span className="font-semibold uppercase tracking-wider">AI parsed</span>
+          <span className="text-[#065F46]">
+            {parsed.items?.length
+              ? `${parsed.items.length} scope ${parsed.items.length === 1 ? 'item' : 'items'} across ${parsed.candidates.filter((c) => c.kind === 'room').length} room${parsed.candidates.filter((c) => c.kind === 'room').length === 1 ? '' : 's'}`
+              : 'intake fields extracted'}
+          </span>
+        </div>
+      )}
 
       <div className="mb-4">
         <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">

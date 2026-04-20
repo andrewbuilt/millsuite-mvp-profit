@@ -59,6 +59,9 @@ export interface ParsedPdf {
   items?: ParsedScopeItem[]
   scopeSummary?: string | null
   source?: 'api' | 'regex' | 'none'
+  // Populated when the AI path failed. Surfaced in the UI so users know why
+  // they're looking at fallback chips instead of a clean AI parse.
+  apiError?: string | null
 }
 
 // Short id helper; we don't need crypto-strong ids for react keys.
@@ -410,6 +413,10 @@ function guessProjectName(text: string, fileName: string): string | null {
 
 // ── API-backed parser (primary path) ──
 
+import { supabase } from '@/lib/supabase'
+
+const PARSE_BUCKET = 'parse-drawings'
+
 // Encode a File as base64 without blowing the call stack on large PDFs.
 async function fileToBase64(file: File): Promise<string> {
   const buf = await file.arrayBuffer()
@@ -425,6 +432,33 @@ async function fileToBase64(file: File): Promise<string> {
   if (typeof btoa === 'function') return btoa(binary)
   // Node fallback (shouldn't trigger in the browser)
   return Buffer.from(binary, 'binary').toString('base64')
+}
+
+function randomKey(): string {
+  return (
+    Date.now().toString(36) +
+    '-' +
+    Math.random().toString(36).slice(2, 10)
+  )
+}
+
+/**
+ * Upload the PDF to the `parse-drawings` Supabase bucket and return the
+ * storage path. Scoped to `{orgId}/...` so RLS grants the browser insert
+ * rights for this org's own prefix.
+ */
+async function uploadToParseBucket(
+  file: File,
+  orgId: string,
+): Promise<{ path: string } | { error: string }> {
+  const safeName = file.name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-60)
+  const path = `${orgId}/${randomKey()}-${safeName}`
+  const { error } = await supabase.storage.from(PARSE_BUCKET).upload(path, file, {
+    contentType: file.type || 'application/pdf',
+    upsert: false,
+  })
+  if (error) return { error: error.message || 'upload failed' }
+  return { path }
 }
 
 interface ApiResponse {
@@ -513,26 +547,79 @@ function buildCandidatesFromApi(api: ApiResponse): ParsedCandidate[] {
   return out
 }
 
-async function parseViaApi(file: File): Promise<ParsedPdf | null> {
-  try {
-    const base64 = await fileToBase64(file)
-    const resp = await fetch('/api/parse-drawings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+interface ParseApiResult {
+  pdf?: ParsedPdf
+  error?: string
+}
+
+/**
+ * Call /api/parse-drawings. Prefers the storage-path flow (unlimited file
+ * size), falls back to inline base64 for small PDFs when orgId isn't
+ * available. Returns either a parsed envelope or an error message —
+ * `null` is no longer used so the caller can surface the failure.
+ */
+async function parseViaApi(file: File, orgId?: string): Promise<ParseApiResult> {
+  let payload: Record<string, any>
+  let uploadedPath: string | null = null
+
+  if (orgId) {
+    const up = await uploadToParseBucket(file, orgId)
+    if ('error' in up) {
+      return { error: `Upload failed: ${up.error}` }
+    }
+    uploadedPath = up.path
+    payload = {
+      storage_path: up.path,
+      file_name: file.name,
+      mime_type: file.type || 'application/pdf',
+    }
+  } else {
+    // Small-file path — limited by the Vercel 4.5 MB request-body ceiling.
+    try {
+      const base64 = await fileToBase64(file)
+      payload = {
         base64_content: base64,
         file_name: file.name,
         mime_type: file.type || 'application/pdf',
-      }),
-    })
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => '')
-      console.warn('parse-drawings API failed', resp.status, body.slice(0, 240))
-      return null
+      }
+    } catch (err: any) {
+      return { error: `Encoding failed: ${err?.message || String(err)}` }
     }
-    const api = (await resp.json()) as ApiResponse
-    const candidates = buildCandidatesFromApi(api)
-    return {
+  }
+
+  let resp: Response
+  try {
+    resp = await fetch('/api/parse-drawings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch (err: any) {
+    return { error: `Network error: ${err?.message || String(err)}` }
+  }
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '')
+    let message = `API ${resp.status}`
+    try {
+      const parsed = JSON.parse(body)
+      if (parsed?.error) message = parsed.error
+    } catch {
+      if (body) message = body.slice(0, 240)
+    }
+    console.warn('parse-drawings API failed', resp.status, message)
+    // If the client uploaded to storage but the server couldn't parse, try
+    // to clean up opportunistically. A failed delete isn't worth surfacing.
+    if (uploadedPath) {
+      supabase.storage.from(PARSE_BUCKET).remove([uploadedPath]).catch(() => {})
+    }
+    return { error: message }
+  }
+
+  const api = (await resp.json()) as ApiResponse
+  const candidates = buildCandidatesFromApi(api)
+  return {
+    pdf: {
       fileName: file.name,
       pageCount: 0, // API doesn't report page count; we don't need it downstream
       text: '',
@@ -545,10 +632,8 @@ async function parseViaApi(file: File): Promise<ParsedPdf | null> {
       items: Array.isArray(api.items) ? api.items : [],
       scopeSummary: api.scope_summary || null,
       source: 'api',
-    }
-  } catch (err) {
-    console.warn('parse-drawings API call threw', err)
-    return null
+      apiError: null,
+    },
   }
 }
 
@@ -603,7 +688,14 @@ async function parseViaRegex(file: File): Promise<ParsedPdf> {
 
 // ── Public entry point ──
 
-export async function parsePdfFile(file: File): Promise<ParsedPdf> {
+/**
+ * Parse a drawings PDF.
+ * @param file  The File the user dropped on the sales page.
+ * @param orgId The current org's id — used to namespace the storage upload
+ *              so the server can read it back under RLS. If omitted the
+ *              parser falls back to inline base64 (limited to ~3 MB).
+ */
+export async function parsePdfFile(file: File, orgId?: string): Promise<ParsedPdf> {
   // Images bypass the API (it only accepts PDFs) and the regex path (pdfjs
   // only speaks PDF). Drop straight into the manual-entry flow with a
   // filename seed.
@@ -620,13 +712,15 @@ export async function parsePdfFile(file: File): Promise<ParsedPdf> {
     }
   }
 
-  // Try the Claude-backed API first; fall through to the regex extractor if
-  // it's unavailable. A `null` return means "API said no" — but an empty
-  // candidate list from the API still counts as a successful parse (drawings
-  // with no header), so we only fall back on null.
-  const viaApi = await parseViaApi(file)
-  if (viaApi) return viaApi
-  return parseViaRegex(file)
+  // Try the Claude-backed API first. If it fails we drop to the regex
+  // extractor so the user still sees SOMETHING, but we stash the API error
+  // on the envelope so the UI can show a "fallback mode" banner.
+  const result = await parseViaApi(file, orgId)
+  if (result.pdf) return result.pdf
+
+  const regex = await parseViaRegex(file)
+  regex.apiError = result.error || 'AI parser returned no result'
+  return regex
 }
 
 // Default role guess for a candidate. Used when populating dropdowns so the

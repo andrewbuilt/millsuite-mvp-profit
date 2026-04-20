@@ -1,17 +1,24 @@
 // ============================================================================
 // /api/parse-drawings — Claude-backed architectural-drawing parser
 // ============================================================================
-// Modeled after the millsuite-takeoff parser: send the PDF as a Claude document
-// block, let the model return a structured JSON payload, then normalize into a
-// shape the sales dashboard can render as role-tagged candidate chips.
+// The browser uploads the PDF to the `parse-drawings` Supabase bucket first,
+// then POSTs the storage path here. We read the bytes back with the service
+// role (bypassing Vercel's 4.5 MB request-body ceiling), base64 them, and
+// send them to Claude as a document block. The parsed JSON shape is normalized
+// into the envelope the sales dashboard expects.
 //
-// Lives server-side so the ANTHROPIC_API_KEY doesn't leak to the browser. The
-// client posts base64-encoded PDF bytes; we return the parsed envelope.
+// We also accept the old shape — `{ base64_content }` — as a fallback so
+// small PDFs (invoices, one-page proposals) keep working if the bucket path
+// is missing.
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const maxDuration = 300 // large drawing sets can take a while
+export const runtime = 'nodejs'
+
+const BUCKET = 'parse-drawings'
 
 const SYSTEM_PROMPT = `You are a millwork takeoff specialist reviewing an architectural or interior-design drawing set for a custom cabinet / millwork shop. Pull the intake metadata AND the shop scope out of the drawings.
 
@@ -126,7 +133,6 @@ async function callClaude(base64: string, apiKey: string, retries = 1): Promise<
 
   if (!resp.ok) {
     const body = await resp.text()
-    // 429/529 → retry once after a short backoff
     if ((resp.status === 429 || resp.status === 529) && retries > 0) {
       await new Promise((r) => setTimeout(r, 2000))
       return callClaude(base64, apiKey, retries - 1)
@@ -148,6 +154,16 @@ async function callClaude(base64: string, apiKey: string, retries = 1): Promise<
   }
 }
 
+/** Fetch the PDF from Supabase storage and return it as base64. */
+async function fetchFromStorage(storagePath: string): Promise<string> {
+  const { data, error } = await supabaseAdmin.storage.from(BUCKET).download(storagePath)
+  if (error || !data) {
+    throw new Error(`Storage download failed: ${error?.message || 'no data'}`)
+  }
+  const buf = Buffer.from(await data.arrayBuffer())
+  return buf.toString('base64')
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -158,14 +174,9 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const body = await req.json()
-    const { base64_content, file_name, mime_type } = body || {}
-    if (!base64_content || typeof base64_content !== 'string') {
-      return NextResponse.json(
-        { error: 'base64_content required' },
-        { status: 400 }
-      )
-    }
+    const body = await req.json().catch(() => ({}))
+    const { storage_path, base64_content, file_name, mime_type } = body || {}
+
     if (mime_type && mime_type !== 'application/pdf') {
       return NextResponse.json(
         { error: `unsupported mime type: ${mime_type}` },
@@ -173,16 +184,37 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Rough size guard — base64 expands raw bytes ~1.33x.
-    const approxBytes = Math.floor((base64_content.length * 3) / 4)
-    if (approxBytes > 32 * 1024 * 1024) {
+    // Resolve the PDF to base64 — either read it from storage (preferred, any
+    // size) or accept it inline (legacy small-file path).
+    let base64: string
+    if (typeof storage_path === 'string' && storage_path.length > 0) {
+      try {
+        base64 = await fetchFromStorage(storage_path)
+      } catch (err: any) {
+        return NextResponse.json(
+          { error: err?.message || 'storage read failed' },
+          { status: 500 }
+        )
+      }
+    } else if (typeof base64_content === 'string' && base64_content.length > 0) {
+      const approxBytes = Math.floor((base64_content.length * 3) / 4)
+      if (approxBytes > 32 * 1024 * 1024) {
+        return NextResponse.json(
+          {
+            error: `PDF too large (${(approxBytes / 1024 / 1024).toFixed(1)} MB). Upload via storage_path instead.`,
+          },
+          { status: 413 }
+        )
+      }
+      base64 = base64_content
+    } else {
       return NextResponse.json(
-        { error: `PDF too large (${(approxBytes / 1024 / 1024).toFixed(1)} MB). Max 32 MB.` },
-        { status: 413 }
+        { error: 'storage_path or base64_content required' },
+        { status: 400 }
       )
     }
 
-    const parsed = await callClaude(base64_content, apiKey)
+    const parsed = await callClaude(base64, apiKey)
 
     // Normalize the shape so the client can rely on it.
     const header = parsed.header || {}
@@ -212,6 +244,14 @@ export async function POST(req: NextRequest) {
           rooms.push(r.trim())
         }
       }
+    }
+
+    // Fire-and-forget cleanup of the storage object.
+    if (typeof storage_path === 'string' && storage_path.length > 0) {
+      supabaseAdmin.storage
+        .from(BUCKET)
+        .remove([storage_path])
+        .catch((err) => console.warn('parse-drawings: cleanup failed', err))
     }
 
     return NextResponse.json({
