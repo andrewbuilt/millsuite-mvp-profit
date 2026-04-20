@@ -244,7 +244,7 @@ export async function addEstimateLine(input: {
 
   if (error) {
     console.error('addEstimateLine', error)
-    return null
+    throw new Error(error.message || 'Failed to add line')
   }
   return normalizeLine(data)
 }

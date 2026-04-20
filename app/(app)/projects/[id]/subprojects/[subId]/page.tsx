@@ -121,6 +121,7 @@ export default function SubprojectEditorPage() {
   const [addHighlight, setAddHighlight] = useState(0)
   const [pendingAdd, setPendingAdd] = useState<RateBookItemRow | null>(null)
   const [pendingQty, setPendingQty] = useState('')
+  const [addError, setAddError] = useState<string | null>(null)
   const addInputRef = useRef<HTMLInputElement>(null)
 
   const pricingCtx: PricingContext = useMemo(
@@ -258,34 +259,44 @@ export default function SubprojectEditorPage() {
 
   // ── Add-line flow ──
   async function commitRateBookAdd(item: RateBookItemRow, qty: number) {
-    const newLine = await addEstimateLine({
-      subprojectId: subId,
-      item,
-      quantity: qty,
-      unit: item.unit,
-    })
-    if (newLine) {
-      setLines((prev) => [...prev, newLine])
-      setSelectedLineId(newLine.id)
+    setAddError(null)
+    try {
+      const newLine = await addEstimateLine({
+        subprojectId: subId,
+        item,
+        quantity: qty,
+        unit: item.unit,
+      })
+      if (newLine) {
+        setLines((prev) => [...prev, newLine])
+        setSelectedLineId(newLine.id)
+      }
+      setPendingAdd(null)
+      setPendingQty('')
+      setAddQuery('')
+      addInputRef.current?.focus()
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : String(err))
     }
-    setPendingAdd(null)
-    setPendingQty('')
-    setAddQuery('')
-    addInputRef.current?.focus()
   }
 
   async function commitFreeformAdd(description: string) {
-    const newLine = await addEstimateLine({
-      subprojectId: subId,
-      description,
-      quantity: 1,
-    })
-    if (newLine) {
-      setLines((prev) => [...prev, newLine])
-      setSelectedLineId(newLine.id)
+    setAddError(null)
+    try {
+      const newLine = await addEstimateLine({
+        subprojectId: subId,
+        description,
+        quantity: 1,
+      })
+      if (newLine) {
+        setLines((prev) => [...prev, newLine])
+        setSelectedLineId(newLine.id)
+      }
+      setAddQuery('')
+      addInputRef.current?.focus()
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : String(err))
     }
-    setAddQuery('')
-    addInputRef.current?.focus()
   }
 
   function pickMatch(item: RateBookItemRow) {
@@ -657,6 +668,12 @@ export default function SubprojectEditorPage() {
                   <span className="text-[#6B7280]">Add as freeform line:</span>
                   <span className="text-[#111] font-medium">{addQuery.trim() || '…'}</span>
                 </button>
+              </div>
+            )}
+
+            {addError && (
+              <div className="mt-2 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
+                Couldn&apos;t add line: {addError}
               </div>
             )}
           </div>
