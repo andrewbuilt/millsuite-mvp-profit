@@ -209,7 +209,7 @@ function DashboardContent() {
           const hasShopRate = !!org?.shop_rate && org.shop_rate !== 75
           const hasProject = projects.length > 0
           const hasTime = timeEntries.length > 0
-          const leadsUnlocked = hasAccess(org?.plan, 'leads')
+          const leadsUnlocked = hasAccess(org?.plan, 'sales')
           const steps = [
             {
               done: hasShopRate,
@@ -301,15 +301,15 @@ function DashboardContent() {
               <Target className="w-6 h-6 text-[#2563EB]" />
             </div>
             <h2 className="text-lg font-semibold text-[#111] mb-1">
-              {hasAccess(org?.plan, 'leads') ? 'Drop in a bid or start a project' : 'Create your first project'}
+              {hasAccess(org?.plan, 'sales') ? 'Drop in a bid or start a project' : 'Create your first project'}
             </h2>
             <p className="text-sm text-[#6B7280] max-w-lg mx-auto mb-5">
-              {hasAccess(org?.plan, 'leads')
+              {hasAccess(org?.plan, 'sales')
                 ? 'Drop a bid PDF on the sales page and it becomes a pipeline project. Drag through the stages — Sold flips it live, and the bid-vs-actual loop turns on the moment someone logs an hour.'
                 : 'A project tracks bid vs. actual so you can see profit the day it changes — not months later. Set a bid amount, log time, and watch the margin.'}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
-              {hasAccess(org?.plan, 'leads') ? (
+              {hasAccess(org?.plan, 'sales') ? (
                 <>
                   <Link
                     href="/sales"
