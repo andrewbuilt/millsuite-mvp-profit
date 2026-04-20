@@ -186,7 +186,7 @@ export async function createBlankLeadProject(input: {
     .single()
   if (error) {
     console.error('createBlankLeadProject', error)
-    return null
+    throw new Error(error.message || 'Failed to create project')
   }
   return {
     id: data.id,
@@ -250,7 +250,7 @@ export async function createParsedLeadProject(input: {
     .single()
   if (error) {
     console.error('createParsedLeadProject', error)
-    return null
+    throw new Error(error.message || 'Failed to create project')
   }
   return {
     id: data.id,
@@ -266,6 +266,46 @@ export async function createParsedLeadProject(input: {
     created_at: data.created_at,
     updated_at: data.updated_at,
   }
+}
+
+/**
+ * Bulk-insert subprojects for a freshly parsed project. Used by the sales
+ * intake flow: when the user tags room chips as "Room / subproject" we seed
+ * the project with one subproject per room so the editor isn't empty.
+ *
+ * Returns the number of subprojects actually created (errors are logged but
+ * don't block the caller — the project itself already exists).
+ */
+export async function createRoomSubprojects(input: {
+  org_id: string
+  project_id: string
+  rooms: string[]
+  consumable_markup_pct?: number | null
+  profit_margin_pct?: number | null
+}): Promise<number> {
+  const rooms = input.rooms
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0)
+  if (rooms.length === 0) return 0
+
+  const rows = rooms.map((name, idx) => ({
+    project_id: input.project_id,
+    org_id: input.org_id,
+    name,
+    sort_order: idx,
+    consumable_markup_pct: input.consumable_markup_pct ?? null,
+    profit_margin_pct: input.profit_margin_pct ?? null,
+  }))
+
+  const { data, error } = await supabase
+    .from('subprojects')
+    .insert(rows)
+    .select('id')
+  if (error) {
+    console.error('createRoomSubprojects', error)
+    return 0
+  }
+  return (data || []).length
 }
 
 // ── Quick notes ──

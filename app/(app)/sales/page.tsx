@@ -29,6 +29,7 @@ import {
   addProjectNote,
   createBlankLeadProject,
   createParsedLeadProject,
+  createRoomSubprojects,
   loadSalesProjects,
   summarizePipeline,
   updateProjectStage,
@@ -129,6 +130,9 @@ function SalesInner() {
   // Inline-note overlay state. Null = closed; otherwise the target project.
   const [noteFor, setNoteFor] = useState<SalesProject | null>(null)
 
+  // Surface create-project failures so the user can see what went wrong.
+  const [createError, setCreateError] = useState<string | null>(null)
+
   useEffect(() => {
     if (!org?.id) return
     ;(async () => {
@@ -201,13 +205,19 @@ function SalesInner() {
   async function handleBlankSubmit() {
     if (!org?.id || !blankName.trim() || creating) return
     setCreating(true)
-    const p = await createBlankLeadProject({
-      org_id: org.id,
-      name: blankName.trim(),
-      client_name: blankClient.trim() || null,
-    })
-    setCreating(false)
-    if (p) router.push(`/projects/${p.id}`)
+    setCreateError(null)
+    try {
+      const p = await createBlankLeadProject({
+        org_id: org.id,
+        name: blankName.trim(),
+        client_name: blankClient.trim() || null,
+      })
+      if (p) router.push(`/projects/${p.id}`)
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCreating(false)
+    }
   }
 
   async function handleParsedSubmit() {
@@ -225,6 +235,17 @@ function SalesInner() {
       return null
     }
 
+    // Rooms can have many entries — we want all of them as subprojects.
+    const pickAll = (role: CandidateRole): string[] => {
+      const out: string[] = []
+      for (const c of parsed.candidates) {
+        if (ignored[c.id]) continue
+        if (roleByCand[c.id] === role) out.push(c.value)
+      }
+      return out
+    }
+
+    const rooms = pickAll('room')
     const amountText = pickFirst('amount')
     const estimated_price =
       amountText != null ? Number(amountText.replace(/[$,]/g, '')) || null : null
@@ -254,23 +275,42 @@ function SalesInner() {
       parsed_at: new Date().toISOString(),
     }
 
-    const p = await createParsedLeadProject({
-      org_id: org.id,
-      name: projectName.trim(),
-      file_name: parsed.fileName,
-      page_count: parsed.pageCount,
-      client_name: pickFirst('client_name'),
-      client_company: pickFirst('client_company'),
-      client_email: pickFirst('email'),
-      client_phone: pickFirst('phone'),
-      designer_name: pickFirst('designer'),
-      gc_name: pickFirst('gc'),
-      delivery_address: pickFirst('address') || pickFirst('venue'),
-      estimated_price,
-      intake_context: intakeContext,
-    })
-    setCreating(false)
-    if (p) router.push(`/projects/${p.id}`)
+    setCreateError(null)
+    try {
+      const p = await createParsedLeadProject({
+        org_id: org.id,
+        name: projectName.trim(),
+        file_name: parsed.fileName,
+        page_count: parsed.pageCount,
+        client_name: pickFirst('client_name'),
+        client_company: pickFirst('client_company'),
+        client_email: pickFirst('email'),
+        client_phone: pickFirst('phone'),
+        designer_name: pickFirst('designer'),
+        gc_name: pickFirst('gc'),
+        delivery_address: pickFirst('address') || pickFirst('venue'),
+        estimated_price,
+        intake_context: intakeContext,
+      })
+      if (p) {
+        // Seed subprojects from any room chips the user confirmed. Failures
+        // here are logged but don't block navigation — the project exists.
+        if (rooms.length > 0) {
+          await createRoomSubprojects({
+            org_id: org.id,
+            project_id: p.id,
+            rooms,
+            consumable_markup_pct: (org as any).consumable_markup_pct ?? null,
+            profit_margin_pct: (org as any).profit_margin_pct ?? null,
+          })
+        }
+        router.push(`/projects/${p.id}`)
+      }
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCreating(false)
+    }
   }
 
   // ── Inline actions ──
@@ -325,6 +365,20 @@ function SalesInner() {
               Parser pulls the client, address, and dollar amounts off the drawings.
               Confirm the chips, assign roles, and we create the project.
             </p>
+
+            {createError && (
+              <div className="mb-4 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B] flex items-start gap-2">
+                <span className="font-medium">Couldn&apos;t create project:</span>
+                <span className="flex-1">{createError}</span>
+                <button
+                  onClick={() => setCreateError(null)}
+                  className="text-[#991B1B] hover:text-[#7F1D1D]"
+                  aria-label="Dismiss"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
             {!parsed && !parsing && !showBlankForm && (
               <div
@@ -550,11 +604,14 @@ function ParsePreview({
   const active = parsed.candidates.filter((c) => !ignored[c.id])
   const byRole = (role: CandidateRole) =>
     active.find((c) => roleByCand[c.id] === role) || null
+  const allByRole = (role: CandidateRole) =>
+    active.filter((c) => roleByCand[c.id] === role)
   const client = byRole('client_name') || byRole('client_company')
   const email = byRole('email')
   const phone = byRole('phone')
   const address = byRole('address') || byRole('venue')
   const amount = byRole('amount')
+  const rooms = allByRole('room')
 
   return (
     <div className="border border-[#E5E7EB] rounded-xl bg-white p-5">
@@ -617,6 +674,21 @@ function ParsePreview({
           <Line label="Address" value={address?.value} />
           <Line label="Amount" value={amount?.value} />
         </div>
+        {rooms.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-[#E5E7EB]">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] flex-shrink-0">
+                Subprojects
+              </span>
+              <span className="text-xs text-[#111] font-mono">
+                {rooms.map((r) => r.value).join(' · ')}
+              </span>
+            </div>
+            <div className="text-[10px] text-[#9CA3AF] mt-1">
+              One subproject will be created per room.
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-2">

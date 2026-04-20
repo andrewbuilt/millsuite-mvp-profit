@@ -24,11 +24,12 @@ export type CandidateRole =
   | 'phone'
   | 'amount'
   | 'date'
+  | 'room'
   | 'other'
 
 export interface ParsedCandidate {
   id: string // stable id for react keys (random)
-  kind: 'email' | 'phone' | 'address' | 'amount' | 'date' | 'name' | 'company'
+  kind: 'email' | 'phone' | 'address' | 'amount' | 'date' | 'name' | 'company' | 'room'
   value: string
   role?: CandidateRole // user picks via dropdown in the UI
   confidence: 'high' | 'medium' | 'low'
@@ -55,14 +56,40 @@ const US_STATES = new Set(
 )
 
 // Words that commonly start sentences and are not person/company names.
+// Room words live in ROOM_WORDS below — they still need to be filtered out
+// of the name extractor so "Kitchen" doesn't come back as a client name.
 const NAME_STOPWORDS = new Set([
   'The', 'This', 'That', 'These', 'Those', 'And', 'But', 'For', 'With',
   'From', 'Please', 'Thank', 'Thanks', 'Dear', 'Hello', 'Regards',
   'Sincerely', 'Attn', 'Attention', 'Subject', 'Re', 'Date', 'Project',
   'Job', 'Quote', 'Estimate', 'Invoice', 'Proposal', 'Drawing', 'Drawings',
   'Page', 'Sheet', 'Scale', 'Notes', 'Note', 'General', 'Specifications',
-  'Spec', 'Kitchen', 'Bathroom', 'Bedroom', 'Living', 'Dining', 'Master',
-  'Cabinet', 'Cabinets', 'Millwork',
+  'Spec', 'Elevation', 'Elevations', 'Plan', 'Plans', 'Section', 'Detail',
+])
+
+// Single-word hits that mark a room / subproject candidate. Used two ways:
+// (a) as a filter so the name extractor doesn't misclassify rooms as clients;
+// (b) as a seed for the room extractor — any line that contains one of these
+// words is a candidate (we grab the nearest label like "Master Bathroom",
+// "Kitchen — Island", or just "Kitchen").
+const ROOM_WORDS = new Set([
+  'Kitchen', 'Kitchens', 'Bathroom', 'Bathrooms', 'Bath', 'Powder',
+  'Bedroom', 'Bedrooms', 'Living', 'Dining', 'Family', 'Great',
+  'Master', 'Primary', 'Guest', 'Office', 'Study', 'Library',
+  'Laundry', 'Mudroom', 'Pantry', 'Closet', 'Foyer', 'Entry',
+  'Hallway', 'Hall', 'Basement', 'Garage', 'Nursery', 'Playroom',
+  'Butler', 'Wetbar', 'Wet', 'Bar', 'Wine', 'Media', 'Theater',
+  'Vanity', 'Vanities', 'Island', 'Built-in', 'Builtin', 'Bookcase',
+  'Bookcases', 'Wardrobe', 'Wardrobes',
+])
+
+// Rooms that we also accept as multi-word phrases ("Master Bathroom",
+// "Wet Bar", "Butler's Pantry", "Powder Room").
+const ROOM_SUFFIXES = new Set([
+  'Kitchen', 'Bathroom', 'Bath', 'Bedroom', 'Room', 'Office', 'Study',
+  'Closet', 'Pantry', 'Foyer', 'Entry', 'Hallway', 'Hall', 'Basement',
+  'Garage', 'Nursery', 'Playroom', 'Vanity', 'Island', 'Bar', 'Mudroom',
+  'Laundry', 'Library',
 ])
 
 // Common company-entity suffixes that upgrade a Title-Case phrase from
@@ -216,6 +243,8 @@ function extractNamesAndCompanies(text: string): ParsedCandidate[] {
       const phrase = m[1].trim().replace(/\s+/g, ' ')
       const firstWord = phrase.split(' ')[0]
       if (NAME_STOPWORDS.has(firstWord)) continue
+      // If any word of the phrase is a room word, the room extractor owns it.
+      if (phrase.split(' ').some((w) => ROOM_WORDS.has(w))) continue
       // Phrases that are pure letters without any lowercase char are usually
       // headings (e.g. "KITCHEN PLAN") — skip.
       if (!/[a-z]/.test(phrase)) continue
@@ -233,6 +262,110 @@ function extractNamesAndCompanies(text: string): ParsedCandidate[] {
     }
   }
   return out
+}
+
+// ── Room / subproject detection ──
+// We want to pull "Kitchen", "Master Bathroom", "Butler's Pantry", "Wet Bar",
+// etc. off the drawings so the user can tag them as rooms and we'll seed
+// subprojects automatically. We handle three shapes:
+//   1. Short Title-Case phrases that include a ROOM_WORD (e.g. "Master Bath")
+//   2. ALL-CAPS sheet headers that are just a room ("KITCHEN", "POWDER ROOM")
+//   3. Bullet-y lines like "• Kitchen" / "1. Master Bathroom"
+// Multi-word detection grabs up to 2 Title-Case words ahead of the seed word
+// so "Master Bathroom" is one chip, not two.
+
+function normalizeRoomLabel(s: string): string {
+  return s
+    .replace(/[^\w\s'&-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    // Title Case every word — handles ALL-CAPS input like "POWDER ROOM".
+    .split(' ')
+    .map((w) => {
+      if (!w) return w
+      // Preserve "Built-in" style hyphenation.
+      return w
+        .split('-')
+        .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+        .join('-')
+    })
+    .join(' ')
+}
+
+function extractRooms(text: string): ParsedCandidate[] {
+  const seen = new Set<string>()
+  const out: ParsedCandidate[] = []
+  const lines = text.split(/[\n\r]+/)
+
+  for (let raw of lines) {
+    const line = raw.trim()
+    if (!line) continue
+    if (line.length > 80) continue // body paragraphs, not labels
+
+    // Strip leading bullets / numbering so "1. Master Bathroom" becomes
+    // "Master Bathroom".
+    const cleaned = line.replace(/^[\s•●◦\-*·]*\d{0,2}[.)]?\s+/, '')
+
+    // Case A: the line IS a short room label (e.g. "Kitchen", "POWDER ROOM",
+    // "Master Bath", "Butler's Pantry"). Accept lines with 1–4 tokens where at
+    // least one token is a room word.
+    const tokens = cleaned.split(/\s+/)
+    if (tokens.length >= 1 && tokens.length <= 4) {
+      const asTitle = tokens
+        .map((t) =>
+          /^[A-Z][A-Z0-9'.-]*$/.test(t)
+            ? t.charAt(0) + t.slice(1).toLowerCase()
+            : t
+        )
+      const hasRoom = asTitle.some((t) => {
+        const bare = t.replace(/[^A-Za-z-]/g, '')
+        return (
+          ROOM_WORDS.has(bare) ||
+          ROOM_WORDS.has(bare.charAt(0).toUpperCase() + bare.slice(1).toLowerCase())
+        )
+      })
+      if (hasRoom) {
+        const label = normalizeRoomLabel(cleaned)
+        const key = label.toLowerCase()
+        if (label.length >= 3 && !seen.has(key)) {
+          seen.add(key)
+          // Heuristic: multi-word matches are higher-signal than a bare
+          // "Kitchen" dropped in body text.
+          const conf: ParsedCandidate['confidence'] =
+            tokens.length >= 2 ? 'high' : 'medium'
+          out.push({ id: rid(), kind: 'room', value: label, confidence: conf })
+          continue
+        }
+      }
+    }
+
+    // Case B: room phrase embedded in a longer line — e.g.
+    // "Henderson residence — kitchen & master bath renovation". Scan for
+    // Title-Case or ALL-CAPS room phrases.
+    const embedded =
+      /\b([A-Z][A-Za-z-]+(?:\s+[A-Z][A-Za-z-]+){0,2})\b/g
+    let m: RegExpExecArray | null
+    while ((m = embedded.exec(cleaned))) {
+      const phrase = m[1].trim()
+      const words = phrase.split(/\s+/)
+      // Must contain a room word and either be 2+ words or end in a known
+      // room suffix.
+      const hasRoom = words.some((w) => ROOM_WORDS.has(w))
+      const endsRoom = ROOM_SUFFIXES.has(words[words.length - 1])
+      if (!hasRoom && !endsRoom) continue
+      if (words.length === 1 && !endsRoom) continue
+      const label = normalizeRoomLabel(phrase)
+      const key = label.toLowerCase()
+      if (seen.has(key)) continue
+      if (label.length < 3 || label.length > 40) continue
+      seen.add(key)
+      out.push({ id: rid(), kind: 'room', value: label, confidence: 'medium' })
+    }
+  }
+
+  // Cap at 12 rooms — a drawing set with more than that is unusual and the
+  // overflow is almost always noise.
+  return out.slice(0, 12)
 }
 
 // Guess a project name: first non-trivial line of the text that looks like
@@ -283,16 +416,20 @@ export async function parsePdfFile(file: File): Promise<ParsedPdf> {
       ...extractAddresses(text),
       ...extractAmounts(text),
       ...extractDates(text),
+      ...extractRooms(text),
       ...extractNamesAndCompanies(text),
     ]
     // Ranking: high confidence first, then by kind order so the UI groups
     // nicely. Also cap names/companies to the 6 strongest since these are
     // the noisiest extractors.
-    const strong = candidates.filter((c) => c.kind !== 'name' && c.kind !== 'company')
+    const strong = candidates.filter(
+      (c) => c.kind !== 'name' && c.kind !== 'company' && c.kind !== 'room'
+    )
+    const rooms = candidates.filter((c) => c.kind === 'room')
     const softCap = candidates
       .filter((c) => c.kind === 'name' || c.kind === 'company')
       .slice(0, 8)
-    const sorted = [...strong, ...softCap]
+    const sorted = [...strong, ...rooms, ...softCap]
 
     return {
       fileName: file.name,
@@ -335,6 +472,8 @@ export function defaultRoleFor(c: ParsedCandidate): CandidateRole {
       return 'client_company'
     case 'name':
       return 'client_name'
+    case 'room':
+      return 'room'
     default:
       return 'other'
   }
@@ -351,6 +490,7 @@ export const ROLE_LABEL: Record<CandidateRole, string> = {
   phone: 'Phone',
   amount: 'Amount',
   date: 'Date',
+  room: 'Room / subproject',
   other: 'Ignore',
 }
 
@@ -375,6 +515,8 @@ export function roleOptionsFor(c: ParsedCandidate): CandidateRole[] {
       return ['client_company', 'designer', 'gc', 'venue', 'other']
     case 'name':
       return ['client_name', 'designer', 'gc', 'other']
+    case 'room':
+      return ['room', 'other']
     default:
       return ['other']
   }
