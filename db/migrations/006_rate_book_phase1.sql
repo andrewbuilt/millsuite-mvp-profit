@@ -26,19 +26,26 @@ BEGIN;
 -- 1. Extend rate_book_items.
 -- ---------------------------------------------------------------------------
 
--- Drop the old unit CHECK so we can accept DAY/HR/JOB. Re-add with the wider
--- set. Only drop the specific named check; if it's unnamed, skip.
+-- Drop any existing unit CHECK on rate_book_items, regardless of name, so we
+-- can re-add the wider set cleanly. Postgres normalizes `IN (...)` to `= ANY
+-- (ARRAY[...])` in stored constraint definitions, so we match on the column
+-- being referenced rather than the literal text.
 DO $$
 DECLARE
-  cname text;
+  r record;
 BEGIN
-  SELECT conname INTO cname
-    FROM pg_constraint
-   WHERE conrelid = 'rate_book_items'::regclass
-     AND pg_get_constraintdef(oid) LIKE '%unit%IN%''lf''%';
-  IF cname IS NOT NULL THEN
-    EXECUTE format('ALTER TABLE rate_book_items DROP CONSTRAINT %I', cname);
-  END IF;
+  FOR r IN
+    SELECT conname
+      FROM pg_constraint
+     WHERE conrelid = 'rate_book_items'::regclass
+       AND contype = 'c'
+       AND (
+         pg_get_constraintdef(oid) ILIKE '%unit%lf%'
+         OR conname = 'rate_book_items_unit_check'
+       )
+  LOOP
+    EXECUTE format('ALTER TABLE rate_book_items DROP CONSTRAINT %I', r.conname);
+  END LOOP;
 END $$;
 
 ALTER TABLE rate_book_items
