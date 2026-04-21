@@ -47,7 +47,6 @@ import {
   Pencil,
   Plus,
   Copy,
-  GitBranch,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
@@ -1690,12 +1689,12 @@ function StageActionBar({
           <Pencil className="w-4 h-4" />
           Preview QB export
         </button>
-        {cover === 'sold' || cover === 'production' || cover === 'installed' || cover === 'complete' ? (
-          <Link href={`/projects/${projectId}#change-orders`} className={secondary}>
-            <GitBranch className="w-4 h-4" />
-            Change orders
+        {(cover === 'sold' || cover === 'production' || cover === 'installed' || cover === 'complete') && (
+          <Link href={`/projects/${projectId}/pre-production`} className={secondary}>
+            <CheckCircle2 className="w-4 h-4" />
+            Pre-production
           </Link>
-        ) : null}
+        )}
       </div>
       <div className="flex gap-2 items-center flex-wrap">
         {cover === 'bidding' && (
