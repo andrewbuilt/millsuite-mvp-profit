@@ -79,6 +79,7 @@ interface SubprojectRow {
   linear_feet: number | null
   consumable_markup_pct: number | null
   profit_margin_pct: number | null
+  activity_type: string | null
 }
 
 interface ProjectRow {
@@ -86,6 +87,17 @@ interface ProjectRow {
   name: string
   client_name: string | null
   status: string
+}
+
+// True when this subproject's activity type is "install" — the install
+// subproject handles all install labor for the project, so regular subs
+// hide the Install department row in line details + buildup.
+function isInstallSub(sub: { activity_type?: string | null; name?: string | null } | null): boolean {
+  if (!sub) return false
+  const a = (sub.activity_type || '').toLowerCase()
+  if (a === 'install' || a.includes('install')) return true
+  const n = (sub.name || '').toLowerCase()
+  return n === 'install' || n.startsWith('install ')
 }
 
 type OptionsPerLine = Map<string, Array<{ option: RateBookOptionRow; effect_value_override: number | null }>>
@@ -151,7 +163,7 @@ export default function SubprojectEditorPage() {
           .single(),
         supabase
           .from('subprojects')
-          .select('id, project_id, name, linear_feet, consumable_markup_pct, profit_margin_pct')
+          .select('id, project_id, name, linear_feet, consumable_markup_pct, profit_margin_pct, activity_type')
           .eq('id', subId)
           .single(),
         supabase
@@ -850,6 +862,7 @@ export default function SubprojectEditorPage() {
               appliedOptions={lineOptions.get(selectedLine.id) || []}
               availableOptions={applicableOptionsForItem(options, selectedLine.rate_book_item_id ? itemsById.get(selectedLine.rate_book_item_id) ?? null : null)}
               pricingCtx={pricingCtx}
+              isInstallSub={isInstallSub(subproject)}
               onPatch={(patch) => patchLine(selectedLine.id, patch)}
               onToggleOption={(opt) => toggleLineOption(selectedLine.id, opt)}
               onDuplicate={() => onDuplicate(selectedLine.id)}
@@ -950,18 +963,25 @@ function DeptPill({
 // ── Line detail panel ──
 
 function LineDetailPanel({
-  line, item, appliedOptions, availableOptions, pricingCtx, onPatch, onToggleOption, onDuplicate,
+  line, item, appliedOptions, availableOptions, pricingCtx, isInstallSub, onPatch, onToggleOption, onDuplicate,
 }: {
   line: EstimateLine
   item: RateBookItemRow | null
   appliedOptions: Array<{ option: RateBookOptionRow; effect_value_override: number | null }>
   availableOptions: RateBookOptionRow[]
   pricingCtx: PricingContext
+  isInstallSub: boolean
   onPatch: (patch: Partial<EstimateLine>) => void
   onToggleOption: (opt: RateBookOptionRow) => void
   onDuplicate: () => void
 }) {
   const b = computeLineBuildup(line, item, appliedOptions, pricingCtx)
+  // Install-vs-regular split: install subs only show the Install dept; every
+  // other sub hides Install (install labor for the project lives on the
+  // install subproject, not on individual cabinet / door / drawer lines).
+  const visibleDepts: LaborDept[] = isInstallSub
+    ? (['install'] as LaborDept[])
+    : (['eng', 'cnc', 'assembly', 'finish'] as LaborDept[])
   const [newFinishMat, setNewFinishMat] = useState('')
   const [newFinishFinish, setNewFinishFinish] = useState('')
   const appliedIds = new Set(appliedOptions.map((o) => o.option.id))
@@ -1037,42 +1057,46 @@ function LineDetailPanel({
         </div>
       )}
 
-      {/* Dept-hour overrides */}
-      {item && (
-        <div className="mb-4">
-          <FieldLabel>Hours by dept (override)</FieldLabel>
-          <div className="grid grid-cols-2 gap-1.5">
-            {LABOR_DEPTS.map((d) => {
-              const ov = (line.dept_hour_overrides || {})[d]
-              const base =
-                d === 'eng' ? item.base_labor_hours_eng :
-                d === 'cnc' ? item.base_labor_hours_cnc :
-                d === 'assembly' ? item.base_labor_hours_assembly :
-                d === 'finish' ? item.base_labor_hours_finish :
-                item.base_labor_hours_install
-              return (
-                <label key={d} className="flex items-center gap-1.5 text-xs">
-                  <span className="w-14 text-[#6B7280]">{LABOR_DEPT_LABEL[d]}</span>
-                  <input
-                    type="number"
-                    step="any"
-                    value={ov ?? ''}
-                    placeholder={String(base)}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      const cur = { ...(line.dept_hour_overrides || {}) }
-                      if (v === '') delete cur[d]
-                      else cur[d] = parseFloat(v) || 0
-                      onPatch({ dept_hour_overrides: Object.keys(cur).length ? cur : null })
-                    }}
-                    className="flex-1 min-w-0 px-1.5 py-1 text-xs font-mono tabular-nums border border-[#E5E7EB] rounded focus:border-[#2563EB] focus:outline-none"
-                  />
-                </label>
-              )
-            })}
-          </div>
+      {/* Dept-hour overrides — shown even for freeform lines (no rate-book
+          item). For rate-book-backed lines the placeholder shows the item's
+          baseline hours so the override is "what's different from base." */}
+      <div className="mb-4">
+        <FieldLabel>
+          Hours by dept
+          {item && <span className="ml-1 font-normal normal-case tracking-normal text-[#D1D5DB]">· override</span>}
+        </FieldLabel>
+        <div className="grid grid-cols-2 gap-1.5">
+          {visibleDepts.map((d) => {
+            const ov = (line.dept_hour_overrides || {})[d]
+            const base = item
+              ? d === 'eng' ? item.base_labor_hours_eng
+                : d === 'cnc' ? item.base_labor_hours_cnc
+                : d === 'assembly' ? item.base_labor_hours_assembly
+                : d === 'finish' ? item.base_labor_hours_finish
+                : item.base_labor_hours_install
+              : 0
+            return (
+              <label key={d} className="flex items-center gap-1.5 text-xs">
+                <span className="w-14 text-[#6B7280]">{LABOR_DEPT_LABEL[d]}</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={ov ?? ''}
+                  placeholder={String(base)}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    const cur = { ...(line.dept_hour_overrides || {}) }
+                    if (v === '') delete cur[d]
+                    else cur[d] = parseFloat(v) || 0
+                    onPatch({ dept_hour_overrides: Object.keys(cur).length ? cur : null })
+                  }}
+                  className="flex-1 min-w-0 px-1.5 py-1 text-xs font-mono tabular-nums border border-[#E5E7EB] rounded focus:border-[#2563EB] focus:outline-none"
+                />
+              </label>
+            )
+          })}
         </div>
-      )}
+      </div>
 
       {/* Options */}
       {availableOptions.length > 0 && (
@@ -1204,7 +1228,7 @@ function LineDetailPanel({
       <div>
         <FieldLabel>What's in this line's price</FieldLabel>
         <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-3 space-y-1.5 text-xs font-mono tabular-nums">
-          {LABOR_DEPTS.map((d) => {
+          {visibleDepts.map((d) => {
             const hrs = b.hoursByDept[d]
             if (hrs === 0) return null
             const cost = hrs * pricingCtx.laborRates[d]

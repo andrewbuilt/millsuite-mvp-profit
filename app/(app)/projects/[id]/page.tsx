@@ -683,15 +683,14 @@ export default function ProjectCoverPage() {
                   </Link>
                 )
               })}
-              {/* Add subproject — routes back to the project page where the
-                  subproject creation UI lives. Keeps this page focused on
-                  rollup/review rather than CRUD. */}
+              {/* Add subproject — jumps into the new-subproject form, which
+                  persists and routes to the editor on save. */}
               <Link
-                href={`/projects/${projectId}`}
+                href={`/projects/${projectId}/subprojects/new`}
                 className="block border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
               >
                 <Plus className="w-3.5 h-3.5 inline mr-1" />
-                Add subproject (blank, clone, or parse from drawings)
+                Add subproject
               </Link>
             </div>
           </div>
