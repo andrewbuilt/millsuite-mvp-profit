@@ -100,6 +100,9 @@ export default function SubprojectEditorPage() {
 
   const [project, setProject] = useState<ProjectRow | null>(null)
   const [subproject, setSubproject] = useState<SubprojectRow | null>(null)
+  // Every subproject on the project, for the tab bar. Only id/name/sort_order
+  // are needed here; the active sub carries its full row in `subproject`.
+  const [siblingSubs, setSiblingSubs] = useState<Array<{ id: string; name: string; sort_order: number }>>([])
   const [lines, setLines] = useState<EstimateLine[]>([])
   const [items, setItems] = useState<RateBookItemRow[]>([])
   const [options, setOptions] = useState<RateBookOptionRow[]>([])
@@ -140,7 +143,7 @@ export default function SubprojectEditorPage() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const [projRes, subRes, linesData, rb, opts, rates, lineOpts, subActuals, deptRes] = await Promise.all([
+      const [projRes, subRes, siblingsRes, linesData, rb, opts, rates, lineOpts, subActuals, deptRes] = await Promise.all([
         supabase
           .from('projects')
           .select('id, name, client_name, stage')
@@ -151,6 +154,11 @@ export default function SubprojectEditorPage() {
           .select('id, project_id, name, linear_feet, consumable_markup_pct, profit_margin_pct')
           .eq('id', subId)
           .single(),
+        supabase
+          .from('subprojects')
+          .select('id, name, sort_order')
+          .eq('project_id', projectId)
+          .order('sort_order'),
         loadEstimateLines(subId),
         loadRateBook(org.id),
         listOptions(org.id),
@@ -162,6 +170,7 @@ export default function SubprojectEditorPage() {
       if (cancelled) return
       if (projRes.data) setProject(projRes.data as any)
       if (subRes.data) setSubproject(subRes.data as any)
+      setSiblingSubs((siblingsRes.data || []) as Array<{ id: string; name: string; sort_order: number }>)
       setLines(linesData)
       setItems(rb.items)
       setOptions(opts)
@@ -245,9 +254,16 @@ export default function SubprojectEditorPage() {
           onDuplicate(selectedLineId)
         }
       }
+      // ⌫ / Del removes the selected line (outside any input — we don't want
+      // to swallow backspace while the user is editing qty in a row).
+      if (!inField && (e.key === 'Backspace' || e.key === 'Delete') && selectedLineId) {
+        e.preventDefault()
+        removeLine(selectedLineId)
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedLineId])
 
   // ── Add-line flow ──
@@ -458,6 +474,31 @@ export default function SubprojectEditorPage() {
         </div>
       </div>
 
+      {/* Subproject tabs — horizontal scroll across every sub on the project. */}
+      {siblingSubs.length > 1 && (
+        <div className="bg-white border-b border-[#E5E7EB] sticky top-[6.5rem] z-20">
+          <div className="max-w-[1400px] mx-auto px-6 flex items-center gap-1 overflow-x-auto">
+            {siblingSubs.map((s) => {
+              const active = s.id === subId
+              return (
+                <Link
+                  key={s.id}
+                  href={`/projects/${projectId}/subprojects/${s.id}`}
+                  className={
+                    'py-2.5 px-4 text-[13px] whitespace-nowrap border-b-2 transition-colors ' +
+                    (active
+                      ? 'border-[#2563EB] text-[#111] font-semibold'
+                      : 'border-transparent text-[#6B7280] hover:text-[#111] hover:border-[#E5E7EB]')
+                  }
+                >
+                  {s.name}
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="max-w-[1400px] mx-auto px-6 py-5 grid grid-cols-[1fr_340px] gap-6">
         {/* Center column */}
         <div>
@@ -483,16 +524,18 @@ export default function SubprojectEditorPage() {
             <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">/</kbd> add</span>
             <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">↑↓</kbd> navigate</span>
             <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⏎</kbd> commit</span>
+            <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⌫</kbd> delete</span>
             <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⌘D</kbd> duplicate</span>
           </div>
 
           {/* Line table */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-3">
-            <div className="grid grid-cols-[1fr_72px_56px_80px_100px_36px] px-3 py-2 bg-[#F9FAFB] border-b border-[#E5E7EB] text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+            <div className="grid grid-cols-[1fr_72px_56px_80px_100px_100px_36px] px-3 py-2 bg-[#F9FAFB] border-b border-[#E5E7EB] text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
               <div>Item / Finish</div>
               <div className="text-right">Qty</div>
               <div className="text-center">Unit</div>
               <div className="text-right">Hours</div>
+              <div className="text-right">Material</div>
               <div className="text-right">Total</div>
               <div />
             </div>
@@ -516,7 +559,7 @@ export default function SubprojectEditorPage() {
                   <div
                     key={line.id}
                     onClick={() => setSelectedLineId(selected ? null : line.id)}
-                    className={`grid grid-cols-[1fr_72px_56px_80px_100px_36px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 cursor-pointer transition-colors ${selected ? 'bg-[#EFF6FF]' : 'hover:bg-[#F9FAFB]'}`}
+                    className={`grid grid-cols-[1fr_72px_56px_80px_100px_100px_36px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 cursor-pointer transition-colors ${selected ? 'bg-[#EFF6FF]' : 'hover:bg-[#F9FAFB]'}`}
                   >
                     <div className="pr-3 min-w-0">
                       <div className="text-sm text-[#111] font-medium truncate">
@@ -528,9 +571,19 @@ export default function SubprojectEditorPage() {
                       {opts.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {opts.map((o) => (
-                            <span key={o.option.id} className="inline-flex items-center px-1.5 py-0.5 bg-[#F3E8FF] text-[#7E22CE] text-[10px] rounded-full border border-[#E9D5FF]">
+                            <button
+                              key={o.option.id}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                toggleLineOption(line.id, o.option)
+                              }}
+                              title={`Remove ${o.option.name}`}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#F3E8FF] text-[#7E22CE] text-[10px] rounded-full border border-[#E9D5FF] hover:bg-[#E9D5FF] hover:text-[#5B21B6] transition-colors"
+                            >
                               {o.option.name}
-                            </span>
+                              <span className="text-[#9B5ECF]">×</span>
+                            </button>
                           ))}
                         </div>
                       )}
@@ -553,6 +606,9 @@ export default function SubprojectEditorPage() {
                     <div className="text-center text-xs text-[#6B7280] font-mono">{line.unit || item?.unit || '—'}</div>
                     <div className="text-right text-sm font-mono tabular-nums text-[#6B7280]">
                       {fmtHours(b.totalHours)}
+                    </div>
+                    <div className="text-right text-sm font-mono tabular-nums text-[#6B7280]">
+                      {fmtMoney(b.materialCost + b.consumablesCost + (b.hardwareCost || 0))}
                     </div>
                     <div className="text-right text-sm font-mono tabular-nums font-semibold text-[#111]">
                       {fmtMoney(b.lineTotal)}
