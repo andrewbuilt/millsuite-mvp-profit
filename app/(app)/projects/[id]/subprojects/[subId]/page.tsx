@@ -54,7 +54,6 @@ import {
   listShopLaborRates,
 } from '@/lib/rate-book-v2'
 import { LaborDept, LABOR_DEPTS, LABOR_DEPT_LABEL, DEFAULT_LABOR_RATES } from '@/lib/rate-book-seed'
-import { seedStarterRateBook } from '@/lib/rate-book-seed'
 import {
   loadSubprojectActuals,
   fmtActualHours,
@@ -141,12 +140,6 @@ export default function SubprojectEditorPage() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      // Seed if empty — same pattern as /rate-book.
-      try {
-        await seedStarterRateBook(org.id)
-      } catch (e) {
-        console.warn('seedStarterRateBook', e)
-      }
       const [projRes, subRes, linesData, rb, opts, rates, lineOpts, subActuals, deptRes] = await Promise.all([
         supabase
           .from('projects')

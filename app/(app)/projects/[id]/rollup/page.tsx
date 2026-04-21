@@ -35,7 +35,6 @@ import {
   Circle,
   Pencil,
   Plus,
-  FileText,
   Copy,
   GitBranch,
 } from 'lucide-react'
@@ -927,14 +926,6 @@ export default function ProjectRollupPage() {
         {/* Actions bar */}
         <div className="max-w-[1240px] mx-auto mt-6 bg-white border border-[#E5E7EB] rounded-xl px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex gap-2 flex-wrap">
-            <Link
-              href={`/projects/${projectId}/estimate`}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors border border-[#E5E7EB]"
-              title="Open the printable estimate"
-            >
-              <FileText className="w-4 h-4" />
-              Printable estimate
-            </Link>
             <button
               onClick={() => setQbOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors border border-[#E5E7EB]"

@@ -63,8 +63,12 @@ interface StarterCategory {
 }
 
 // ── Starter kit ──
-// These numbers are illustrative. Every item is seeded at 'untested'
-// confidence so Andrew's shop sees gray badges until real jobs run through.
+// Holds shapes only — names, units, material modes, descriptions. The numeric
+// fields on these entries (hours, sheet_cost, linear_cost, hardware_cost) are
+// intentionally NOT used by the seed writer below; rows insert with zeros so
+// every shop starts empty-of-numbers and fills them in as they go. Numbers
+// shown here are kept as a reference for when the onboarding flow revisits
+// how much to pre-seed.
 
 const STARTER: StarterCategory[] = [
   {
@@ -313,17 +317,17 @@ export async function seedStarterRateBook(orgId: string): Promise<{
       name: it.name,
       unit: it.unit,
       material_mode: it.material_mode,
-      base_labor_hours_eng: it.hours.eng || 0,
-      base_labor_hours_cnc: it.hours.cnc || 0,
-      base_labor_hours_assembly: it.hours.assembly || 0,
-      base_labor_hours_finish: it.hours.finish || 0,
-      base_labor_hours_install: it.hours.install || 0,
-      sheets_per_unit: it.sheets_per_unit || 0,
-      sheet_cost: it.sheet_cost || 0,
-      linear_cost: it.linear_cost || 0,
-      lump_cost: it.lump_cost || 0,
+      base_labor_hours_eng: 0,
+      base_labor_hours_cnc: 0,
+      base_labor_hours_assembly: 0,
+      base_labor_hours_finish: 0,
+      base_labor_hours_install: 0,
+      sheets_per_unit: 0,
+      sheet_cost: 0,
+      linear_cost: 0,
+      lump_cost: 0,
       material_description: it.material_description || null,
-      hardware_cost: it.hardware_cost || 0,
+      hardware_cost: 0,
       hardware_note: it.hardware_note || null,
       confidence: 'untested',
       active: true,

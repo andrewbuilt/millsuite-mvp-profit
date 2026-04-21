@@ -10,12 +10,12 @@
 //   Right  — options (stackable modifiers)
 //
 // Gear icon top-right opens the Shop Labor Rates modal.
-// On first load for a fresh org, seedStarterRateBook runs and populates the
-// starter kit + default dept rates; every item lands as 'untested' so badges
-// stay gray until real jobs run through.
+// Rate book starts empty. Items land via manual add or by accepting
+// Suggestions that promote recurring manual estimate entries into permanent
+// items — every item lands as 'untested' until real jobs run through.
 //
 // Edit modal writes a row to rate_book_item_history with apply_scope +
-// required reason — the audit trail the Suggestions loop (Phase 10) consumes.
+// required reason — the audit trail the Suggestions loop consumes.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
@@ -34,10 +34,10 @@ import {
   attachOption, detachOption,
   updateItem, updateShopLaborRate,
   computeBuildup, laborRateMap,
-  CONFIDENCE_LABEL, CONFIDENCE_COLOR, countItems,
+  CONFIDENCE_LABEL, CONFIDENCE_COLOR,
 } from '@/lib/rate-book-v2'
 import {
-  seedStarterRateBook, LABOR_DEPTS, LABOR_DEPT_LABEL, type LaborDept,
+  LABOR_DEPTS, LABOR_DEPT_LABEL, type LaborDept,
 } from '@/lib/rate-book-seed'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,18 +91,9 @@ export default function RateBookPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [laborSettingsOpen, setLaborSettingsOpen] = useState(false)
 
-  // Initial load — seed on empty, then fetch everything.
   useEffect(() => {
     if (!orgId) return
     ;(async () => {
-      // Seed if the org has never had any items.
-      const cnt = await countItems(orgId)
-      if (cnt === 0) {
-        await seedStarterRateBook(orgId)
-      } else {
-        // Still run the seed to fill in missing labor rates (idempotent guard).
-        await seedStarterRateBook(orgId)
-      }
       await refreshAll(orgId)
       setLoaded(true)
     })()

@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MillSuite · Project Cover Sheet (Stage-Aware Mockup)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #0a0a0a; color: #e5e5e5; min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* ========== TOP BAR ========== */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: #0d0d0d; border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+  }
+  .breadcrumb {
+    font-size: 12px; color: #888;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .breadcrumb .sep { color: #444; }
+  .breadcrumb .here { color: #fff; font-weight: 600; }
+  .breadcrumb .diamond { color: #3b82f6; }
+
+  .btn {
+    background: #1e1e1e; border: 1px solid #2a2a2a; color: #ddd;
+    padding: 5px 11px; font-size: 12px; border-radius: 6px;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+  }
+  .btn:hover { background: #252525; border-color: #333; color: #fff; }
+  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-good { background: #14532d; border-color: #166534; color: #bbf7d0; }
+  .btn-good:hover { background: #166534; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover { color: #ccc; background: #1a1a1a; }
+  .btn-warn { background: #3a2a0d; border-color: #5a4215; color: #fbbf24; }
+  .btn-warn:hover { background: #4a3515; }
+  .topbar .btns { display: flex; gap: 8px; }
+
+  /* ========== STAGE SWITCHER (prototype control) ========== */
+  .stage-switcher {
+    background: #0c1a2e; border-bottom: 1px solid #1e3a5f;
+    padding: 9px 20px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 11.5px;
+  }
+  .stage-switcher .sw-label {
+    color: #93c5fd; font-weight: 600;
+    letter-spacing: 0.5px; text-transform: uppercase; font-size: 10.5px;
+  }
+  .stage-switcher .sw-btn {
+    padding: 4px 10px; background: #0a0a0a; border: 1px solid #1e3a5f;
+    border-radius: 5px; color: #93c5fd; cursor: pointer;
+    font-family: inherit; font-size: 11.5px;
+  }
+  .stage-switcher .sw-btn.active {
+    background: #1e3a5f; color: #fff; border-color: #3b82f6;
+  }
+  .stage-switcher .sw-hint {
+    color: #666; margin-left: auto; font-size: 11px; font-style: italic;
+  }
+
+  /* ========== PROJECT HEADER ========== */
+  .proj-header {
+    padding: 24px 28px; background: #0d0d0d;
+    border-bottom: 1px solid #1a1a1a;
+    display: grid; grid-template-columns: 1fr auto; gap: 24px;
+    align-items: start;
+  }
+  .proj-header h1 {
+    font-size: 24px; color: #fff; font-weight: 600; letter-spacing: -0.3px;
+    margin-bottom: 10px;
+  }
+  .proj-meta {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    font-size: 12px; color: #888;
+  }
+  .proj-meta .pill {
+    padding: 3px 10px; background: #141414; border: 1px solid #2a2a2a;
+    border-radius: 10px; font-size: 11.5px; color: #ccc;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .proj-meta .pill.editable { cursor: pointer; }
+  .proj-meta .pill.editable:hover { background: #1a1a1a; border-color: #333; color: #fff; }
+  .proj-meta .dates { color: #666; margin-left: 6px; }
+
+  .proj-total-mini { text-align: right; min-width: 220px; }
+  .proj-total-mini .tlabel {
+    font-size: 10.5px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 4px;
+  }
+  .proj-total-mini .tval {
+    font-size: 28px; color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace; letter-spacing: -0.5px;
+  }
+  .proj-total-mini .tmargin {
+    font-size: 12px; font-weight: 600; margin-top: 4px;
+  }
+  .proj-total-mini .tsub {
+    font-size: 11px; color: #888; margin-top: 6px;
+  }
+
+  .margin-ok { color: #4ade80; }
+  .margin-warn { color: #fbbf24; }
+  .margin-bad { color: #f87171; }
+  .var-good { color: #4ade80; }
+  .var-bad  { color: #f87171; }
+
+  /* ========== STAGE STRIP ========== */
+  .stage-strip {
+    padding: 16px 28px; background: #0a0a0a;
+    border-bottom: 1px solid #1a1a1a;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .stage-node {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+  }
+  .stage-node .dot {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1.5px solid #333; background: #0a0a0a;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #666; font-weight: 700;
+  }
+  .stage-node.done .dot {
+    border-color: #166534; background: #14532d; color: #bbf7d0;
+  }
+  .stage-node.current .dot {
+    border-color: #3b82f6; background: #1e3a5f; color: #fff;
+    box-shadow: 0 0 0 3px #0c1a2e;
+  }
+  .stage-node.current .label { color: #fff; font-weight: 600; }
+  .stage-node.done .label { color: #86efac; }
+  .stage-node .label { color: #555; }
+  .stage-connector {
+    width: 40px; height: 2px; background: #1a1a1a;
+  }
+  .stage-connector.done { background: #14532d; }
+  .stage-strip .stage-detail {
+    margin-left: auto; font-size: 11.5px; color: #888;
+  }
+  .stage-strip .stage-detail b { color: #ddd; }
+
+  /* ========== ATTENTION STRIP ========== */
+  .attention {
+    background: #2a200a; border-bottom: 1px solid #4a3a15;
+    padding: 10px 28px;
+    display: flex; align-items: center; gap: 16px;
+    font-size: 12.5px;
+  }
+  .attention .att-icon { color: #fbbf24; font-size: 13px; }
+  .attention .att-label { color: #fde68a; font-weight: 600; }
+  .attention .att-items { color: #ddd; display: flex; gap: 20px; flex-wrap: wrap; }
+  .attention .att-item { cursor: pointer; }
+  .attention .att-item:hover { color: #fff; text-decoration: underline; }
+  .attention .att-item .n {
+    font-family: "SF Mono", Menlo, monospace; color: #fbbf24; font-weight: 700;
+  }
+
+  /* ========== MAIN LAYOUT ========== */
+  .main {
+    flex: 1; padding: 24px 28px 40px;
+  }
+  .grid {
+    display: grid; grid-template-columns: 1fr 380px; gap: 24px;
+    max-width: 1280px; margin: 0 auto;
+  }
+  @media (max-width: 1000px) {
+    .grid { grid-template-columns: 1fr; }
+    .right-col .fin-panel { position: static !important; }
+  }
+
+  .section-title {
+    font-size: 10.5px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .section-title .tt-count {
+    font-family: "SF Mono", Menlo, monospace;
+    color: #888; font-weight: 400; letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* ========== SUBPROJECT CARDS ========== */
+  .sp-grid { display: grid; gap: 10px; }
+  .sp-card {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 10px;
+    padding: 14px 18px; cursor: pointer; transition: all 0.15s;
+    display: grid; grid-template-columns: 1fr auto; gap: 20px;
+    align-items: center;
+  }
+  .sp-card:hover { border-color: #3b82f6; background: #0f1a2a; }
+  .sp-card.empty { border-style: dashed; }
+  .sp-card .sp-left { min-width: 0; }
+  .sp-card .sp-name {
+    font-size: 14.5px; color: #fff; font-weight: 600; margin-bottom: 4px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sp-card .sp-tag {
+    font-size: 9.5px; padding: 1px 6px; border-radius: 3px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    background: #1a2d4a; color: #93c5fd;
+  }
+  .sp-card .sp-tag.review { background: #2a200a; color: #fbbf24; }
+  .sp-card .sp-tag.empty  { background: #1a1a1a; color: #666; }
+  .sp-card .sp-sub {
+    font-size: 11.5px; color: #888; margin-bottom: 8px;
+  }
+  .sp-card .sp-stats {
+    display: flex; gap: 16px; font-size: 11px; color: #888;
+    flex-wrap: wrap;
+  }
+  .sp-card .sp-stats .k {
+    color: #ddd; font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+    margin-right: 4px;
+  }
+  .sp-card .sp-right { text-align: right; min-width: 120px; }
+  .sp-card .sp-total {
+    font-size: 17px; color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .sp-card .sp-total.empty { color: #555; }
+  .sp-card .sp-margin { font-size: 11.5px; margin-top: 3px; font-weight: 600; }
+  .sp-card .sp-status {
+    font-size: 10px; color: #666; margin-top: 6px;
+    text-transform: uppercase; letter-spacing: 0.7px;
+  }
+  .sp-card .sp-status.ready { color: #4ade80; }
+  .sp-card .sp-status.draft { color: #fbbf24; }
+  .sp-card .sp-status.variance-ok  { color: #4ade80; }
+  .sp-card .sp-status.variance-bad { color: #f87171; }
+
+  .sp-add {
+    padding: 14px; background: transparent; border: 1px dashed #2a2a2a;
+    border-radius: 10px; text-align: center; color: #666; cursor: pointer;
+    font-size: 12.5px; transition: all 0.15s; margin-top: 10px;
+  }
+  .sp-add:hover { color: #93c5fd; border-color: #3b82f6; background: #0c1a2e; }
+
+  /* ========== FINANCIAL PANEL ========== */
+  .fin-panel {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+    padding: 22px; position: sticky; top: 20px;
+  }
+  .fin-total {
+    padding-bottom: 18px; border-bottom: 1px solid #1a1a1a; margin-bottom: 18px;
+  }
+  .fin-total .t-label {
+    font-size: 10.5px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 6px;
+  }
+  .fin-total .t-num {
+    font-size: 30px; color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace; letter-spacing: -0.5px;
+  }
+  .fin-total .t-margin-block {
+    display: flex; align-items: center; gap: 10px; margin-top: 10px;
+  }
+  .fin-total .t-margin-pct {
+    font-size: 17px; font-weight: 700; font-family: "SF Mono", Menlo, monospace;
+  }
+  .fin-total .t-margin-label {
+    font-size: 11px; color: #888; line-height: 1.4;
+  }
+
+  /* Actual cost comparison (post-sold) */
+  .fin-actual {
+    padding: 12px 14px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 8px; margin: 14px 0 18px;
+  }
+  .fin-actual .a-row {
+    display: flex; justify-content: space-between;
+    font-size: 12px; padding: 4px 0; color: #ccc;
+  }
+  .fin-actual .a-row .a-v {
+    font-family: "SF Mono", Menlo, monospace; color: #fff; font-weight: 600;
+  }
+  .fin-actual .a-row.variance .a-v { font-weight: 700; }
+
+  .fin-row {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 10px; align-items: center;
+    padding: 8px 0; font-size: 12.5px;
+    border-bottom: 1px solid #141414;
+  }
+  .fin-row:last-of-type { border-bottom: none; }
+  .fin-row .k { color: #ccc; }
+  .fin-row .hrs {
+    color: #666; font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+  }
+  .fin-row .v {
+    color: #fff; font-family: "SF Mono", Menlo, monospace; font-size: 12.5px;
+  }
+  .fin-row.expandable { cursor: pointer; }
+  .fin-row.expandable:hover { background: #111; margin: 0 -10px; padding: 8px 10px; border-radius: 4px; }
+  .fin-row .caret { font-size: 9px; color: #666; transition: transform 0.2s; }
+  .fin-row.expandable.open .caret { transform: rotate(90deg); }
+  .dept-sub {
+    display: none; padding: 6px 0 10px 14px; border-left: 1px solid #1e3a5f;
+    margin-left: 2px; margin-bottom: 6px;
+  }
+  .dept-sub.open { display: block; }
+  .dept-sub .dept-line {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 10px; padding: 3px 0; font-size: 11.5px; color: #aaa;
+  }
+  .dept-sub .dept-line .dv {
+    font-family: "SF Mono", Menlo, monospace; color: #ddd;
+  }
+
+  /* ========== AR / CASH FLOW ========== */
+  .ar-block {
+    margin-top: 18px; padding-top: 16px; border-top: 1px solid #1a1a1a;
+  }
+  .ar-summary {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+    margin-bottom: 14px;
+  }
+  .ar-summary .arc {
+    padding: 10px 12px; background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 8px; text-align: center;
+  }
+  .ar-summary .arc .l {
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 0.8px; font-weight: 600; margin-bottom: 4px;
+  }
+  .ar-summary .arc .n {
+    font-size: 14px; color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .ar-summary .arc.paid .n { color: #4ade80; }
+  .ar-summary .arc.due  .n { color: #fbbf24; }
+
+  .cf-row {
+    display: grid; grid-template-columns: 1fr 80px auto auto;
+    gap: 10px; padding: 8px 0; font-size: 12px;
+    border-bottom: 1px solid #141414; align-items: center;
+  }
+  .cf-row:last-child { border-bottom: none; }
+  .cf-row .cfk { color: #ccc; }
+  .cf-row .cfm { color: #666; font-size: 11px; font-family: "SF Mono", Menlo, monospace; }
+  .cf-row .cfv { color: #fff; font-family: "SF Mono", Menlo, monospace; text-align: right; }
+  .cf-row .cfstate {
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.7px;
+    font-weight: 700; padding: 2px 6px; border-radius: 3px;
+    text-align: center; min-width: 58px;
+  }
+  .cf-row .cfstate.scheduled { background: #1a1a1a; color: #666; }
+  .cf-row .cfstate.sent      { background: #1a2d4a; color: #93c5fd; }
+  .cf-row .cfstate.paid      { background: #14532d; color: #bbf7d0; }
+  .cf-row .cfstate.overdue   { background: #3a1a1a; color: #fca5a5; }
+
+  /* ========== APPROVALS PANEL (post-sold) ========== */
+  .approvals {
+    margin-top: 28px; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 12px; padding: 18px 22px;
+  }
+  .approval-row {
+    display: grid; grid-template-columns: 32px 1fr auto auto;
+    gap: 14px; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid #141414;
+  }
+  .approval-row:last-child { border-bottom: none; }
+  .approval-row .ico {
+    width: 32px; height: 32px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    background: #1a1a1a; color: #888;
+  }
+  .approval-row.done .ico { background: #14532d; color: #bbf7d0; }
+  .approval-row.pending .ico { background: #2a200a; color: #fbbf24; }
+  .approval-row.blocked .ico { background: #3a1a1a; color: #f87171; }
+  .approval-row .arow-name { font-size: 13px; color: #fff; font-weight: 600; }
+  .approval-row .arow-sub { font-size: 11.5px; color: #888; margin-top: 2px; }
+  .approval-row .arow-state {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.7px;
+  }
+  .approval-row.done .arow-state    { color: #4ade80; }
+  .approval-row.pending .arow-state { color: #fbbf24; }
+  .approval-row.blocked .arow-state { color: #f87171; }
+
+  /* ========== HISTORICAL ========== */
+  .historical {
+    margin-top: 24px;
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+    padding: 18px 22px;
+  }
+  .hist-header {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+  }
+  .hist-header .hist-title {
+    font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase;
+    color: #888; font-weight: 600;
+  }
+  .hist-caret { color: #666; font-size: 12px; transition: transform 0.15s; }
+  .historical.open .hist-caret { transform: rotate(90deg); color: #fff; }
+  .hist-body { display: none; margin-top: 16px; }
+  .historical.open .hist-body { display: block; }
+  .hist-summary-inline { font-size: 12px; color: #86efac; font-weight: 500; }
+  .hist-compare {
+    display: flex; align-items: center; gap: 20px;
+    padding: 14px 16px; background: #0c1a2e; border: 1px solid #1e3a5f;
+    border-radius: 8px; flex-wrap: wrap;
+  }
+  .hist-compare .hcn {
+    font-size: 22px; font-weight: 700; font-family: "SF Mono", Menlo, monospace;
+    color: #fff;
+  }
+  .hist-compare .hcl { font-size: 11.5px; color: #93c5fd; line-height: 1.4; }
+  .hist-compare .sep-v { width: 1px; align-self: stretch; background: #1e3a5f; }
+  .hist-compare .check { color: #4ade80; font-size: 18px; }
+
+  /* ========== CLIENT & NOTES ========== */
+  .client-notes {
+    margin-top: 28px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    max-width: 1280px; margin-left: auto; margin-right: auto;
+  }
+  .cn-card {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+    padding: 18px 22px;
+  }
+  .cn-card .cn-title {
+    font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase;
+    color: #888; font-weight: 600; margin-bottom: 12px;
+  }
+  .cn-field {
+    display: grid; grid-template-columns: 80px 1fr;
+    gap: 10px; padding: 6px 0; font-size: 12.5px;
+    align-items: center;
+  }
+  .cn-field .cn-k { color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .cn-field input {
+    background: transparent; color: #fff; border: 1px solid transparent;
+    padding: 5px 8px; border-radius: 4px; font: inherit; font-size: 12.5px;
+    width: 100%;
+  }
+  .cn-field input:hover { border-color: #222; background: #0a0a0a; }
+  .cn-field input:focus { border-color: #2d5a8a; background: #0c1a2e; outline: none; }
+  .notes-area {
+    width: 100%; min-height: 110px; background: #0a0a0a; color: #ddd;
+    border: 1px solid #1a1a1a; border-radius: 6px; padding: 10px 12px;
+    font-size: 12px; line-height: 1.6; font-family: inherit; resize: vertical;
+  }
+  .notes-area:focus { border-color: #2d5a8a; outline: none; }
+
+  /* ========== ACTIONS BAR ========== */
+  .actions-bar {
+    margin-top: 24px; padding: 16px 20px;
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px;
+    max-width: 1280px; margin-left: auto; margin-right: auto;
+  }
+  .actions-bar .left-side, .actions-bar .right-side {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  }
+
+  /* ========== TOAST ========== */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    max-width: 520px; z-index: 100; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ========== STATUS PILL ========== */
+  .status-pill {
+    padding: 3px 10px; border-radius: 10px; font-size: 10.5px;
+    font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+    margin-left: 10px;
+  }
+  .status-pill.bidding    { background: #2a200a; color: #fbbf24; border: 1px solid #4a3a15; }
+  .status-pill.sold       { background: #1a2d4a; color: #93c5fd; border: 1px solid #2d5a8a; }
+  .status-pill.production { background: #2a1e3a; color: #c4b5fd; border: 1px solid #4a3575; }
+  .status-pill.installed  { background: #14532d; color: #bbf7d0; border: 1px solid #166534; }
+  .status-pill.complete   { background: #1a1a1a; color: #888;    border: 1px solid #2a2a2a; }
+
+  /* Stage-conditional visibility */
+  [data-show] { display: none; }
+  body.stage-bidding     [data-show~="bidding"],
+  body.stage-sold        [data-show~="sold"],
+  body.stage-production  [data-show~="production"],
+  body.stage-installed   [data-show~="installed"],
+  body.stage-complete    [data-show~="complete"],
+  body.stage-sold        [data-show~="post-sold"],
+  body.stage-production  [data-show~="post-sold"],
+  body.stage-installed   [data-show~="post-sold"],
+  body.stage-complete    [data-show~="post-sold"] { display: block; }
+  body.stage-sold        [data-show~="post-sold"].flex,
+  body.stage-production  [data-show~="post-sold"].flex,
+  body.stage-installed   [data-show~="post-sold"].flex,
+  body.stage-complete    [data-show~="post-sold"].flex,
+  body.stage-bidding     [data-show~="bidding"].flex,
+  body.stage-production  [data-show~="production"].flex { display: flex; }
+  body.stage-sold        [data-show~="post-sold"].grid,
+  body.stage-production  [data-show~="post-sold"].grid,
+  body.stage-installed   [data-show~="post-sold"].grid,
+  body.stage-complete    [data-show~="post-sold"].grid { display: grid; }
+</style>
+</head>
+<body class="stage-bidding">
+<div class="app">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span class="diamond">◆</span>
+      <span>MillSuite</span>
+      <span class="sep">›</span>
+      <span>Projects</span>
+      <span class="sep">›</span>
+      <span class="here" id="projName">Hull Residence</span>
+      <span class="status-pill" id="statusPill">Bidding</span>
+    </div>
+    <div class="btns">
+      <button class="btn" onclick="toast('Opens the takeoff — shop-facing BOM from parsed drawings.')">📐 Takeoff</button>
+      <button class="btn" onclick="toast('Opens the client-facing estimate document.')">📄 Estimate</button>
+      <button class="btn btn-ghost" onclick="toast('Export project as CSV.')">⬇ Export</button>
+    </div>
+  </div>
+
+  <!-- STAGE SWITCHER (prototype only — not in the real page) -->
+  <div class="stage-switcher">
+    <span class="sw-label">Prototype · stage</span>
+    <button class="sw-btn active" data-stage="bidding"    onclick="setStage('bidding')">Bidding</button>
+    <button class="sw-btn"        data-stage="sold"       onclick="setStage('sold')">Sold</button>
+    <button class="sw-btn"        data-stage="production" onclick="setStage('production')">Production</button>
+    <button class="sw-btn"        data-stage="installed"  onclick="setStage('installed')">Installed</button>
+    <button class="sw-btn"        data-stage="complete"   onclick="setStage('complete')">Complete</button>
+    <span class="sw-hint">Same page — different sections light up per stage</span>
+  </div>
+
+  <!-- PROJECT HEADER -->
+  <div class="proj-header">
+    <div>
+      <h1>Hull Residence</h1>
+      <div class="proj-meta">
+        <span class="pill editable" onclick="toast('Edit client')">👤 Hull family</span>
+        <span class="pill editable" onclick="toast('Edit address')">📍 602 N Newport Ave, Tampa FL</span>
+        <span class="pill editable" onclick="toast('Edit designer')">✎ Ridge Studio <span style="color:#666">· designer</span></span>
+        <span class="pill editable" onclick="toast('Edit GC')">🔨 Framework Build <span style="color:#666">· GC</span></span>
+        <span class="dates">Created Apr 8 · Updated 2 hours ago</span>
+      </div>
+    </div>
+    <div class="proj-total-mini">
+      <div class="tlabel" id="totalLabel">Bid Total</div>
+      <div class="tval" id="projTotal">$128,450</div>
+      <div class="tmargin margin-ok" id="projMargin">34% est margin · above 32% target</div>
+      <div class="tsub" data-show="post-sold" id="projActualSub">Actual to date: $0 · variance — </div>
+    </div>
+  </div>
+
+  <!-- STAGE STRIP -->
+  <div class="stage-strip">
+    <div class="stage-node current" id="sn-bidding">
+      <div class="dot">1</div><div class="label">Bidding</div>
+    </div>
+    <div class="stage-connector" id="sc-1"></div>
+    <div class="stage-node" id="sn-sold">
+      <div class="dot">2</div><div class="label">Sold</div>
+    </div>
+    <div class="stage-connector" id="sc-2"></div>
+    <div class="stage-node" id="sn-production">
+      <div class="dot">3</div><div class="label">Production</div>
+    </div>
+    <div class="stage-connector" id="sc-3"></div>
+    <div class="stage-node" id="sn-installed">
+      <div class="dot">4</div><div class="label">Installed</div>
+    </div>
+    <div class="stage-connector" id="sc-4"></div>
+    <div class="stage-node" id="sn-complete">
+      <div class="dot">5</div><div class="label">Complete</div>
+    </div>
+    <div class="stage-detail" id="stageDetail">
+      Draft estimate · <b>not yet sent to client</b>
+    </div>
+  </div>
+
+  <!-- ATTENTION STRIP -->
+  <div class="attention" id="attentionStrip">
+    <span class="att-icon">⚠</span>
+    <span class="att-label">Needs attention</span>
+    <div class="att-items" id="attItems"></div>
+  </div>
+
+  <!-- MAIN GRID -->
+  <div class="main">
+    <div class="grid">
+
+      <!-- LEFT: Subprojects + stage-specific content -->
+      <div>
+        <div class="section-title">
+          Subprojects
+          <span class="tt-count" id="spCount">5 rooms · 12 lines</span>
+        </div>
+        <div class="sp-grid" id="spGrid"></div>
+        <div class="sp-add" onclick="toast('+ New subproject — blank, cloned, or parsed from drawings.')">
+          + Add subproject
+        </div>
+
+        <!-- APPROVALS (post-sold only) -->
+        <div class="approvals" data-show="post-sold">
+          <div class="section-title">Pre-production approvals</div>
+          <div id="approvalsList"></div>
+        </div>
+
+        <!-- SCHEDULE (production+) -->
+        <div class="approvals" data-show="production installed complete">
+          <div class="section-title">
+            Schedule
+            <a style="color:#93c5fd;cursor:pointer;font-size:11px" onclick="toast('Opens the full schedule view.')">Open schedule →</a>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;font-size:11.5px">
+            <div style="padding:10px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px;text-align:center">
+              <div style="color:#666;font-size:10px;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:4px">Engineering</div>
+              <div style="color:#4ade80;font-weight:700;font-family:'SF Mono',Menlo,monospace">Done</div>
+              <div style="color:#666;font-size:10.5px">8h of 9h</div>
+            </div>
+            <div style="padding:10px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px;text-align:center">
+              <div style="color:#666;font-size:10px;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:4px">CNC</div>
+              <div style="color:#4ade80;font-weight:700;font-family:'SF Mono',Menlo,monospace">Done</div>
+              <div style="color:#666;font-size:10.5px">12h of 14h</div>
+            </div>
+            <div style="padding:10px;background:#0c1a2e;border:1px solid #1e3a5f;border-radius:8px;text-align:center">
+              <div style="color:#93c5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:4px">Assembly</div>
+              <div style="color:#93c5fd;font-weight:700;font-family:'SF Mono',Menlo,monospace">62%</div>
+              <div style="color:#666;font-size:10.5px">77h of 124h</div>
+            </div>
+            <div style="padding:10px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px;text-align:center">
+              <div style="color:#666;font-size:10px;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:4px">Finish</div>
+              <div style="color:#666;font-weight:700;font-family:'SF Mono',Menlo,monospace">—</div>
+              <div style="color:#666;font-size:10.5px">0h of 17h</div>
+            </div>
+            <div style="padding:10px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px;text-align:center">
+              <div style="color:#666;font-size:10px;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:4px">Install</div>
+              <div style="color:#666;font-weight:700;font-family:'SF Mono',Menlo,monospace">—</div>
+              <div style="color:#666;font-size:10.5px">0h of 30h</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- POST-MORTEM (complete only) -->
+        <div class="approvals" data-show="complete">
+          <div class="section-title">Post-mortem · feeds the rate book</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+            <div style="padding:14px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px">
+              <div style="font-size:10.5px;color:#666;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px">Final margin</div>
+              <div style="font-size:22px;color:#4ade80;font-weight:700;font-family:'SF Mono',Menlo,monospace">31.2%</div>
+              <div style="font-size:11px;color:#888;margin-top:4px">est 34% · −2.8pt</div>
+            </div>
+            <div style="padding:14px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px">
+              <div style="font-size:10.5px;color:#666;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px">Hours variance</div>
+              <div style="font-size:22px;color:#fbbf24;font-weight:700;font-family:'SF Mono',Menlo,monospace">+8.5h</div>
+              <div style="font-size:11px;color:#888;margin-top:4px">201h actual · 193h est</div>
+            </div>
+            <div style="padding:14px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px">
+              <div style="font-size:10.5px;color:#666;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px">Rate book learnings</div>
+              <div style="font-size:22px;color:#93c5fd;font-weight:700;font-family:'SF Mono',Menlo,monospace">3</div>
+              <div style="font-size:11px;color:#888;margin-top:4px">items with adjusted rates</div>
+            </div>
+          </div>
+          <div style="padding:12px;background:#0c1a2e;border:1px solid #1e3a5f;border-radius:8px;font-size:12.5px;color:#93c5fd">
+            <b>Paint-grade base cabinets</b> took 12% longer than your rate book estimated. Apply +6% to future bids on this category?
+            <button class="btn btn-primary" style="margin-left:12px" onclick="toast('Rate book updated. Applied to 4 items.')">Apply</button>
+            <button class="btn" style="margin-left:6px" onclick="toast('Dismissed.')">Dismiss</button>
+          </div>
+        </div>
+
+        <!-- HISTORICAL (bidding + complete) -->
+        <div class="historical" data-show="bidding complete" id="historical">
+          <div class="hist-header" onclick="toggleHist()">
+            <div class="hist-title">
+              <span class="hist-caret">▸</span> How this project compares to past work
+            </div>
+            <div class="hist-summary-inline">✓ 2% above your avg on similar closet built-ins</div>
+          </div>
+          <div class="hist-body">
+            <div class="hist-compare">
+              <div><div class="hcn">34%</div><div class="hcl">this project</div></div>
+              <div class="sep-v"></div>
+              <div><div class="hcn">32%</div><div class="hcl">your avg<br>on similar closet work</div></div>
+              <div class="sep-v"></div>
+              <div class="check">✓</div>
+              <div style="font-size:12px; color:#86efac; flex:1">
+                <b>Looking healthy.</b> No action needed.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Financial + AR -->
+      <div class="right-col">
+        <div class="fin-panel" id="finPanel"></div>
+      </div>
+    </div>
+
+    <!-- CLIENT & NOTES -->
+    <div class="client-notes">
+      <div class="cn-card">
+        <div class="cn-title">Client contact</div>
+        <div class="cn-field">
+          <span class="cn-k">Name</span>
+          <input type="text" value="Hull">
+        </div>
+        <div class="cn-field">
+          <span class="cn-k">Email</span>
+          <input type="text" placeholder="email@example.com">
+        </div>
+        <div class="cn-field">
+          <span class="cn-k">Phone</span>
+          <input type="text" placeholder="(555) 000-0000">
+        </div>
+      </div>
+      <div class="cn-card">
+        <div class="cn-title">Notes</div>
+        <textarea class="notes-area" placeholder="Internal notes — not shown to client. Schedule notes, finish samples, decisions, etc."></textarea>
+      </div>
+    </div>
+
+    <!-- ACTIONS BAR -->
+    <div class="actions-bar" id="actionsBar"></div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============== DATA ==============
+const subprojects = [
+  { id:'primary',  name:'Primary Closet',       room:'Primary bedroom',
+    lines: 8, hours: 42, material: 9200, total: 28400, margin: 34, status:'ready' },
+  { id:'david',    name:"Guest/David's Closet", room:'Guest 1',
+    lines: 0, hours: 0,  material: 0,    total: 0,     margin: null, status:'empty', needsReview: true },
+  { id:'guest2',   name:'Guest 2 Closet',       room:'Guest 2',
+    lines: 3, hours: 18, material: 3800, total: 12100, margin: 31, status:'ready' },
+  { id:'art',      name:'Art Storage',          room:'Hallway',
+    lines: 1, hours: 8,  material: 1400, total: 4800,  margin: 33, status:'ready' },
+  { id:'linen',    name:'Linen Closet',         room:'Hallway',
+    lines: 0, hours: 0,  material: 0,    total: 0,     margin: null, status:'empty' }
+];
+
+const actuals = {
+  // Per-stage snapshots so the prototype can show realistic numbers
+  'bidding':    { cost: 0,       hours: 0,   invoiced: 0,     paid: 0 },
+  'sold':       { cost: 600,     hours: 5,   invoiced: 38535, paid: 38535 },
+  'production': { cost: 42800,   hours: 111, invoiced: 89915, paid: 76070 },
+  'installed':  { cost: 84200,   hours: 188, invoiced: 115605,paid: 115605 },
+  'complete':   { cost: 88420,   hours: 201, invoiced: 128450,paid: 128450 }
+};
+
+const milestones = [
+  { label: 'Deposit at signing',      pct: 0.30, trigger: 'signing' },
+  { label: 'Progress at rough-in',    pct: 0.40, trigger: 'rough-in' },
+  { label: 'Progress at install',     pct: 0.20, trigger: 'install' },
+  { label: 'Final at punchout',       pct: 0.10, trigger: 'punchout' }
+];
+
+// Stage controls which milestones are in which state
+const milestoneState = {
+  'bidding':    ['scheduled','scheduled','scheduled','scheduled'],
+  'sold':       ['paid','scheduled','scheduled','scheduled'],
+  'production': ['paid','paid','sent','scheduled'],
+  'installed':  ['paid','paid','paid','sent'],
+  'complete':   ['paid','paid','paid','paid']
+};
+
+const approvals = {
+  'sold':       [
+    { key:'drawings', name:'Shop drawings',      sub:'Revision 1 — sent to designer 3 days ago', state:'pending' },
+    { key:'finish',   name:'Finish samples',     sub:'Not yet submitted', state:'blocked' },
+    { key:'select',   name:'Client selections',  sub:'Not yet submitted', state:'blocked' }
+  ],
+  'production': [
+    { key:'drawings', name:'Shop drawings',      sub:'Approved by client · rev 2', state:'done' },
+    { key:'finish',   name:'Finish samples',     sub:'Approved · Sherwin SW 7004', state:'done' },
+    { key:'select',   name:'Client selections',  sub:'Pending hardware choice (Rocky Mountain pulls)', state:'pending' }
+  ],
+  'installed':  [
+    { key:'drawings', name:'Shop drawings',      sub:'Approved · rev 2',            state:'done' },
+    { key:'finish',   name:'Finish samples',     sub:'Approved · Sherwin SW 7004',  state:'done' },
+    { key:'select',   name:'Client selections',  sub:'All selections finalized',    state:'done' }
+  ]
+};
+
+const attention = {
+  'bidding':    [
+    { msg:'subs need scoping',              n:2, target:'subs' },
+    { msg:'scope items flagged for review', n:3, target:'takeoff' }
+  ],
+  'sold':       [
+    { msg:'finish samples not submitted',  n:1, target:'approvals' },
+    { msg:'selections not submitted',      n:1, target:'approvals' }
+  ],
+  'production': [
+    { msg:'selections overdue',            n:1, target:'approvals' },
+    { msg:'progress invoice overdue',      n:1, target:'invoices' }
+  ],
+  'installed':  [
+    { msg:'punchout items open',           n:3, target:'punchout' }
+  ],
+  'complete':   []
+};
+
+const project = {
+  total: 128450,
+  labor: { hours: 193, cost: 16450, dept: {
+    Engineering: { hours: 8.5, cost: 808 },
+    CNC:         { hours: 14.2, cost: 1207 },
+    Assembly:    { hours: 124.5, cost: 10583 },
+    Finish:      { hours: 16.8, cost: 1512 },
+    Install:     { hours: 29.0, cost: 2340 }
+  }},
+  material: { cost: 14400, consumables: 1440 },
+  hardware: { cost: 1820 },
+  install:  { cost: 2820 },
+  margin: 34,
+  marginTarget: 32
+};
+
+let stage = 'bidding';
+let deptOpen = false;
+
+// ============== HELPERS ==============
+function money(n) { return '$' + Math.round(n).toLocaleString(); }
+function hoursFmt(n) { return (Math.round(n*10)/10).toFixed(1) + 'h'; }
+function $(id) { return document.getElementById(id); }
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+function marginCls(m, target) {
+  if (m == null) return '';
+  if (m >= target) return 'margin-ok';
+  if (m >= target - 5) return 'margin-warn';
+  return 'margin-bad';
+}
+
+// ============== STAGE CONTROL ==============
+function setStage(s) {
+  stage = s;
+  document.body.className = 'stage-' + s;
+  document.querySelectorAll('.sw-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.stage === s)
+  );
+  renderStageStrip();
+  renderStatusPill();
+  renderHeaderTotals();
+  renderAttention();
+  renderFinancial();
+  renderApprovals();
+  renderActionsBar();
+}
+
+function renderStatusPill() {
+  const pill = $('statusPill');
+  const labels = { bidding:'Bidding', sold:'Sold', production:'Production', installed:'Installed', complete:'Complete' };
+  pill.className = 'status-pill ' + stage;
+  pill.textContent = labels[stage];
+}
+
+function renderStageStrip() {
+  const order = ['bidding','sold','production','installed','complete'];
+  const idx = order.indexOf(stage);
+  order.forEach((st, i) => {
+    const node = $('sn-' + st);
+    node.classList.remove('done','current');
+    if (i < idx) node.classList.add('done');
+    else if (i === idx) node.classList.add('current');
+  });
+  for (let i = 1; i <= 4; i++) {
+    const con = $('sc-' + i);
+    con.classList.toggle('done', i <= idx);
+  }
+  const details = {
+    bidding:    'Draft estimate · <b>not yet sent to client</b>',
+    sold:       'Sold Apr 14 · <b>deposit paid</b> · pre-production open',
+    production: 'In production · <b>day 12 of 22</b> · on schedule',
+    installed:  'Installed Apr 19 · <b>punchout in progress</b>',
+    complete:   'Completed Apr 21 · <b>final margin 31.2%</b> · rate book updated'
+  };
+  $('stageDetail').innerHTML = details[stage];
+}
+
+function renderHeaderTotals() {
+  if (stage === 'bidding') {
+    $('totalLabel').textContent = 'Bid Total';
+    $('projTotal').textContent = money(project.total);
+    $('projMargin').className = 'tmargin ' + marginCls(project.margin, project.marginTarget);
+    $('projMargin').textContent = project.margin + '% est margin · above ' + project.marginTarget + '% target';
+  } else if (stage === 'complete') {
+    $('totalLabel').textContent = 'Final Total';
+    $('projTotal').textContent = money(project.total);
+    const final = 31.2;
+    $('projMargin').className = 'tmargin ' + marginCls(final, project.marginTarget);
+    $('projMargin').textContent = final + '% final margin · est was ' + project.margin + '%';
+    $('projActualSub').innerHTML = 'Actual cost: ' + money(actuals.complete.cost) + ' · ' + actuals.complete.hours + 'h logged';
+  } else {
+    $('totalLabel').textContent = 'Bid Total';
+    $('projTotal').textContent = money(project.total);
+    $('projMargin').className = 'tmargin ' + marginCls(project.margin, project.marginTarget);
+    $('projMargin').textContent = project.margin + '% est margin';
+    const a = actuals[stage];
+    const pctOfBudget = project.total ? (a.cost / (project.total * (1 - project.margin/100))) * 100 : 0;
+    const varianceCls = pctOfBudget > 110 ? 'var-bad' : 'var-good';
+    $('projActualSub').innerHTML = 'Actual cost to date: <b>' + money(a.cost) + '</b> · ' + a.hours + 'h logged';
+  }
+}
+
+function renderAttention() {
+  const items = attention[stage] || [];
+  const strip = $('attentionStrip');
+  if (!items.length) {
+    strip.style.display = 'none';
+    return;
+  }
+  strip.style.display = 'flex';
+  $('attItems').innerHTML = items.map(it =>
+    `<span class="att-item" onclick="toast('Jump to ${it.target}')"><span class="n">${it.n}</span> ${it.msg}</span>`
+  ).join('');
+}
+
+// ============== SUBPROJECTS ==============
+function renderSubprojects() {
+  const cards = subprojects.map(sp => {
+    let statusCls = '', statusText = '';
+    if (sp.status === 'empty') {
+      statusCls = 'draft';
+      statusText = '○ Needs scoping';
+    } else if (stage === 'production' || stage === 'installed' || stage === 'complete') {
+      // Fake actuals for subs to illustrate variance display
+      const est = sp.hours;
+      const act = Math.round(est * (0.9 + Math.random() * 0.3));
+      const ok = act <= est * 1.1;
+      statusCls = ok ? 'variance-ok' : 'variance-bad';
+      statusText = ok ? `✓ ${act}h of ${est}h` : `⚠ ${act}h of ${est}h`;
+    } else {
+      statusCls = 'ready';
+      statusText = '● Ready';
+    }
+
+    const tag = sp.needsReview
+      ? '<span class="sp-tag review">review</span>'
+      : sp.status === 'empty'
+        ? '<span class="sp-tag empty">empty</span>'
+        : '';
+
+    const mCls = marginCls(sp.margin, project.marginTarget);
+    const mText = sp.margin != null ? sp.margin + '% margin' : '<span style="color:#555">margin —</span>';
+    const totalCls = sp.total === 0 ? 'empty' : '';
+    const totalText = sp.total === 0 ? '—' : money(sp.total);
+
+    const linesLine = sp.lines === 0
+      ? '<span style="color:#666;font-style:italic">No lines yet · click to add</span>'
+      : `<span><span class="k">${sp.lines}</span>lines</span>
+         <span><span class="k">${sp.hours}</span>hrs</span>
+         <span><span class="k">${money(sp.material)}</span>material</span>`;
+
+    return `<div class="sp-card ${sp.status === 'empty' ? 'empty' : ''}" onclick="toast('Opens ${sp.name} in the line editor')">
+      <div class="sp-left">
+        <div class="sp-name">${sp.name}${tag}</div>
+        <div class="sp-sub">${sp.room}</div>
+        <div class="sp-stats">${linesLine}</div>
+      </div>
+      <div class="sp-right">
+        <div class="sp-total ${totalCls}">${totalText}</div>
+        <div class="sp-margin ${mCls}">${mText}</div>
+        <div class="sp-status ${statusCls}">${statusText}</div>
+      </div>
+    </div>`;
+  }).join('');
+  $('spGrid').innerHTML = cards;
+
+  const nLines = subprojects.reduce((s, sp) => s + sp.lines, 0);
+  $('spCount').textContent = `${subprojects.length} rooms · ${nLines} lines`;
+}
+
+// ============== FINANCIAL PANEL ==============
+function renderFinancial() {
+  const p = project;
+  const a = actuals[stage];
+  const mCls = marginCls(p.margin, p.marginTarget);
+
+  // Build Labor + breakdown
+  const deptRows = Object.entries(p.labor.dept).map(([d, v]) =>
+    `<div class="dept-line">
+       <span>${d}</span>
+       <span class="dv">${hoursFmt(v.hours)}</span>
+       <span class="dv">${money(v.cost)}</span>
+     </div>`
+  ).join('');
+
+  // Actual comparison block (post-sold)
+  const estCost = p.total * (1 - p.margin/100);
+  const costVar = a.cost - (estCost * (a.cost / Math.max(estCost, 1) < 1 ? (a.cost/estCost) : 1));
+  const costPct = estCost ? (a.cost / estCost) * 100 : 0;
+  const hourPct = p.labor.hours ? (a.hours / p.labor.hours) * 100 : 0;
+  const varianceCls = costPct > 100 ? 'var-bad' : 'var-good';
+
+  const actualHtml = stage === 'bidding' ? '' : `
+    <div class="fin-actual">
+      <div class="a-row">
+        <span>Est. cost</span>
+        <span class="a-v">${money(estCost)}</span>
+      </div>
+      <div class="a-row">
+        <span>Actual to date</span>
+        <span class="a-v">${money(a.cost)}</span>
+      </div>
+      <div class="a-row variance">
+        <span>Variance</span>
+        <span class="a-v ${varianceCls}">${costPct > 100 ? '+' : ''}${(costPct - 100).toFixed(1)}% (${a.hours}h / ${p.labor.hours}h)</span>
+      </div>
+    </div>
+  `;
+
+  // AR block (post-sold)
+  const states = milestoneState[stage];
+  const milestoneRows = milestones.map((m, i) => {
+    const st = states[i];
+    return `<div class="cf-row">
+      <span class="cfk">${m.label}</span>
+      <span class="cfm">${Math.round(m.pct*100)}%</span>
+      <span class="cfv">${money(p.total * m.pct)}</span>
+      <span class="cfstate ${st}">${st}</span>
+    </div>`;
+  }).join('');
+
+  const arSummary = stage === 'bidding' ? '' : `
+    <div class="ar-summary">
+      <div class="arc"><div class="l">Invoiced</div><div class="n">${money(a.invoiced)}</div></div>
+      <div class="arc paid"><div class="l">Paid</div><div class="n">${money(a.paid)}</div></div>
+      <div class="arc due"><div class="l">Outstanding</div><div class="n">${money(a.invoiced - a.paid)}</div></div>
+    </div>
+  `;
+
+  $('finPanel').innerHTML = `
+    <div class="fin-total">
+      <div class="t-label">${stage === 'bidding' ? 'Bid total' : 'Contract value'}</div>
+      <div class="t-num">${money(p.total)}</div>
+      <div class="t-margin-block">
+        <div class="t-margin-pct ${mCls}">${p.margin}%</div>
+        <div class="t-margin-label">
+          est margin · target ${p.marginTarget}%
+        </div>
+      </div>
+    </div>
+
+    ${actualHtml}
+
+    <div class="section-title" style="margin-bottom:8px">Estimate breakdown</div>
+    <div class="fin-row expandable ${deptOpen ? 'open' : ''}" onclick="toggleDept()">
+      <span class="k"><span class="caret">▸</span> Labor</span>
+      <span class="hrs">${hoursFmt(p.labor.hours)}</span>
+      <span class="v">${money(p.labor.cost)}</span>
+    </div>
+    <div class="dept-sub ${deptOpen ? 'open' : ''}">${deptRows}</div>
+    <div class="fin-row">
+      <span class="k">Material</span>
+      <span class="hrs"></span>
+      <span class="v">${money(p.material.cost)}</span>
+    </div>
+    <div class="fin-row">
+      <span class="k">Consumables <span style="color:#666;font-size:10px">(10%)</span></span>
+      <span class="hrs"></span>
+      <span class="v">${money(p.material.consumables)}</span>
+    </div>
+    <div class="fin-row">
+      <span class="k">Hardware</span>
+      <span class="hrs"></span>
+      <span class="v">${money(p.hardware.cost)}</span>
+    </div>
+    <div class="fin-row">
+      <span class="k">Install</span>
+      <span class="hrs"></span>
+      <span class="v">${money(p.install.cost)}</span>
+    </div>
+
+    <div class="ar-block">
+      <div class="section-title" style="margin-bottom:10px">
+        ${stage === 'bidding' ? 'Payment milestones · proposed' : 'Accounts receivable'}
+        <span style="font-size:10px;color:#93c5fd">QB-linked</span>
+      </div>
+      ${arSummary}
+      ${milestoneRows}
+    </div>
+  `;
+}
+
+// ============== APPROVALS ==============
+function renderApprovals() {
+  const list = approvals[stage];
+  if (!list) return;
+  const iconMap = { drawings:'📐', finish:'🎨', select:'🔩' };
+  const stateLabel = { done:'Approved', pending:'Pending', blocked:'Not submitted' };
+  $('approvalsList').innerHTML = list.map(a => `
+    <div class="approval-row ${a.state}">
+      <div class="ico">${iconMap[a.key] || '●'}</div>
+      <div>
+        <div class="arow-name">${a.name}</div>
+        <div class="arow-sub">${a.sub}</div>
+      </div>
+      <div></div>
+      <div class="arow-state">${stateLabel[a.state]}</div>
+    </div>
+  `).join('');
+}
+
+// ============== ACTIONS BAR ==============
+function renderActionsBar() {
+  const actions = {
+    bidding: `
+      <div class="left-side">
+        <button class="btn" onclick="toast('Draft saved.')">Save draft</button>
+        <button class="btn" onclick="toast('Opens QB estimate preview.')">Preview QB</button>
+      </div>
+      <div class="right-side">
+        <button class="btn" onclick="toast('Client proposal sent as PDF + hosted link.')">📤 Send proposal</button>
+        <button class="btn btn-primary" onclick="setStage('sold')">✓ Mark as sold</button>
+      </div>`,
+    sold: `
+      <div class="left-side">
+        <button class="btn" onclick="toast('Opens schedule to assign dates.')">Schedule</button>
+        <button class="btn" onclick="toast('Start pre-production checklist.')">Begin preprod</button>
+      </div>
+      <div class="right-side">
+        <button class="btn btn-warn" onclick="toast('Any edit after sold becomes a change order.')">+ Change order</button>
+        <button class="btn btn-primary" onclick="setStage('production')">Start production</button>
+      </div>`,
+    production: `
+      <div class="left-side">
+        <button class="btn" onclick="toast('Log time against this project.')">⏱ Log time</button>
+        <button class="btn" onclick="toast('Create progress invoice.')">Create invoice</button>
+        <button class="btn" onclick="toast('Log material purchase against this project.')">Log PO</button>
+      </div>
+      <div class="right-side">
+        <button class="btn btn-warn" onclick="toast('+ Change order')">+ Change order</button>
+        <button class="btn btn-primary" onclick="setStage('installed')">Mark installed</button>
+      </div>`,
+    installed: `
+      <div class="left-side">
+        <button class="btn" onclick="toast('Open punchout list.')">Punchout list</button>
+        <button class="btn" onclick="toast('Create final invoice.')">Final invoice</button>
+      </div>
+      <div class="right-side">
+        <button class="btn btn-primary" onclick="setStage('complete')">✓ Mark complete</button>
+      </div>`,
+    complete: `
+      <div class="left-side">
+        <button class="btn" onclick="toast('Archive project.')">Archive</button>
+        <button class="btn" onclick="toast('Opens full post-mortem report.')">View post-mortem</button>
+      </div>
+      <div class="right-side">
+        <button class="btn btn-good" onclick="toast('Applied 3 rate book learnings.')">Apply learnings to rate book</button>
+      </div>`
+  };
+  $('actionsBar').innerHTML = actions[stage];
+}
+
+// ============== MISC ==============
+function toggleDept() {
+  deptOpen = !deptOpen;
+  renderFinancial();
+}
+function toggleHist() {
+  $('historical').classList.toggle('open');
+}
+
+// ============== INIT ==============
+function initialRender() {
+  renderSubprojects();
+  setStage('bidding');
+}
+initialRender();
+</script>
+</body>
+</html>
