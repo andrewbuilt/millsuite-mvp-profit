@@ -65,7 +65,11 @@ function CapacityContent() {
     ] = await Promise.all([
       supabase.from('departments').select('*').eq('org_id', org!.id).eq('active', true).order('display_order'),
       supabase.from('department_members').select('department_id, user_id').eq('org_id', org!.id),
-      supabase.from('projects').select('id, name, client_name, status, bid_total').eq('org_id', org!.id).in('status', ['active', 'bidding']),
+      supabase
+        .from('projects')
+        .select('id, name, client_name, stage, bid_total')
+        .eq('org_id', org!.id)
+        .in('stage', ['new_lead', 'fifty_fifty', 'ninety_percent', 'sold', 'production', 'installed']),
       supabase.from('subprojects').select('id, project_id, name, labor_hours').eq('org_id', org!.id),
       supabase.from('department_allocations').select('id, subproject_id, department_id, estimated_hours').eq('org_id', org!.id),
       supabase.from('project_month_allocations').select('*').eq('org_id', org!.id).gte('month_date', `${year}-01-01`).lte('month_date', `${year}-12-31`),

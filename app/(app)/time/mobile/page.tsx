@@ -39,9 +39,15 @@ export default function MobileTimerPage() {
   // Load projects + departments (Phase 8: crew needs to pick a dept too)
   useEffect(() => {
     if (!org?.id) return
-    supabase.from('projects').select('id, name').eq('org_id', org.id).in('status', ['active', 'bidding']).order('name').then(({ data }) => {
-      if (data) setProjects(data)
-    })
+    supabase
+      .from('projects')
+      .select('id, name')
+      .eq('org_id', org.id)
+      .in('stage', ['new_lead', 'fifty_fifty', 'ninety_percent', 'sold', 'production', 'installed'])
+      .order('name')
+      .then(({ data }) => {
+        if (data) setProjects(data)
+      })
     supabase.from('departments').select('id, name, display_order').eq('org_id', org.id).eq('active', true).order('display_order').then(({ data }) => {
       if (data) setDepartments(data.filter(d => !d.name.toLowerCase().includes('management')))
     })

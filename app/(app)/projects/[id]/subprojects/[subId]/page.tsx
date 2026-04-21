@@ -143,7 +143,7 @@ export default function SubprojectEditorPage() {
       const [projRes, subRes, linesData, rb, opts, rates, lineOpts, subActuals, deptRes] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, client_name, status')
+          .select('id, name, client_name, stage')
           .eq('id', projectId)
           .single(),
         supabase

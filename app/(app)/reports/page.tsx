@@ -109,7 +109,7 @@ export default function ReportsPage() {
           .from('projects')
           .select('id, name, estimated_hours, start_date, target_completion_date')
           .eq('org_id', org!.id)
-          .in('status', ['in_production', 'scheduled']),
+          .in('stage', ['production', 'installed']),
         supabase
           .from('team_members')
           .select('id')

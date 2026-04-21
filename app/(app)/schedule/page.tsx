@@ -26,7 +26,7 @@ interface Project {
   id: string
   name: string
   client_name: string | null
-  status: string
+  stage: string
   due_date: string | null
 }
 
@@ -923,12 +923,13 @@ export default function SchedulePage() {
       })
     setDepartments(depts)
 
-    // Load projects
+    // Load projects that are currently schedulable — pre-sold bids + anything
+    // in the shop that isn't complete or lost yet.
     const { data: projData } = await supabase
       .from('projects')
-      .select('id, name, client_name, status, due_date')
+      .select('id, name, client_name, stage, due_date')
       .eq('org_id', org.id)
-      .in('status', ['active', 'bidding'])
+      .in('stage', ['new_lead', 'fifty_fifty', 'ninety_percent', 'sold', 'production', 'installed'])
       .order('name')
 
     const projs: Project[] = projData || []

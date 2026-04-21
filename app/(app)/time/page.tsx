@@ -10,7 +10,7 @@ import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen, Download } fro
 interface Project {
   id: string
   name: string
-  status: string
+  stage: string
 }
 
 interface Subproject {
@@ -124,7 +124,7 @@ export default function TimePage() {
     if (!org?.id) return
     const { data } = await supabase
       .from('projects')
-      .select('id, name, status')
+      .select('id, name, stage')
       .eq('org_id', org.id)
       .order('name')
     if (data) setProjects(data)
@@ -170,7 +170,7 @@ export default function TimePage() {
 
     const { data } = await supabase
       .from('time_entries')
-      .select('*, project:projects(id, name, status), subproject:subprojects(id, project_id, name), department:departments(id, name)')
+      .select('*, project:projects(id, name, stage), subproject:subprojects(id, project_id, name), department:departments(id, name)')
       .eq('org_id', org.id)
       .gte('created_at', sevenDaysAgo.toISOString())
       .order('created_at', { ascending: false })

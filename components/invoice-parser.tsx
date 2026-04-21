@@ -65,7 +65,7 @@ export default function InvoiceParser() {
       .from('projects')
       .select('id, name')
       .eq('org_id', org.id)
-      .in('status', ['active', 'bidding'])
+      .in('stage', ['new_lead', 'fifty_fifty', 'ninety_percent', 'sold', 'production', 'installed'])
       .order('name')
       .then(({ data }) => setProjects(data || []))
   }, [org?.id])
