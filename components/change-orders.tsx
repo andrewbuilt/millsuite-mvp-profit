@@ -66,13 +66,16 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showCreate, setShowCreate] = useState(false)
 
+  // reload() just refetches — it does NOT call onChange. If onChange fired on
+  // every reload, any parent that reloads in response (e.g. pre-production
+  // uses the CO gate to derive project readiness) would bounce us back into
+  // another reload and the whole tree would oscillate indefinitely.
   const reload = useCallback(async () => {
     setLoading(true)
     const next = await loadChangeOrdersForProject(projectId)
     setCos(next)
     setLoading(false)
-    onChange?.()
-  }, [projectId, onChange])
+  }, [projectId])
 
   useEffect(() => {
     reload()
@@ -90,11 +93,14 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
     })
   }
 
+  // State-changing actions still fan out to the parent — the gate / counts
+  // on pre-production care about draft → sent → approved transitions.
   const runTransition = async (fn: (id: string) => Promise<void>, coId: string) => {
     setBusyCoId(coId)
     try {
       await fn(coId)
       await reload()
+      onChange?.()
     } catch (err) {
       console.error(err)
       alert('Failed to update CO. See console.')
@@ -169,6 +175,7 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
           onCreated={async () => {
             setShowCreate(false)
             await reload()
+            onChange?.()
           }}
         />
       )}

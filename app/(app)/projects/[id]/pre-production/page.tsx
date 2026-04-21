@@ -83,11 +83,15 @@ export default function PreProductionPage() {
   // Project-wide counts are cheap enough to fetch all items for — most
   // projects have well under 100 slots across every sub.
   const [allItems, setAllItems] = useState<ApprovalItem[]>([])
+  // `loading` gates only the very first render. Once `project` is populated,
+  // background reloads (triggered by CO state changes, slot approvals, etc.)
+  // don't blank the page — they just swap in fresher data. Blanking on every
+  // reload was making ChangeOrders + ApprovalSlots remount, which re-fired
+  // their mount effects, which caused a render loop.
   const [loading, setLoading] = useState(true)
 
   const reload = useCallback(async () => {
     if (!projectId || !org?.id) return
-    setLoading(true)
     const [projRes, subsRes] = await Promise.all([
       supabase
         .from('projects')
