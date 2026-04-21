@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MillSuite · Kitchen Wizard (Clickable Mockup)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #0a0a0a; color: #e5e5e5; height: 100vh; overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ========== TOP BAR ========== */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: #0d0d0d; border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+  }
+  .breadcrumb {
+    font-size: 12px; color: #888;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .breadcrumb .sep { color: #444; }
+  .breadcrumb .here { color: #fff; font-weight: 600; }
+  .breadcrumb .diamond { color: #3b82f6; }
+  .client-pill {
+    padding: 3px 10px; background: #141414; border: 1px solid #2a2a2a;
+    border-radius: 10px; font-size: 11px; color: #ccc;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .status-pill {
+    padding: 3px 10px; border-radius: 10px; font-size: 11px;
+    font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+    background: #2a200a; color: #fbbf24; border: 1px solid #4a3a15;
+  }
+  .topbar .btns { display: flex; gap: 8px; }
+  .btn {
+    background: #1e1e1e; border: 1px solid #2a2a2a; color: #ddd;
+    padding: 6px 12px; font-size: 12px; border-radius: 6px;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+  }
+  .btn:hover { background: #252525; border-color: #333; color: #fff; }
+  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; font-weight: 600; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover { color: #ccc; background: #1a1a1a; }
+  .btn.sm { padding: 4px 9px; font-size: 11.5px; }
+
+  /* ========== WIZARD LAYOUT ========== */
+  .wizard-wrap {
+    flex: 1; display: flex; overflow: hidden;
+  }
+  .wizard-left {
+    width: 460px; flex-shrink: 0;
+    overflow-y: auto; padding: 22px 26px 100px;
+    border-right: 1px solid #1a1a1a; background: #0a0a0a;
+  }
+  .wizard-right {
+    flex: 1; overflow-y: auto;
+    padding: 22px 26px 100px; background: #0a0a0a;
+    position: relative;
+  }
+
+  .wizard-heading { margin-bottom: 18px; }
+  .wizard-heading h1 {
+    font-size: 20px; font-weight: 600; color: #fff; letter-spacing: -0.3px;
+    margin-bottom: 4px;
+  }
+  .wizard-heading .sub {
+    font-size: 12.5px; color: #888; line-height: 1.5;
+  }
+  .wizard-heading .sub a { color: #93c5fd; text-decoration: none; }
+  .wizard-heading .sub a:hover { text-decoration: underline; }
+
+  .starter-banner {
+    background: #1a2d0a; border: 1px solid #3a5215;
+    padding: 9px 12px; border-radius: 6px; font-size: 11.5px;
+    color: #bef264; margin-bottom: 18px; line-height: 1.5;
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+  .starter-banner .icon { font-size: 13px; }
+  .starter-banner .link { color: #fef08a; text-decoration: underline; cursor: pointer; }
+
+  /* ========== FORM SECTIONS ========== */
+  .form-section {
+    margin-bottom: 22px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid #141414;
+  }
+  .form-section:last-child { border-bottom: none; }
+  .form-section h3 {
+    font-size: 10.5px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 12px;
+  }
+  .form-row {
+    display: grid; grid-template-columns: 160px 1fr;
+    gap: 14px; align-items: center;
+    margin-bottom: 10px;
+  }
+  .form-row:last-child { margin-bottom: 0; }
+  .form-row label {
+    font-size: 12.5px; color: #ccc;
+  }
+  .form-row .hint {
+    font-size: 10.5px; color: #666; margin-top: 2px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+
+  .num-input, .sel-input {
+    background: #141414; border: 1px solid #2a2a2a; color: #fff;
+    padding: 7px 10px; font-size: 13px; border-radius: 5px;
+    font-family: inherit; outline: none; width: 100%;
+    transition: border-color 0.15s;
+  }
+  .num-input { font-family: "SF Mono", Menlo, monospace; }
+  .num-input:focus, .sel-input:focus {
+    border-color: #3b82f6; background: #0c1a2e;
+  }
+  .input-row { display: flex; gap: 6px; align-items: center; }
+  .input-row .unit { color: #666; font-size: 11px; font-family: "SF Mono", Menlo, monospace; }
+  .input-row .num-input { flex: 1; }
+
+  .toggle-group { display: flex; gap: 4px; flex-wrap: wrap; }
+  .toggle-opt {
+    padding: 6px 10px; background: #141414; border: 1px solid #2a2a2a;
+    border-radius: 5px; font-size: 12px; color: #aaa;
+    cursor: pointer; transition: all 0.15s;
+    font-family: inherit;
+  }
+  .toggle-opt:hover { background: #1a1a1a; color: #ddd; }
+  .toggle-opt.on {
+    background: #0c1a2e; border-color: #3b82f6; color: #93c5fd;
+    font-weight: 500;
+  }
+
+  .check-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 2px; cursor: pointer;
+    font-size: 12.5px; color: #ddd;
+  }
+  .check-row .cb {
+    width: 15px; height: 15px; border: 1px solid #2a2a2a;
+    border-radius: 3px; flex-shrink: 0; background: #0d0d0d;
+    position: relative; transition: all 0.15s;
+  }
+  .check-row.on .cb { background: #3b82f6; border-color: #3b82f6; }
+  .check-row.on .cb::after {
+    content: '✓'; color: white; font-size: 11px; font-weight: bold;
+    position: absolute; top: -3px; left: 2px;
+  }
+  .check-row .cnote {
+    color: #666; font-size: 11px; margin-left: auto;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+
+  /* ========== RIGHT: PREVIEW ========== */
+  .preview-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .preview-head h2 {
+    font-size: 16px; font-weight: 600; color: #fff; letter-spacing: -0.2px;
+  }
+  .preview-head .count {
+    font-size: 11.5px; color: #666;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+
+  .line-preview {
+    background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 8px; overflow: hidden; margin-bottom: 16px;
+  }
+  .lp-header, .lp-row {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 54px 56px 90px;
+    gap: 10px; align-items: center;
+    padding: 10px 14px; border-bottom: 1px solid #141414;
+    font-size: 12.5px;
+  }
+  .lp-header {
+    background: #0a0a0a; font-size: 10px; color: #666;
+    text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600;
+    padding-top: 8px; padding-bottom: 8px;
+  }
+  .lp-row:last-child { border-bottom: none; }
+  .lp-row:hover { background: #111; }
+  .lp-qty, .lp-unit {
+    font-family: "SF Mono", Menlo, monospace; color: #ccc;
+  }
+  .lp-qty { text-align: right; }
+  .lp-unit { color: #777; font-size: 11.5px; }
+  .lp-item { color: #fff; font-weight: 500; }
+  .lp-item .src {
+    font-size: 10.5px; color: #777; display: block; margin-top: 2px;
+    font-weight: 400;
+  }
+  .lp-item .src .chip-inline {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 6px; border-radius: 8px;
+    background: #141414; border: 1px solid #2a2a2a; color: #999;
+    font-size: 10px; margin-left: 6px;
+  }
+  .lp-hours {
+    font-family: "SF Mono", Menlo, monospace; color: #888;
+    font-size: 11px; text-align: right;
+  }
+  .lp-total {
+    font-family: "SF Mono", Menlo, monospace; color: #fff;
+    font-weight: 600; text-align: right;
+  }
+  .lp-row.group-header {
+    background: #0a0a0a; cursor: default; font-size: 10px;
+    color: #888; text-transform: uppercase; letter-spacing: 0.8px;
+    font-weight: 600; padding: 6px 14px;
+    grid-template-columns: 1fr;
+  }
+
+  .lp-empty {
+    padding: 40px 14px; text-align: center; color: #555;
+    font-size: 12.5px; font-style: italic;
+  }
+
+  /* ========== ROLLUP CARD ========== */
+  .rollup-card {
+    background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 8px; padding: 16px 18px; margin-bottom: 18px;
+  }
+  .rollup-card h4 {
+    font-size: 10.5px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 14px;
+  }
+  .rollup-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 9px 24px; margin-bottom: 14px;
+  }
+  .rollup-line {
+    display: flex; justify-content: space-between; font-size: 12.5px;
+  }
+  .rollup-line .label { color: #999; }
+  .rollup-line .value {
+    font-family: "SF Mono", Menlo, monospace; color: #ddd;
+  }
+  .rollup-line .sub {
+    color: #555; font-size: 10.5px; margin-left: 6px;
+  }
+  .rollup-divider {
+    height: 1px; background: #1a1a1a; margin: 10px 0;
+  }
+  .rollup-total {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding-top: 4px;
+  }
+  .rollup-total .label {
+    font-size: 12.5px; color: #aaa; text-transform: uppercase;
+    letter-spacing: 0.8px; font-weight: 600;
+  }
+  .rollup-total .value {
+    font-family: "SF Mono", Menlo, monospace; color: #fff;
+    font-size: 22px; font-weight: 700;
+  }
+  .margin-display {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-top: 8px; font-size: 12px;
+  }
+  .margin-display .label { color: #999; }
+  .margin-ok { color: #4ade80; }
+  .margin-warn { color: #fbbf24; }
+  .margin-bad { color: #f87171; }
+  .margin-display .value {
+    font-family: "SF Mono", Menlo, monospace; font-weight: 600;
+  }
+
+  /* dept chips */
+  .dept-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding-top: 6px;
+  }
+  .dept-chip {
+    padding: 2px 8px; background: #141414; border: 1px solid #2a2a2a;
+    border-radius: 10px; font-size: 10.5px; color: #aaa;
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .dept-chip .d { color: #777; text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.5px; }
+
+  /* ========== FOOTER BAR ========== */
+  .footer-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #0d0d0d; border-top: 1px solid #1a1a1a;
+    padding: 14px 26px; display: flex; align-items: center;
+    justify-content: space-between;
+    z-index: 20;
+  }
+  .footer-summary {
+    display: flex; gap: 16px; align-items: baseline;
+    font-size: 12.5px; color: #888;
+  }
+  .footer-summary .big {
+    font-family: "SF Mono", Menlo, monospace; color: #fff;
+    font-weight: 700; font-size: 18px;
+  }
+  .footer-summary .sep { color: #333; }
+  .footer-actions { display: flex; gap: 10px; }
+
+  /* ========== EDITOR VIEW (after generate) ========== */
+  .editor-view { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .editor-view.active { display: flex; }
+  .wizard-wrap.hidden { display: none; }
+
+  .gen-banner {
+    background: #0c1a2e; border-bottom: 1px solid #1e3a5f;
+    padding: 10px 26px; display: flex; align-items: center;
+    justify-content: space-between; font-size: 12px; color: #93c5fd;
+    flex-shrink: 0;
+  }
+  .gen-banner .icon { margin-right: 8px; }
+  .gen-banner .link { color: #fff; text-decoration: underline; cursor: pointer; font-weight: 500; margin-left: 6px; }
+
+  .editor-main { flex: 1; display: flex; overflow: hidden; }
+  .editor-center {
+    flex: 1; overflow-y: auto; padding: 20px 24px 120px; min-width: 0;
+  }
+  .editor-right {
+    width: 340px; background: #0d0d0d; border-left: 1px solid #1a1a1a;
+    flex-shrink: 0; overflow-y: auto; padding: 20px;
+  }
+
+  .ed-header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .ed-header h2 {
+    font-size: 18px; color: #fff; font-weight: 600; letter-spacing: -0.2px;
+  }
+  .ed-header .sub { font-size: 11.5px; color: #888; margin-top: 2px; }
+
+  .line-table {
+    width: 100%; background: #0d0d0d; border: 1px solid #1a1a1a;
+    border-radius: 8px; overflow: hidden; margin-bottom: 16px;
+  }
+  .line-table .row {
+    display: grid;
+    grid-template-columns: 42px minmax(0,1fr) 62px 1fr 70px 100px;
+    gap: 8px; align-items: center;
+    padding: 10px 14px; min-height: 44px;
+    border-bottom: 1px solid #141414;
+    cursor: pointer; transition: background 0.1s;
+  }
+  .line-table .row:last-child { border-bottom: none; }
+  .line-table .row:hover { background: #111; }
+  .line-table .row.selected { background: #0f1a2a; box-shadow: inset 3px 0 0 #3b82f6; }
+  .line-table .row.header {
+    background: #0a0a0a; cursor: default; min-height: 32px;
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 0.8px; font-weight: 600;
+  }
+  .line-table .row.header:hover { background: #0a0a0a; }
+  .line-table .row .cell { font-size: 12.5px; color: #ddd; }
+  .line-table .row .num {
+    font-family: "SF Mono", Menlo, monospace; text-align: right; color: #ccc;
+  }
+  .line-table .row .item { color: #fff; font-weight: 500; }
+  .line-table .row .unit { color: #777; }
+  .line-table .row .total { color: #fff; font-weight: 600; text-align: right;
+    font-family: "SF Mono", Menlo, monospace; }
+  .line-table .row .chips {
+    display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  .chip-spec {
+    padding: 2px 7px; background: #1a2d4a; border: 1px solid #1e3a5f;
+    color: #93c5fd; border-radius: 10px; font-size: 10.5px;
+  }
+  .chip-muted {
+    padding: 2px 7px; background: #141414; border: 1px solid #2a2a2a;
+    color: #777; border-radius: 10px; font-size: 10.5px;
+  }
+
+  /* right-panel details */
+  .rp-title {
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 10px;
+  }
+  .rp-sel {
+    padding: 12px 14px; background: #111; border: 1px solid #1e3a5f;
+    border-radius: 8px; margin-bottom: 20px;
+  }
+  .rp-sel .sel-item {
+    font-size: 14px; color: #fff; font-weight: 600; margin-bottom: 2px;
+  }
+  .rp-sel .sel-qty {
+    font-size: 12px; color: #93c5fd; font-family: "SF Mono", Menlo, monospace;
+  }
+  .rp-sel .sel-src {
+    font-size: 11px; color: #888; margin-top: 4px;
+  }
+  .rp-section { margin-bottom: 20px; }
+  .rp-section h4 {
+    font-size: 11px; color: #999; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin-bottom: 10px;
+  }
+  .rp-hour-grid {
+    display: grid; grid-template-columns: 60px 1fr 44px; gap: 6px;
+    align-items: center; margin-bottom: 6px; font-size: 12px;
+  }
+  .rp-hour-grid .dept { color: #999; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.5px; }
+  .rp-hour-grid .val { color: #ccc; font-family: "SF Mono", Menlo, monospace; text-align: right; }
+  .rp-hour-grid .unit { color: #666; font-size: 10.5px; }
+
+  .rp-buildup {
+    background: #0a0a0a; border: 1px solid #1a1a1a;
+    border-radius: 6px; padding: 10px 12px;
+  }
+  .rp-buildup h4 { color: #aaa; }
+  .rp-buildup .line {
+    display: flex; justify-content: space-between;
+    padding: 4px 0; font-size: 12px;
+  }
+  .rp-buildup .line .l { color: #999; }
+  .rp-buildup .line .v { color: #ddd; font-family: "SF Mono", Menlo, monospace; }
+  .rp-buildup .line.total {
+    border-top: 1px solid #1a1a1a; padding-top: 8px; margin-top: 6px;
+    color: #fff; font-weight: 600;
+  }
+  .rp-buildup .line.total .l { color: #fff; }
+  .rp-buildup .line.total .v { color: #fff; font-weight: 700; }
+
+  .sticky-rollup {
+    position: fixed; bottom: 0; left: 0; right: 340px;
+    background: #0d0d0d; border-top: 1px solid #1a1a1a;
+    padding: 12px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    z-index: 10;
+  }
+  .sticky-rollup .left { display: flex; gap: 18px; align-items: baseline; font-size: 12px; color: #888; }
+  .sticky-rollup .left .big { font-size: 18px; color: #fff; font-weight: 700; font-family: "SF Mono", Menlo, monospace; }
+  .sticky-rollup .left .sep { color: #333; }
+  .sticky-rollup .right { display: flex; gap: 18px; font-size: 11.5px; color: #999; }
+  .sticky-rollup .right .metric {
+    font-family: "SF Mono", Menlo, monospace;
+  }
+
+  .confidence-pill {
+    display: inline-flex; align-items: center; padding: 1px 6px;
+    border-radius: 8px; font-size: 9.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    background: #2a200a; color: #fbbf24; border: 1px solid #4a3a15;
+    margin-left: 6px;
+  }
+
+  /* little scrollbar polish */
+  .wizard-left::-webkit-scrollbar, .wizard-right::-webkit-scrollbar,
+  .editor-center::-webkit-scrollbar, .editor-right::-webkit-scrollbar { width: 8px; }
+  .wizard-left::-webkit-scrollbar-thumb, .wizard-right::-webkit-scrollbar-thumb,
+  .editor-center::-webkit-scrollbar-thumb, .editor-right::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 4px; }
+  .wizard-left::-webkit-scrollbar-thumb:hover, .wizard-right::-webkit-scrollbar-thumb:hover,
+  .editor-center::-webkit-scrollbar-thumb:hover, .editor-right::-webkit-scrollbar-thumb:hover { background: #2a2a2a; }
+
+  /* pulse on preview update */
+  @keyframes pulse-flash {
+    0% { background: #1e4a2c; }
+    100% { background: transparent; }
+  }
+  .pulse { animation: pulse-flash 0.4s ease-out; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============================================== -->
+  <!-- TOP BAR                                        -->
+  <!-- ============================================== -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span>Projects</span>
+      <span class="sep">›</span>
+      <span>Smith Residence</span>
+      <span class="sep">›</span>
+      <span class="here">Kitchen</span>
+      <span class="diamond">◆</span>
+      <span class="client-pill">🧙 Quick start</span>
+    </div>
+    <div class="btns">
+      <span class="status-pill">New Lead</span>
+      <button class="btn btn-ghost" onclick="skipWizard()">Skip wizard →</button>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- WIZARD VIEW                                    -->
+  <!-- ============================================== -->
+  <div class="wizard-wrap" id="wizardView">
+
+    <!-- LEFT: inputs -->
+    <div class="wizard-left">
+      <div class="wizard-heading">
+        <h1>Price a Kitchen</h1>
+        <div class="sub">
+          Answer a few inputs and we'll scaffold the lines.
+          Every line is editable after. Prefer line-by-line? <a onclick="skipWizard()">Skip to blank editor</a>.
+        </div>
+      </div>
+
+      <div class="starter-banner">
+        <span class="icon">🌱</span>
+        <div>
+          Using <b>starter rate book</b> &mdash; industry-average numbers.
+          Your totals will refine as you log actuals.
+          <span class="link" onclick="alert('Would open the rate book');">Review rates →</span>
+        </div>
+      </div>
+
+      <!-- Cabinets -->
+      <div class="form-section">
+        <h3>Cabinet Linear Feet</h3>
+        <div class="form-row">
+          <label>Base cabinets</label>
+          <div class="input-row">
+            <input type="number" class="num-input" id="baseLF" value="12" min="0" step="0.5">
+            <span class="unit">LF</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Wall cabinets</label>
+          <div class="input-row">
+            <input type="number" class="num-input" id="wallLF" value="10" min="0" step="0.5">
+            <span class="unit">LF</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Tall / pantry</label>
+          <div class="input-row">
+            <input type="number" class="num-input" id="tallLF" value="3" min="0" step="0.5">
+            <span class="unit">LF</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Island</label>
+          <div class="input-row">
+            <input type="number" class="num-input" id="islandLF" value="6" min="0" step="0.5">
+            <span class="unit">LF</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Door style + drawers -->
+      <div class="form-section">
+        <h3>Door &amp; Drawer Style</h3>
+        <div class="form-row">
+          <label>Door style</label>
+          <div class="toggle-group" id="doorStyleGroup">
+            <button class="toggle-opt on" data-val="shaker">Shaker</button>
+            <button class="toggle-opt" data-val="slab">Slab</button>
+            <button class="toggle-opt" data-val="raised">5-piece raised</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Drawer config</label>
+          <div class="toggle-group" id="drawerDensityGroup">
+            <button class="toggle-opt" data-val="few">Fewer</button>
+            <button class="toggle-opt on" data-val="standard">Standard</button>
+            <button class="toggle-opt" data-val="many">Drawer-heavy</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Material + finish -->
+      <div class="form-section">
+        <h3>Material &amp; Finish</h3>
+        <div class="form-row">
+          <label>Material grade</label>
+          <div class="toggle-group" id="materialGroup">
+            <button class="toggle-opt on" data-val="paint">Paint-grade</button>
+            <button class="toggle-opt" data-val="hardwood">Hardwood</button>
+            <button class="toggle-opt" data-val="exotic">Exotic</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Finish</label>
+          <div class="toggle-group" id="finishGroup">
+            <button class="toggle-opt on" data-val="painted">Painted enamel</button>
+            <button class="toggle-opt" data-val="stained">Stained</button>
+            <button class="toggle-opt" data-val="oil">Natural oil</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hardware -->
+      <div class="form-section">
+        <h3>Hardware</h3>
+        <div class="check-row on" onclick="toggleCheck(this,'softCloseHinges')">
+          <div class="cb"></div>
+          <span>Soft-close hinges</span>
+          <span class="cnote">+$8 / pair</span>
+        </div>
+        <div class="check-row on" onclick="toggleCheck(this,'softCloseSlides')">
+          <div class="cb"></div>
+          <span>Soft-close undermount slides</span>
+          <span class="cnote">+$36 / pair</span>
+        </div>
+        <div class="form-row" style="margin-top: 8px;">
+          <label>Pulls / knobs</label>
+          <div class="toggle-group" id="pullsGroup">
+            <button class="toggle-opt" data-val="knobs">Knobs</button>
+            <button class="toggle-opt on" data-val="bar">Bar pulls</button>
+            <button class="toggle-opt" data-val="none">None / by client</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trim -->
+      <div class="form-section">
+        <h3>Trim</h3>
+        <div class="check-row on" onclick="toggleCheck(this,'crown')">
+          <div class="cb"></div>
+          <span>Crown molding</span>
+          <span class="cnote">wall + tall LF</span>
+        </div>
+        <div class="check-row on" onclick="toggleCheck(this,'lightRail')">
+          <div class="cb"></div>
+          <span>Light rail</span>
+          <span class="cnote">wall LF</span>
+        </div>
+        <div class="check-row on" onclick="toggleCheck(this,'toeKick')">
+          <div class="cb"></div>
+          <span>Toe kick</span>
+          <span class="cnote">base + island LF</span>
+        </div>
+      </div>
+
+      <!-- Install -->
+      <div class="form-section">
+        <h3>Install</h3>
+        <div class="form-row">
+          <label>Install days</label>
+          <div class="input-row">
+            <input type="number" class="num-input" id="installDays" value="2" min="0" step="0.5">
+            <span class="unit">days</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Floor</label>
+          <div class="toggle-group" id="floorGroup">
+            <button class="toggle-opt on" data-val="1">Ground floor</button>
+            <button class="toggle-opt" data-val="2">2nd floor (+premium)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: live preview -->
+    <div class="wizard-right">
+      <div class="preview-head">
+        <div>
+          <h2>Generated lines</h2>
+          <div style="font-size: 12px; color: #888; margin-top: 4px;">
+            Live preview. Edit any line after generating.
+          </div>
+        </div>
+        <div class="count" id="previewCount">— lines</div>
+      </div>
+
+      <div class="line-preview" id="linePreview">
+        <div class="lp-row lp-header">
+          <div>Qty</div>
+          <div>Item</div>
+          <div style="text-align:right;">Unit</div>
+          <div style="text-align:right;">Hours</div>
+          <div style="text-align:right;">Line total</div>
+        </div>
+        <!-- lines injected here -->
+      </div>
+
+      <div class="rollup-card">
+        <h4>Subproject Rollup</h4>
+        <div class="dept-chips" id="deptChips" style="margin-bottom: 14px;">
+          <!-- dept chips injected -->
+        </div>
+        <div class="rollup-grid">
+          <div class="rollup-line"><span class="label">Labor</span><span class="value" id="rLabor">$0</span></div>
+          <div class="rollup-line"><span class="label">Material</span><span class="value" id="rMaterial">$0</span></div>
+          <div class="rollup-line"><span class="label">Consumables <span class="sub">10%</span></span><span class="value" id="rCons">$0</span></div>
+          <div class="rollup-line"><span class="label">Hardware</span><span class="value" id="rHw">$0</span></div>
+          <div class="rollup-line"><span class="label">Install</span><span class="value" id="rInstall">$0</span></div>
+          <div class="rollup-line"><span class="label">Subtotal</span><span class="value" id="rSubtotal">$0</span></div>
+        </div>
+        <div class="rollup-divider"></div>
+        <div class="margin-display">
+          <span class="label">Margin target <span class="sub">35%</span></span>
+          <span class="value margin-ok" id="rMarginDisplay">+$0</span>
+        </div>
+        <div class="rollup-divider"></div>
+        <div class="rollup-total">
+          <span class="label">Kitchen Total</span>
+          <span class="value" id="rTotal">$0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- FOOTER (wizard)                                -->
+  <!-- ============================================== -->
+  <div class="footer-bar" id="wizardFooter">
+    <div class="footer-summary">
+      <span><span class="big" id="fLineCount">0</span> lines</span>
+      <span class="sep">·</span>
+      <span><span class="big" id="fTotal">$0</span> total</span>
+      <span class="sep">·</span>
+      <span id="fMargin" class="margin-ok"><span class="big">35%</span> margin</span>
+    </div>
+    <div class="footer-actions">
+      <button class="btn">Cancel</button>
+      <button class="btn btn-primary" onclick="generate()">Generate lines →</button>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- EDITOR VIEW (after generate)                   -->
+  <!-- ============================================== -->
+  <div class="editor-view" id="editorView">
+    <div class="gen-banner">
+      <div>
+        <span class="icon">🌱</span>
+        <span>Kitchen scaffolded from wizard &mdash; <span id="bLines">0</span> lines.
+          Click any line to edit. <span class="link" onclick="backToWizard()">Edit wizard answers ↻</span></span>
+      </div>
+      <div style="color: #888;"></div>
+    </div>
+
+    <div class="editor-main">
+      <div class="editor-center">
+        <div class="ed-header">
+          <div>
+            <h2>Kitchen</h2>
+            <div class="sub">Subproject · <span id="eLineCount">0</span> lines · generated just now</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn sm">Clone from past</button>
+            <button class="btn sm">Add line</button>
+          </div>
+        </div>
+
+        <div class="line-table" id="editorLines">
+          <div class="row header">
+            <div class="num">Qty</div>
+            <div>Item</div>
+            <div>Unit</div>
+            <div>Finish specs</div>
+            <div class="num">Hours</div>
+            <div class="num">Line total</div>
+          </div>
+          <!-- lines injected here -->
+        </div>
+      </div>
+
+      <div class="editor-right">
+        <div class="rp-title">Select Line</div>
+        <div class="rp-sel">
+          <div class="sel-item" id="rpSelName">—</div>
+          <div class="sel-qty" id="rpSelQty">—</div>
+          <div class="sel-src" id="rpSelSrc"></div>
+        </div>
+
+        <div class="rp-section">
+          <h4>Hours by department</h4>
+          <div id="rpHours"></div>
+        </div>
+
+        <div class="rp-section">
+          <h4>Finish specs</h4>
+          <div id="rpFinish" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+
+        <div class="rp-section">
+          <h4>What's in this line's price</h4>
+          <div class="rp-buildup" id="rpBuildup"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sticky-rollup">
+      <div class="left">
+        <span><span class="big" id="eTotal">$0</span></span>
+        <span class="sep">·</span>
+        <span id="eMargin" class="margin-ok">35% margin</span>
+      </div>
+      <div class="right">
+        <span class="metric">Labor <span id="eLabor">$0</span></span>
+        <span class="metric">Material <span id="eMat">$0</span></span>
+        <span class="metric">Hardware <span id="eHw">$0</span></span>
+        <span class="metric">Install <span id="eInstall">$0</span></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// STARTER RATE BOOK (the #6 half of "6+1")
+// ============================================================
+// All numeric fields are populated so the wizard produces a real price
+// on day 1. Confidence = 'starter' everywhere — clear prompt to refine.
+const shopRates = { eng: 95, cnc: 85, assembly: 85, finish: 90, install: 80 };
+const consumablePct = 0.10;
+const marginPct = 0.35;
+
+const rateBook = {
+  'base-carcass': {
+    name: 'Standard base carcass', unit: 'lf', category: 'Cabinets',
+    hours: { eng: 0.05, cnc: 0.22, assembly: 1.0, finish: 0, install: 0.25 },
+    material: { mode: 'sheets', sheetsPerUnit: 1.2, sheetCost: 68 },
+    hardware: 8,
+    confidence: 'starter', materialDesc: '3/4" maple ply carcass'
+  },
+  'wall-carcass': {
+    name: 'Standard wall carcass', unit: 'lf', category: 'Cabinets',
+    hours: { eng: 0.04, cnc: 0.20, assembly: 0.9, finish: 0, install: 0.25 },
+    material: { mode: 'sheets', sheetsPerUnit: 0.9, sheetCost: 68 },
+    hardware: 8, confidence: 'starter', materialDesc: '3/4" maple ply carcass'
+  },
+  'tall-carcass': {
+    name: 'Tall / pantry carcass', unit: 'lf', category: 'Cabinets',
+    hours: { eng: 0.08, cnc: 0.35, assembly: 1.6, finish: 0, install: 0.35 },
+    material: { mode: 'sheets', sheetsPerUnit: 2.0, sheetCost: 68 },
+    hardware: 12, confidence: 'starter', materialDesc: '3/4" maple ply carcass'
+  },
+  'island-carcass': {
+    name: 'Island base carcass', unit: 'lf', category: 'Cabinets',
+    hours: { eng: 0.08, cnc: 0.28, assembly: 1.3, finish: 0, install: 0.25 },
+    material: { mode: 'sheets', sheetsPerUnit: 1.5, sheetCost: 68 },
+    hardware: 10, confidence: 'starter', materialDesc: '3/4" maple ply + panels'
+  },
+  'sink-base-adj': {
+    name: 'Sink base adjustment', unit: 'each', category: 'Cabinets',
+    hours: { eng: 0.2, cnc: 0.3, assembly: 0.8, finish: 0, install: 0.1 },
+    material: { mode: 'lump', lumpCost: 45 },
+    hardware: 0, confidence: 'starter', materialDesc: 'plumbing cutouts, apron support'
+  },
+  'door-shaker': {
+    name: 'Shaker door', unit: 'each', category: 'Doors',
+    hours: { eng: 0.02, cnc: 0.15, assembly: 0.3, finish: 0.4, install: 0 },
+    material: { mode: 'lump', lumpCost: 28 },
+    hardware: 0, confidence: 'starter', materialDesc: '5-piece frame + center panel'
+  },
+  'door-slab': {
+    name: 'Slab door', unit: 'each', category: 'Doors',
+    hours: { eng: 0.02, cnc: 0.12, assembly: 0.15, finish: 0.35, install: 0 },
+    material: { mode: 'lump', lumpCost: 22 },
+    hardware: 0, confidence: 'starter', materialDesc: 'slab, edgebanded'
+  },
+  'door-raised': {
+    name: '5-piece raised panel door', unit: 'each', category: 'Doors',
+    hours: { eng: 0.03, cnc: 0.22, assembly: 0.45, finish: 0.5, install: 0 },
+    material: { mode: 'lump', lumpCost: 38 },
+    hardware: 0, confidence: 'starter', materialDesc: '5-piece frame + raised center'
+  },
+  'drawer-box': {
+    name: 'Drawer box', unit: 'each', category: 'Drawers',
+    hours: { eng: 0.02, cnc: 0.10, assembly: 0.5, finish: 0, install: 0 },
+    material: { mode: 'lump', lumpCost: 28 },
+    hardware: 0, confidence: 'starter', materialDesc: 'maple dovetail box'
+  },
+  'drawer-front': {
+    name: 'Drawer front', unit: 'each', category: 'Drawers',
+    hours: { eng: 0.01, cnc: 0.08, assembly: 0.1, finish: 0.15, install: 0 },
+    material: { mode: 'lump', lumpCost: 18 },
+    hardware: 0, confidence: 'starter', materialDesc: 'matches door style'
+  },
+  'end-panel': {
+    name: 'Finished end panel', unit: 'each', category: 'Panels',
+    hours: { eng: 0.02, cnc: 0.1, assembly: 0.3, finish: 0.4, install: 0.1 },
+    material: { mode: 'lump', lumpCost: 35 },
+    hardware: 0, confidence: 'starter', materialDesc: 'matching veneer / paint'
+  },
+  'crown': {
+    name: 'Crown molding', unit: 'lf', category: 'Trim',
+    hours: { eng: 0.02, cnc: 0.05, assembly: 0.1, finish: 0.2, install: 0.15 },
+    material: { mode: 'linear', linearCost: 8 },
+    hardware: 0, confidence: 'starter', materialDesc: 'solid hardwood profile'
+  },
+  'light-rail': {
+    name: 'Light rail', unit: 'lf', category: 'Trim',
+    hours: { eng: 0.01, cnc: 0.03, assembly: 0.05, finish: 0.15, install: 0.1 },
+    material: { mode: 'linear', linearCost: 6 },
+    hardware: 0, confidence: 'starter', materialDesc: 'under-cabinet rail'
+  },
+  'toe-kick': {
+    name: 'Toe kick', unit: 'lf', category: 'Trim',
+    hours: { eng: 0.01, cnc: 0.02, assembly: 0.05, finish: 0.1, install: 0.05 },
+    material: { mode: 'linear', linearCost: 4 },
+    hardware: 0, confidence: 'starter', materialDesc: '3/4" ply, finished'
+  },
+  'hinge-std': {
+    name: 'Hinge pair (standard)', unit: 'each', category: 'Hardware',
+    hours: { eng: 0, cnc: 0, assembly: 0.02, finish: 0, install: 0 },
+    material: { mode: 'lump', lumpCost: 6 },
+    hardware: 0, confidence: 'starter', materialDesc: 'concealed hinge pair'
+  },
+  'hinge-sc': {
+    name: 'Hinge pair (soft-close)', unit: 'each', category: 'Hardware',
+    hours: { eng: 0, cnc: 0, assembly: 0.02, finish: 0, install: 0 },
+    material: { mode: 'lump', lumpCost: 14 },
+    hardware: 0, confidence: 'starter', materialDesc: 'Blum soft-close pair'
+  },
+  'slide-std': {
+    name: 'Drawer slide pair (standard)', unit: 'each', category: 'Hardware',
+    hours: { eng: 0, cnc: 0, assembly: 0.05, finish: 0, install: 0 },
+    material: { mode: 'lump', lumpCost: 12 },
+    hardware: 0, confidence: 'starter', materialDesc: 'side-mount slide pair'
+  },
+  'slide-sc': {
+    name: 'Drawer slide pair (soft-close undermount)', unit: 'each', category: 'Hardware',
+    hours: { eng: 0, cnc: 0, assembly: 0.05, finish: 0, install: 0 },
+    material: { mode: 'lump', lumpCost: 48 },
+    hardware: 0, confidence: 'starter', materialDesc: 'Blum undermount soft-close'
+  },
+  'pull': {
+    name: 'Pull / knob', unit: 'each', category: 'Hardware',
+    hours: { eng: 0, cnc: 0, assembly: 0.03, finish: 0, install: 0 },
+    material: { mode: 'lump', lumpCost: 14 },
+    hardware: 0, confidence: 'starter', materialDesc: 'per client selection'
+  },
+  'install-day': {
+    name: 'Install day', unit: 'day', category: 'Install',
+    hours: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 8 },
+    material: { mode: 'none' },
+    hardware: 0, confidence: 'starter', materialDesc: '1 man, 8 hours on site'
+  },
+  'second-floor': {
+    name: '2nd-floor install premium', unit: 'day', category: 'Install',
+    hours: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 2 },
+    material: { mode: 'none' },
+    hardware: 0, confidence: 'starter', materialDesc: 'hoist / stairs overhead'
+  },
+};
+
+// ============================================================
+// WIZARD STATE
+// ============================================================
+const state = {
+  baseLF: 12, wallLF: 10, tallLF: 3, islandLF: 6,
+  doorStyle: 'shaker',
+  drawerDensity: 'standard',
+  material: 'paint', finish: 'painted',
+  softCloseHinges: true, softCloseSlides: true,
+  pulls: 'bar',
+  crown: true, lightRail: true, toeKick: true,
+  installDays: 2, floor: '1',
+  generatedLines: [],
+  selectedLineIdx: 0,
+};
+
+function toggleCheck(el, key) {
+  el.classList.toggle('on');
+  state[key] = el.classList.contains('on');
+  update();
+}
+
+// wire up toggle groups
+document.querySelectorAll('.toggle-group').forEach(group => {
+  const id = group.id;
+  const key = ({
+    doorStyleGroup: 'doorStyle', drawerDensityGroup: 'drawerDensity',
+    materialGroup: 'material', finishGroup: 'finish',
+    pullsGroup: 'pulls', floorGroup: 'floor'
+  })[id];
+  group.querySelectorAll('.toggle-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      group.querySelectorAll('.toggle-opt').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      state[key] = btn.dataset.val;
+      update();
+    });
+  });
+});
+['baseLF','wallLF','tallLF','islandLF','installDays'].forEach(id => {
+  document.getElementById(id).addEventListener('input', e => {
+    state[id] = parseFloat(e.target.value) || 0;
+    update();
+  });
+});
+
+// ============================================================
+// LINE GENERATOR (the #1 half of "6+1")
+// ============================================================
+function generateLines() {
+  const lines = [];
+  const s = state;
+
+  // --- CABINETS ---
+  if (s.baseLF > 0) lines.push({ itemKey: 'base-carcass', qty: s.baseLF,
+    rule: `${s.baseLF} LF base cabinets` });
+  if (s.baseLF > 0) lines.push({ itemKey: 'sink-base-adj', qty: 1,
+    rule: `1 sink base (per kitchen)` });
+  if (s.wallLF > 0) lines.push({ itemKey: 'wall-carcass', qty: s.wallLF,
+    rule: `${s.wallLF} LF wall cabinets` });
+  if (s.tallLF > 0) lines.push({ itemKey: 'tall-carcass', qty: s.tallLF,
+    rule: `${s.tallLF} LF tall / pantry` });
+  if (s.islandLF > 0) lines.push({ itemKey: 'island-carcass', qty: s.islandLF,
+    rule: `${s.islandLF} LF island` });
+
+  // --- DOORS ---
+  // doors per LF: base 0.5, wall 0.7, tall 2.0 (tall cabinets have 2 doors typically), island 0.4
+  const doorCount = Math.round(s.baseLF * 0.5 + s.wallLF * 0.7 + s.tallLF * 2.0 + s.islandLF * 0.4);
+  const doorItemKey = ({ shaker: 'door-shaker', slab: 'door-slab', raised: 'door-raised' })[s.doorStyle];
+  if (doorCount > 0) lines.push({ itemKey: doorItemKey, qty: doorCount,
+    rule: `auto from LF × style multipliers` });
+
+  // --- DRAWERS ---
+  const drawerRate = ({ few: 0.3, standard: 0.5, many: 0.8 })[s.drawerDensity];
+  const drawerCount = Math.round((s.baseLF + s.islandLF) * drawerRate);
+  if (drawerCount > 0) {
+    lines.push({ itemKey: 'drawer-box', qty: drawerCount,
+      rule: `(base + island) × ${drawerRate} drawers/LF` });
+    lines.push({ itemKey: 'drawer-front', qty: drawerCount,
+      rule: `matches drawer count` });
+  }
+
+  // --- PANELS ---
+  let endPanels = 2; // left + right of base run
+  if (s.islandLF > 0) endPanels += 2;
+  if (s.tallLF > 0) endPanels += 1;
+  if (endPanels > 0) lines.push({ itemKey: 'end-panel', qty: endPanels,
+    rule: `ends of base + island + tall` });
+
+  // --- TRIM ---
+  if (s.crown) {
+    const crownLF = s.wallLF + s.tallLF;
+    if (crownLF > 0) lines.push({ itemKey: 'crown', qty: crownLF,
+      rule: `wall + tall LF` });
+  }
+  if (s.lightRail && s.wallLF > 0) {
+    lines.push({ itemKey: 'light-rail', qty: s.wallLF,
+      rule: `wall LF` });
+  }
+  if (s.toeKick) {
+    const tkLF = s.baseLF + s.islandLF;
+    if (tkLF > 0) lines.push({ itemKey: 'toe-kick', qty: tkLF,
+      rule: `base + island LF` });
+  }
+
+  // --- HARDWARE ---
+  if (doorCount > 0) {
+    const hingeKey = s.softCloseHinges ? 'hinge-sc' : 'hinge-std';
+    lines.push({ itemKey: hingeKey, qty: doorCount,
+      rule: `1 pair per door` });
+  }
+  if (drawerCount > 0) {
+    const slideKey = s.softCloseSlides ? 'slide-sc' : 'slide-std';
+    lines.push({ itemKey: slideKey, qty: drawerCount,
+      rule: `1 pair per drawer` });
+  }
+  if (s.pulls !== 'none') {
+    const pullCount = doorCount + drawerCount;
+    if (pullCount > 0) lines.push({ itemKey: 'pull', qty: pullCount,
+      rule: `1 per door + 1 per drawer front` });
+  }
+
+  // --- INSTALL ---
+  if (s.installDays > 0) lines.push({ itemKey: 'install-day', qty: s.installDays,
+    rule: `${s.installDays} days on site` });
+  if (s.floor === '2') lines.push({ itemKey: 'second-floor', qty: s.installDays,
+    rule: `2nd-floor premium × ${s.installDays} days` });
+
+  return lines;
+}
+
+// ============================================================
+// PRICING MATH (mirrors lib/estimate-lines.ts)
+// ============================================================
+function computeLine(line) {
+  const item = rateBook[line.itemKey];
+  const qty = line.qty;
+  // labor: Σ(hours[d] × rate[d]) × qty
+  let laborByDept = {};
+  let totalHours = 0;
+  let laborCost = 0;
+  for (const d of ['eng','cnc','assembly','finish','install']) {
+    const h = (item.hours[d] || 0) * qty;
+    laborByDept[d] = h;
+    totalHours += h;
+    laborCost += h * shopRates[d];
+  }
+  // material
+  let materialCost = 0;
+  if (item.material.mode === 'sheets') materialCost = item.material.sheetsPerUnit * item.material.sheetCost * qty;
+  else if (item.material.mode === 'linear') materialCost = item.material.linearCost * qty;
+  else if (item.material.mode === 'lump') materialCost = item.material.lumpCost * qty;
+  // consumables (10% of material)
+  const consumablesCost = materialCost * consumablePct;
+  // hardware (on carcasses only — specialty hardware)
+  const hardwareCost = (item.hardware || 0) * qty;
+  // install: install lines produce install hours via dept breakdown; flat install cost is 0 for typical lines
+  const installCost = 0;
+  const lineSubtotal = laborCost + materialCost + consumablesCost + hardwareCost + installCost;
+  return {
+    item, qty, totalHours, laborByDept, laborCost, materialCost, consumablesCost,
+    hardwareCost, installCost, lineSubtotal,
+  };
+}
+
+function rollup(lines) {
+  let r = {
+    labor: 0, material: 0, consumables: 0, hardware: 0, install: 0,
+    subtotal: 0, hoursByDept: { eng:0,cnc:0,assembly:0,finish:0,install:0 },
+  };
+  for (const l of lines) {
+    const b = computeLine(l);
+    r.labor += b.laborCost;
+    r.material += b.materialCost;
+    r.consumables += b.consumablesCost;
+    r.hardware += b.hardwareCost;
+    // sum install-dept hours × install rate as "install labor"
+    for (const d of Object.keys(r.hoursByDept)) r.hoursByDept[d] += b.laborByDept[d];
+    r.subtotal += b.lineSubtotal;
+  }
+  // apply margin: total = subtotal / (1 - margin)
+  r.marginAmount = r.subtotal * (marginPct / (1 - marginPct));
+  r.total = r.subtotal / (1 - marginPct);
+  // split install labor $ from other dept labor for the "install" rollup line
+  r.installLabor = r.hoursByDept.install * shopRates.install;
+  return r;
+}
+
+// ============================================================
+// FORMATTERS
+// ============================================================
+const fmt = (n) => '$' + Math.round(n).toLocaleString();
+const fmtHr = (n) => (Math.round(n * 10) / 10).toFixed(1) + 'h';
+
+// ============================================================
+// RENDER (wizard preview)
+// ============================================================
+function update() {
+  const lines = generateLines();
+  state.generatedLines = lines;
+
+  // render lines by category
+  const byCat = {};
+  lines.forEach(l => {
+    const cat = rateBook[l.itemKey].category;
+    (byCat[cat] = byCat[cat] || []).push(l);
+  });
+  const catOrder = ['Cabinets','Doors','Drawers','Panels','Trim','Hardware','Install'];
+
+  const prev = document.getElementById('linePreview');
+  // keep header row
+  prev.innerHTML = `<div class="lp-row lp-header">
+      <div>Qty</div><div>Item</div>
+      <div style="text-align:right;">Unit</div>
+      <div style="text-align:right;">Hours</div>
+      <div style="text-align:right;">Line total</div>
+    </div>`;
+
+  if (lines.length === 0) {
+    prev.innerHTML += `<div class="lp-empty">Enter values on the left to generate lines.</div>`;
+  } else {
+    catOrder.forEach(cat => {
+      if (!byCat[cat]) return;
+      prev.innerHTML += `<div class="lp-row group-header">${cat}</div>`;
+      byCat[cat].forEach(l => {
+        const b = computeLine(l);
+        prev.innerHTML += `
+          <div class="lp-row">
+            <div class="lp-qty">${l.qty}</div>
+            <div class="lp-item">
+              ${b.item.name}
+              <span class="src">
+                ${l.rule}
+                <span class="chip-inline">🌱 starter</span>
+              </span>
+            </div>
+            <div class="lp-unit" style="text-align:right;">${b.item.unit}</div>
+            <div class="lp-hours">${fmtHr(b.totalHours)}</div>
+            <div class="lp-total">${fmt(b.lineSubtotal)}</div>
+          </div>`;
+      });
+    });
+  }
+
+  document.getElementById('previewCount').textContent = `${lines.length} lines`;
+
+  // rollup
+  const r = rollup(lines);
+  document.getElementById('rLabor').textContent = fmt(r.labor);
+  document.getElementById('rMaterial').textContent = fmt(r.material);
+  document.getElementById('rCons').textContent = fmt(r.consumables);
+  document.getElementById('rHw').textContent = fmt(r.hardware);
+  document.getElementById('rInstall').textContent = fmt(r.installLabor);
+  document.getElementById('rSubtotal').textContent = fmt(r.subtotal);
+  document.getElementById('rMarginDisplay').textContent = '+' + fmt(r.marginAmount);
+  document.getElementById('rTotal').textContent = fmt(r.total);
+
+  // dept chips
+  const chipsEl = document.getElementById('deptChips');
+  chipsEl.innerHTML = '';
+  ['eng','cnc','assembly','finish','install'].forEach(d => {
+    const h = r.hoursByDept[d];
+    if (h > 0) {
+      chipsEl.innerHTML += `<span class="dept-chip"><span class="d">${d}</span>${fmtHr(h)}</span>`;
+    }
+  });
+
+  // footer
+  document.getElementById('fLineCount').textContent = lines.length;
+  document.getElementById('fTotal').textContent = fmt(r.total);
+  // margin badge (35% shown, colored for visual variety)
+  document.getElementById('fMargin').className = 'margin-ok';
+}
+
+// ============================================================
+// GENERATE: transition to editor view
+// ============================================================
+function generate() {
+  const lines = state.generatedLines;
+  if (lines.length === 0) return;
+  document.getElementById('wizardView').classList.add('hidden');
+  document.getElementById('wizardFooter').style.display = 'none';
+  document.getElementById('editorView').classList.add('active');
+  renderEditor();
+}
+
+function backToWizard() {
+  document.getElementById('wizardView').classList.remove('hidden');
+  document.getElementById('wizardFooter').style.display = 'flex';
+  document.getElementById('editorView').classList.remove('active');
+}
+
+function skipWizard() {
+  if (!confirm('Skip wizard and go to blank editor?')) return;
+  state.generatedLines = [];
+  generate();
+}
+
+// ============================================================
+// RENDER: editor view
+// ============================================================
+function renderEditor() {
+  const lines = state.generatedLines;
+  const r = rollup(lines);
+
+  // line table
+  const el = document.getElementById('editorLines');
+  el.innerHTML = `<div class="row header">
+    <div class="num">Qty</div><div>Item</div>
+    <div>Unit</div><div>Finish specs</div>
+    <div class="num">Hours</div><div class="num">Line total</div>
+  </div>`;
+  lines.forEach((l, idx) => {
+    const b = computeLine(l);
+    const sel = (idx === state.selectedLineIdx) ? 'selected' : '';
+    const specs = getFinishSpecsForLine(l);
+    const specChips = specs.length > 0
+      ? specs.map(s => `<span class="chip-spec">${s}</span>`).join('')
+      : `<span class="chip-muted">—</span>`;
+    el.innerHTML += `
+      <div class="row ${sel}" onclick="selectLine(${idx})">
+        <div class="cell num">${l.qty}</div>
+        <div class="cell item">${b.item.name}</div>
+        <div class="cell unit">${b.item.unit}</div>
+        <div class="cell chips">${specChips}</div>
+        <div class="cell num">${fmtHr(b.totalHours)}</div>
+        <div class="cell total">${fmt(b.lineSubtotal)}</div>
+      </div>`;
+  });
+
+  document.getElementById('eLineCount').textContent = lines.length;
+  document.getElementById('bLines').textContent = lines.length;
+  document.getElementById('eTotal').textContent = fmt(r.total);
+  document.getElementById('eLabor').textContent = fmt(r.labor);
+  document.getElementById('eMat').textContent = fmt(r.material);
+  document.getElementById('eHw').textContent = fmt(r.hardware);
+  document.getElementById('eInstall').textContent = fmt(r.installLabor);
+
+  renderRightPanel();
+}
+
+function getFinishSpecsForLine(l) {
+  const cat = rateBook[l.itemKey].category;
+  const specs = [];
+  if (cat === 'Doors' || cat === 'Drawers' || cat === 'Panels' || cat === 'Trim') {
+    const matLabel = ({ paint: 'paint-grade', hardwood: 'hardwood', exotic: 'exotic' })[state.material];
+    const finLabel = ({ painted: 'painted enamel', stained: 'stained', oil: 'natural oil' })[state.finish];
+    specs.push(`${matLabel} · ${finLabel}`);
+  } else if (cat === 'Cabinets') {
+    specs.push(`maple ply · interior`);
+  }
+  return specs;
+}
+
+function selectLine(idx) {
+  state.selectedLineIdx = idx;
+  renderEditor();
+}
+
+function renderRightPanel() {
+  const l = state.generatedLines[state.selectedLineIdx];
+  if (!l) {
+    document.getElementById('rpSelName').textContent = '—';
+    document.getElementById('rpSelQty').textContent = '—';
+    return;
+  }
+  const b = computeLine(l);
+  document.getElementById('rpSelName').textContent = b.item.name;
+  document.getElementById('rpSelQty').textContent = `${l.qty} ${b.item.unit}`;
+  document.getElementById('rpSelSrc').innerHTML = `Rule: <span style="color:#bbb">${l.rule || ''}</span>`;
+
+  // hours grid
+  const hrs = document.getElementById('rpHours');
+  hrs.innerHTML = '';
+  ['eng','cnc','assembly','finish','install'].forEach(d => {
+    const h = b.laborByDept[d];
+    hrs.innerHTML += `
+      <div class="rp-hour-grid">
+        <span class="dept">${d}</span>
+        <span class="val">${(b.item.hours[d] || 0).toFixed(2)} × ${l.qty}</span>
+        <span class="unit">${fmtHr(h)}</span>
+      </div>`;
+  });
+
+  // finish specs
+  const fin = document.getElementById('rpFinish');
+  const specs = getFinishSpecsForLine(l);
+  fin.innerHTML = specs.length
+    ? specs.map(s => `<span class="chip-spec">${s}</span>`).join('') +
+      `<span class="chip-muted" style="cursor:pointer;border-style:dashed">+ add spec</span>`
+    : `<span class="chip-muted" style="cursor:pointer;border-style:dashed">+ add spec</span>`;
+
+  // buildup breakdown
+  const bl = document.getElementById('rpBuildup');
+  bl.innerHTML = `
+    <div class="line"><span class="l">Labor</span><span class="v">${fmt(b.laborCost)}</span></div>
+    <div class="line"><span class="l">Material <span style="color:#555">(${b.item.material.mode})</span></span><span class="v">${fmt(b.materialCost)}</span></div>
+    <div class="line"><span class="l">Consumables <span style="color:#555">10%</span></span><span class="v">${fmt(b.consumablesCost)}</span></div>
+    <div class="line"><span class="l">Hardware</span><span class="v">${fmt(b.hardwareCost)}</span></div>
+    <div class="line total"><span class="l">Line total</span><span class="v">${fmt(b.lineSubtotal)}</span></div>
+  `;
+}
+
+// init
+update();
+</script>
+</body>
+</html>

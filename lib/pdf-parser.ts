@@ -37,13 +37,53 @@ export interface ParsedCandidate {
   confidence: 'high' | 'medium' | 'low'
 }
 
-/** Scope item returned by the AI parser. Used for LF-aware subproject seeding. */
+export interface ParsedItemFeatures {
+  drawer_count?: number | null
+  door_style?: string | null
+  soft_close?: boolean | null
+  hinge_type?: string | null
+  slide_type?: string | null
+  adjustable_shelves?: number | null
+  rollout_trays?: number | null
+  lazy_susan?: boolean | null
+  trash_pullout?: boolean | null
+  has_led?: boolean | null
+  notes?: string | null
+}
+export interface ParsedMaterialSpecs {
+  exterior_species?: string | null
+  exterior_thickness?: string | null
+  interior_material?: string | null
+  interior_thickness?: string | null
+  back_material?: string | null
+  back_thickness?: string | null
+  edgeband?: string | null
+}
+export interface ParsedFinishSpecs {
+  finish_type?: string | null
+  stain_color?: string | null
+  sheen?: string | null
+  sides_to_finish?: 'exterior_only' | 'all_sides' | null
+  notes?: string | null
+}
+
+/**
+ * Scope item returned by the AI parser. Drives both the sub-per-room seed
+ * and the estimate-line-per-item seed on project creation.
+ */
 export interface ParsedScopeItem {
   name: string
   room: string
   category: string
+  item_type?: string | null
+  quality?: string
   linear_feet: number | null
   quantity: number
+  features?: ParsedItemFeatures | null
+  material_specs?: ParsedMaterialSpecs | null
+  finish_specs?: ParsedFinishSpecs | null
+  source_sheet?: string | null
+  needs_review?: boolean
   notes: string
 }
 

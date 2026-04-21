@@ -9,6 +9,7 @@
 
 import { supabase } from './supabase'
 import type { ProjectStage } from './types'
+import type { ParsedScopeItem } from './pdf-parser'
 
 // ── Types ──
 
@@ -291,11 +292,11 @@ export async function createRoomSubprojects(input: {
   rooms: string[]
   consumable_markup_pct?: number | null
   profit_margin_pct?: number | null
-}): Promise<number> {
+}): Promise<Array<{ id: string; name: string }>> {
   const rooms = input.rooms
     .map((r) => r.trim())
     .filter((r) => r.length > 0)
-  if (rooms.length === 0) return 0
+  if (rooms.length === 0) return []
 
   const rows = rooms.map((name, idx) => ({
     project_id: input.project_id,
@@ -309,9 +310,109 @@ export async function createRoomSubprojects(input: {
   const { data, error } = await supabase
     .from('subprojects')
     .insert(rows)
-    .select('id')
+    .select('id, name')
   if (error) {
     console.error('createRoomSubprojects', error)
+    return []
+  }
+  return (data || []) as Array<{ id: string; name: string }>
+}
+
+/**
+ * Turn parser output into estimate_lines on the room subprojects. Called
+ * right after createRoomSubprojects so a fresh project lands with real
+ * scope on its subs instead of empty placeholders.
+ *
+ * - Match items to subs by room name (case-insensitive, trimmed).
+ * - If an item's room doesn't match any sub, skip it (the user can move it
+ *   by opening the project and re-homing).
+ * - Each line is freeform: description = item.name (plus "— room" hint if
+ *   helpful), qty = linear_feet if present else quantity, unit = LF / each.
+ * - Pack material_specs + finish_specs + features.notes into finish_specs +
+ *   material_description + notes so the shop sees what the client spec'd
+ *   when they open the line.
+ */
+export async function seedEstimateLinesFromParsed(input: {
+  subsByRoom: Array<{ id: string; name: string }>
+  items: ParsedScopeItem[]
+}): Promise<number> {
+  const { subsByRoom, items } = input
+  if (items.length === 0 || subsByRoom.length === 0) return 0
+
+  const subIdByRoom = new Map<string, string>()
+  for (const s of subsByRoom) subIdByRoom.set(s.name.trim().toLowerCase(), s.id)
+
+  // Group by subproject so we can hand out sequential sort_orders inside each.
+  const rowsBySub = new Map<string, any[]>()
+  for (const it of items) {
+    const key = (it.room || '').trim().toLowerCase()
+    const subId = subIdByRoom.get(key)
+    if (!subId) continue
+
+    const fs: any[] = []
+    const ms = it.material_specs
+    if (ms) {
+      const ext = [ms.exterior_species, ms.exterior_thickness].filter(Boolean).join(' ').trim()
+      const intr = [ms.interior_material, ms.interior_thickness].filter(Boolean).join(' ').trim()
+      if (ext || it.finish_specs?.finish_type || it.finish_specs?.stain_color) {
+        fs.push({
+          material: ext || undefined,
+          finish: it.finish_specs?.finish_type
+            ? [it.finish_specs.finish_type, it.finish_specs.stain_color, it.finish_specs.sheen]
+                .filter(Boolean).join(' · ')
+            : undefined,
+          notes: it.finish_specs?.notes || undefined,
+        })
+      }
+      if (intr) {
+        fs.push({ material: `${intr} interior`, finish: 'prefinished' })
+      }
+    }
+
+    const quantity =
+      typeof it.linear_feet === 'number' && it.linear_feet > 0 ? it.linear_feet : (it.quantity || 1)
+    const unit = typeof it.linear_feet === 'number' && it.linear_feet > 0 ? 'lf' : 'each'
+
+    const noteParts: string[] = []
+    if (it.features?.notes) noteParts.push(it.features.notes)
+    if (it.notes) noteParts.push(it.notes)
+    if (it.features?.drawer_count) noteParts.push(`${it.features.drawer_count} drawers`)
+    if (it.features?.door_style) noteParts.push(`${it.features.door_style} doors`)
+    if (it.features?.trash_pullout) noteParts.push('trash pullout')
+    if (it.features?.lazy_susan) noteParts.push('lazy susan')
+    if (it.features?.has_led) noteParts.push('integrated LED')
+    if (it.source_sheet) noteParts.push(`[${it.source_sheet}]`)
+    if (it.needs_review) noteParts.push('(needs review)')
+
+    const list = rowsBySub.get(subId) || []
+    list.push({
+      subproject_id: subId,
+      sort_order: list.length,
+      description: it.name,
+      quantity,
+      unit,
+      material_description:
+        it.material_specs?.exterior_species
+          ? [
+              it.material_specs.exterior_species,
+              it.material_specs.exterior_thickness,
+            ].filter(Boolean).join(' ')
+          : null,
+      finish_specs: fs.length ? fs : null,
+      notes: noteParts.filter(Boolean).join(' · ') || null,
+    })
+    rowsBySub.set(subId, list)
+  }
+
+  const allRows = Array.from(rowsBySub.values()).flat()
+  if (allRows.length === 0) return 0
+
+  const { data, error } = await supabase
+    .from('estimate_lines')
+    .insert(allRows)
+    .select('id')
+  if (error) {
+    console.error('seedEstimateLinesFromParsed', error)
     return 0
   }
   return (data || []).length

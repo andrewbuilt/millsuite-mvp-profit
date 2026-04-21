@@ -32,6 +32,7 @@ import {
   createRoomSubprojects,
   deleteProject,
   loadSalesProjects,
+  seedEstimateLinesFromParsed,
   summarizePipeline,
   updateProjectStage,
 } from '@/lib/sales'
@@ -297,16 +298,23 @@ function SalesInner() {
         intake_context: intakeContext,
       })
       if (p) {
-        // Seed subprojects from any room chips the user confirmed. Failures
-        // here are logged but don't block navigation — the project exists.
+        // Seed subprojects from any room chips the user confirmed, then
+        // seed estimate_lines per parsed item onto the matching subs so the
+        // editor opens with real scope + finish specs instead of empty cards.
+        // Failures are logged but don't block navigation — the project exists.
+        let subsByRoom: Array<{ id: string; name: string }> = []
         if (rooms.length > 0) {
-          await createRoomSubprojects({
+          subsByRoom = await createRoomSubprojects({
             org_id: org.id,
             project_id: p.id,
             rooms,
             consumable_markup_pct: (org as any).consumable_markup_pct ?? null,
             profit_margin_pct: (org as any).profit_margin_pct ?? null,
           })
+        }
+        const parsedItems = parsed?.items || []
+        if (subsByRoom.length > 0 && parsedItems.length > 0) {
+          await seedEstimateLinesFromParsed({ subsByRoom, items: parsedItems })
         }
         router.push(`/projects/${p.id}`)
       }

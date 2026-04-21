@@ -38,13 +38,59 @@ const SYSTEM_PROMPT = `You are a millwork takeoff specialist reviewing an archit
 
 Group by installation zone — a continuous wall run of base + upper + pantry in the same room = ONE item, not three. A typical room yields 1–3 items, not 5–10. Split across rooms, floors, and freestanding pieces.
 
-For each item:
-- name: short descriptive label (e.g. "Perimeter cabinets", "Island with seating")
-- room: the room / zone (e.g. "Kitchen", "Master Bath", "Mudroom", "Powder Room"). Use the SAME exact string for all items in the same room so they group. "Other" if truly unknown.
-- category: one of base_cabinet, upper_cabinet, full_height, vanity, countertop, panel, led, hardware, custom, other
-- linear_feet: numeric LF from elevations rounded to 0.25, else null
-- quantity: integer, usually 1
-- notes: one short sentence of anything the shop needs to know (mixed heights, scribe conditions, integrated LED, appliance panels, etc.). Blank string if nothing.
+### Categories — use one of these exact strings
+- base_cabinet     — floor-mounted base cabinets (perimeter runs, vanities with no uppers)
+- upper_cabinet    — wall-hung uppers only (no base on the same wall)
+- full_height      — pantries, floor-to-ceiling towers, tall built-ins
+- vanity           — bathroom vanities
+- drawer_box       — standalone drawer boxes (rare)
+- countertop       — wood countertops / bench tops / table tops the shop fabricates (NOT stone)
+- panel            — end panels, appliance panels, refrigerator panels, decorative skins
+- scribe           — scribe strips
+- led              — integrated LED lighting
+- hardware         — specialty hardware line items
+- custom           — one-off pieces that don't fit
+- other            — catch-all
+
+For a mixed wall run (base + uppers together), use "base_cabinet" and mention the uppers in features.notes. Don't split them.
+
+### Fields per item
+- name              — short descriptive label, don't repeat the room in the name
+- room              — same exact string for all items in the same room
+- category          — from list above
+- item_type         — e.g. "frameless", "face_frame", "floating shelves" (null if unclear)
+- quality           — one of: standard, premium, custom, unspecified
+- linear_feet       — numeric LF from elevations rounded to 0.25, else null
+- quantity          — integer, usually 1
+- features (object — include every key; null for unknown):
+    - drawer_count         (integer, REQUIRED — count visible, 0 if none, NEVER null)
+    - door_style           (e.g. "slab", "shaker")
+    - soft_close           (boolean)
+    - hinge_type           (e.g. "concealed_110")
+    - slide_type           (e.g. "undermount_soft_close")
+    - adjustable_shelves   (integer)
+    - rollout_trays        (integer)
+    - lazy_susan           (boolean)
+    - trash_pullout        (boolean)
+    - has_led              (boolean)
+    - notes                (string — anything the shop needs to know: mixed heights, scribe conditions, appliance panels, etc.)
+- material_specs (object):
+    - exterior_species     (e.g. "white_oak", "walnut", "painted_mdf")
+    - exterior_thickness   (e.g. "3/4")
+    - interior_material    (e.g. "prefinished_maple", "white_melamine")
+    - interior_thickness   (e.g. "1/2")
+    - back_material        (e.g. "melamine")
+    - back_thickness       (e.g. "1/4")
+    - edgeband             (e.g. "matching", "pvc")
+- finish_specs (object):
+    - finish_type     (e.g. "stain_and_lacquer", "paint", "clear_lacquer")
+    - stain_color     (e.g. "natural", "walnut")
+    - sheen           (e.g. "satin", "matte", "semi-gloss")
+    - sides_to_finish ("exterior_only" | "all_sides")
+    - notes           (string)
+- source_sheet      — sheet number this item came from (e.g. "A-3", "Sheet 5")
+- needs_review      — true if ANY field is uncertain (missing dimensions, ambiguous finish, inferred drawer count, mixed heights)
+- notes             — one short sentence on top-level (optional — features.notes is primary)
 
 Do NOT extract stone/quartz countertops, appliances, plumbing, lighting fixtures that aren't integrated LED, or trim packages that aren't shop scope.
 
@@ -72,8 +118,15 @@ Return ONLY a valid JSON object — no markdown, no preamble. Start with { and e
       "name": "Perimeter cabinets",
       "room": "Kitchen",
       "category": "base_cabinet",
+      "item_type": "frameless",
+      "quality": "standard",
       "linear_feet": 18.5,
       "quantity": 1,
+      "features": { "drawer_count": 8, "door_style": "shaker", "soft_close": true, "hinge_type": null, "slide_type": null, "adjustable_shelves": 6, "rollout_trays": 0, "lazy_susan": false, "trash_pullout": true, "has_led": true, "notes": "includes 10 LF of uppers on the same wall" },
+      "material_specs": { "exterior_species": "white_oak", "exterior_thickness": "3/4", "interior_material": "prefinished_maple", "interior_thickness": "1/2", "back_material": "melamine", "back_thickness": "1/4", "edgeband": "matching" },
+      "finish_specs": { "finish_type": "clear_lacquer", "stain_color": "natural", "sheen": "matte", "sides_to_finish": "all_sides", "notes": "" },
+      "source_sheet": "A-3",
+      "needs_review": false,
       "notes": ""
     }
   ]
@@ -216,15 +269,24 @@ export async function POST(req: NextRequest) {
 
     const parsed = await callClaude(base64, apiKey)
 
-    // Normalize the shape so the client can rely on it.
+    // Normalize the shape so the client can rely on it. Every rich sub-object
+    // (features / material_specs / finish_specs) passes through as-is so the
+    // sales flow can seed an estimate line per item with real spec payload.
     const header = parsed.header || {}
     const rawItems = Array.isArray(parsed.items) ? parsed.items : []
     const items = rawItems.map((it: any) => ({
       name: typeof it.name === 'string' ? it.name : 'Item',
       room: typeof it.room === 'string' && it.room.trim() ? it.room.trim() : 'Other',
       category: typeof it.category === 'string' ? it.category : 'other',
+      item_type: typeof it.item_type === 'string' ? it.item_type : null,
+      quality: typeof it.quality === 'string' ? it.quality : 'unspecified',
       linear_feet: typeof it.linear_feet === 'number' ? it.linear_feet : null,
       quantity: typeof it.quantity === 'number' ? it.quantity : 1,
+      features: it.features && typeof it.features === 'object' ? it.features : null,
+      material_specs: it.material_specs && typeof it.material_specs === 'object' ? it.material_specs : null,
+      finish_specs: it.finish_specs && typeof it.finish_specs === 'object' ? it.finish_specs : null,
+      source_sheet: typeof it.source_sheet === 'string' ? it.source_sheet : null,
+      needs_review: !!it.needs_review,
       notes: typeof it.notes === 'string' ? it.notes : '',
     }))
 
