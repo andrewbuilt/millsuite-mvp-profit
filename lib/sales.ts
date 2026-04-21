@@ -8,9 +8,14 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import type { ProjectStage } from './types'
 
 // ── Types ──
 
+// Sales pipeline view of the project stage. Only stages that are in-flight
+// from a sales perspective show in the dashboard + kanban (sold + lost cap
+// the pipeline MTD; the post-sold stages production/installed/complete are
+// the shop's problem and live on the project cover, not here).
 export type SalesStage =
   | 'new_lead'
   | 'fifty_fifty'
@@ -43,6 +48,16 @@ export const STAGE_SHORT: Record<SalesStage, string> = {
   lost: 'Lost',
 }
 
+// Any project whose full stage is one of these shows as "Sold" in the sales
+// view — the shop-side stages get collapsed so the kanban doesn't grow.
+const SALES_SOLD_STAGES: ProjectStage[] = ['sold', 'production', 'installed', 'complete']
+
+function projectToSalesStage(stage: ProjectStage): SalesStage {
+  if (SALES_SOLD_STAGES.includes(stage)) return 'sold'
+  if (stage === 'lost') return 'lost'
+  return stage as SalesStage
+}
+
 export interface SalesProject {
   id: string
   name: string
@@ -50,7 +65,6 @@ export interface SalesProject {
   client_id: string | null
   delivery_address: string | null
   stage: SalesStage
-  status: string // 'bidding' | 'active' | 'completed' — in-shop lifecycle
   bid_total: number
   estimated_price: number | null
   created_at: string
@@ -75,7 +89,7 @@ export async function loadSalesProjects(
   const { data, error } = await supabase
     .from('projects')
     .select(
-      `id, name, client_name, client_id, delivery_address, stage, status,
+      `id, name, client_name, client_id, delivery_address, stage,
        bid_total, estimated_price, created_at, updated_at,
        subprojects(id, linear_feet)`
     )
@@ -106,8 +120,7 @@ export async function loadSalesProjects(
       client_name: row.client_name,
       client_id: (row as any).client_id ?? null,
       delivery_address: (row as any).delivery_address ?? null,
-      stage: (row.stage as SalesStage) || 'new_lead',
-      status: row.status,
+      stage: projectToSalesStage((row.stage as ProjectStage) || 'new_lead'),
       bid_total: Number(row.bid_total) || 0,
       estimated_price: row.estimated_price != null ? Number(row.estimated_price) : null,
       created_at: row.created_at,
@@ -178,8 +191,7 @@ export async function createBlankLeadProject(input: {
       name: input.name,
       client_name: input.client_name ?? null,
       delivery_address: input.delivery_address ?? null,
-      stage: 'new_lead' as SalesStage,
-      status: 'bidding',
+      stage: 'new_lead' as ProjectStage,
       bid_total: 0,
     })
     .select()
@@ -194,8 +206,7 @@ export async function createBlankLeadProject(input: {
     client_name: data.client_name,
     client_id: data.client_id ?? null,
     delivery_address: data.delivery_address ?? null,
-    stage: (data.stage as SalesStage) || 'new_lead',
-    status: data.status,
+    stage: projectToSalesStage((data.stage as ProjectStage) || 'new_lead'),
     bid_total: Number(data.bid_total) || 0,
     estimated_price:
       data.estimated_price != null ? Number(data.estimated_price) : null,
@@ -242,8 +253,7 @@ export async function createParsedLeadProject(input: {
       estimated_price: input.estimated_price ?? null,
       source_pdf_name: input.file_name,
       intake_context: input.intake_context,
-      stage: 'new_lead' as SalesStage,
-      status: 'bidding',
+      stage: 'new_lead' as ProjectStage,
       bid_total: 0,
     })
     .select()
@@ -258,8 +268,7 @@ export async function createParsedLeadProject(input: {
     client_name: data.client_name,
     client_id: data.client_id ?? null,
     delivery_address: data.delivery_address ?? null,
-    stage: (data.stage as SalesStage) || 'new_lead',
-    status: data.status,
+    stage: projectToSalesStage((data.stage as ProjectStage) || 'new_lead'),
     bid_total: Number(data.bid_total) || 0,
     estimated_price:
       data.estimated_price != null ? Number(data.estimated_price) : null,
@@ -357,32 +366,21 @@ export async function loadProjectNotes(projectId: string): Promise<ProjectNote[]
 }
 
 /**
- * Update stage on a project. When advancing to 'sold', also flip status to
- * 'active' and set production_phase to 'pre_production' so the project
- * enters the in-shop lifecycle. When moving to 'lost', flip status to
- * 'cancelled'.
+ * Update stage on a project. Writes the single `stage` field; side-effect
+ * bookkeeping (locking the estimate, firing the deposit, etc.) lives on the
+ * handoff page, not here — this just moves the pointer.
+ *
+ * The kanban only offers sales stages. Post-sold transitions (sold →
+ * production, production → installed, etc.) are buttons on the project cover.
  */
 export async function updateProjectStage(
   projectId: string,
-  stage: SalesStage
+  stage: ProjectStage
 ): Promise<void> {
-  const patch: any = {
-    stage,
-    updated_at: new Date().toISOString(),
-  }
-  if (stage === 'sold') {
-    patch.status = 'active'
-    patch.production_phase = 'pre_production'
-  } else if (stage === 'lost') {
-    patch.status = 'cancelled'
-  } else {
-    // Any pre-sold stage keeps the project in 'bidding' if it isn't already
-    // past it. We don't downgrade an active/completed project back to bidding
-    // if someone drags it back — that's a data-integrity concern the UI
-    // handles with a warning.
-    patch.status = 'bidding'
-  }
-  const { error } = await supabase.from('projects').update(patch).eq('id', projectId)
+  const { error } = await supabase
+    .from('projects')
+    .update({ stage, updated_at: new Date().toISOString() })
+    .eq('id', projectId)
   if (error) {
     console.error('updateProjectStage', error)
     throw error

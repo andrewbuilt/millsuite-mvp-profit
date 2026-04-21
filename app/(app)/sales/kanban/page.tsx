@@ -1,13 +1,13 @@
 'use client'
 
 // ============================================================================
-// /sales/kanban — sales pipeline Kanban (Phase 5)
+// /sales/kanban — sales pipeline Kanban
 // ============================================================================
-// Replaces /leads. Five columns driven by projects.stage. Dragging a card
-// updates stage on the project (no lead→project conversion — the project
-// already exists). Dragging to 'Sold' also flips status to 'active' and
-// production_phase to 'pre_production' so the project enters the in-shop
-// lifecycle (see lib/sales.ts updateProjectStage).
+// Five columns driven by projects.stage: new_lead / fifty_fifty /
+// ninety_percent / sold / lost. Dragging a card writes the stage.
+// Post-sold stages (production / installed / complete) don't show here —
+// they all roll up to 'Sold' in the sales view; those projects are the
+// shop's problem and live on the project cover.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
@@ -91,17 +91,13 @@ function KanbanInner() {
     setDragOver(null)
     if (!project || project.stage === targetStage) return
 
-    // Warn when moving a project that's already been sold back into a pre-sold
-    // bucket — it'll flip status back to 'bidding', which may clobber in-shop
-    // state.
-    if (
-      (project.status === 'active' || project.status === 'completed') &&
-      targetStage !== 'sold' &&
-      targetStage !== 'lost'
-    ) {
+    // Projects that are already post-sold (showing as 'sold' here but living
+    // at production / installed / complete downstream) shouldn't be dragged
+    // back into the pipeline — that would clobber the in-shop stage.
+    if (project.stage === 'sold' && targetStage !== 'sold' && targetStage !== 'lost') {
       const ok = await confirm({
         title: 'Move this back into the pipeline?',
-        message: `"${project.name}" is already a live project. Moving it back to ${STAGE_LABEL[targetStage]} will flip it back to bidding status.`,
+        message: `"${project.name}" is already sold or further along. Moving it back to ${STAGE_LABEL[targetStage]} will reset the stage.`,
         confirmLabel: 'Move anyway',
         variant: 'danger',
       })
@@ -310,7 +306,7 @@ function KanbanCard({
       </div>
       <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2 flex items-center justify-between">
         <span>{fmtMoney(project.bid_total || project.estimated_price)}</span>
-        {project.status === 'active' && (
+        {project.stage === 'sold' && (
           <span className="text-[9px] px-1.5 py-0.5 bg-[#ECFDF5] text-[#059669] rounded font-semibold uppercase tracking-wider">
             Live
           </span>

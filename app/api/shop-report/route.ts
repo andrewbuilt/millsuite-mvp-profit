@@ -18,15 +18,22 @@ export async function POST(req: NextRequest) {
       { data: settings },
     ] = await Promise.all([
       supabaseAdmin.from('orgs').select('*').eq('id', org_id).single(),
-      supabaseAdmin.from('projects').select('id, name, status, bid_total, actual_total, created_at, sold_at, completed_at').eq('org_id', org_id),
+      supabaseAdmin
+        .from('projects')
+        .select('id, name, stage, bid_total, actual_total, created_at, sold_at, completed_at')
+        .eq('org_id', org_id),
       supabaseAdmin.from('time_entries').select('project_id, duration_minutes, created_at').eq('org_id', org_id),
       supabaseAdmin.from('invoices').select('project_id, total_amount, created_at').eq('org_id', org_id),
       supabaseAdmin.from('shop_rate_settings').select('*').eq('org_id', org_id).single(),
     ])
 
-    const activeProjects = (projects || []).filter(p => p.status === 'active')
-    const completedProjects = (projects || []).filter(p => p.status === 'complete')
-    const biddingProjects = (projects || []).filter(p => p.status === 'bidding')
+    const activeProjects = (projects || []).filter(
+      p => p.stage === 'sold' || p.stage === 'production' || p.stage === 'installed'
+    )
+    const completedProjects = (projects || []).filter(p => p.stage === 'complete')
+    const biddingProjects = (projects || []).filter(
+      p => p.stage === 'new_lead' || p.stage === 'fifty_fifty' || p.stage === 'ninety_percent'
+    )
 
     // Build context for Claude
     const shopData = {

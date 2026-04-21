@@ -3,10 +3,10 @@
 // ============================================================================
 // A project counts as "closed" when three independent signals all align:
 //
-//   1. project.stage = 'sold'
-//        (There's no 'complete' stage today; sold is as far as projects move
-//        in MVP. A later phase may add an explicit 'complete' stage — if so,
-//        this file is the canonical spot to flip the check.)
+//   1. project.stage IN ('installed', 'complete')
+//        i.e. the shop has finished building and installing. Sold and
+//        production aren't closed yet — the estimate is locked but the job
+//        is still in flight.
 //
 //   2. Every cash_flow_receivables row tied to the project is status='received'.
 //        If the project has zero milestone rows we treat it as NOT closed —
@@ -137,7 +137,7 @@ export async function listClosedProjects(orgId: string): Promise<ProjectRow[]> {
     .from('projects')
     .select('id, name, stage, org_id, updated_at')
     .eq('org_id', orgId)
-    .eq('stage', 'sold')
+    .in('stage', ['installed', 'complete'])
 
   if (error || !projects) return []
   const rows = projects as ProjectRow[]

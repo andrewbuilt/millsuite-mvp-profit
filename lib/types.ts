@@ -6,9 +6,51 @@
 
 // ── Core ──
 
-export type ProjectStatus = 'bidding' | 'active' | 'complete' | 'archived'
-export type ProductionPhase = 'pre_production' | 'scheduling' | 'in_production' | null
-export type ProjectStage = 'new_lead' | 'fifty_fifty' | 'ninety_percent' | 'sold' | 'lost'
+// Single source of truth for where a project is. Replaces the old trio of
+// stage (sales only) + status (shop only) + production_phase (shop sub-stage)
+// — see migration 016 for the DB-side consolidation.
+export type ProjectStage =
+  | 'new_lead'
+  | 'fifty_fifty'
+  | 'ninety_percent'
+  | 'sold'
+  | 'production'
+  | 'installed'
+  | 'complete'
+  | 'lost'
+
+export const PROJECT_STAGES: ProjectStage[] = [
+  'new_lead', 'fifty_fifty', 'ninety_percent',
+  'sold', 'production', 'installed', 'complete',
+  'lost',
+]
+
+export const PROJECT_STAGE_LABEL: Record<ProjectStage, string> = {
+  new_lead: 'New lead',
+  fifty_fifty: '50/50',
+  ninety_percent: '90%',
+  sold: 'Sold',
+  production: 'Production',
+  installed: 'Installed',
+  complete: 'Complete',
+  lost: 'Lost',
+}
+
+// Pre-sold stages — where the project is still being estimated and the UI
+// shows bidding surfaces (subproject editor, QB preview, mark-as-sold).
+export const PRESOLD_STAGES: ProjectStage[] = ['new_lead', 'fifty_fifty', 'ninety_percent']
+
+// Post-sold stages — where the estimate is locked, approvals / production /
+// install surfaces light up, and scheduling + time tracking are live.
+export const POSTSOLD_STAGES: ProjectStage[] = ['sold', 'production', 'installed', 'complete']
+
+export function isPresold(stage: ProjectStage): boolean {
+  return PRESOLD_STAGES.includes(stage)
+}
+
+export function isPostsold(stage: ProjectStage): boolean {
+  return POSTSOLD_STAGES.includes(stage)
+}
 
 export interface Client {
   id: string
@@ -57,8 +99,6 @@ export interface Project {
   client_id: string | null
   contact_id: string | null
   stage: ProjectStage
-  status: ProjectStatus
-  production_phase: ProductionPhase
   bid_total: number
   actual_total: number
   sold_at: string | null

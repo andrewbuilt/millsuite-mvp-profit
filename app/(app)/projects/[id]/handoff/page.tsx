@@ -20,8 +20,8 @@
 // What the Confirm button actually does:
 //   · Calls createApprovalItemsFromProposals() to insert one approval_items
 //     row per effective callout, across every subproject on the project.
-//   · Calls updateProjectStage(projectId, 'sold'), which flips status=active
-//     + production_phase=pre_production via lib/sales.
+//   · Calls updateProjectStage(projectId, 'sold') — writes the single stage
+//     field; there's no longer a status or production_phase to mirror.
 //   · Redirects the user back to the project page, which now shows the
 //     post-sold UI (approval track + drawings gate + CO workflow).
 //
@@ -74,6 +74,7 @@ import {
   sumMilestonePct,
   type ProjectMilestone,
 } from '@/lib/milestones'
+import type { ProjectStage } from '@/lib/types'
 import PlanGate from '@/components/plan-gate'
 
 // ── Types ──
@@ -83,8 +84,7 @@ interface Project {
   name: string
   client_name: string | null
   delivery_address: string | null
-  stage: string | null
-  status: string
+  stage: ProjectStage
   bid_total: number
 }
 
@@ -382,7 +382,13 @@ function HandoffPageInner() {
     )
   }
 
-  const alreadySold = project.stage === 'sold'
+  // Anything past the sold gate (sold itself or further along in production /
+  // installed / complete) counts as already-sold for this page's warning.
+  const alreadySold =
+    project.stage === 'sold' ||
+    project.stage === 'production' ||
+    project.stage === 'installed' ||
+    project.stage === 'complete'
 
   const milestonePctSum = sumMilestonePct(milestones)
   const milestonesBalanced = Math.abs(milestonePctSum - 100) < 0.01

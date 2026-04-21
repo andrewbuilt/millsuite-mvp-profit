@@ -70,13 +70,14 @@ import { Trash2, AlertCircle } from 'lucide-react'
 
 // ── Types ──
 
+import type { ProjectStage } from '@/lib/types'
+
 interface Project {
   id: string
   name: string
   client_name: string | null
   delivery_address: string | null
-  stage: string | null
-  status: string
+  stage: ProjectStage
   bid_total: number
   notes: string | null
   created_at: string
@@ -430,18 +431,24 @@ export default function ProjectRollupPage() {
     )
   }
 
-  const isSold = project.stage === 'sold'
+  // Post-sold = estimate is locked, no longer editable. Any of the shop
+  // stages (sold / production / installed / complete) hit that condition.
+  const isSold =
+    project.stage === 'sold' ||
+    project.stage === 'production' ||
+    project.stage === 'installed' ||
+    project.stage === 'complete'
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
       {/* Top bar */}
       <div className="sticky top-0 z-10 bg-white border-b border-[#E5E7EB] px-6 py-3 flex items-center justify-between">
         <button
-          onClick={() => router.push(`/projects/${projectId}`)}
+          onClick={() => router.push(`/projects`)}
           className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to project
+          Back to projects
         </button>
         <div className="flex items-center gap-2 text-xs text-[#9CA3AF]">
           <span className="font-medium text-[#6B7280]">Project rollup</span>

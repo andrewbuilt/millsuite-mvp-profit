@@ -13,11 +13,13 @@ import InvoiceParser from '@/components/invoice-parser'
 
 // ── Types ──
 
+import type { ProjectStage } from '@/lib/types'
+
 interface Project {
   id: string
   name: string
   client_name: string | null
-  status: string
+  stage: ProjectStage
   bid_total: number
 }
 
@@ -98,7 +100,19 @@ function DashboardContent() {
       { data: entries },
       { data: invs },
     ] = await Promise.all([
-      supabase.from('projects').select('id, name, client_name, status, bid_total').eq('org_id', org.id).in('status', ['active', 'bidding', 'complete']),
+      supabase
+        .from('projects')
+        .select('id, name, client_name, stage, bid_total')
+        .eq('org_id', org.id)
+        .in('stage', [
+          'new_lead',
+          'fifty_fifty',
+          'ninety_percent',
+          'sold',
+          'production',
+          'installed',
+          'complete',
+        ]),
       supabase.from('subprojects').select('id, project_id, name, labor_hours').eq('org_id', org.id),
       supabase.from('time_entries').select('project_id, subproject_id, duration_minutes').eq('org_id', org.id),
       supabase.from('invoices').select('project_id, total_amount').eq('org_id', org.id),
@@ -113,13 +127,21 @@ function DashboardContent() {
 
   // ── Computed Metrics ──
 
-  const activeProjects = projects.filter(p => p.status === 'active')
-  const biddingProjects = projects.filter(p => p.status === 'bidding')
-  const completedProjects = projects.filter(p => p.status === 'complete')
+  // Active = anything sold and still moving through the shop (sold / production
+  // / installed, pre-complete). Bidding = all pre-sold stages. Completed =
+  // stage='complete'.
+  const activeProjects = projects.filter(
+    p => p.stage === 'sold' || p.stage === 'production' || p.stage === 'installed'
+  )
+  const biddingProjects = projects.filter(
+    p => p.stage === 'new_lead' || p.stage === 'fifty_fifty' || p.stage === 'ninety_percent'
+  )
+  const completedProjects = projects.filter(p => p.stage === 'complete')
 
-  // "In Production" = active projects that have time logged
-  const inProductionProjects = activeProjects.filter(p =>
-    timeEntries.some(t => t.project_id === p.id)
+  // "In Production" is now its own stage, not a derived "active + time-logged"
+  // signal — just filter directly.
+  const inProductionProjects = projects.filter(
+    p => p.stage === 'production' || p.stage === 'installed'
   )
   const inProductionBidTotal = inProductionProjects.reduce((sum, p) => sum + (p.bid_total || 0), 0)
 

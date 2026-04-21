@@ -1,10 +1,10 @@
 // POST /api/projects/[id]/advance-phase
 // Asks the phase engine whether conditions are met to move the project from
-// pre_production → scheduling (or scheduling → in_production). Idempotent —
-// safe to call after any selection change or time entry creation.
+// sold → production (i.e. every approval item and every latest drawing
+// revision is approved across every subproject). Idempotent.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { checkAndAdvanceProductionPhase } from '@/lib/phase'
+import { checkAndAdvanceProjectStage } from '@/lib/phase'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,12 +19,12 @@ export async function POST(
       return NextResponse.json({ error: 'Project id required' }, { status: 400 })
     }
 
-    const newPhase = await checkAndAdvanceProductionPhase(projectId)
-    return NextResponse.json({ production_phase: newPhase })
+    const stage = await checkAndAdvanceProjectStage(projectId)
+    return NextResponse.json({ stage })
   } catch (err: any) {
     console.error('advance-phase error:', err)
     return NextResponse.json(
-      { error: err?.message || 'Failed to advance phase' },
+      { error: err?.message || 'Failed to advance stage' },
       { status: 500 }
     )
   }

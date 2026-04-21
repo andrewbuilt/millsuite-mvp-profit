@@ -125,18 +125,20 @@ export async function POST(req: NextRequest) {
     // 8. Labor cost this week = billable hours * shop rate
     const totalLaborCost = billableHours * (shopRate || 75)
 
-    // 9. Project counts
+    // 9. Project counts — "active" is anything past sold and still in flight;
+    // "shipped" is stage=complete (or installed, depending on how the shop
+    // defines ship day) completed within this week.
     const { count: activeCount } = await supabase
       .from('projects')
       .select('id', { count: 'exact', head: true })
       .eq('org_id', org_id)
-      .in('status', ['active', 'pre_production', 'in_production'])
+      .in('stage', ['sold', 'production', 'installed'])
 
     const { count: shippedCount } = await supabase
       .from('projects')
       .select('id', { count: 'exact', head: true })
       .eq('org_id', org_id)
-      .eq('status', 'complete')
+      .eq('stage', 'complete')
       .gte('completed_at', `${weekStart}T00:00:00`)
 
     // 8. Gross margin
