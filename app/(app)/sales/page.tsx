@@ -31,6 +31,7 @@ import {
   createParsedLeadProject,
   createRoomSubprojects,
   loadSalesProjects,
+  persistParsedScopeItems,
   summarizePipeline,
   updateProjectStage,
 } from '@/lib/sales'
@@ -293,17 +294,36 @@ function SalesInner() {
         intake_context: intakeContext,
       })
       if (p) {
-        // Seed subprojects from any room chips the user confirmed. Failures
-        // here are logged but don't block navigation — the project exists.
+        // Seed subprojects from any room chips the user confirmed. Capture
+        // the returned id/name pairs so parsed scope items can be linked to
+        // their matching subproject by room name below. Failures here are
+        // logged but don't block navigation — the project exists.
+        let roomToSubprojectId: Record<string, string> = {}
         if (rooms.length > 0) {
-          await createRoomSubprojects({
+          const created = await createRoomSubprojects({
             org_id: org.id,
             project_id: p.id,
             rooms,
             consumable_markup_pct: (org as any).consumable_markup_pct ?? null,
             profit_margin_pct: (org as any).profit_margin_pct ?? null,
           })
+          roomToSubprojectId = Object.fromEntries(
+            created.map((s) => [s.name.trim().toLowerCase(), s.id]),
+          )
         }
+
+        // Persist the rich scope items (features + material/hardware/finish
+        // specs) so the takeoff page can render a BOM. Items tagged with a
+        // room get auto-linked to the matching subproject we just created.
+        if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+          await persistParsedScopeItems({
+            org_id: org.id,
+            project_id: p.id,
+            items: parsed.items,
+            roomToSubprojectId,
+          })
+        }
+
         router.push(`/projects/${p.id}`)
       }
     } catch (err) {

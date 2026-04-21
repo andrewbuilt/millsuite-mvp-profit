@@ -20,7 +20,7 @@ export const runtime = 'nodejs'
 
 const BUCKET = 'parse-drawings'
 
-const SYSTEM_PROMPT = `You are a millwork takeoff specialist reviewing an architectural or interior-design drawing set for a custom cabinet / millwork shop. Pull the intake metadata AND the shop scope out of the drawings.
+const SYSTEM_PROMPT = `You are a millwork takeoff specialist analyzing an architectural or interior-design drawing set for a custom cabinet / millwork shop. You pull BOTH the intake metadata AND the full shop scope (every distinct millwork item with specs) out of the drawings.
 
 ## WHAT TO PULL FOR THE PROJECT HEADER
 
@@ -34,19 +34,92 @@ const SYSTEM_PROMPT = `You are a millwork takeoff specialist reviewing an archit
 - estimated_price: a single scope dollar amount if the drawings include a contract or quote total (else null)
 - date: the drawing set date / issue date (else null)
 
-## WHAT TO PULL FOR SCOPE (one entry per INSTALLATION ZONE)
+## SCOPE — GROUPING RULES (think like a shop, not a drafter)
 
-Group by installation zone — a continuous wall run of base + upper + pantry in the same room = ONE item, not three. A typical room yields 1–3 items, not 5–10. Split across rooms, floors, and freestanding pieces.
+- Group items by INSTALLATION ZONE. A continuous wall run of base + uppers + pantry in the same room = ONE item, not three.
+- Split when items are in different rooms, different floors, or truly independent freestanding pieces.
+- A typical room yields 1–3 items, not 5–10. Do NOT split into left tower / center / right tower.
+- For a mixed wall run (base + uppers together), use category "base_cabinet" and mention the uppers in features.notes.
 
-For each item:
-- name: short descriptive label (e.g. "Perimeter cabinets", "Island with seating")
-- room: the room / zone (e.g. "Kitchen", "Master Bath", "Mudroom", "Powder Room"). Use the SAME exact string for all items in the same room so they group. "Other" if truly unknown.
-- category: one of base_cabinet, upper_cabinet, full_height, vanity, countertop, panel, led, hardware, custom, other
-- linear_feet: numeric LF from elevations rounded to 0.25, else null
-- quantity: integer, usually 1
-- notes: one short sentence of anything the shop needs to know (mixed heights, scribe conditions, integrated LED, appliance panels, etc.). Blank string if nothing.
+## CATEGORIES — use one of these exact strings:
+- base_cabinet     — floor-mounted base cabinets (perimeter runs, vanities with no uppers)
+- upper_cabinet    — wall-hung uppers only (pulled out when there's no base on the same wall)
+- full_height      — pantries, floor-to-ceiling towers, tall built-ins
+- vanity           — bathroom vanities
+- drawer_box       — standalone drawer boxes (rare, usually covered under a cabinet)
+- countertop       — wood countertops / bench tops / table tops the shop fabricates (NOT stone)
+- panel            — end panels, appliance panels, refrigerator panels, decorative skins
+- scribe           — scribe strips
+- led              — integrated LED lighting
+- hardware         — specialty hardware line items
+- custom           — one-off pieces that don't fit
+- other            — catch-all
 
-Do NOT extract stone/quartz countertops, appliances, plumbing, lighting fixtures that aren't integrated LED, or trim packages that aren't shop scope.
+## QUALITY — use one of: standard, premium, custom, unspecified
+
+## FIELDS PER SCOPE ITEM
+
+- name              — descriptive, e.g. "Perimeter cabinets", "Master closet built-in" (do NOT repeat the room in the name)
+- room              — the room / zone this item lives in. Use the SAME exact string for all items in the same room so they group. "Other" if truly unknown.
+- category          — from list above
+- item_type         — e.g. "frameless", "face_frame", "floating shelves" (null if unclear)
+- quality           — from list above
+- linear_feet       — numeric LF from elevation dimensions, rounded to 0.25. null if unknown.
+- quantity          — integer, usually 1
+- features          — object (ALL fields — use defaults when unknown, drawer_count is REQUIRED):
+    - drawer_count         (integer, REQUIRED, count every drawer visible, 0 if none, NEVER null)
+    - door_style           (e.g. "slab", "shaker", or null)
+    - soft_close           (boolean, null if unspecified)
+    - hinge_type           (e.g. "concealed_110", or null)
+    - slide_type           (e.g. "undermount_soft_close", or null)
+    - adjustable_shelves   (integer, 0 if none, null if unknown)
+    - rollout_trays        (integer, 0 if none)
+    - lazy_susan           (boolean)
+    - trash_pullout        (boolean)
+    - has_led              (boolean)
+    - notes                (string — mention sections included, mixed heights, scribe conditions)
+- material_specs — object (null fields OK when genuinely not in drawings):
+    - exterior_species     (e.g. "white_oak", "walnut", "painted_mdf")
+    - exterior_thickness   (e.g. "3/4")
+    - interior_material    (e.g. "prefinished_maple", "white_melamine")
+    - interior_thickness   (e.g. "1/2")
+    - back_material        (e.g. "melamine")
+    - back_thickness       (e.g. "1/4")
+    - edgeband             (e.g. "matching", "pvc")
+- hardware_specs — object:
+    - hinges   { type, count }     — count is total hinges for this item
+    - slides   { type, count, length }  — count is total drawers on this item
+    - pulls    { type, count, size }    — count is total door+drawer pulls
+    - specialty []                  — array of { type, count } for lazy susans, trash pullouts, LED strips, etc.
+- finish_specs — object:
+    - finish_type     (e.g. "stain_and_lacquer", "paint", "clear_lacquer")
+    - stain_color     (e.g. "natural", "walnut")
+    - sheen           (e.g. "satin", "matte", "semi-gloss")
+    - sides_to_finish ("exterior_only" | "all_sides")
+    - notes           (string)
+- parser_confidence — 0.0 to 1.0 — your confidence that this item's fields are correct
+- needs_review      — true if ANY field is uncertain (missing dimensions, ambiguous finish, inferred drawer count, mixed heights where you guessed the category, site-dependent conditions)
+- source_sheet      — the sheet number / name this item came from (e.g. "A-3", "Sheet 5")
+
+## PRICING GUIDANCE
+
+Do NOT populate a price on items. The MVP's rate book handles pricing downstream — your job is to extract specs accurately so the rate book can match.
+
+## WHAT TO FLAG AS needs_review=true
+
+- Missing or illegible linear_feet
+- Finish not specified or ambiguous
+- Drawer count inferred rather than counted
+- Mixed heights in one run where you had to pick between base_cabinet and full_height
+- Site-dependent conditions (sloped ceilings, scribe conditions)
+
+## WHAT "BY OTHERS" LOOKS LIKE — DO NOT extract these:
+
+- Stone, quartz, marble countertops (NOT shop scope)
+- Appliances
+- Plumbing fixtures
+- Lighting fixtures (unless integrated LED on a cabinet)
+- Crown molding (unless explicitly called out as millwork scope)
 
 ## RESPONSE FORMAT
 
@@ -54,7 +127,7 @@ Return ONLY a valid JSON object — no markdown, no preamble. Start with { and e
 
 {
   "project_name": "string or null",
-  "scope_summary": "2-3 sentence overview",
+  "scope_summary": "2-3 sentence overview of the full millwork scope",
   "header": {
     "client_name": "... or null",
     "client_company": "... or null",
@@ -72,16 +145,61 @@ Return ONLY a valid JSON object — no markdown, no preamble. Start with { and e
       "name": "Perimeter cabinets",
       "room": "Kitchen",
       "category": "base_cabinet",
+      "item_type": "frameless",
+      "quality": "standard",
       "linear_feet": 18.5,
       "quantity": 1,
-      "notes": ""
+      "features": {
+        "drawer_count": 6,
+        "door_style": "shaker",
+        "soft_close": true,
+        "hinge_type": "concealed_110",
+        "slide_type": "undermount_soft_close",
+        "adjustable_shelves": 4,
+        "rollout_trays": 0,
+        "lazy_susan": false,
+        "trash_pullout": true,
+        "has_led": false,
+        "notes": "Includes uppers above sink wall"
+      },
+      "material_specs": {
+        "exterior_species": "white_oak",
+        "exterior_thickness": "3/4",
+        "interior_material": "prefinished_maple",
+        "interior_thickness": "1/2",
+        "back_material": "white_melamine",
+        "back_thickness": "1/4",
+        "edgeband": "matching"
+      },
+      "hardware_specs": {
+        "hinges": { "type": "concealed_110", "count": 14 },
+        "slides": { "type": "undermount_soft_close", "count": 6, "length": "21\\"" },
+        "pulls": { "type": "bar", "count": 20, "size": "6\\"" },
+        "specialty": [{ "type": "trash_pullout", "count": 1 }]
+      },
+      "finish_specs": {
+        "finish_type": "stain_and_lacquer",
+        "stain_color": "natural",
+        "sheen": "satin",
+        "sides_to_finish": "exterior_only",
+        "notes": ""
+      },
+      "parser_confidence": 0.85,
+      "needs_review": false,
+      "source_sheet": "A-3"
     }
   ]
 }
 
-If a field is unknown, use null — never fabricate. "rooms" is the de-duplicated list of rooms across all items, preserving drawing order.`
+If a field is unknown, use null — NEVER fabricate. drawer_count and needs_review are REQUIRED on every item. "rooms" is the de-duplicated list of rooms across all items, preserving drawing order.`
 
-const USER_PROMPT = `Analyze this drawing set and return the JSON described in the system prompt. One item per installation zone. Group by room. Return ONLY the JSON.`
+const USER_PROMPT = `Analyze this drawing set and return the JSON described in the system prompt.
+
+Remember:
+- Group by installation zone (one wall run = one item).
+- drawer_count is REQUIRED — count every drawer visible, use 0 if none, NEVER null.
+- Set needs_review: true if you're uncertain about any field.
+- Return ONLY valid JSON. No markdown. Start with { and end with }.`
 
 function extractJSON(raw: string): any {
   let text = raw.trim()
@@ -216,17 +334,100 @@ export async function POST(req: NextRequest) {
 
     const parsed = await callClaude(base64, apiKey)
 
-    // Normalize the shape so the client can rely on it.
-    const header = parsed.header || {}
-    const rawItems = Array.isArray(parsed.items) ? parsed.items : []
-    const items = rawItems.map((it: any) => ({
-      name: typeof it.name === 'string' ? it.name : 'Item',
-      room: typeof it.room === 'string' && it.room.trim() ? it.room.trim() : 'Other',
-      category: typeof it.category === 'string' ? it.category : 'other',
-      linear_feet: typeof it.linear_feet === 'number' ? it.linear_feet : null,
-      quantity: typeof it.quantity === 'number' ? it.quantity : 1,
-      notes: typeof it.notes === 'string' ? it.notes : '',
-    }))
+    // ── Normalize item shape so the client can rely on it ────────────────────
+    // We keep this permissive — Claude occasionally omits a nested object or
+    // swaps a null for an empty value. Anything missing comes through as null
+    // / empty object / sensible default, NEVER undefined, so the DB jsonb
+    // columns downstream are predictable.
+    const VALID_CATEGORIES = new Set([
+      'base_cabinet', 'upper_cabinet', 'full_height', 'vanity',
+      'drawer_box', 'countertop', 'panel', 'scribe',
+      'led', 'hardware', 'custom', 'other',
+    ])
+    const VALID_QUALITIES = new Set(['standard', 'premium', 'custom', 'unspecified'])
+
+    const obj = (v: any): Record<string, any> =>
+      v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+    const arr = (v: any): any[] => (Array.isArray(v) ? v : [])
+    const str = (v: any): string | null =>
+      typeof v === 'string' && v.trim() ? v.trim() : null
+    const num = (v: any): number | null =>
+      typeof v === 'number' && Number.isFinite(v) ? v : null
+    const int = (v: any, fallback = 0): number =>
+      typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : fallback
+    const bool = (v: any): boolean | null =>
+      typeof v === 'boolean' ? v : null
+
+    const normalizeHardwareSpec = (v: any) => {
+      const o = obj(v)
+      return {
+        type: str(o.type),
+        count: num(o.count),
+        length: str(o.length),
+        size: str(o.size),
+      }
+    }
+
+    const header = obj(parsed.header)
+    const rawItems = arr(parsed.items)
+    const items = rawItems.map((it: any) => {
+      const f = obj(it.features)
+      const m = obj(it.material_specs)
+      const hw = obj(it.hardware_specs)
+      const fs = obj(it.finish_specs)
+      return {
+        name: str(it.name) || 'Item',
+        room: str(it.room) || 'Other',
+        category: VALID_CATEGORIES.has(it.category) ? it.category : 'other',
+        item_type: str(it.item_type),
+        quality: VALID_QUALITIES.has(it.quality) ? it.quality : 'unspecified',
+        linear_feet: num(it.linear_feet),
+        quantity: typeof it.quantity === 'number' && it.quantity > 0
+          ? Math.round(it.quantity) : 1,
+        features: {
+          drawer_count: int(f.drawer_count, 0),
+          door_style: str(f.door_style),
+          soft_close: bool(f.soft_close),
+          hinge_type: str(f.hinge_type),
+          slide_type: str(f.slide_type),
+          adjustable_shelves: num(f.adjustable_shelves),
+          rollout_trays: num(f.rollout_trays),
+          lazy_susan: bool(f.lazy_susan) ?? false,
+          trash_pullout: bool(f.trash_pullout) ?? false,
+          has_led: bool(f.has_led) ?? false,
+          notes: typeof f.notes === 'string' ? f.notes : '',
+        },
+        material_specs: {
+          exterior_species: str(m.exterior_species),
+          exterior_thickness: str(m.exterior_thickness),
+          interior_material: str(m.interior_material),
+          interior_thickness: str(m.interior_thickness),
+          back_material: str(m.back_material),
+          back_thickness: str(m.back_thickness),
+          edgeband: str(m.edgeband),
+        },
+        hardware_specs: {
+          hinges: normalizeHardwareSpec(hw.hinges),
+          slides: normalizeHardwareSpec(hw.slides),
+          pulls: normalizeHardwareSpec(hw.pulls),
+          specialty: arr(hw.specialty).map(normalizeHardwareSpec),
+        },
+        finish_specs: {
+          finish_type: str(fs.finish_type),
+          stain_color: str(fs.stain_color),
+          sheen: str(fs.sheen),
+          sides_to_finish: fs.sides_to_finish === 'all_sides'
+            ? 'all_sides' : 'exterior_only',
+          notes: typeof fs.notes === 'string' ? fs.notes : '',
+        },
+        parser_confidence: num(it.parser_confidence),
+        needs_review: it.needs_review === true,
+        source_sheet: str(it.source_sheet),
+        // Back-compat with the old lightweight shape (sales UI still reads this).
+        notes: typeof it.notes === 'string' ? it.notes
+          : (typeof f.notes === 'string' ? f.notes : ''),
+      }
+    })
 
     // De-dupe rooms off the items list; fall back to parsed.rooms if items empty.
     const roomSet = new Set<string>()
