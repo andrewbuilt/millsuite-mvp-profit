@@ -37,52 +37,14 @@ export interface ParsedCandidate {
   confidence: 'high' | 'medium' | 'low'
 }
 
-// ── Scope item shape (matches the rich parser + project_scope_items table) ──
-// These are re-exported from lib/types.ts as the canonical shape — we alias
-// them here to keep the old import path (lib/pdf-parser) working for existing
-// consumers that import ParsedScopeItem directly.
-import type {
-  ScopeItemFeatures,
-  ScopeItemMaterialSpecs,
-  ScopeItemHardwareSpec,
-  ScopeItemHardwareSpecs,
-  ScopeItemFinishSpecs,
-} from './types'
-
-/**
- * Scope item returned by the AI parser. Full spec shape — matches takeoff's
- * TakeoffItem and the project_scope_items table row so the same object flows
- * straight from parser -> sales page -> DB -> BOM aggregation without
- * reshaping.
- *
- * `notes` is kept as a top-level duplicate of `features.notes` for the sales
- * UI which still reads it off the item directly.
- */
+/** Scope item returned by the AI parser. Used for LF-aware subproject seeding. */
 export interface ParsedScopeItem {
   name: string
   room: string
   category: string
-  item_type: string | null
-  quality: string
   linear_feet: number | null
   quantity: number
-  features: ScopeItemFeatures
-  material_specs: ScopeItemMaterialSpecs
-  hardware_specs: ScopeItemHardwareSpecs
-  finish_specs: ScopeItemFinishSpecs
-  parser_confidence: number | null
-  needs_review: boolean
-  source_sheet: string | null
-  // Back-compat — sales UI reads item.notes; mirrors features.notes.
   notes: string
-}
-
-export type {
-  ScopeItemFeatures,
-  ScopeItemMaterialSpecs,
-  ScopeItemHardwareSpec,
-  ScopeItemHardwareSpecs,
-  ScopeItemFinishSpecs,
 }
 
 export interface ParsedPdf {

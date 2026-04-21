@@ -7,7 +7,7 @@ import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeSubprojectPrice } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink, Copy, Check, Printer, Download, Pencil, Calculator, Layers } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, FileText, ExternalLink, Copy, Check, Printer, Download, Pencil, Calculator } from 'lucide-react'
 import { useConfirm } from '@/components/confirm-dialog'
 import { hasAccess } from '@/lib/feature-flags'
 import ApprovalSlots from '@/components/approval-slots'
@@ -354,14 +354,6 @@ export default function ProjectDetailPage() {
               Rollup
             </Link>
           )}
-          <Link
-            href={`/projects/${projectId}/takeoff`}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors"
-            title="Shop-facing BOM from parsed drawings"
-          >
-            <Layers className="w-4 h-4" />
-            Takeoff
-          </Link>
           <Link
             href={`/projects/${projectId}/estimate`}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors"

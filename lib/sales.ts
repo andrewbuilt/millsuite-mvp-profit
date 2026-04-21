@@ -276,22 +276,17 @@ export async function createParsedLeadProject(input: {
  * Returns the number of subprojects actually created (errors are logged but
  * don't block the caller — the project itself already exists).
  */
-export interface CreatedRoomSubproject {
-  id: string
-  name: string
-}
-
 export async function createRoomSubprojects(input: {
   org_id: string
   project_id: string
   rooms: string[]
   consumable_markup_pct?: number | null
   profit_margin_pct?: number | null
-}): Promise<CreatedRoomSubproject[]> {
+}): Promise<number> {
   const rooms = input.rooms
     .map((r) => r.trim())
     .filter((r) => r.length > 0)
-  if (rooms.length === 0) return []
+  if (rooms.length === 0) return 0
 
   const rows = rooms.map((name, idx) => ({
     project_id: input.project_id,
@@ -305,80 +300,9 @@ export async function createRoomSubprojects(input: {
   const { data, error } = await supabase
     .from('subprojects')
     .insert(rows)
-    .select('id, name')
-  if (error) {
-    console.error('createRoomSubprojects', error)
-    return []
-  }
-  return ((data || []) as CreatedRoomSubproject[])
-}
-
-// ── Parsed scope items (project_scope_items) ──
-// When /api/parse-drawings returns rich scope items we persist them to
-// project_scope_items so the BOM / takeoff page can aggregate sheet counts,
-// hardware counts, and finish sq ft. Before this the parsed items were
-// returned in the API response but never saved — only the header landed.
-
-import type { ParsedScopeItem } from './pdf-parser'
-
-export interface PersistedScopeItemRow {
-  id: string
-}
-
-/**
- * Bulk-insert parsed scope items for a freshly parsed project. Called from
- * the sales page after createParsedLeadProject resolves, so we have a
- * project_id to hang the items off.
- *
- * If `roomToSubprojectId` is provided, items are linked to the matching
- * subproject by room name (case-insensitive). Unmatched rooms leave
- * subproject_id null and can be assigned later from the takeoff page.
- *
- * Failures are logged but don't throw — the project still exists and the
- * user can re-parse or edit manually.
- */
-export async function persistParsedScopeItems(input: {
-  org_id: string
-  project_id: string
-  items: ParsedScopeItem[]
-  roomToSubprojectId?: Record<string, string> // lower-cased room name -> subproject id
-}): Promise<number> {
-  const { org_id, project_id, items } = input
-  if (!Array.isArray(items) || items.length === 0) return 0
-
-  const roomMap = input.roomToSubprojectId || {}
-
-  const rows = items.map((item, idx) => {
-    const roomKey = (item.room || '').trim().toLowerCase()
-    const subproject_id = roomMap[roomKey] || null
-    return {
-      org_id,
-      project_id,
-      subproject_id,
-      sort_order: idx * 10,
-      name: item.name || 'Item',
-      room: item.room || null,
-      category: item.category || null,
-      item_type: item.item_type || null,
-      quality: item.quality || 'unspecified',
-      linear_feet: item.linear_feet ?? null,
-      quantity: item.quantity || 1,
-      features: item.features || {},
-      material_specs: item.material_specs || {},
-      hardware_specs: item.hardware_specs || {},
-      finish_specs: item.finish_specs || {},
-      parser_confidence: item.parser_confidence ?? null,
-      needs_review: item.needs_review === true,
-      source_sheet: item.source_sheet || null,
-    }
-  })
-
-  const { data, error } = await supabase
-    .from('project_scope_items')
-    .insert(rows)
     .select('id')
   if (error) {
-    console.error('persistParsedScopeItems', error)
+    console.error('createRoomSubprojects', error)
     return 0
   }
   return (data || []).length
