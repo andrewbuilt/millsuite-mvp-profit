@@ -20,7 +20,7 @@
 //     copy — no portal, no auto-QB, client approval is a status field
 // ============================================================================
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, Circle, AlertCircle } from 'lucide-react'
@@ -66,7 +66,10 @@ export default function PreProductionPage() {
   const [statusMap, setStatusMap] = useState<Record<string, SubprojectStatus>>({})
   const [loading, setLoading] = useState(true)
 
-  async function reload() {
+  // Stable reference is important — this gets passed to ChangeOrders as
+  // onChange, which lists the callback in its own effect deps. A fresh
+  // function every render would loop both pages forever.
+  const reload = useCallback(async () => {
     if (!projectId || !org?.id) return
     setLoading(true)
     const [projRes, subsRes] = await Promise.all([
@@ -88,12 +91,11 @@ export default function PreProductionPage() {
     setSubs(subList)
     setStatusMap(statuses)
     setLoading(false)
-  }
+  }, [projectId, org?.id])
 
   useEffect(() => {
     reload()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, org?.id])
+  }, [reload])
 
   if (loading || !project) {
     return (
