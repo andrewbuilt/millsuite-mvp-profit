@@ -179,7 +179,6 @@ function KanbanInner() {
                           key={p.id}
                           project={p}
                           onOpen={() => router.push(`/projects/${p.id}`)}
-                          onOpenRollup={() => router.push(`/projects/${p.id}/rollup`)}
                           onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
                           onDragStart={() => setDragId(p.id)}
                           onDragEnd={() => { setDragId(null); setDragOver(null) }}
@@ -259,7 +258,6 @@ function KanbanInner() {
 function KanbanCard({
   project,
   onOpen,
-  onOpenRollup,
   onQuickNote,
   onDragStart,
   onDragEnd,
@@ -267,7 +265,6 @@ function KanbanCard({
 }: {
   project: SalesProject
   onOpen: () => void
-  onOpenRollup: () => void
   onQuickNote: () => void
   onDragStart: () => void
   onDragEnd: () => void
@@ -333,11 +330,11 @@ function KanbanCard({
               Add a note
             </button>
             <button
-              onClick={() => { setMenuOpen(false); onOpenRollup() }}
+              onClick={() => { setMenuOpen(false); onOpen() }}
               className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
             >
               <ArrowRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
-              Open rollup
+              Open project
             </button>
           </div>
         </>

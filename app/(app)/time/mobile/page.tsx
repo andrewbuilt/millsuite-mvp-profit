@@ -107,7 +107,7 @@ export default function MobileTimerPage() {
     })
 
     if (projectId) {
-      fetch(`/api/projects/${projectId}/rollup`, { method: 'POST' }).catch(() => {})
+      fetch(`/api/projects/${projectId}`, { method: 'POST' }).catch(() => {})
       fetch(`/api/projects/${projectId}/advance-phase`, { method: 'POST' }).catch(() => {})
     }
 

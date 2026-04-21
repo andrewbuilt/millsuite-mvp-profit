@@ -558,7 +558,7 @@ function SalesInner() {
                 summary={summaries[p.id]}
                 onStageChange={(s) => handleStageChange(p, s)}
                 onAddNote={() => setNoteFor(p)}
-                onOpenRollup={() => router.push(`/projects/${p.id}/rollup`)}
+                onOpen={() => router.push(`/projects/${p.id}`)}
               />
             ))}
           </div>
@@ -848,13 +848,13 @@ function RecentCard({
   summary,
   onStageChange,
   onAddNote,
-  onOpenRollup,
+  onOpen,
 }: {
   project: SalesProject
   summary: SubprojectSummary | undefined
   onStageChange: (s: SalesStage) => void
   onAddNote: () => void
-  onOpenRollup: () => void
+  onOpen: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -930,11 +930,11 @@ function RecentCard({
               Add a note
             </button>
             <button
-              onClick={() => { setMenuOpen(false); onOpenRollup() }}
+              onClick={() => { setMenuOpen(false); onOpen() }}
               className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
             >
               <ArrowRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
-              Open rollup
+              Open project
             </button>
           </div>
         </>

@@ -407,7 +407,7 @@ function HandoffPageInner() {
           </Link>
           <ChevronRight className="w-3 h-3 text-[#D1D5DB]" />
           <Link
-            href={`/projects/${project.id}/rollup`}
+            href={`/projects/${project.id}`}
             className="hover:text-[#111]"
           >
             {project.name}
@@ -416,7 +416,7 @@ function HandoffPageInner() {
           <span className="text-[#111] font-medium">Handoff</span>
         </div>
         <Link
-          href={`/projects/${project.id}/rollup`}
+          href={`/projects/${project.id}`}
           className="inline-flex items-center gap-1 text-xs text-[#6B7280] hover:text-[#111]"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -496,7 +496,7 @@ function HandoffPageInner() {
           iconBg="bg-[#F3E8FF]"
           rightAction={
             <Link
-              href={`/projects/${project.id}/rollup`}
+              href={`/projects/${project.id}`}
               className="text-xs text-[#2563EB] hover:text-[#1D4ED8]"
             >
               Review in rollup →
@@ -709,7 +709,7 @@ function HandoffPageInner() {
           iconBg="bg-[#DCFCE7]"
           rightAction={
             <Link
-              href={`/projects/${project.id}/rollup`}
+              href={`/projects/${project.id}`}
               className="text-xs text-[#2563EB] hover:text-[#1D4ED8]"
             >
               Edit in rollup →
@@ -724,7 +724,7 @@ function HandoffPageInner() {
                 will still confirm, but there&apos;ll be nothing for the QB
                 watcher to match payments against.{' '}
                 <Link
-                  href={`/projects/${project.id}/rollup`}
+                  href={`/projects/${project.id}`}
                   className="underline hover:text-[#78350F]"
                 >
                   Compose them in the rollup
@@ -846,7 +846,7 @@ function HandoffPageInner() {
             </div>
             <div className="flex gap-2 flex-wrap">
               <Link
-                href={`/projects/${project.id}/rollup`}
+                href={`/projects/${project.id}`}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors border border-transparent"
               >
                 Exit without committing

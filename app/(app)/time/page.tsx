@@ -264,7 +264,7 @@ export default function TimePage() {
 
     // Fire-and-forget: recompute project actuals + try to advance phase.
     if (timerProjectId) {
-      fetch(`/api/projects/${timerProjectId}/rollup`, { method: 'POST' }).catch(() => {})
+      fetch(`/api/projects/${timerProjectId}`, { method: 'POST' }).catch(() => {})
       fetch(`/api/projects/${timerProjectId}/advance-phase`, { method: 'POST' }).catch(() => {})
     }
 
@@ -301,7 +301,7 @@ export default function TimePage() {
     })
 
     if (manualProjectId) {
-      fetch(`/api/projects/${manualProjectId}/rollup`, { method: 'POST' }).catch(() => {})
+      fetch(`/api/projects/${manualProjectId}`, { method: 'POST' }).catch(() => {})
       fetch(`/api/projects/${manualProjectId}/advance-phase`, { method: 'POST' }).catch(() => {})
     }
 
