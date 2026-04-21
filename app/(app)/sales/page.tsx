@@ -30,10 +30,12 @@ import {
   createBlankLeadProject,
   createParsedLeadProject,
   createRoomSubprojects,
+  deleteProject,
   loadSalesProjects,
   summarizePipeline,
   updateProjectStage,
 } from '@/lib/sales'
+import { useConfirm } from '@/components/confirm-dialog'
 import {
   CandidateRole,
   ParsedCandidate,
@@ -61,6 +63,7 @@ import {
   StickyNote,
   MoreHorizontal,
   Check,
+  Trash2,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -106,6 +109,7 @@ export default function SalesPage() {
 function SalesInner() {
   const router = useRouter()
   const { org, user } = useAuth()
+  const { confirm } = useConfirm()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [projects, setProjects] = useState<SalesProject[]>([])
@@ -559,6 +563,21 @@ function SalesInner() {
                 onStageChange={(s) => handleStageChange(p, s)}
                 onAddNote={() => setNoteFor(p)}
                 onOpen={() => router.push(`/projects/${p.id}`)}
+                onDelete={async () => {
+                  const ok = await confirm({
+                    title: 'Delete project?',
+                    message: `Delete "${p.name}"? This removes all subprojects, estimate lines, time entries, invoices, and milestones for the project. This can't be undone.`,
+                    confirmLabel: 'Delete',
+                    variant: 'danger',
+                  })
+                  if (!ok) return
+                  try {
+                    await deleteProject(p.id)
+                    setProjects((prev) => prev.filter((x) => x.id !== p.id))
+                  } catch (err: any) {
+                    alert(`Failed to delete: ${err?.message || 'unknown error'}`)
+                  }
+                }}
               />
             ))}
           </div>
@@ -849,12 +868,14 @@ function RecentCard({
   onStageChange,
   onAddNote,
   onOpen,
+  onDelete,
 }: {
   project: SalesProject
   summary: SubprojectSummary | undefined
   onStageChange: (s: SalesStage) => void
   onAddNote: () => void
   onOpen: () => void
+  onDelete: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -935,6 +956,14 @@ function RecentCard({
             >
               <ArrowRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
               Open project
+            </button>
+            <div className="border-t border-[#F3F4F6] my-1" />
+            <button
+              onClick={() => { setMenuOpen(false); onDelete() }}
+              className="w-full text-left px-3 py-1.5 text-xs text-[#DC2626] hover:bg-[#FEF2F2] inline-flex items-center gap-2"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete project
             </button>
           </div>
         </>

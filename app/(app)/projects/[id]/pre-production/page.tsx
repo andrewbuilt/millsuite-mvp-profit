@@ -144,7 +144,7 @@ export default function PreProductionPage() {
         <div className="max-w-[820px] mx-auto px-8 py-16 text-center">
           <h1 className="text-xl font-semibold text-[#111] mb-2">Pre-production isn't open yet</h1>
           <p className="text-sm text-[#6B7280] mb-5">
-            Mark the project as sold first. Approval items generate from estimate callouts during handoff.
+            Mark the project as sold first. Specs generate from estimate lines during handoff.
           </p>
           <Link
             href={`/projects/${projectId}`}
@@ -336,7 +336,7 @@ export default function PreProductionPage() {
             What this page is — and what stays manual for V1
           </h4>
           <p className="text-[12.5px] text-[#075985] leading-relaxed mb-2">
-            <b>Approval items come from estimate-line callouts.</b> Each one is a single decision — what
+            <b>Specs come from estimate-line finish specs.</b> Each one is a single decision — what
             material + what finish. Construction details (door style, edge profile, drawer joinery,
             dimensions, hardware quantities) live on the production drawing, not here.
           </p>

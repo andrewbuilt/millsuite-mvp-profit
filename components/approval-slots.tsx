@@ -84,7 +84,7 @@ export default function ApprovalSlots({ subprojectId, projectId, actorUserId }: 
       await reload()
     } catch (err) {
       console.error(err)
-      alert('Failed to update slot. See console.')
+      alert('Failed to update spec. See console.')
     } finally {
       setBusyItemId(null)
     }
@@ -99,12 +99,12 @@ export default function ApprovalSlots({ subprojectId, projectId, actorUserId }: 
       {/* Section header */}
       <div className="flex items-center justify-between">
         <div className="text-sm font-medium text-neutral-700">
-          Approval items
+          Specs
           <span className="ml-2 text-neutral-500 font-normal">
             {approvedCount} of {items.length} approved
           </span>
           {items.length > 0 && (
-            <span className="ml-2 text-neutral-400 font-normal">· pulled from estimate callouts</span>
+            <span className="ml-2 text-neutral-400 font-normal">· pulled from estimate lines</span>
           )}
         </div>
         <button
@@ -112,14 +112,14 @@ export default function ApprovalSlots({ subprojectId, projectId, actorUserId }: 
           className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
         >
           <Plus className="w-3 h-3" />
-          Add custom slot
+          Add custom spec
         </button>
       </div>
 
       {/* Empty state */}
       {items.length === 0 && (
         <div className="text-sm text-neutral-500 border border-dashed border-neutral-300 rounded p-4">
-          No approval slots yet. Slots are created from estimate-line callouts when a subproject is marked sold.
+          No specs yet. Specs are created from estimate-line finish specs when a subproject is marked sold.
         </div>
       )}
 
@@ -260,7 +260,7 @@ function SlotCard(p: SlotCardProps) {
           {item.linked_to_item_id && (
             <div className="mt-3 text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-50 text-blue-700">
               <Link2 className="w-3 h-3" />
-              Linked — approval mirrors the source slot
+              Linked — approval mirrors the source spec
               <button
                 onClick={p.onUnlink}
                 disabled={p.isBusy}
@@ -307,7 +307,7 @@ function SlotCard(p: SlotCardProps) {
                 className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700 disabled:opacity-40"
               >
                 <Link2 className="w-3 h-3" />
-                Link to existing slot
+                Link to existing spec
               </button>
             )}
           </div>
@@ -443,7 +443,7 @@ function CustomBaselineSummary({ item }: { item: ApprovalItem }) {
   if (!hasBaseline) {
     return (
       <div className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-        Custom slot has no pricing baseline. CO repricing on this slot will require manual entry.
+        Custom spec has no pricing baseline. CO repricing on this spec will require manual entry.
       </div>
     )
   }
@@ -501,13 +501,13 @@ function AddCustomSlotModal({
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
         <div className="flex items-center justify-between p-4 border-b border-neutral-200">
-          <div className="font-medium">Add custom approval slot</div>
+          <div className="font-medium">Add custom spec</div>
           <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800">
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="p-4 space-y-3">
-          <LabelInput label="Slot label" placeholder="e.g. metal toe kick" value={label} onChange={setLabel} />
+          <LabelInput label="Spec label" placeholder="e.g. metal toe kick" value={label} onChange={setLabel} />
           <LabelInput label="Material" placeholder="e.g. Blackened steel" value={material} onChange={setMaterial} />
           <LabelInput label="Finish (optional)" placeholder="e.g. Clear matte lacquer" value={finish} onChange={setFinish} />
 
@@ -541,7 +541,7 @@ function AddCustomSlotModal({
             disabled={!canSave || saving}
             className="text-sm px-3 py-1.5 rounded bg-neutral-800 text-white disabled:opacity-40"
           >
-            {saving ? 'Saving…' : 'Add slot'}
+            {saving ? 'Saving…' : 'Add spec'}
           </button>
         </div>
       </div>
@@ -620,7 +620,7 @@ function LinkSlotModal({
           <div>
             <div className="font-medium">Link "{item.label}"</div>
             <div className="text-xs text-neutral-500 mt-0.5">
-              Approval on the target slot will mirror to this one.
+              Approval on the target spec will mirror to this one.
             </div>
           </div>
           <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800">
@@ -632,7 +632,7 @@ function LinkSlotModal({
             <div className="text-sm text-neutral-500">Searching…</div>
           ) : suggestions.length === 0 ? (
             <div className="text-sm text-neutral-500">
-              No other slots on this project share this label.
+              No other specs on this project share this label.
             </div>
           ) : (
             <ul className="space-y-2">
@@ -660,9 +660,9 @@ function LinkSlotModal({
 
 function sourceLabel(item: ApprovalItem): React.ReactNode {
   if (item.linked_to_item_id) {
-    return <span className="inline-flex items-center gap-1"><Link2 className="w-3 h-3" /> linked slot</span>
+    return <span className="inline-flex items-center gap-1"><Link2 className="w-3 h-3" /> linked spec</span>
   }
-  if (item.is_custom) return 'custom slot'
+  if (item.is_custom) return 'custom spec'
   if (item.source_estimate_line_id) {
     return <>↳ from estimate line</>
   }

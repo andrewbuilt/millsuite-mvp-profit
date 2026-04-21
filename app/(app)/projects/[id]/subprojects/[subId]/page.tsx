@@ -1042,7 +1042,7 @@ function LineDetailPanel({
       {/* Finish specs */}
       <div className="mb-4">
         <FieldLabel>Finish specs
-          <span className="ml-1 font-normal normal-case tracking-normal text-[#D1D5DB]">· become approval slots when sold</span>
+          <span className="ml-1 font-normal normal-case tracking-normal text-[#D1D5DB]">· become specs in pre-production when sold</span>
         </FieldLabel>
         <div className="flex flex-col gap-1 mb-2">
           {(line.finish_specs || []).map((f, i) => (

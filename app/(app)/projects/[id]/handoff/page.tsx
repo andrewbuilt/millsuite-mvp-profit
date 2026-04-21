@@ -585,9 +585,9 @@ function HandoffPageInner() {
         >
           {proposals.length === 0 ? (
             <div className="text-sm text-[#6B7280] border border-dashed border-[#E5E7EB] rounded-lg px-4 py-6 text-center">
-              No callouts on any estimate line yet. Either every line is
+              No specs on any estimate line yet. Either every line is
               locked from the estimate (nothing for the client to select), or
-              the estimate hasn&apos;t been fleshed out. Add callouts on
+              the estimate hasn&apos;t been fleshed out. Add specs on
               individual lines via the subproject editor — you can revisit
               this handoff once that&apos;s done.
             </div>
@@ -596,7 +596,7 @@ function HandoffPageInner() {
               <div className="text-xs text-[#2563EB] bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg px-3 py-2 leading-relaxed">
                 <b>What&apos;s happening here.</b> The spec you quoted is the
                 spec your shop builds. Line items from the estimate carry
-                their callouts into pre-production as selection cards. Client
+                their specs into pre-production as selection cards. Client
                 decisions, shop-ready specs, and vendor POs are grouped by
                 what still needs to happen.
               </div>

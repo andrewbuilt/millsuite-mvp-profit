@@ -386,3 +386,34 @@ export async function updateProjectStage(
     throw error
   }
 }
+
+/**
+ * Delete a project and its dependent rows. Most child tables are CASCADE on
+ * project_id / subproject_id, but a handful (time_entries, invoices,
+ * project_notes, cash_flow_receivables) aren't, so we clean those up first.
+ * Idempotent — if a table doesn't exist in this environment the delete is
+ * still considered successful (errors logged, not thrown).
+ */
+export async function deleteProject(projectId: string): Promise<void> {
+  const childTables = [
+    'time_entries',
+    'invoices',
+    'project_notes',
+    'cash_flow_receivables',
+    'project_milestones',
+    'change_orders',
+    'project_month_allocations',
+  ]
+  for (const table of childTables) {
+    const { error } = await supabase.from(table).delete().eq('project_id', projectId)
+    if (error && error.code !== '42P01') {
+      // 42P01 = table doesn't exist; ignore so this helper works across envs.
+      console.warn(`deleteProject ${table}`, error.message)
+    }
+  }
+  const { error } = await supabase.from('projects').delete().eq('id', projectId)
+  if (error) {
+    console.error('deleteProject', error)
+    throw error
+  }
+}

@@ -10,7 +10,7 @@
 //
 // No drag-drop here — stage transitions happen on the project cover action
 // bar (or on the sales kanban for pre-sold drags). This page is a browse
-// + jump-to surface.
+// + jump-to surface, plus a delete action behind a confirm on each card.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
@@ -18,6 +18,9 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { useConfirm } from '@/components/confirm-dialog'
+import { deleteProject } from '@/lib/sales'
+import { Trash2 } from 'lucide-react'
 import {
   PROJECT_STAGE_LABEL,
   type ProjectStage,
@@ -56,6 +59,7 @@ function fmtMoney(n: number) {
 export default function ProjectsPage() {
   const router = useRouter()
   const { org } = useAuth()
+  const { confirm } = useConfirm()
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -87,6 +91,22 @@ export default function ProjectsPage() {
     for (const p of projects) out[p.stage]?.push(p)
     return out
   }, [projects])
+
+  async function handleDelete(p: ProjectRow) {
+    const ok = await confirm({
+      title: 'Delete project?',
+      message: `Delete "${p.name}"? This removes all subprojects, estimate lines, time entries, invoices, and milestones for the project. This can't be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })
+    if (!ok) return
+    try {
+      await deleteProject(p.id)
+      setProjects((prev) => prev.filter((x) => x.id !== p.id))
+    } catch (err: any) {
+      alert(`Failed to delete: ${err?.message || 'unknown error'}`)
+    }
+  }
 
   return (
     <>
@@ -123,29 +143,44 @@ export default function ProjectsPage() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {rows.map((p) => (
-                      <button
+                      <div
                         key={p.id}
-                        onClick={() => router.push(`/projects/${p.id}`)}
-                        className="text-left bg-white border border-[#E5E7EB] rounded-xl p-4 hover:border-[#2563EB] hover:shadow-sm transition-all"
+                        className="relative group bg-white border border-[#E5E7EB] rounded-xl p-4 hover:border-[#2563EB] hover:shadow-sm transition-all"
                       >
-                        <div className="font-semibold text-[#111] text-[14px]">
-                          {p.name}
-                        </div>
-                        <div className="text-[12px] text-[#6B7280] mt-1">
-                          {p.client_name || '—'}
-                        </div>
-                        <div className="mt-3 flex items-center justify-between text-[12px]">
-                          <span className="font-mono tabular-nums text-[#111]">
-                            {fmtMoney(p.bid_total)}
-                          </span>
-                          <span className="text-[#9CA3AF]">
-                            {new Date(p.updated_at).toLocaleDateString(undefined, {
-                              month: 'short',
-                              day: 'numeric',
-                            })}
-                          </span>
-                        </div>
-                      </button>
+                        <button
+                          onClick={() => router.push(`/projects/${p.id}`)}
+                          className="block text-left w-full pr-8"
+                        >
+                          <div className="font-semibold text-[#111] text-[14px]">
+                            {p.name}
+                          </div>
+                          <div className="text-[12px] text-[#6B7280] mt-1">
+                            {p.client_name || '—'}
+                          </div>
+                          <div className="mt-3 flex items-center justify-between text-[12px]">
+                            <span className="font-mono tabular-nums text-[#111]">
+                              {fmtMoney(p.bid_total)}
+                            </span>
+                            <span className="text-[#9CA3AF]">
+                              {new Date(p.updated_at).toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </span>
+                          </div>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDelete(p)
+                          }}
+                          title="Delete project"
+                          aria-label="Delete project"
+                          className="absolute top-3 right-3 p-1.5 text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2] rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </section>
