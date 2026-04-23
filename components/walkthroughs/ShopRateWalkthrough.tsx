@@ -1,47 +1,45 @@
 'use client'
 
-// ============================================================================
-// ShopRateWalkthrough — first-login per-department shop-rate capture
-// ============================================================================
-// Per BUILD-ORDER Phase 12 item 3. Single embeddable step: five numeric
-// inputs (Engineering / CNC / Assembly / Finish / Install) — the per-dept
-// rates the composer math reads at line compute.
+// components/walkthroughs/ShopRateWalkthrough.tsx
+// Four-screen first-principles shop rate setup.
+// Per BUILD-ORDER Phase 12 item 12 + specs/shop-rate-setup/.
 //
-// Data flow:
-//   load  → listShopLaborRates(orgId). If a dept row is missing, seed
-//           from DEFAULT_LABOR_RATES so the inputs aren't blank. No side
-//           effects on load — the defaults only persist when the user
-//           clicks Save.
-//   save  → updateShopLaborRate per dept in parallel, then onComplete().
+// Screens:
+//   1. Overhead   - categorized $ inputs, monthly or annual.
+//   2. Team       - add-row list, name + annual comp per employee.
+//   3. Billable   - hrs/wk × weeks/yr × utilization%.
+//   4. Result     - derived shop rate + Update / Keep buttons on re-entry.
 //
-// Scope — deliberately small:
-//   - No wage / overhead / billable-hours flow. The richer shop-rate-setup
-//     flow at specs/shop-rate-setup/ is deferred; that spec computes a
-//     single blended rate, but the composer's closed contract requires
-//     per-dept rates. This component is the V1 per-dept form.
-//   - No onboarding_step stamp. The parent overlay manages step state.
-//   - No layout chrome (no sticky header, no back button). Meant to embed
-//     inside the WelcomeOverlay (item 5) and later in a standalone
-//     /settings/shop-rate page (follow-up).
+// Persistence:
+//   Each Continue saves that screen's input group to its jsonb column so
+//   a mid-flow tab close loses nothing. The Result screen is the only
+//   one that writes orgs.shop_rate.
 //
-// Contract — props:
-//   orgId       — caller resolves org id (useAuth() inside the overlay).
-//   onComplete  — fired after all five rows upsert successfully.
-//   onCancel    — optional; shown as a ghost "Back" link when provided.
-// ============================================================================
+// Contract:
+//   orgId       - caller resolves org id.
+//   onComplete  - fired after Result writes shop_rate.
+//   onCancel    - optional. Shown as Back link on Screen 1.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  listShopLaborRates,
-  updateShopLaborRate,
-  laborRateMap,
-} from '@/lib/rate-book-v2'
-import {
-  DEFAULT_LABOR_RATES,
-  LABOR_DEPTS,
-  LABOR_DEPT_LABEL,
-  type LaborDept,
-} from '@/lib/rate-book-seed'
+  DEFAULT_OVERHEAD_CATEGORIES,
+  computeBillableHoursYear,
+  computeDerivedShopRate,
+  defaultBillableHoursInputs,
+  emptyOverheadInputs,
+  loadShopRateSetup,
+  makeTeamMember,
+  normalizeOverheadAnnual,
+  saveShopRate,
+  saveShopRateInputs,
+  sumOverheadAnnual,
+  sumTeamAnnualComp,
+  type BillableHoursInputs,
+  type OverheadInput,
+  type OverheadInputs,
+  type Period,
+  type TeamMember,
+} from '@/lib/shop-rate-setup'
 
 interface Props {
   orgId: string
@@ -49,32 +47,43 @@ interface Props {
   onCancel?: () => void
 }
 
+type Screen = 'overhead' | 'team' | 'billable' | 'result'
+
+function fmtMoney(n: number): string {
+  if (!Number.isFinite(n) || n === 0) return '$0'
+  return '$' + Math.round(n).toLocaleString()
+}
+
+function fmtRate(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '$0/hr'
+  return '$' + n.toFixed(2) + '/hr'
+}
+
 export default function ShopRateWalkthrough({ orgId, onComplete, onCancel }: Props) {
-  const [rates, setRates] = useState<Record<LaborDept, number>>(DEFAULT_LABOR_RATES)
+  const [screen, setScreen] = useState<Screen>('overhead')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Pull existing rows; any dept without a row keeps its DEFAULT_LABOR_RATES
-  // value. The defaults are not persisted on load — only the user's saved
-  // edits write back.
+  const [overhead, setOverhead] = useState<OverheadInputs>(emptyOverheadInputs())
+  const [team, setTeam] = useState<TeamMember[]>([])
+  const [billable, setBillable] = useState<BillableHoursInputs>(defaultBillableHoursInputs())
+  const [currentShopRate, setCurrentShopRate] = useState(0)
+
   useEffect(() => {
     if (!orgId) return
     let cancelled = false
     ;(async () => {
       setLoading(true)
       try {
-        const rows = await listShopLaborRates(orgId)
+        const setup = await loadShopRateSetup(orgId)
         if (cancelled) return
-        const existing = laborRateMap(rows)
-        // laborRateMap returns 0 for missing depts; fall back to defaults.
-        const next: Record<LaborDept, number> = { ...DEFAULT_LABOR_RATES }
-        for (const d of LABOR_DEPTS) {
-          if (existing[d] > 0) next[d] = existing[d]
-        }
-        setRates(next)
+        setOverhead(setup.overhead)
+        setTeam(setup.team)
+        setBillable(setup.billable)
+        setCurrentShopRate(setup.shopRate)
       } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Failed to load shop rates')
+        if (!cancelled) setError(err?.message || 'Failed to load shop rate setup')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -84,78 +93,32 @@ export default function ShopRateWalkthrough({ orgId, onComplete, onCancel }: Pro
     }
   }, [orgId])
 
-  async function save() {
+  async function advance(next: Screen, persist: () => Promise<void>) {
     setError(null)
     setSaving(true)
     try {
-      // Five tiny writes — parallel is fine, each row is its own upsert.
-      await Promise.all(
-        LABOR_DEPTS.map((d) => updateShopLaborRate(orgId, d, Number(rates[d]) || 0))
-      )
-      onComplete()
+      await persist()
+      setScreen(next)
     } catch (err: any) {
-      setError(err?.message || 'Failed to save shop rates')
+      setError(err?.message || 'Save failed')
     } finally {
       setSaving(false)
     }
   }
 
-  const canSave = LABOR_DEPTS.every((d) => Number.isFinite(rates[d]) && rates[d] > 0)
+  if (loading) {
+    return (
+      <div className="max-w-[620px] mx-auto bg-white border border-[#E5E7EB] rounded-2xl p-7 shadow-sm">
+        <div className="text-sm text-[#9CA3AF] italic py-10 text-center">
+          Loading shop rate inputs…
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="max-w-[540px] mx-auto bg-white border border-[#E5E7EB] rounded-2xl p-7 shadow-sm">
-      <div className="mb-5">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#2563EB] mb-1.5">
-          Step 1 · Shop rate
-        </div>
-        <h2 className="text-[22px] font-semibold text-[#111] tracking-tight mb-2">
-          What does an hour of shop time cost?
-        </h2>
-        <p className="text-sm text-[#6B7280] leading-relaxed">
-          One rate per department. These are what the composer multiplies
-          against estimated hours. You can tweak them anytime from Settings.
-        </p>
-      </div>
-
-      {loading ? (
-        <div className="text-sm text-[#9CA3AF] italic py-6 text-center">
-          Loading current rates…
-        </div>
-      ) : (
-        <div className="space-y-2.5 mb-5">
-          {LABOR_DEPTS.map((d) => (
-            <div
-              key={d}
-              className="flex items-center justify-between gap-4 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg"
-            >
-              <label htmlFor={`rate-${d}`} className="text-sm font-medium text-[#111]">
-                {LABOR_DEPT_LABEL[d]}
-              </label>
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm text-[#6B7280]">$</span>
-                <input
-                  id={`rate-${d}`}
-                  type="number"
-                  inputMode="decimal"
-                  step="1"
-                  min="0"
-                  value={rates[d]}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    setRates((prev) => ({
-                      ...prev,
-                      [d]: v === '' ? 0 : Number(v),
-                    }))
-                  }}
-                  className="w-24 text-right font-mono tabular-nums text-sm px-2.5 py-1.5 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
-                  disabled={saving}
-                />
-                <span className="text-sm text-[#9CA3AF]">/ hr</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="max-w-[620px] w-full mx-auto bg-white border border-[#E5E7EB] rounded-2xl p-7 shadow-sm">
+      <StepHeader screen={screen} />
 
       {error && (
         <div className="mb-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
@@ -163,28 +126,685 @@ export default function ShopRateWalkthrough({ orgId, onComplete, onCancel }: Pro
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-3">
-        {onCancel ? (
-          <button
-            type="button"
-            onClick={onCancel}
+      {screen === 'overhead' && (
+        <OverheadScreen
+          value={overhead}
+          onChange={setOverhead}
+          onContinue={() =>
+            advance('team', () => saveShopRateInputs(orgId, { overhead }))
+          }
+          onCancel={onCancel}
+          saving={saving}
+        />
+      )}
+
+      {screen === 'team' && (
+        <TeamScreen
+          value={team}
+          onChange={setTeam}
+          onContinue={() =>
+            advance('billable', () => saveShopRateInputs(orgId, { team }))
+          }
+          onBack={() => setScreen('overhead')}
+          saving={saving}
+        />
+      )}
+
+      {screen === 'billable' && (
+        <BillableScreen
+          value={billable}
+          onChange={setBillable}
+          onContinue={() =>
+            advance('result', () => saveShopRateInputs(orgId, { billable }))
+          }
+          onBack={() => setScreen('team')}
+          saving={saving}
+        />
+      )}
+
+      {screen === 'result' && (
+        <ResultScreen
+          overhead={overhead}
+          team={team}
+          billable={billable}
+          currentShopRate={currentShopRate}
+          saving={saving}
+          onBack={() => setScreen('billable')}
+          onUseRate={async (rate) => {
+            setError(null)
+            setSaving(true)
+            try {
+              await saveShopRate(orgId, rate)
+              onComplete()
+            } catch (err: any) {
+              setError(err?.message || 'Save failed')
+              setSaving(false)
+            }
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Step header ──
+
+function StepHeader({ screen }: { screen: Screen }) {
+  const label = {
+    overhead: '1 of 4 · Overhead',
+    team: '2 of 4 · Team',
+    billable: '3 of 4 · Billable hours',
+    result: '4 of 4 · Your shop rate',
+  }[screen]
+  return (
+    <div className="mb-5">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#2563EB] mb-1.5">
+        {label}
+      </div>
+    </div>
+  )
+}
+
+// ── Screen 1: Overhead ──
+
+function OverheadScreen({
+  value,
+  onChange,
+  onContinue,
+  onCancel,
+  saving,
+}: {
+  value: OverheadInputs
+  onChange: (v: OverheadInputs) => void
+  onContinue: () => void
+  onCancel?: () => void
+  saving: boolean
+}) {
+  const [newCategory, setNewCategory] = useState('')
+  const entries = Object.entries(value)
+  const total = sumOverheadAnnual(value)
+
+  function updateRow(cat: string, patch: Partial<OverheadInput>) {
+    onChange({ ...value, [cat]: { ...value[cat], ...patch } })
+  }
+
+  function removeRow(cat: string) {
+    const next = { ...value }
+    delete next[cat]
+    onChange(next)
+  }
+
+  function renameRow(oldCat: string, newCat: string) {
+    if (!newCat || newCat === oldCat || value[newCat]) return
+    const next: OverheadInputs = {}
+    for (const [k, v] of Object.entries(value)) {
+      next[k === oldCat ? newCat : k] = v
+    }
+    onChange(next)
+  }
+
+  function addRow() {
+    const name = newCategory.trim()
+    if (!name || value[name]) return
+    onChange({ ...value, [name]: { amount: 0, period: 'monthly' } })
+    setNewCategory('')
+  }
+
+  return (
+    <div>
+      <h2 className="text-[20px] font-semibold text-[#111] tracking-tight mb-2">
+        What does it cost to run your shop?
+      </h2>
+      <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
+        Every cost not tied to a specific job. Enter each one monthly or
+        annual — the math works either way. Skip what doesn't apply.
+      </p>
+
+      <div className="space-y-2 mb-4">
+        {entries.map(([cat, input]) => (
+          <OverheadRow
+            key={cat}
+            category={cat}
+            input={input}
+            onAmount={(amount) => updateRow(cat, { amount })}
+            onPeriod={(period) => updateRow(cat, { period })}
+            onRename={(next) => renameRow(cat, next)}
+            onRemove={() => removeRow(cat)}
             disabled={saving}
-            className="text-sm text-[#6B7280] hover:text-[#111] disabled:opacity-50"
-          >
-            ← Back
-          </button>
-        ) : (
-          <span />
-        )}
+          />
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 mb-5">
+        <input
+          type="text"
+          placeholder="+ Add category"
+          value={newCategory}
+          onChange={(e) => setNewCategory(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              addRow()
+            }
+          }}
+          className="flex-1 text-sm px-3 py-1.5 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+          disabled={saving}
+        />
         <button
           type="button"
-          onClick={save}
-          disabled={saving || loading || !canSave}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          onClick={addRow}
+          disabled={saving || !newCategory.trim()}
+          className="text-sm text-[#2563EB] hover:text-[#1D4ED8] disabled:opacity-40 font-medium"
         >
-          {saving ? 'Saving…' : 'Continue'}
+          Add
         </button>
       </div>
+
+      <div className="flex items-center justify-between px-4 py-3 bg-[#F3F4F6] border border-[#E5E7EB] rounded-lg mb-5">
+        <span className="text-sm text-[#6B7280]">Annual overhead</span>
+        <span className="text-[15px] font-semibold font-mono tabular-nums text-[#111]">
+          {fmtMoney(total)}
+        </span>
+      </div>
+
+      <FooterButtons
+        backLabel={onCancel ? '← Back' : undefined}
+        onBack={onCancel}
+        onContinue={onContinue}
+        saving={saving}
+        continueDisabled={saving}
+      />
+    </div>
+  )
+}
+
+function OverheadRow({
+  category,
+  input,
+  onAmount,
+  onPeriod,
+  onRename,
+  onRemove,
+  disabled,
+}: {
+  category: string
+  input: OverheadInput
+  onAmount: (n: number) => void
+  onPeriod: (p: Period) => void
+  onRename: (next: string) => void
+  onRemove: () => void
+  disabled: boolean
+}) {
+  const [name, setName] = useState(category)
+  useEffect(() => {
+    setName(category)
+  }, [category])
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={() => {
+          const trimmed = name.trim()
+          if (trimmed && trimmed !== category) onRename(trimmed)
+          else setName(category)
+        }}
+        disabled={disabled}
+        className="flex-1 min-w-0 text-sm px-2 py-1 bg-transparent focus:bg-white border border-transparent focus:border-[#E5E7EB] rounded-md focus:outline-none"
+      />
+      <span className="text-sm text-[#6B7280]">$</span>
+      <input
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step="1"
+        value={input.amount || ''}
+        placeholder="0"
+        onChange={(e) =>
+          onAmount(e.target.value === '' ? 0 : Number(e.target.value))
+        }
+        disabled={disabled}
+        className="w-24 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+      />
+      <select
+        value={input.period}
+        onChange={(e) => onPeriod(e.target.value as Period)}
+        disabled={disabled}
+        className="text-sm px-1.5 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+      >
+        <option value="monthly">/ mo</option>
+        <option value="annual">/ yr</option>
+      </select>
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={disabled}
+        aria-label={`Remove ${category}`}
+        className="w-6 h-6 text-[#9CA3AF] hover:text-[#991B1B] text-lg leading-none"
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
+// ── Screen 2: Team ──
+
+function TeamScreen({
+  value,
+  onChange,
+  onContinue,
+  onBack,
+  saving,
+}: {
+  value: TeamMember[]
+  onChange: (v: TeamMember[]) => void
+  onContinue: () => void
+  onBack: () => void
+  saving: boolean
+}) {
+  const total = sumTeamAnnualComp(value)
+
+  function addMember() {
+    onChange([...value, makeTeamMember('', 0)])
+  }
+  function updateMember(id: string, patch: Partial<TeamMember>) {
+    onChange(value.map((m) => (m.id === id ? { ...m, ...patch } : m)))
+  }
+  function removeMember(id: string) {
+    onChange(value.filter((m) => m.id !== id))
+  }
+
+  return (
+    <div>
+      <h2 className="text-[20px] font-semibold text-[#111] tracking-tight mb-2">
+        Who's on payroll?
+      </h2>
+      <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
+        Name + total annual pay per person. Convert hourly wages to annual
+        before entering ($/hr × hrs/wk × weeks). Owner comp too — if you
+        pay yourself, count it.
+      </p>
+
+      <div className="space-y-2 mb-4">
+        {value.length === 0 && (
+          <div className="text-sm text-[#9CA3AF] italic py-4 text-center bg-[#F9FAFB] border border-dashed border-[#E5E7EB] rounded-lg">
+            No team yet. Add your first member below.
+          </div>
+        )}
+        {value.map((m) => (
+          <div
+            key={m.id}
+            className="flex items-center gap-2 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg"
+          >
+            <input
+              type="text"
+              value={m.name}
+              onChange={(e) => updateMember(m.id, { name: e.target.value })}
+              placeholder="Name"
+              disabled={saving}
+              className="flex-1 min-w-0 text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+            />
+            <span className="text-sm text-[#6B7280]">$</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="1000"
+              value={m.annual_comp || ''}
+              placeholder="0"
+              onChange={(e) =>
+                updateMember(m.id, {
+                  annual_comp: e.target.value === '' ? 0 : Number(e.target.value),
+                })
+              }
+              disabled={saving}
+              className="w-28 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+            />
+            <span className="text-sm text-[#9CA3AF]">/ yr</span>
+            <button
+              type="button"
+              onClick={() => removeMember(m.id)}
+              disabled={saving}
+              aria-label={`Remove ${m.name || 'team member'}`}
+              className="w-6 h-6 text-[#9CA3AF] hover:text-[#991B1B] text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={addMember}
+        disabled={saving}
+        className="text-sm text-[#2563EB] hover:text-[#1D4ED8] font-medium mb-5 disabled:opacity-40"
+      >
+        + Add team member
+      </button>
+
+      <div className="flex items-center justify-between px-4 py-3 bg-[#F3F4F6] border border-[#E5E7EB] rounded-lg mb-5">
+        <span className="text-sm text-[#6B7280]">Annual team comp</span>
+        <span className="text-[15px] font-semibold font-mono tabular-nums text-[#111]">
+          {fmtMoney(total)}
+        </span>
+      </div>
+
+      <FooterButtons
+        backLabel="← Back"
+        onBack={onBack}
+        onContinue={onContinue}
+        saving={saving}
+        continueDisabled={saving}
+      />
+    </div>
+  )
+}
+
+// ── Screen 3: Billable hours ──
+
+function BillableScreen({
+  value,
+  onChange,
+  onContinue,
+  onBack,
+  saving,
+}: {
+  value: BillableHoursInputs
+  onChange: (v: BillableHoursInputs) => void
+  onContinue: () => void
+  onBack: () => void
+  saving: boolean
+}) {
+  const hours = computeBillableHoursYear(value)
+
+  return (
+    <div>
+      <h2 className="text-[20px] font-semibold text-[#111] tracking-tight mb-2">
+        How many hours do you actually bill?
+      </h2>
+      <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
+        Utilization is the honest part: rework, cleanup, watercooler sessions,
+        waiting on materials. A 70% number is common for a small shop.
+      </p>
+
+      <div className="space-y-3 mb-5">
+        <BillableInput
+          label="Hours per week"
+          hint="per person"
+          value={value.hrs_per_week}
+          step={1}
+          onChange={(n) => onChange({ ...value, hrs_per_week: n })}
+          disabled={saving}
+          unit="hr"
+        />
+        <BillableInput
+          label="Working weeks per year"
+          hint="52 minus holidays, PTO, shutdowns"
+          value={value.weeks_per_year}
+          step={1}
+          onChange={(n) => onChange({ ...value, weeks_per_year: n })}
+          disabled={saving}
+          unit="wk"
+        />
+        <BillableInput
+          label="Utilization"
+          hint="% of hours actually billable"
+          value={value.utilization_pct}
+          step={5}
+          onChange={(n) => onChange({ ...value, utilization_pct: n })}
+          disabled={saving}
+          unit="%"
+        />
+      </div>
+
+      <div className="flex items-center justify-between px-4 py-3 bg-[#F3F4F6] border border-[#E5E7EB] rounded-lg mb-5">
+        <span className="text-sm text-[#6B7280]">Billable hours / year</span>
+        <span className="text-[15px] font-semibold font-mono tabular-nums text-[#111]">
+          {Math.round(hours).toLocaleString()} hr
+        </span>
+      </div>
+
+      <FooterButtons
+        backLabel="← Back"
+        onBack={onBack}
+        onContinue={onContinue}
+        saving={saving}
+        continueDisabled={saving || hours <= 0}
+      />
+    </div>
+  )
+}
+
+function BillableInput({
+  label,
+  hint,
+  value,
+  step,
+  unit,
+  onChange,
+  disabled,
+}: {
+  label: string
+  hint: string
+  value: number
+  step: number
+  unit: string
+  onChange: (n: number) => void
+  disabled: boolean
+}) {
+  return (
+    <label className="flex items-center gap-3 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg">
+      <div className="flex-1">
+        <div className="text-sm font-medium text-[#111]">{label}</div>
+        <div className="text-[11.5px] text-[#9CA3AF]">{hint}</div>
+      </div>
+      <input
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step={step}
+        value={value || ''}
+        placeholder="0"
+        onChange={(e) =>
+          onChange(e.target.value === '' ? 0 : Number(e.target.value))
+        }
+        disabled={disabled}
+        className="w-24 text-right font-mono tabular-nums text-sm px-2 py-1.5 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+      />
+      <span className="text-sm text-[#9CA3AF] w-6">{unit}</span>
+    </label>
+  )
+}
+
+// ── Screen 4: Result ──
+
+function ResultScreen({
+  overhead,
+  team,
+  billable,
+  currentShopRate,
+  saving,
+  onBack,
+  onUseRate,
+}: {
+  overhead: OverheadInputs
+  team: TeamMember[]
+  billable: BillableHoursInputs
+  currentShopRate: number
+  saving: boolean
+  onBack: () => void
+  onUseRate: (rate: number) => void
+}) {
+  const derived = useMemo(
+    () => computeDerivedShopRate(overhead, team, billable),
+    [overhead, team, billable]
+  )
+  const annualOverhead = sumOverheadAnnual(overhead)
+  const annualTeam = sumTeamAnnualComp(team)
+  const hours = computeBillableHoursYear(billable)
+
+  const [override, setOverride] = useState<string>('')
+  const overrideNum = Number(override)
+  const overrideValid = override !== '' && Number.isFinite(overrideNum) && overrideNum > 0
+
+  const delta = Math.abs(derived - currentShopRate)
+  const showBothOnReentry = currentShopRate > 0 && delta > 0.005
+
+  return (
+    <div>
+      <h2 className="text-[20px] font-semibold text-[#111] tracking-tight mb-2">
+        Your blended shop rate
+      </h2>
+      <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
+        Total cost to run the shop for a year, divided by the hours you bill.
+        This is what an hour of your shop's time actually costs you.
+      </p>
+
+      <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-5 mb-4">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] mb-1">
+          Derived from current inputs
+        </div>
+        <div className="text-[36px] font-semibold font-mono tabular-nums text-[#111] leading-none mb-3">
+          {fmtRate(derived)}
+        </div>
+        <div className="text-[11.5px] text-[#6B7280] leading-relaxed font-mono">
+          ({fmtMoney(annualOverhead)} overhead + {fmtMoney(annualTeam)} team)
+          <br />÷ {Math.round(hours).toLocaleString()} billable hr
+        </div>
+      </div>
+
+      {showBothOnReentry && (
+        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-lg p-4 mb-4">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#92400E] mb-1.5">
+            Your current shop rate
+          </div>
+          <div className="text-[20px] font-semibold font-mono tabular-nums text-[#111] mb-1">
+            {fmtRate(currentShopRate)}
+          </div>
+          <div className="text-[12px] text-[#78350F]">
+            The derived rate is different from what you're using today. Update
+            to the derived rate, or keep what you have.
+          </div>
+        </div>
+      )}
+
+      <div className="border-t border-[#E5E7EB] pt-4 mb-5">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] mb-2">
+          Override
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-[#6B7280]">$</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.5"
+            value={override}
+            placeholder="Type a different rate"
+            onChange={(e) => setOverride(e.target.value)}
+            disabled={saving}
+            className="flex-1 text-sm px-3 py-1.5 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none font-mono tabular-nums"
+          />
+          <span className="text-sm text-[#9CA3AF]">/ hr</span>
+        </div>
+        <div className="text-[11.5px] text-[#9CA3AF] mt-1.5">
+          Use this if you want to charge more or less than the derived number.
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={saving}
+          className="text-sm text-[#6B7280] hover:text-[#111] disabled:opacity-50"
+        >
+          ← Back
+        </button>
+
+        <div className="flex items-center gap-2">
+          {overrideValid ? (
+            <button
+              type="button"
+              onClick={() => onUseRate(overrideNum)}
+              disabled={saving}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#111] text-white text-sm font-medium rounded-lg hover:bg-[#374151] disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Saving…' : `Use ${fmtRate(overrideNum)}`}
+            </button>
+          ) : (
+            <>
+              {showBothOnReentry && (
+                <button
+                  type="button"
+                  onClick={() => onUseRate(currentShopRate)}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-white text-[#111] text-sm font-medium rounded-lg border border-[#E5E7EB] hover:bg-[#F3F4F6] disabled:opacity-50 transition-colors"
+                >
+                  Keep {fmtRate(currentShopRate)}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onUseRate(derived)}
+                disabled={saving || derived <= 0}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {saving
+                  ? 'Saving…'
+                  : showBothOnReentry
+                    ? `Update to ${fmtRate(derived)}`
+                    : `Use ${fmtRate(derived)}`}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Shared footer ──
+
+function FooterButtons({
+  backLabel,
+  onBack,
+  onContinue,
+  saving,
+  continueDisabled,
+}: {
+  backLabel?: string
+  onBack?: () => void
+  onContinue: () => void
+  saving: boolean
+  continueDisabled: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      {onBack && backLabel ? (
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={saving}
+          className="text-sm text-[#6B7280] hover:text-[#111] disabled:opacity-50"
+        >
+          {backLabel}
+        </button>
+      ) : (
+        <span />
+      )}
+      <button
+        type="button"
+        onClick={onContinue}
+        disabled={continueDisabled}
+        className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        {saving ? 'Saving…' : 'Continue →'}
+      </button>
     </div>
   )
 }

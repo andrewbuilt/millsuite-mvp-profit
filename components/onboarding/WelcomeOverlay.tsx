@@ -4,13 +4,13 @@
 // WelcomeOverlay — first-login gate that sits on top of the app until the
 // required calibrations are in.
 // ============================================================================
-// Per BUILD-ORDER Phase 12 item 5.
+// Per BUILD-ORDER Phase 12 items 5 + 12.
 //
 // Renders a full-screen, non-dismissible overlay when the current user's
-// users.onboarded_at is null. Three sequential screens:
+// users.onboarded_at is null. Three sequential steps:
 //
 //   1. Welcome      — frames the two-step setup. Single CTA: Start setup.
-//   2. Shop rate    — ShopRateWalkthrough (item 3)
+//   2. Shop rate    — ShopRateWalkthrough (4 inner screens — item 12)
 //   3. Base cabinet — BaseCabinetWalkthrough (item 4)
 //
 // Advances persist users.onboarding_step on every transition so a mid-
@@ -97,7 +97,8 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
         your shop.
       </p>
       <p className="text-sm text-[#6B7280] leading-relaxed mb-6">
-        Two quick steps. Your per-department shop rate, and how long one
+        Two steps. First, a first-principles shop rate — overhead,
+        team comp, and the hours you actually bill. Then how long one
         8-foot run of base cabinets takes your shop. Both are editable
         anytime from Settings after setup.
       </p>
