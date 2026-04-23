@@ -242,6 +242,32 @@ Rule: don't start phase N until phase N−1's checklist is all green. Exceptions
 
 ---
 
+## Phase 12 — Product-tile estimating + walkthrough-driven calibration
+
+**Prerequisite:** Phases 1, 2, 11. This phase replaces the keyboard-first line entry built in Phase 2 with a product-tile + slot composer, and replaces the Phase 11 onboarding wizard with a first-login overlay that runs the shop-rate + base-cabinet walkthroughs. The Phase 11 onboarding surfaces (business card, past estimate upload, bank statement shop-burden) stay — they become optional post-overlay tools, not first-login gates.
+
+**Design source of truth:** [`specs/add-line-composer/README.md`](specs/add-line-composer/README.md) is the closed spec. [`specs/add-line-composer/index.html`](specs/add-line-composer/index.html) is the clickable prototype — open it in a browser before touching UI. Every design decision below was settled in that spec across six review rounds; do not reopen them.
+
+**Scope:** One calibrated walkthrough unit (8' run / 4 doors) across every input. Three active products (Base, Upper, Full) share a single composer. Rate book propagates only to new lines; unsold subprojects get a staleness flag. Install becomes a subproject-level prefill.
+
+**Out of scope:** Drawer / LED / Countertop products (tiles stay stubbed — `active: false`). Customizable door-labor multipliers. Cross-shop rate-book sharing. Any auto-push to QB.
+
+**Done when:**
+
+- [ ] Schema migration: `users.onboarded_at timestamptz` (nullable) + `users.onboarding_step text` (nullable). No `profiles` table in this codebase — `public.users` (see `docs/migration.sql` line 25, with `auth_user_id` → `auth.users.id`) is the extension table. `last_used_slots_by_product jsonb` goes on `users` (per-operator) or `orgs` (shop-wide) — pick one and document; shop-wide is probably right since a shop's typical spec is a shop property. Extend `rate_book_items` so finish items can carry sub-rows for primer / paint / stain / lacquer costs, and door-style items can carry per-dept labor blocks calibrated at 4 doors × 24"×30".
+- [ ] `lib/products.ts` constants for Base / Upper / Full: `sheetsPerLfFace`, `doorsPerLf`, `doorLaborMultiplier` (1.0 / 1.3 / 2.5). Drawer / LED / Countertop declared but marked inactive.
+- [ ] `components/walkthroughs/ShopRateWalkthrough.tsx` — embeddable component that captures the 5 per-department rates (Engineering, CNC, Assembly, Finish, Install) and writes them into the existing `shop_labor_rates` table (migration 006). Composer math requires per-dept rates; the richer multi-screen blended-rate flow at [`specs/shop-rate-setup/`](specs/shop-rate-setup/) is deferred as an optional post-overlay tool. Same component reused at `/settings/shop-rate` for recalibration.
+- [ ] `components/walkthroughs/BaseCabinetWalkthrough.tsx` — embeddable component calibrating one 8' run across 4 depts (Eng / CNC / Assembly / Finish). Wood machining is a guided step that folds into Assembly on save. Same component reused at `/settings/calibration/base`.
+- [ ] `components/onboarding/WelcomeOverlay.tsx` + `hooks/useOnboardingStatus.ts`. Mounts in `app/(app)/layout.tsx`. Null `onboarded_at` → renders full-screen, non-dismissible overlay with: welcome screen → shop rate → base cab. Closes and stamps `onboarded_at = NOW()` when both are saved. Mid-flow tab close → re-mounts at `onboarding_step`.
+- [ ] `components/composer/AddLineComposer.tsx` built from the prototype. Product tile grid (Base/Upper/Full active; Drawer/LED/Countertop stubs; Countertop locked). Slot UI: carcass material, door style, door/drawer material, interior finish, exterior finish, end panels count, filler count, notes. Live breakdown panel on the right with consumables % and waste % editable inline. Last-used carry-over via the `last_used_slots_by_product` jsonb. Replaces the existing Phase 2 inline line entry on `app/(app)/projects/[id]/subprojects/[subId]/page.tsx`.
+- [ ] `components/walkthroughs/DoorStyleWalkthrough.tsx` — ported from the prototype modal. 5 guided steps (Eng / CNC / Machining / Assembly / Finish) × 4 doors at 24"×30". Machining folds into Assembly on save. Fires from the composer hatch when an uncalibrated door style is picked or via "+ Add new door style." Mini-card mode for small gaps, full modal for new styles — decided by how many fields are empty.
+- [ ] `components/walkthroughs/FinishWalkthrough.tsx` — one walkthrough with collapsible combo rows (stain+clear on slab, paint on slab, stain+clear on shaker, paint on shaker). Each combo has Base 8' / Upper 8' / Full 8' cards. Each card captures labor hours + material breakdown (primer / paint / stain / lacquer, any can be zero). Partial calibration is a supported state. Fires from the composer hatch.
+- [ ] Install prefill on subproject header: `(guys × days × shop install rate) × (1 + complexity %)`. Single % input; description lists typical reasons to mark up (elevator, 2nd floor with stairs, long carry, tight stairwell). Rolls up into the subproject total alongside cabinet cost.
+- [ ] Per-line staleness detection via recompute-and-compare: on load, re-run `computeBreakdown` against current rate-book values for each saved line, flag the subproject if any line's recomputed total differs from its stored total. "Rates have changed since these lines were saved" banner + "Update to latest rates" bulk action. Only shows on unsold subprojects (`sold` state already locks rates).
+- [ ] At least one real customer estimate priced end-to-end through the new flow — shop rate change propagates correctly, door walkthrough fires in context, finish walkthrough partial-calibration works, line computes match the prototype's math — before this phase closes. Log the run in `docs/` as a dogfooding note.
+
+---
+
 ## Cross-thread pickup checklist
 
 If a new thread lands on this repo cold, it should:
