@@ -67,6 +67,17 @@ import {
   emptyInstallPrefill,
   type InstallPrefill as InstallPrefillValues,
 } from '@/lib/install-prefill'
+import { loadComposerRateBook } from '@/lib/composer-loader'
+import {
+  initialSubprojectDefaults,
+  loadSubprojectDefaults,
+} from '@/lib/composer-persist'
+import type { ComposerDefaults, ComposerRateBook } from '@/lib/composer'
+import {
+  bulkRefreshStaleLines,
+  findStaleLines,
+} from '@/lib/composer-staleness'
+import { isPresold, type ProjectStage } from '@/lib/types'
 
 // ── Formatting ──
 
@@ -93,7 +104,8 @@ interface ProjectRow {
   id: string
   name: string
   client_name: string | null
-  status: string
+  // Phase 12 item 10: gates the staleness banner (only shown presold).
+  stage: ProjectStage
 }
 
 // True when this subproject's activity type is "install" — the install
@@ -135,6 +147,11 @@ export default function SubprojectEditorPage() {
   // onChange. We hold them here so the subproject total + header strip can
   // reflect the install cost without needing to refetch.
   const [installValues, setInstallValues] = useState<InstallPrefillValues>(emptyInstallPrefill())
+  // Phase 12 item 10 — composer rate book + subproject defaults, loaded so
+  // we can flag stale composer lines against current rates.
+  const [composerRateBook, setComposerRateBook] = useState<ComposerRateBook | null>(null)
+  const [composerDefaults, setComposerDefaults] = useState<ComposerDefaults | null>(null)
+  const [refreshingStale, setRefreshingStale] = useState(false)
   // Phase 8: per-dept actuals from time_entries. Populated after load so the
   // "Labor by department" strip can render actuals alongside estimates.
   const [actuals, setActuals] = useState<SubActuals | null>(null)
@@ -167,7 +184,7 @@ export default function SubprojectEditorPage() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const [projRes, subRes, siblingsRes, linesData, rb, opts, rates, lineOpts, subActuals, deptRes] = await Promise.all([
+      const [projRes, subRes, siblingsRes, linesData, rb, opts, rates, lineOpts, subActuals, deptRes, composerRb, composerSubDefaults] = await Promise.all([
         supabase
           .from('projects')
           .select('id, name, client_name, stage')
@@ -190,6 +207,8 @@ export default function SubprojectEditorPage() {
         loadLineOptions(subId),
         loadSubprojectActuals(subId),
         supabase.from('departments').select('id, name').eq('org_id', org.id),
+        loadComposerRateBook(org.id),
+        loadSubprojectDefaults(subId),
       ])
       if (cancelled) return
       if (projRes.data) setProject(projRes.data as any)
@@ -199,6 +218,10 @@ export default function SubprojectEditorPage() {
       setItems(rb.items)
       setOptions(opts)
       setLaborRates({ ...DEFAULT_LABOR_RATES, ...laborRateMap(rates) })
+      setComposerRateBook(composerRb)
+      setComposerDefaults(
+        composerSubDefaults ?? initialSubprojectDefaults(org?.consumable_markup_pct ?? null)
+      )
 
       // Inflate per-line options with their rate-book definitions.
       const optsById = new Map(opts.map((o) => [o.id, o]))
@@ -456,6 +479,30 @@ export default function SubprojectEditorPage() {
   )
   const subprojectTotalWithInstall = rollup.total + installPrefillCost
 
+  // Phase 12 item 10 — staleness against current rate book. Gated to
+  // pre-sold stages; post-sold subprojects freeze at their saved values.
+  const staleLines = useMemo(() => {
+    if (!composerRateBook || !composerDefaults) return []
+    return findStaleLines(lines, composerDefaults, composerRateBook)
+  }, [lines, composerRateBook, composerDefaults])
+  const showStaleBanner =
+    staleLines.length > 0 && !!project?.stage && isPresold(project.stage)
+
+  async function handleRefreshStale() {
+    if (staleLines.length === 0) return
+    setRefreshingStale(true)
+    try {
+      await bulkRefreshStaleLines(staleLines)
+      const fresh = await loadEstimateLines(subId)
+      setLines(fresh)
+    } catch (err: any) {
+      console.error('handleRefreshStale', err)
+      alert('Failed to update lines — ' + (err?.message || 'unknown error'))
+    } finally {
+      setRefreshingStale(false)
+    }
+  }
+
   if (loading) {
     return (
       <>
@@ -558,6 +605,29 @@ export default function SubprojectEditorPage() {
               </button>
             </div>
           </div>
+
+          {/* Staleness banner (Phase 12 item 10) — pre-sold only. */}
+          {showStaleBanner && (
+            <div className="mb-4 px-4 py-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-[13px] font-semibold text-[#92400E]">
+                  Rates have changed since these lines were saved
+                </div>
+                <div className="text-[12px] text-[#78350F] mt-0.5">
+                  {staleLines.length} composer line{staleLines.length === 1 ? '' : 's'} out of date.
+                  Recompute against the current rate book to push the new numbers into the lines.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRefreshStale}
+                disabled={refreshingStale}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#D97706] rounded-md hover:bg-[#B45309] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {refreshingStale ? 'Updating…' : 'Update to latest rates'}
+              </button>
+            </div>
+          )}
 
           {/* Install prefill (Phase 12 item 9) — per-subproject install
               cost from guys × days × install rate × (1 + complexity%).
