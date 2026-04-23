@@ -22,12 +22,15 @@
 // Subproject defaults are loaded in parallel; missing values fall back to
 // the initialSubprojectDefaults helper.
 //
-// Uncalibrated posture per item 6 spec:
+// Uncalibrated posture:
 //   - carcass labor uncalibrated (Base cabinet item missing or zero) →
 //     full-panel warning strip, composer is view-only, save blocked
-//   - door style uncalibrated → warning in breakdown + save blocked
-//   - exterior finish uncalibrated for this product → save blocked
-//   No "Open walkthrough" buttons yet — items 7/8 plug those in.
+//   - door style uncalibrated → inline "Calibrate this door style"
+//     button opens DoorStyleWalkthrough (item 7). Mini-card mode for
+//     partial gaps, full modal for new/all-zero. On save, rate book
+//     refetches and the newly-calibrated style auto-selects.
+//   - exterior finish uncalibrated for this product → save blocked,
+//     warning strip (walkthrough hatch lands in item 8)
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -61,6 +64,9 @@ import {
   createCarcassMaterial,
   createExtMaterial,
 } from '@/lib/rate-book-materials'
+import DoorStyleWalkthrough, {
+  type DoorStyleWalkthroughExistingStyle,
+} from '@/components/walkthroughs/DoorStyleWalkthrough'
 
 interface Props {
   subprojectId: string
@@ -130,6 +136,12 @@ export default function AddLineComposer({
   const [addNew, setAddNew] = useState<{ slotKey: string; ctx: AddNewContext } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  // Door walkthrough overlay — either { style } for an existing
+  // uncalibrated style, or { style: null } for the "+ Add new" path.
+  const [doorWt, setDoorWt] = useState<
+    | { style: DoorStyleWalkthroughExistingStyle | null }
+    | null
+  >(null)
 
   function resetState() {
     setView('picker')
@@ -137,6 +149,40 @@ export default function AddLineComposer({
     setOpenDropdown(null)
     setAddNew(null)
     setSaveError(null)
+    setDoorWt(null)
+  }
+
+  async function refreshRateBook() {
+    try {
+      const rb = await loadComposerRateBook(orgId)
+      setRateBook(rb)
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to refresh rate book')
+    }
+  }
+
+  function openDoorWalkthroughForPick(styleId: string) {
+    if (!rateBook) return
+    const ds = rateBook.doorStyles.find((d) => d.id === styleId)
+    if (!ds) return
+    setOpenDropdown(null)
+    setDoorWt({
+      style: { id: ds.id, name: ds.name, labor: ds.labor },
+    })
+  }
+
+  function openDoorWalkthroughForNew() {
+    setOpenDropdown(null)
+    setDoorWt({ style: null })
+  }
+
+  async function handleDoorWalkthroughComplete(styleId: string) {
+    setDoorWt(null)
+    await refreshRateBook()
+    // Select the calibrated (or newly-created) style on the draft.
+    setDraft((prev) =>
+      prev ? { ...prev, slots: { ...prev.slots, doorStyle: styleId } } : prev
+    )
   }
 
   const pickProduct = useCallback(
@@ -384,11 +430,23 @@ export default function AddLineComposer({
                 cancelAddNew={() => setAddNew(null)}
                 setAddNewField={setAddNewField}
                 saveAddNew={saveAddNew}
+                onDoorUncalibratedPick={openDoorWalkthroughForPick}
+                onAddNewDoorStyle={openDoorWalkthroughForNew}
               />
             ) : null}
           </div>
         </div>
       </div>
+
+      {/* Door walkthrough overlay — sits above the composer modal. */}
+      {doorWt && (
+        <DoorStyleWalkthrough
+          orgId={orgId}
+          existingStyle={doorWt.style}
+          onCancel={() => setDoorWt(null)}
+          onComplete={handleDoorWalkthroughComplete}
+        />
+      )}
     </div>
   )
 }
@@ -495,6 +553,8 @@ function Composer(p: {
   cancelAddNew: () => void
   setAddNewField: <K extends keyof AddNewContext>(field: K, value: AddNewContext[K]) => void
   saveAddNew: () => void
+  onDoorUncalibratedPick: (styleId: string) => void
+  onAddNewDoorStyle: () => void
 }) {
   const { draft, rateBook, breakdown, defaults } = p
 
@@ -560,16 +620,29 @@ function Composer(p: {
               }))}
               onToggle={() => p.toggleDropdown('doorStyle')}
               onPick={(id) => {
-                p.setSlot('doorStyle', id)
                 p.toggleDropdown('doorStyle')
+                const ds = rateBook.doorStyles.find((d) => d.id === id)
+                if (ds && !ds.calibrated) {
+                  // Uncalibrated pick — open walkthrough so the user fills
+                  // the labor in. Pre-selecting would leave the draft stuck
+                  // behind the save gate until calibration completes.
+                  p.onDoorUncalibratedPick(id)
+                } else {
+                  p.setSlot('doorStyle', id)
+                }
               }}
+              onAddNew={() => p.onAddNewDoorStyle()}
+              addNewLabel="+ Add new door style"
               placeholder="Choose…"
             />
             {rateBook.doorStyles.length === 0 && (
-              <WarnStrip>
-                No door styles yet. Door-style walkthrough lands in the next item —
-                add the first style then.
-              </WarnStrip>
+              <button
+                type="button"
+                onClick={p.onAddNewDoorStyle}
+                className="mt-2 w-full px-3 py-2.5 bg-[#0f1a2a] border border-dashed border-[#3b82f6]/60 rounded-md text-[12px] text-[#93c5fd] hover:bg-[#152440] hover:border-[#3b82f6] transition-colors"
+              >
+                + Calibrate your first door style
+              </button>
             )}
           </Field>
 
