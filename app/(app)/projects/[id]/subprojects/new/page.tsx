@@ -70,6 +70,15 @@ export default function NewSubprojectPage() {
       .maybeSingle()
     const nextOrder = last?.sort_order != null ? Number(last.sort_order) + 1 : 0
 
+    // Composer defaults seed: consumablesPct pulls from
+    // orgs.consumable_markup_pct (or 10 if unset); wastePct hardcodes to 5.
+    // Composer reads subprojects.defaults only.
+    const orgPct = org?.consumable_markup_pct
+    const defaults = {
+      consumablesPct: typeof orgPct === 'number' && orgPct > 0 ? orgPct : 10,
+      wastePct: 5,
+    }
+
     const { data, error } = await supabase
       .from('subprojects')
       .insert({
@@ -80,6 +89,7 @@ export default function NewSubprojectPage() {
         activity_type: activity,
         consumable_markup_pct: org?.consumable_markup_pct ?? null,
         profit_margin_pct: org?.profit_margin_pct ?? null,
+        defaults,
       })
       .select('id')
       .single()
