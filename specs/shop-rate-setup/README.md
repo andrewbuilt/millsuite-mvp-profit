@@ -1,5 +1,8 @@
 # Shop Rate Setup — Approved Spec
 
+> **Canonical UX:** [`mockups/shop-rate-setup-mockup.html`](../../mockups/shop-rate-setup-mockup.html). This README is historical; where it disagrees with the mockup, the mockup wins.
+
+
 > **V1 status:** This is the V1 onboarding Step 1. Per BUILD-ORDER Phase 12
 > item 12, the four-screen blended-rate flow (Overhead → Team → Billable
 > Hours → Result) ships inside the welcome overlay. Composer math uses
