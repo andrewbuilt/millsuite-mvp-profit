@@ -22,14 +22,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  DEFAULT_OVERHEAD_CATEGORIES,
   computeBillableHoursYear,
   computeDerivedShopRate,
+  countBillable,
   defaultBillableHoursInputs,
   emptyOverheadInputs,
   loadShopRateSetup,
   makeTeamMember,
-  normalizeOverheadAnnual,
   saveShopRate,
   saveShopRateInputs,
   sumOverheadAnnual,
@@ -153,6 +152,7 @@ export default function ShopRateWalkthrough({ orgId, onComplete, onCancel }: Pro
       {screen === 'billable' && (
         <BillableScreen
           value={billable}
+          team={team}
           onChange={setBillable}
           onContinue={() =>
             advance('result', () => saveShopRateInputs(orgId, { billable }))
@@ -406,9 +406,10 @@ function TeamScreen({
   saving: boolean
 }) {
   const total = sumTeamAnnualComp(value)
+  const billableCount = value.filter((m) => m.billable).length
 
   function addMember() {
-    onChange([...value, makeTeamMember('', 0)])
+    onChange([...value, makeTeamMember('', 0, true)])
   }
   function updateMember(id: string, patch: Partial<TeamMember>) {
     onChange(value.map((m) => (m.id === id ? { ...m, ...patch } : m)))
@@ -422,10 +423,18 @@ function TeamScreen({
       <h2 className="text-[20px] font-semibold text-[#111] tracking-tight mb-2">
         Who's on payroll?
       </h2>
-      <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
+      <p className="text-sm text-[#6B7280] leading-relaxed mb-2">
         Name + total annual pay per person. Convert hourly wages to annual
         before entering ($/hr × hrs/wk × weeks). Owner comp too — if you
         pay yourself, count it.
+      </p>
+      <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
+        <strong className="text-[#111]">Billable</strong> = does this
+        person's time get billed to jobs? Owner admin time, office
+        managers, bookkeepers = <strong>No</strong>. Everyone touching
+        production (CNC, assembly, finish, install) = <strong>Yes</strong>.
+        Non-billable people still count toward total cost; they just
+        don't show up in the hours denominator.
       </p>
 
       <div className="space-y-2 mb-4">
@@ -464,6 +473,21 @@ function TeamScreen({
               className="w-28 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
             />
             <span className="text-sm text-[#9CA3AF]">/ yr</span>
+            <label className="flex items-center gap-1 text-[11px] text-[#6B7280]">
+              <span className="hidden sm:inline">Billable</span>
+              <select
+                value={m.billable ? 'yes' : 'no'}
+                onChange={(e) =>
+                  updateMember(m.id, { billable: e.target.value === 'yes' })
+                }
+                disabled={saving}
+                className="text-sm px-1.5 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+                aria-label={`${m.name || 'Team member'} billable`}
+              >
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
             <button
               type="button"
               onClick={() => removeMember(m.id)}
@@ -487,7 +511,12 @@ function TeamScreen({
       </button>
 
       <div className="flex items-center justify-between px-4 py-3 bg-[#F3F4F6] border border-[#E5E7EB] rounded-lg mb-5">
-        <span className="text-sm text-[#6B7280]">Annual team comp</span>
+        <div>
+          <div className="text-sm text-[#6B7280]">Annual team comp</div>
+          <div className="text-[11.5px] text-[#9CA3AF]">
+            {billableCount} billable · {value.length - billableCount} non-billable
+          </div>
+        </div>
         <span className="text-[15px] font-semibold font-mono tabular-nums text-[#111]">
           {fmtMoney(total)}
         </span>
@@ -508,18 +537,22 @@ function TeamScreen({
 
 function BillableScreen({
   value,
+  team,
   onChange,
   onContinue,
   onBack,
   saving,
 }: {
   value: BillableHoursInputs
+  team: TeamMember[]
   onChange: (v: BillableHoursInputs) => void
   onContinue: () => void
   onBack: () => void
   saving: boolean
 }) {
-  const hours = computeBillableHoursYear(value)
+  const rawBillable = team.filter((m) => m.billable).length
+  const people = countBillable(team)
+  const hours = computeBillableHoursYear(value, people)
 
   return (
     <div>
@@ -530,6 +563,27 @@ function BillableScreen({
         Utilization is the honest part: rework, cleanup, watercooler sessions,
         waiting on materials. A 70% number is common for a small shop.
       </p>
+
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg mb-4">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#1E40AF]">
+            Billable people
+          </div>
+          <div className="text-[11.5px] text-[#1E3A8A]">
+            From your team list (billable = Yes)
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[20px] font-semibold font-mono tabular-nums text-[#111]">
+            {people}
+          </div>
+          {rawBillable === 0 && (
+            <div className="text-[10.5px] text-[#92400E]">
+              Floor of 1 applied (team empty)
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="space-y-3 mb-5">
         <BillableInput
@@ -562,7 +616,12 @@ function BillableScreen({
       </div>
 
       <div className="flex items-center justify-between px-4 py-3 bg-[#F3F4F6] border border-[#E5E7EB] rounded-lg mb-5">
-        <span className="text-sm text-[#6B7280]">Billable hours / year</span>
+        <div>
+          <div className="text-sm text-[#6B7280]">Billable hours / year</div>
+          <div className="text-[11.5px] text-[#9CA3AF] font-mono">
+            {people} × {value.hrs_per_week || 0} hr × {value.weeks_per_year || 0} wk × {value.utilization_pct || 0}%
+          </div>
+        </div>
         <span className="text-[15px] font-semibold font-mono tabular-nums text-[#111]">
           {Math.round(hours).toLocaleString()} hr
         </span>
@@ -645,7 +704,8 @@ function ResultScreen({
   )
   const annualOverhead = sumOverheadAnnual(overhead)
   const annualTeam = sumTeamAnnualComp(team)
-  const hours = computeBillableHoursYear(billable)
+  const people = countBillable(team)
+  const hours = computeBillableHoursYear(billable, people)
 
   const [override, setOverride] = useState<string>('')
   const overrideNum = Number(override)
@@ -672,8 +732,9 @@ function ResultScreen({
           {fmtRate(derived)}
         </div>
         <div className="text-[11.5px] text-[#6B7280] leading-relaxed font-mono">
-          ({fmtMoney(annualOverhead)} overhead + {fmtMoney(annualTeam)} team)
-          <br />÷ {Math.round(hours).toLocaleString()} billable hr
+          (all payroll {fmtMoney(annualTeam)} + overhead {fmtMoney(annualOverhead)})
+          <br />÷ ({people} billable × {billable.hrs_per_week || 0} hr × {billable.weeks_per_year || 0} wk × {billable.utilization_pct || 0}%)
+          <br />= {Math.round(hours).toLocaleString()} billable hr / yr
         </div>
       </div>
 

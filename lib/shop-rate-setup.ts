@@ -30,6 +30,11 @@ export interface TeamMember {
   id: string
   name: string
   annual_comp: number
+  /** Whether this person's time gets billed to jobs. Owner admin time,
+   *  office managers = false; everyone touching production = true. Drives
+   *  billable_hours_year's people multiplier. Non-billable still counts
+   *  toward total payroll cost (the numerator). */
+  billable: boolean
 }
 
 export interface BillableHoursInputs {
@@ -46,9 +51,11 @@ export const DEFAULT_OVERHEAD_CATEGORIES: string[] = [
   'Vehicle',
   'Shop consumables',
   'Tools',
-  'Admin',
   'Other',
 ]
+// "Admin" is intentionally not a default overhead line. Owner admin time
+// and office-manager salary belong on the Team list with billable=false
+// so they flow into the numerator without inflating billable hours.
 
 export function emptyOverheadInputs(): OverheadInputs {
   const out: OverheadInputs = {}
@@ -62,12 +69,23 @@ export function defaultBillableHoursInputs(): BillableHoursInputs {
   return { hrs_per_week: 40, weeks_per_year: 48, utilization_pct: 70 }
 }
 
-export function makeTeamMember(name = '', annual_comp = 0): TeamMember {
+export function makeTeamMember(
+  name = '',
+  annual_comp = 0,
+  billable = true
+): TeamMember {
   const id =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `tm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  return { id, name, annual_comp }
+  return { id, name, annual_comp, billable }
+}
+
+/** Floor of 1 so an empty-team state doesn't divide by zero in the
+ *  derived rate calc. The Result screen still surfaces the zero-state
+ *  honestly via the math breakdown text. */
+export function countBillable(team: TeamMember[]): number {
+  return (team || []).filter((m) => m.billable).length || 1
 }
 
 export function normalizeOverheadAnnual(i: OverheadInput): number {
@@ -89,11 +107,15 @@ export function sumTeamAnnualComp(team: TeamMember[]): number {
   return total
 }
 
-export function computeBillableHoursYear(b: BillableHoursInputs): number {
+export function computeBillableHoursYear(
+  b: BillableHoursInputs,
+  billablePeople: number
+): number {
   const hpw = Number(b?.hrs_per_week) || 0
   const wpy = Number(b?.weeks_per_year) || 0
   const util = Number(b?.utilization_pct) || 0
-  return hpw * wpy * (util / 100)
+  const n = Math.max(1, Number(billablePeople) || 0)
+  return n * hpw * wpy * (util / 100)
 }
 
 export function computeDerivedShopRate(
@@ -101,8 +123,10 @@ export function computeDerivedShopRate(
   team: TeamMember[],
   billable: BillableHoursInputs
 ): number {
-  const hours = computeBillableHoursYear(billable)
+  const hours = computeBillableHoursYear(billable, countBillable(team))
   if (hours <= 0) return 0
+  // Numerator is ALL payroll + ALL overhead — non-billable people still
+  // cost money. The billable flag only shapes the denominator.
   return (sumOverheadAnnual(overhead) + sumTeamAnnualComp(team)) / hours
 }
 
@@ -125,13 +149,21 @@ export async function loadShopRateSetup(orgId: string): Promise<ShopRateSetup> {
   const row = (data || {}) as {
     shop_rate: number | null
     overhead_inputs: OverheadInputs | null
-    team_members: TeamMember[] | null
+    team_members: Array<Partial<TeamMember>> | null
     billable_hours_inputs: BillableHoursInputs | null
   }
+  // Backfill billable=true on any member that predates the flag.
+  // Only an explicit `false` persists a non-billable state.
+  const team: TeamMember[] = (row.team_members ?? []).map((m) => ({
+    id: String(m.id ?? makeTeamMember().id),
+    name: String(m.name ?? ''),
+    annual_comp: Number(m.annual_comp) || 0,
+    billable: m.billable === false ? false : true,
+  }))
   return {
     shopRate: Number(row.shop_rate) || 0,
     overhead: row.overhead_inputs ?? emptyOverheadInputs(),
-    team: row.team_members ?? [],
+    team,
     billable: row.billable_hours_inputs ?? defaultBillableHoursInputs(),
   }
 }
