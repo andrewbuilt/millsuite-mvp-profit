@@ -1,6 +1,7 @@
 import Footer from '@/components/footer'
 import { ConfirmProvider } from '@/components/confirm-dialog'
 import RoleGate from '@/components/role-gate'
+import WelcomeOverlay from '@/components/onboarding/WelcomeOverlay'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -12,6 +13,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
           <Footer />
         </div>
+        {/* First-login gate. Non-dismissible; unmounts when the current
+            user's users.onboarded_at is non-null. Safe to render under
+            RoleGate — the overlay hook reads useAuth() and renders
+            nothing until the user + org are loaded. */}
+        <WelcomeOverlay />
       </RoleGate>
     </ConfirmProvider>
   )
