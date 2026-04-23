@@ -60,8 +60,7 @@ import {
   type SubprojectRollup,
 } from '@/lib/estimate-lines'
 import type { RateBookItemRow, RateBookOptionRow } from '@/lib/rate-book-v2'
-import { listShopLaborRates, laborRateMap } from '@/lib/rate-book-v2'
-import { DEFAULT_LABOR_RATES, type LaborDept } from '@/lib/rate-book-seed'
+import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   proposeSlotsForLine,
   createApprovalItemsFromProposals,
@@ -148,15 +147,15 @@ function HandoffPageInner() {
   const router = useRouter()
   const { org } = useAuth()
 
-  const [laborRates, setLaborRates] = useState<Record<LaborDept, number>>(DEFAULT_LABOR_RATES)
+  const shopRate = org?.shop_rate || 75
 
   const pricingCtx: PricingContext = useMemo(
     () => ({
-      laborRates,
+      shopRate,
       consumableMarkupPct: org?.consumable_markup_pct ?? 10,
       profitMarginPct: org?.profit_margin_pct ?? 35,
     }),
-    [laborRates, org?.consumable_markup_pct, org?.profit_margin_pct]
+    [shopRate, org?.consumable_markup_pct, org?.profit_margin_pct]
   )
 
   const [project, setProject] = useState<Project | null>(null)
@@ -183,7 +182,7 @@ function HandoffPageInner() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const [projRes, subsRes, rb, rates] = await Promise.all([
+      const [projRes, subsRes, rb] = await Promise.all([
         supabase.from('projects').select('*').eq('id', projectId).single(),
         supabase
           .from('subprojects')
@@ -191,11 +190,9 @@ function HandoffPageInner() {
           .eq('project_id', projectId)
           .order('sort_order'),
         loadRateBook(org!.id),
-        listShopLaborRates(org!.id),
       ])
       if (cancelled) return
       const subList = (subsRes.data || []) as Subproject[]
-      const ratesMap = { ...DEFAULT_LABOR_RATES, ...laborRateMap(rates) }
 
       const linesBySub: Record<string, EstimateLine[]> = {}
       const rbSub: Record<string, SubprojectRollup> = {}
@@ -204,7 +201,7 @@ function HandoffPageInner() {
           const lines = await loadEstimateLines(sub.id)
           linesBySub[sub.id] = lines
           const perSubCtx: PricingContext = {
-            laborRates: ratesMap,
+            shopRate,
             consumableMarkupPct:
               sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
             profitMarginPct:
@@ -219,7 +216,6 @@ function HandoffPageInner() {
       const ms = await loadMilestones(projectId)
       if (cancelled) return
 
-      setLaborRates(ratesMap)
       setProject(projRes.data as Project)
       setSubs(subList)
       setLineBySub(linesBySub)

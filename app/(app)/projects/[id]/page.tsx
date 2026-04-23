@@ -58,8 +58,7 @@ import {
   type SubprojectRollup,
   type PricingContext,
 } from '@/lib/estimate-lines'
-import { listShopLaborRates, laborRateMap } from '@/lib/rate-book-v2'
-import { DEFAULT_LABOR_RATES, type LaborDept } from '@/lib/rate-book-seed'
+import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   loadSubprojectActualHours,
   fmtActualHours,
@@ -212,14 +211,13 @@ export default function ProjectCoverPage() {
 
   const shopRate = org?.shop_rate || 75
   const marginTarget = org?.profit_margin_pct ?? 32
-  const [laborRates, setLaborRates] = useState<Record<LaborDept, number>>(DEFAULT_LABOR_RATES)
   const pricingCtx: PricingContext = useMemo(
     () => ({
-      laborRates,
+      shopRate,
       consumableMarkupPct: org?.consumable_markup_pct ?? 10,
       profitMarginPct: org?.profit_margin_pct ?? 35,
     }),
-    [laborRates, org?.consumable_markup_pct, org?.profit_margin_pct]
+    [shopRate, org?.consumable_markup_pct, org?.profit_margin_pct]
   )
 
   const [project, setProject] = useState<Project | null>(null)
@@ -256,7 +254,7 @@ export default function ProjectCoverPage() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const [projRes, subsRes, rateBook, rates, deptRes] = await Promise.all([
+      const [projRes, subsRes, rateBook, deptRes] = await Promise.all([
         supabase.from('projects').select('*').eq('id', projectId).single(),
         supabase
           .from('subprojects')
@@ -264,14 +262,11 @@ export default function ProjectCoverPage() {
           .eq('project_id', projectId)
           .order('sort_order'),
         loadRateBook(org!.id),
-        listShopLaborRates(org!.id),
         supabase
           .from('departments')
           .select('id, name')
           .eq('org_id', org!.id),
       ])
-      const ratesMap = { ...DEFAULT_LABOR_RATES, ...laborRateMap(rates) }
-      if (!cancelled) setLaborRates(ratesMap)
       if (cancelled) return
       const subs = (subsRes.data || []) as Subproject[]
 
@@ -288,7 +283,7 @@ export default function ProjectCoverPage() {
         const subLines =
           linesBySub.find((x) => x.subId === sub.id)?.lines || ([] as EstimateLine[])
         const perSubCtx: PricingContext = {
-          laborRates: ratesMap,
+          shopRate,
           consumableMarkupPct:
             sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
           profitMarginPct:
@@ -305,7 +300,7 @@ export default function ProjectCoverPage() {
             days: sub.install_days,
             complexityPct: sub.install_complexity_pct,
           },
-          ratesMap.install || 0
+          shopRate
         )
         return { sub, rollup, lineCount: subLines.length, finishSpecCount, installPrefillCost }
       })

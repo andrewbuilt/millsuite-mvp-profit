@@ -18,16 +18,6 @@
 
 import { supabase } from './supabase'
 
-// ── Defaults exported for settings UI ──
-
-export const DEFAULT_LABOR_RATES: Record<LaborDept, number> = {
-  eng: 95,
-  cnc: 85,
-  assembly: 85,
-  finish: 90,
-  install: 80,
-}
-
 export type LaborDept = 'eng' | 'cnc' | 'assembly' | 'finish' | 'install'
 export const LABOR_DEPTS: LaborDept[] = ['eng', 'cnc', 'assembly', 'finish', 'install']
 export const LABOR_DEPT_LABEL: Record<LaborDept, string> = {
@@ -262,23 +252,6 @@ export async function seedStarterRateBook(orgId: string): Promise<{
   reason?: string
 }> {
   if (!orgId) return { seeded: false, reason: 'no org' }
-
-  // Labor rates — insert missing rows per dept.
-  const { data: existingRates } = await supabase
-    .from('shop_labor_rates')
-    .select('dept')
-    .eq('org_id', orgId)
-  const existingDepts = new Set((existingRates || []).map((r: any) => r.dept))
-  const missingRates = LABOR_DEPTS.filter((d) => !existingDepts.has(d))
-  if (missingRates.length > 0) {
-    await supabase.from('shop_labor_rates').insert(
-      missingRates.map((dept) => ({
-        org_id: orgId,
-        dept,
-        rate_per_hour: DEFAULT_LABOR_RATES[dept],
-      }))
-    )
-  }
 
   // Skip item seeding if the org already has any items.
   const { count: itemCount } = await supabase

@@ -13,7 +13,7 @@
 //   - dept_hour_overrides  — per-dept hours computed at save time
 //   - lump_cost_override   — material subtotal (incl. consumables + waste)
 // Labor $ is computed live at read time (computeSubprojectRollup reads
-// current shop_labor_rates), so a shop-rate edit alone is NOT stale —
+// current orgs.shop_rate), so a shop-rate edit alone is NOT stale —
 // every displayed labor cost already reflects the new rate.
 //
 // Staleness is triggered by:
@@ -74,7 +74,7 @@ export function checkLineStaleness(
   const draft: ComposerDraft = {
     productId: line.product_key as ProductKey,
     qty: Number(line.quantity) || 0,
-    slots: line.product_slots as ComposerSlots,
+    slots: line.product_slots as unknown as ComposerSlots,
   }
   const fresh = computeBreakdown(draft, rateBook, defaults)
 

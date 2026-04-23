@@ -3,7 +3,7 @@
 // ============================================================================
 // The composer needs six bundles of rate-book data to price a line:
 //
-//   1. Shop labor rates (shop_labor_rates, 4 depts used)
+//   1. Shop rate (orgs.shop_rate — single blended rate, per Phase 12 item 12)
 //   2. Carcass per-LF labor (rate_book_items "Base cabinet" row from
 //      BaseCabinetWalkthrough)
 //   3. Carcass material templates (rate_book_carcass_materials)
@@ -17,9 +17,6 @@
 //
 // Assembles and shapes into ComposerRateBook. Done in one pass so the
 // composer's initial paint reads from a single ready object.
-//
-// ORG-WIDE last-used slots + subproject defaults live in sibling helpers
-// (see composer-last-used.ts + composer-defaults.ts).
 // ============================================================================
 
 import { supabase } from './supabase'
@@ -31,19 +28,18 @@ import type {
   ComposerFinishProductRow,
 } from './composer'
 import { listCarcassMaterials, listExtMaterials } from './rate-book-materials'
-import { listShopLaborRates, laborRateMap } from './rate-book-v2'
 
 /** Load + shape the composer's rate-book payload for an org. */
 export async function loadComposerRateBook(orgId: string): Promise<ComposerRateBook> {
   const [
-    rates,
+    shopRate,
     carcassLabor,
     carcassMats,
     extMats,
     doorStyles,
     finishes,
   ] = await Promise.all([
-    loadShopRatesShaped(orgId),
+    loadShopRate(orgId),
     loadCarcassLaborFromBaseCab(orgId),
     listCarcassMaterials(orgId),
     listExtMaterials(orgId),
@@ -55,7 +51,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     carcassLabor.eng + carcassLabor.cnc + carcassLabor.assembly + carcassLabor.finish > 0
 
   return {
-    shopRates: rates,
+    shopRate,
     carcassLabor,
     carcassCalibrated,
     carcassMaterials: carcassMats.map((m) => ({
@@ -74,17 +70,15 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
   }
 }
 
-// ── Shop rates ──
+// ── Shop rate ──
 
-async function loadShopRatesShaped(orgId: string) {
-  const rows = await listShopLaborRates(orgId)
-  const map = laborRateMap(rows)
-  return {
-    eng: map.eng || 0,
-    cnc: map.cnc || 0,
-    assembly: map.assembly || 0,
-    finish: map.finish || 0,
-  }
+async function loadShopRate(orgId: string): Promise<number> {
+  const { data } = await supabase
+    .from('orgs')
+    .select('shop_rate')
+    .eq('id', orgId)
+    .single()
+  return Number((data as { shop_rate: number | null } | null)?.shop_rate) || 0
 }
 
 // ── Carcass labor from "Base cabinet" item ──

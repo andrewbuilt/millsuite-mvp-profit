@@ -256,9 +256,8 @@ export default function BaseCabinetWalkthrough({ orgId, onComplete, onCancel }: 
 
 /**
  * Find-or-create the org's "Base cabinet" rate_book_item and write the
- * per-LF dept labor. Separate from updateShopLaborRate because this is the
- * first rate_book_item write for most orgs — we have to ensure a parent
- * cabinet_style category exists first.
+ * per-LF dept labor. This is usually the first rate_book_item write for
+ * an org, so we ensure the parent cabinet_style category exists first.
  */
 async function saveBaseCabinetCalibration(
   orgId: string,
