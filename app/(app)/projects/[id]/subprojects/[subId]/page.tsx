@@ -61,6 +61,12 @@ import {
 } from '@/lib/actual-hours'
 import { ArrowLeft, Copy, Plus, Trash2, X, Pencil } from 'lucide-react'
 import AddLineComposer from '@/components/composer/AddLineComposer'
+import InstallPrefill from '@/components/subproject/InstallPrefill'
+import {
+  computeInstallCost,
+  emptyInstallPrefill,
+  type InstallPrefill as InstallPrefillValues,
+} from '@/lib/install-prefill'
 
 // ── Formatting ──
 
@@ -125,6 +131,10 @@ export default function SubprojectEditorPage() {
   const [loading, setLoading] = useState(true)
   const [cloneOpen, setCloneOpen] = useState(false)
   const [composerOpen, setComposerOpen] = useState(false)
+  // Install prefill values — loaded + kept in sync by InstallPrefill via its
+  // onChange. We hold them here so the subproject total + header strip can
+  // reflect the install cost without needing to refetch.
+  const [installValues, setInstallValues] = useState<InstallPrefillValues>(emptyInstallPrefill())
   // Phase 8: per-dept actuals from time_entries. Populated after load so the
   // "Labor by department" strip can render actuals alongside estimates.
   const [actuals, setActuals] = useState<SubActuals | null>(null)
@@ -436,6 +446,15 @@ export default function SubprojectEditorPage() {
     () => computeSubprojectRollup(lines, itemsById, lineOptions, pricingCtx),
     [lines, itemsById, lineOptions, pricingCtx]
   )
+  // Subproject-level install prefill cost (Phase 12 item 9). Computed off
+  // the loaded installValues + the shop install rate; folds into the
+  // subproject total below. Separate from rollup.installCost, which is
+  // the per-line install mode from Phase 2.
+  const installPrefillCost = useMemo(
+    () => computeInstallCost(installValues, laborRates.install || 0),
+    [installValues, laborRates.install]
+  )
+  const subprojectTotalWithInstall = rollup.total + installPrefillCost
 
   if (loading) {
     return (
@@ -479,7 +498,7 @@ export default function SubprojectEditorPage() {
           <div className="ml-auto flex items-center gap-4 font-mono tabular-nums">
             <span><span className="text-[#111] font-semibold">{fmtHours(rollup.totalHours)}</span></span>
             <span className="text-[#D1D5DB]">·</span>
-            <span><span className="text-[#111] font-semibold">{fmtMoney(rollup.total)}</span></span>
+            <span><span className="text-[#111] font-semibold">{fmtMoney(subprojectTotalWithInstall)}</span></span>
             <span className="text-[#D1D5DB]">·</span>
             <span className={rollup.marginPct >= 32 ? 'text-[#059669]' : rollup.marginPct >= 25 ? 'text-[#D97706]' : 'text-[#DC2626]'}>
               {Math.round(rollup.marginPct)}% margin
@@ -539,6 +558,15 @@ export default function SubprojectEditorPage() {
               </button>
             </div>
           </div>
+
+          {/* Install prefill (Phase 12 item 9) — per-subproject install
+              cost from guys × days × install rate × (1 + complexity%).
+              Cost folds into subprojectTotalWithInstall. */}
+          <InstallPrefill
+            subprojectId={subId}
+            installRatePerHour={laborRates.install || 0}
+            onChange={setInstallValues}
+          />
 
           {/* Keyboard hint strip */}
           <div className="flex items-center gap-3 px-3 py-2 bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg text-[11px] text-[#1D4ED8] mb-3 flex-wrap">
@@ -754,7 +782,7 @@ export default function SubprojectEditorPage() {
             <div className="grid grid-cols-5 gap-5">
               <RollupCell
                 label={`${subproject.name} · ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`}
-                value={fmtMoney(rollup.total)}
+                value={fmtMoney(subprojectTotalWithInstall)}
                 sub={`${Math.round(rollup.marginPct)}% margin${rollup.marginPct < 32 ? ' · below 32%' : ''}`}
                 subTone={rollup.marginPct >= 32 ? 'ok' : rollup.marginPct >= 25 ? 'warn' : 'bad'}
                 bold
@@ -767,13 +795,19 @@ export default function SubprojectEditorPage() {
               />
               <RollupCell
                 label="Hardware / Install"
-                value={fmtMoney(rollup.hardwareCost + rollup.installCost)}
-                sub={rollup.installCost > 0 ? `${fmtMoney(rollup.installCost)} install` : `${lines.filter((l) => { const it = l.rate_book_item_id ? itemsById.get(l.rate_book_item_id) : null; return it && it.hardware_cost > 0 }).length} lines`}
+                value={fmtMoney(rollup.hardwareCost + rollup.installCost + installPrefillCost)}
+                sub={
+                  installPrefillCost > 0
+                    ? `${fmtMoney(installPrefillCost)} install prefill`
+                    : rollup.installCost > 0
+                    ? `${fmtMoney(rollup.installCost)} install`
+                    : `${lines.filter((l) => { const it = l.rate_book_item_id ? itemsById.get(l.rate_book_item_id) : null; return it && it.hardware_cost > 0 }).length} lines`
+                }
               />
               <RollupCell
                 label="Subtotal"
-                value={fmtMoney(rollup.total)}
-                sub={`${fmtHours(rollup.totalHours)} labor · ${fmtMoney(rollup.materialCost + rollup.consumablesCost)} mat · ${fmtMoney(rollup.hardwareCost + rollup.installCost)} hw/inst`}
+                value={fmtMoney(subprojectTotalWithInstall)}
+                sub={`${fmtHours(rollup.totalHours)} labor · ${fmtMoney(rollup.materialCost + rollup.consumablesCost)} mat · ${fmtMoney(rollup.hardwareCost + rollup.installCost + installPrefillCost)} hw/inst`}
                 divider
               />
             </div>

@@ -76,6 +76,7 @@ import {
 } from '@/lib/milestones'
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
+import { computeInstallCost } from '@/lib/install-prefill'
 
 // ── Types ──
 
@@ -105,6 +106,11 @@ interface Subproject {
   consumable_markup_pct: number | null
   profit_margin_pct: number | null
   ready_for_production: boolean | null
+  // Phase 12 item 9 — install prefill columns. Compute install cost at
+  // display time so a shop-rate change in ShopRateWalkthrough flows in.
+  install_guys: number | null
+  install_days: number | null
+  install_complexity_pct: number | null
 }
 
 // The mockup distinguishes install-type subprojects (dashed border + purple
@@ -122,6 +128,10 @@ interface SubCardData {
   rollup: SubprojectRollup
   lineCount: number
   finishSpecCount: number
+  /** Phase 12 item 9 — subproject-level install prefill cost. Computed
+   *  off the install_* columns + the shop install rate. Added on top of
+   *  rollup.total for the displayed subproject + project totals. */
+  installPrefillCost: number
 }
 
 // Aggregate project-level rollup.
@@ -289,7 +299,15 @@ export default function ProjectCoverPage() {
           (s, l) => s + ((l.finish_specs || []).length || 0),
           0
         )
-        return { sub, rollup, lineCount: subLines.length, finishSpecCount }
+        const installPrefillCost = computeInstallCost(
+          {
+            guys: sub.install_guys,
+            days: sub.install_days,
+            complexityPct: sub.install_complexity_pct,
+          },
+          ratesMap.install || 0
+        )
+        return { sub, rollup, lineCount: subLines.length, finishSpecCount, installPrefillCost }
       })
 
       // Phase 8 actuals: load time_entries totals per subproject + build a
@@ -390,9 +408,9 @@ export default function ProjectCoverPage() {
       actualByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
       actualUnmappedMinutes: 0,
     }
-    for (const { sub, rollup, finishSpecCount } of cards) {
-      acc.total += rollup.total
-      acc.subtotal += rollup.subtotal
+    for (const { sub, rollup, finishSpecCount, installPrefillCost } of cards) {
+      acc.total += rollup.total + installPrefillCost
+      acc.subtotal += rollup.subtotal + installPrefillCost
       acc.hoursByDept.eng += rollup.hoursByDept.eng
       acc.hoursByDept.cnc += rollup.hoursByDept.cnc
       acc.hoursByDept.assembly += rollup.hoursByDept.assembly
@@ -402,11 +420,11 @@ export default function ProjectCoverPage() {
       acc.laborCost += rollup.laborCost
       acc.materialCost += rollup.materialCost
       acc.hardwareCost += rollup.hardwareCost
-      acc.installCost += rollup.installCost
+      acc.installCost += rollup.installCost + installPrefillCost
       acc.consumablesCost += rollup.consumablesCost
       acc.optionsCost += rollup.optionsCost
       acc.finishSpecCount += finishSpecCount
-      if (isInstallSub(sub)) acc.installSubprojectTotal += rollup.total
+      if (isInstallSub(sub)) acc.installSubprojectTotal += rollup.total + installPrefillCost
 
       // Phase 8: fold in actuals for this sub.
       const a = subActuals[sub.id]
@@ -542,10 +560,11 @@ export default function ProjectCoverPage() {
                   No subprojects yet.
                 </div>
               )}
-              {cards.map(({ sub, rollup, lineCount, finishSpecCount }) => {
+              {cards.map(({ sub, rollup, lineCount, finishSpecCount, installPrefillCost }) => {
                 const mCls = marginColor(rollup.marginPct, marginTarget)
                 const install = isInstallSub(sub)
                 const statusReady = !!sub.ready_for_production
+                const subTotalWithInstall = rollup.total + installPrefillCost
                 // Phase 8 actuals for this sub (may be undefined briefly on first paint).
                 const actual = subActuals[sub.id]
                 const actualHrs = (actual?.totalMinutes || 0) / 60
@@ -658,8 +677,13 @@ export default function ProjectCoverPage() {
                       </div>
                       <div className="text-right">
                         <div className="text-[18px] font-semibold text-[#111] font-mono tabular-nums">
-                          {money(rollup.total)}
+                          {money(subTotalWithInstall)}
                         </div>
+                        {installPrefillCost > 0 && (
+                          <div className="text-[10px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
+                            + {money(installPrefillCost)} install
+                          </div>
+                        )}
                         <div className={`text-xs font-semibold mt-0.5 ${mCls}`}>
                           {rollup.marginPct.toFixed(0)}% margin
                         </div>
