@@ -1,20 +1,25 @@
 # Shop Rate Setup — Approved Spec
 
-> **⚠ V1 status: DEFERRED.** The richer multi-screen blended-rate flow
-> below is not what V1 ships. Phase 12 item 3 delivers a small embeddable
-> component — five per-department inputs writing directly to the existing
-> `shop_labor_rates` table — because the add-line composer's math
-> (closed across six review rounds) requires per-dept rates, not a single
-> blended one. See `BUILD-ORDER.md` Phase 12 item 3 and
-> `components/walkthroughs/ShopRateWalkthrough.tsx` for the V1 path.
+> **V1 status:** This is the V1 onboarding Step 1. Per BUILD-ORDER Phase 12
+> item 12, the four-screen blended-rate flow (Overhead → Team → Billable
+> Hours → Result) ships inside the welcome overlay. Composer math uses
+> a single `orgs.shop_rate` — per-department rates are removed. See
+> `BUILD-ORDER.md` Phase 12 item 12 for the pivot context.
 >
-> This spec stays approved as the **post-onboarding richer flow** — the
-> business-card / past-estimate / bank-statement tooling called out in
-> Phase 12's preamble as "optional post-overlay tools." When that work
-> picks up, the Result screen here resolves the blended-rate → per-dept
-> question by either (a) seeding `shop_labor_rates` with
-> `blended × dept multipliers`, or (b) asking for per-dept inputs
-> alongside the blended derivation. That decision is still open.
+> The V1 scope is a simplified cut of the flow below:
+> - No Identity screen (business name etc. captured elsewhere).
+> - Team rows: name + annual comp only (no role, no billable Y/N, no
+>   per-row pay-type toggle — hourly-to-annual conversion happens in
+>   the walkthrough before persist).
+> - Billable hours: single-crew-equivalent. `hrs/wk × wks/yr × utilization%`,
+>   no headcount multiplication.
+> - Result: no markup % — shop rate is cost-per-hour directly.
+> - Persistence: three jsonb columns on `orgs` (migration 022), not
+>   child tables.
+>
+> The richer version below (identity, role enum, billable flags,
+> markup %, drop-in-documents path) remains approved for the
+> post-onboarding recalibration surface.
 
 **Status:** Approved for build · 2026-04-22
 **Owner:** Andrew
