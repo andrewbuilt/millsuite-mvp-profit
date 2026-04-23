@@ -25,15 +25,16 @@ import {
   Search, Settings, Plus, Tag, X, ChevronRight, ChevronDown,
   Pencil, Copy, BookOpen,
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import {
   type RateBookCategoryRow, type RateBookItemRow, type RateBookOptionRow,
-  type ShopLaborRateRow, type RateBookItemHistoryRow, type Confidence,
+  type RateBookItemHistoryRow, type Confidence,
   type Unit, type MaterialMode,
-  listCategories, listItems, listOptions, listShopLaborRates,
+  listCategories, listItems, listOptions,
   listItemOptions, listItemHistory,
   attachOption, detachOption,
-  updateItem, updateShopLaborRate,
-  computeBuildup, laborRateMap,
+  updateItem,
+  computeBuildup,
   CONFIDENCE_LABEL, CONFIDENCE_COLOR,
 } from '@/lib/rate-book-v2'
 import {
@@ -79,7 +80,6 @@ export default function RateBookPage() {
   const [categories, setCategories] = useState<RateBookCategoryRow[]>([])
   const [items, setItems] = useState<RateBookItemRow[]>([])
   const [options, setOptions] = useState<RateBookOptionRow[]>([])
-  const [laborRates, setLaborRates] = useState<ShopLaborRateRow[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tab, setTab] = useState<'current' | 'history' | 'changes'>('current')
@@ -101,13 +101,12 @@ export default function RateBookPage() {
   }, [orgId])
 
   async function refreshAll(id: string) {
-    const [c, i, o, r] = await Promise.all([
-      listCategories(id), listItems(id), listOptions(id), listShopLaborRates(id),
+    const [c, i, o] = await Promise.all([
+      listCategories(id), listItems(id), listOptions(id),
     ])
     setCategories(c)
     setItems(i)
     setOptions(o)
-    setLaborRates(r)
     // Auto-expand every category and select first item on cold boot.
     if (expanded.size === 0) {
       setExpanded(new Set(c.map((x) => x.id)))
@@ -139,10 +138,10 @@ export default function RateBookPage() {
     [categories, selectedItem]
   )
 
-  const rateMap = useMemo(() => laborRateMap(laborRates), [laborRates])
+  const shopRate = org?.shop_rate || 0
   const buildup = useMemo(
-    () => (selectedItem ? computeBuildup(selectedItem, rateMap) : null),
-    [selectedItem, rateMap]
+    () => (selectedItem ? computeBuildup(selectedItem, shopRate) : null),
+    [selectedItem, shopRate]
   )
 
   // Tree: categories → items, filtered by search.
@@ -445,16 +444,17 @@ export default function RateBookPage() {
         />
       )}
 
-      {/* Shop-rates modal */}
+      {/* Shop-rate modal */}
       {laborSettingsOpen && (
-        <LaborRatesModal
+        <ShopRateModal
           orgId={orgId}
-          rates={laborRates}
+          initialRate={shopRate}
           onClose={() => setLaborSettingsOpen(false)}
-          onSaved={async () => {
+          onSaved={() => {
             setLaborSettingsOpen(false)
-            const r = await listShopLaborRates(orgId)
-            setLaborRates(r)
+            // Refresh — auth context picks up the new rate on next fetch.
+            // For an immediate echo the user can navigate away and back;
+            // a full walkthrough rerun is the "correct" recalibration.
           }}
         />
       )}
@@ -937,35 +937,30 @@ function Field({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Labor-rates modal
+// Shop-rate modal
 
-function LaborRatesModal({
+function ShopRateModal({
   orgId,
-  rates,
+  initialRate,
   onClose,
   onSaved,
 }: {
   orgId: string
-  rates: ShopLaborRateRow[]
+  initialRate: number
   onClose: () => void
   onSaved: () => void
 }) {
-  const initial = useMemo(() => {
-    const m: Record<LaborDept, number> = { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 }
-    for (const r of rates) m[r.dept] = Number(r.rate_per_hour) || 0
-    return m
-  }, [rates])
-  const [draft, setDraft] = useState<Record<LaborDept, number>>(initial)
+  const [draft, setDraft] = useState<number>(initialRate)
   const [saving, setSaving] = useState(false)
 
   async function save() {
     setSaving(true)
     try {
-      for (const d of LABOR_DEPTS) {
-        if (draft[d] !== initial[d]) {
-          await updateShopLaborRate(orgId, d, draft[d])
-        }
-      }
+      const { error } = await supabase
+        .from('orgs')
+        .update({ shop_rate: Number(draft) || 0 })
+        .eq('id', orgId)
+      if (error) throw error
       onSaved()
     } catch (e: any) {
       alert('Save failed: ' + (e?.message || 'unknown'))
@@ -978,32 +973,29 @@ function LaborRatesModal({
     <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-6">
       <div className="bg-white w-full max-w-md rounded-xl shadow-2xl">
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E5E7EB]">
-          <h2 className="text-[14px] font-semibold text-[#111]">Shop labor rates</h2>
+          <h2 className="text-[14px] font-semibold text-[#111]">Shop rate</h2>
           <button onClick={onClose} className="p-1 text-[#9CA3AF] hover:text-[#111]">
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="p-5 space-y-3">
           <p className="text-[12px] text-[#6B7280] leading-relaxed">
-            Change once, flows everywhere. Every item's labor cost is computed as
-            hours × dept rate.
+            Single blended rate — every line's labor cost is hours × this rate.
+            For a first-principles recalibration (overhead, team comp, billable
+            hours), re-run the shop rate walkthrough from onboarding.
           </p>
-          {LABOR_DEPTS.map((d) => (
-            <div key={d} className="flex items-center justify-between gap-4">
-              <label className="text-[12.5px] text-[#374151] w-28">{LABOR_DEPT_LABEL[d]}</label>
-              <div className="flex items-center gap-1 flex-1">
-                <span className="text-[#9CA3AF] text-sm">$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="flex-1 px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
-                  value={draft[d]}
-                  onChange={(e) => setDraft({ ...draft, [d]: Number(e.target.value) })}
-                />
-                <span className="text-[12px] text-[#9CA3AF]">/hr</span>
-              </div>
-            </div>
-          ))}
+          <div className="flex items-center gap-2">
+            <span className="text-[#9CA3AF] text-sm">$</span>
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              className="flex-1 px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md font-mono tabular-nums"
+              value={draft}
+              onChange={(e) => setDraft(Number(e.target.value))}
+            />
+            <span className="text-[12px] text-[#9CA3AF]">/ hr</span>
+          </div>
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-[#E5E7EB] bg-[#F9FAFB]">
           <button

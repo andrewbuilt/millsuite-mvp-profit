@@ -12,12 +12,11 @@
 //                                         floor stairs, long carry, etc.
 //
 // Formula:
-//   guys × days × 8 (hrs/day) × shop_labor_rates.install × (1 + pct/100)
+//   guys × days × 8 (hrs/day) × orgs.shop_rate × (1 + pct/100)
 //
-// The 8 hrs/day assumption is implicit in the spec ("shop install rate"
-// is hourly per migration 006 + the ShopRateWalkthrough). A full day on
-// site = 8 billable hours; the markup % is where elevator / stairs /
-// tight-stairwell bumps land so the hours stay truthful.
+// The 8 hrs/day assumption is implicit in the spec (shop rate is hourly).
+// A full day on site = 8 billable hours; the markup % is where elevator /
+// stairs / tight-stairwell bumps land so the hours stay truthful.
 //
 // NULL on any of the three inputs = "not configured" → install cost = 0,
 // the prefill block still shows for the user to fill in.

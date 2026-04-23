@@ -256,8 +256,9 @@ export async function acceptStashedItemBaseline(args: {
 }
 
 // ============================================================================
-// Bank-statement → shop burden calc. Simple MVP heuristic. Accept path
-// writes a shop_labor_rates row per dept.
+// Bank-statement → shop burden calc. Simple MVP heuristic. Phase 12 item
+// 12 deprecated the per-dept rate path; the "accept" surface should now
+// feed orgs.shop_rate instead (pending follow-up).
 // ============================================================================
 
 export interface BankStatementInputs {

@@ -13,7 +13,7 @@
 //   - Keyboard: `/` add, ↑↓ navigate, ⏎ commit, ⌫ on empty deletes, ⌘D dup.
 //
 // All math routes through lib/estimate-lines.ts; rate book through
-// lib/rate-book-v2.ts. Shop labor rates come from shop_labor_rates.
+// lib/rate-book-v2.ts. Labor $ uses orgs.shop_rate (Phase 12 item 12).
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -49,11 +49,9 @@ import {
   RateBookItemRow,
   RateBookOptionRow,
   Unit,
-  laborRateMap,
   listOptions,
-  listShopLaborRates,
 } from '@/lib/rate-book-v2'
-import { LaborDept, LABOR_DEPTS, LABOR_DEPT_LABEL, DEFAULT_LABOR_RATES } from '@/lib/rate-book-seed'
+import { LaborDept, LABOR_DEPTS, LABOR_DEPT_LABEL } from '@/lib/rate-book-seed'
 import {
   loadSubprojectActuals,
   fmtActualHours,
@@ -138,7 +136,6 @@ export default function SubprojectEditorPage() {
   const [items, setItems] = useState<RateBookItemRow[]>([])
   const [options, setOptions] = useState<RateBookOptionRow[]>([])
   const [lineOptions, setLineOptions] = useState<OptionsPerLine>(new Map())
-  const [laborRates, setLaborRates] = useState<Record<LaborDept, number>>(DEFAULT_LABOR_RATES)
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [cloneOpen, setCloneOpen] = useState(false)
@@ -169,13 +166,13 @@ export default function SubprojectEditorPage() {
 
   const pricingCtx: PricingContext = useMemo(
     () => ({
-      laborRates,
+      shopRate: org?.shop_rate || 75,
       consumableMarkupPct:
         subproject?.consumable_markup_pct ?? org?.consumable_markup_pct ?? 10,
       profitMarginPct:
         subproject?.profit_margin_pct ?? org?.profit_margin_pct ?? 35,
     }),
-    [laborRates, subproject, org]
+    [org?.shop_rate, subproject, org]
   )
 
   // ── Load ──
@@ -184,7 +181,7 @@ export default function SubprojectEditorPage() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const [projRes, subRes, siblingsRes, linesData, rb, opts, rates, lineOpts, subActuals, deptRes, composerRb, composerSubDefaults] = await Promise.all([
+      const [projRes, subRes, siblingsRes, linesData, rb, opts, lineOpts, subActuals, deptRes, composerRb, composerSubDefaults] = await Promise.all([
         supabase
           .from('projects')
           .select('id, name, client_name, stage')
@@ -203,7 +200,6 @@ export default function SubprojectEditorPage() {
         loadEstimateLines(subId),
         loadRateBook(org.id),
         listOptions(org.id),
-        listShopLaborRates(org.id),
         loadLineOptions(subId),
         loadSubprojectActuals(subId),
         supabase.from('departments').select('id, name').eq('org_id', org.id),
@@ -217,7 +213,6 @@ export default function SubprojectEditorPage() {
       setLines(linesData)
       setItems(rb.items)
       setOptions(opts)
-      setLaborRates({ ...DEFAULT_LABOR_RATES, ...laborRateMap(rates) })
       setComposerRateBook(composerRb)
       setComposerDefaults(
         composerSubDefaults ?? initialSubprojectDefaults(org?.consumable_markup_pct ?? null)
@@ -474,8 +469,8 @@ export default function SubprojectEditorPage() {
   // subproject total below. Separate from rollup.installCost, which is
   // the per-line install mode from Phase 2.
   const installPrefillCost = useMemo(
-    () => computeInstallCost(installValues, laborRates.install || 0),
-    [installValues, laborRates.install]
+    () => computeInstallCost(installValues, org?.shop_rate || 0),
+    [installValues, org?.shop_rate]
   )
   const subprojectTotalWithInstall = rollup.total + installPrefillCost
 
@@ -634,7 +629,7 @@ export default function SubprojectEditorPage() {
               Cost folds into subprojectTotalWithInstall. */}
           <InstallPrefill
             subprojectId={subId}
-            installRatePerHour={laborRates.install || 0}
+            installRatePerHour={org?.shop_rate || 0}
             onChange={setInstallValues}
           />
 
@@ -913,7 +908,7 @@ export default function SubprojectEditorPage() {
                         key={d}
                         label={LABOR_DEPT_LABEL[d]}
                         hours={rollup.hoursByDept[d]}
-                        rate={laborRates[d]}
+                        rate={org?.shop_rate || 0}
                         actualMinutes={actualByKey[d]}
                       />
                     ))}
@@ -1359,7 +1354,7 @@ function LineDetailPanel({
           {visibleDepts.map((d) => {
             const hrs = b.hoursByDept[d]
             if (hrs === 0) return null
-            const cost = hrs * pricingCtx.laborRates[d]
+            const cost = hrs * pricingCtx.shopRate
             return (
               <div key={d} className="flex items-center justify-between">
                 <span className="text-[#6B7280] capitalize">{LABOR_DEPT_LABEL[d]}</span>

@@ -8,8 +8,9 @@
 //   (b) freeform — rate_book_item_id null, all fields populated on the line.
 //
 // The editor's math engine is computeLineBuildup (pure). The bottom-math
-// rollup is computeSubprojectRollup (also pure). Both use shop_labor_rates
-// via laborRateMap from rate-book-v2.ts.
+// rollup is computeSubprojectRollup (also pure). Both price labor at
+// the single blended orgs.shop_rate (Phase 12 item 12); per-dept hours
+// are still tracked on the line for scheduling / time tracking.
 // ============================================================================
 
 import { supabase } from './supabase'
@@ -74,6 +75,10 @@ export interface EstimateLine {
   callouts: string[] | null
   unit_price_override: number | null
   notes: string | null
+  // Phase 12 item 6 — composer round-trip. Non-null on lines saved via
+  // AddLineComposer; null on freeform / legacy lines.
+  product_key: string | null
+  product_slots: Record<string, unknown> | null
 }
 
 export interface EstimateLineOptionRow {
@@ -142,7 +147,7 @@ export async function loadEstimateLines(subprojectId: string): Promise<EstimateL
        quantity, unit, material_mode_override, linear_cost_override,
        lump_cost_override, dept_hour_overrides, material_description,
        install_mode, install_params, finish_specs, callouts,
-       unit_price_override, notes`
+       unit_price_override, notes, product_key, product_slots`
     )
     .eq('subproject_id', subprojectId)
     .order('sort_order', { ascending: true })
@@ -177,6 +182,8 @@ function normalizeLine(row: any): EstimateLine {
     unit_price_override:
       row.unit_price_override != null ? Number(row.unit_price_override) : null,
     notes: row.notes ?? null,
+    product_key: row.product_key ?? null,
+    product_slots: row.product_slots ?? null,
   }
 }
 
@@ -332,7 +339,7 @@ export async function detachLineOption(lineId: string, optionId: string) {
 // ── Pricing ──
 
 export interface PricingContext {
-  laborRates: Record<LaborDept, number>  // from shop_labor_rates
+  shopRate: number                       // orgs.shop_rate (single blended)
   consumableMarkupPct: number            // e.g. 10 (%)
   profitMarginPct: number                // e.g. 25 (%)
 }
@@ -462,12 +469,8 @@ export function computeLineBuildup(
     hoursByDept.eng + hoursByDept.cnc + hoursByDept.assembly +
     hoursByDept.finish + hoursByDept.install
 
-  let laborCost =
-    hoursByDept.eng * ctx.laborRates.eng +
-    hoursByDept.cnc * ctx.laborRates.cnc +
-    hoursByDept.assembly * ctx.laborRates.assembly +
-    hoursByDept.finish * ctx.laborRates.finish +
-    hoursByDept.install * ctx.laborRates.install
+  // Total hours across depts × single blended shop rate.
+  let laborCost = totalHours * (Number(ctx.shopRate) || 0)
 
   // rate_multiplier options apply to the line's labor $ total.
   for (const { option, effect_value_override } of appliedOptions) {

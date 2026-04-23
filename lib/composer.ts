@@ -5,9 +5,10 @@
 // ComposerRateBook + ComposerDefaults, then calls computeBreakdown for
 // the live right-rail update on every slot change.
 //
-// Math mirrors specs/add-line-composer/index.html verbatim — the math
-// layer there is the closed contract. Any change to how a line prices
-// must come from a spec edit.
+// Labor $ math: total_hours × orgs.shop_rate. Per Phase 12 item 12, the
+// per-department rate layer was deprecated — the shop rate walkthrough
+// derives a single blended rate. Per-dept hours are still captured (for
+// scheduling / time-tracking) and summed here before the multiply.
 //
 // Hardcoded constants (end panel labor + material, filler labor + material)
 // match the prototype literal values. Spec calls these out as V1 defaults;
@@ -15,16 +16,6 @@
 // ============================================================================
 
 import { PRODUCTS, type Product, type ProductKey } from './products'
-
-// ── Shapes loaded out of Supabase ──
-
-export interface ComposerShopRates {
-  eng: number
-  cnc: number
-  assembly: number
-  finish: number
-  // install is outside the composer's scope; subproject header owns it.
-}
 
 /** Per-LF carcass labor hours, from the "Base cabinet" rate_book_item's
  *  base_labor_hours_*. Reused across Base / Upper / Full per the spec. */
@@ -86,7 +77,8 @@ export interface ComposerFinishProductRow {
 }
 
 export interface ComposerRateBook {
-  shopRates: ComposerShopRates
+  /** Single blended rate from orgs.shop_rate, applied to total hours. */
+  shopRate: number
   carcassLabor: ComposerCarcassLabor
   /** "Base cabinet" item row exists and at least one dept is non-zero.
    *  When false, the composer should surface "run BaseCabinetWalkthrough
@@ -207,16 +199,14 @@ export function computeBreakdown(
   const prod: Product = PRODUCTS[draft.productId]
   const qty = Number.isFinite(draft.qty) && draft.qty > 0 ? draft.qty : 0
   const s = draft.slots
-  const r = rb.shopRates
+  const rate = Number(rb.shopRate) || 0
   const cl = rb.carcassLabor
 
-  // Carcass labor — 4 depts. Wood machining is already rolled into
+  // Carcass labor — 4 depts captured for scheduling, but priced at the
+  // single blended shop rate. Wood machining is already rolled into
   // assembly (BaseCabinetWalkthrough's save folds it in).
-  const carcassLaborPerLf =
-    cl.eng * r.eng +
-    cl.cnc * r.cnc +
-    cl.assembly * r.assembly +
-    cl.finish * r.finish
+  const carcassHoursPerLf = cl.eng + cl.cnc + cl.assembly + cl.finish
+  const carcassLaborPerLf = carcassHoursPerLf * rate
   const carcassLabor = qty * carcassLaborPerLf
 
   const carcassHoursByDept = {
@@ -237,10 +227,11 @@ export function computeBreakdown(
     ? `${(qty * cm.sheets_per_lf).toFixed(1)} sht × $${cm.sheet_cost}`
     : null
 
-  // Door labor — per-door × doorsPerLf × product multiplier → per-LF across
-  // 4 depts. Uncalibrated door (all zero) → zero labor + warn flag.
-  let doorLaborPerLfBase = 0
+  // Door labor — per-door × doorsPerLf × product multiplier → per-LF.
+  // Sum the 4 dept hours first, price at the blended shop rate.
+  // Uncalibrated door (all zero) → zero labor + warn flag.
   let doorHoursByDept = { eng: 0, cnc: 0, assembly: 0, finish: 0 }
+  let doorLaborPerLf = 0
   if (ds && ds.calibrated) {
     const perLfMult = prod.doorsPerLf * prod.doorLaborMultiplier
     doorHoursByDept = {
@@ -249,14 +240,10 @@ export function computeBreakdown(
       assembly: qty * ds.labor.assembly * perLfMult,
       finish: qty * ds.labor.finish * perLfMult,
     }
-    doorLaborPerLfBase =
-      prod.doorsPerLf *
-      (ds.labor.eng * r.eng +
-        ds.labor.cnc * r.cnc +
-        ds.labor.assembly * r.assembly +
-        ds.labor.finish * r.finish)
+    const doorHoursSumPerLf =
+      (ds.labor.eng + ds.labor.cnc + ds.labor.assembly + ds.labor.finish) * perLfMult
+    doorLaborPerLf = doorHoursSumPerLf * rate
   }
-  const doorLaborPerLf = doorLaborPerLfBase * prod.doorLaborMultiplier
   const doorLabor = qty * doorLaborPerLf
   const doorLaborWarn = !!s.doorStyle && ds !== null && !ds.calibrated
 
@@ -267,13 +254,14 @@ export function computeBreakdown(
     ? `${faceSheets.toFixed(2)} sht × $${em.sheet_cost}`
     : null
 
-  // Finishes — per-LF labor at finish rate + per-LF material, per product
+  // Finishes — per-LF labor hours + per-LF material, per product
   // category. Prefinished or missing byProduct row → zero, no error.
+  // Labor $ applies the blended shop rate.
   function finishLabor(f: ComposerFinish | null): number {
     if (!f) return 0
     const row = f.byProduct[draft.productId as 'base' | 'upper' | 'full']
     if (!row) return 0
-    return qty * row.laborHr * r.finish
+    return qty * row.laborHr * rate
   }
   function finishMaterial(f: ComposerFinish | null): number {
     if (!f) return 0
@@ -292,7 +280,7 @@ export function computeBreakdown(
     if (f.isPrefinished) return 'prefinished, no labor'
     const row = f.byProduct[draft.productId as 'base' | 'upper' | 'full']
     if (!row) return 'not calibrated for this category'
-    const perLf = row.laborHr * r.finish + row.material
+    const perLf = row.laborHr * rate + row.material
     return `${qty} LF × $${Math.round(perLf)}/LF`
   }
 
@@ -302,10 +290,12 @@ export function computeBreakdown(
   const exteriorFinishMaterial = finishMaterial(efn)
   const finishHoursTotal = finishLaborHours(ifn) + finishLaborHours(efn)
 
-  // End panels + fillers — hardcoded V1.
-  const endPanelsLabor = (s.endPanels || 0) * END_PANEL_LABOR_HR * r.finish
+  // End panels + fillers — hardcoded V1. Finish hours land on the finish
+  // dept for scheduling; filler hours land on assembly. Both priced at
+  // the single blended rate.
+  const endPanelsLabor = (s.endPanels || 0) * END_PANEL_LABOR_HR * rate
   const endPanelsMaterial = (s.endPanels || 0) * END_PANEL_MATERIAL
-  const fillersLabor = (s.fillers || 0) * FILLER_LABOR_HR * r.assembly
+  const fillersLabor = (s.fillers || 0) * FILLER_LABOR_HR * rate
   const fillersMaterial = (s.fillers || 0) * FILLER_MATERIAL
 
   // Aggregate dept hours for the saved-line round-trip.

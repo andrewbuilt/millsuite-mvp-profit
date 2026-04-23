@@ -6,7 +6,6 @@
 // Shape that the UI consumes:
 //   - RateBookCategoryRow     (rate_book_categories)
 //   - RateBookItemRow         (rate_book_items, extended in migration 006)
-//   - ShopLaborRateRow        (shop_labor_rates)
 //   - RateBookOptionRow       (rate_book_options)
 //   - RateBookItemHistoryRow  (rate_book_item_history)
 //
@@ -67,15 +66,6 @@ export interface RateBookItemRow {
   confidence_last_used_at: string | null
   active: boolean
   notes: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface ShopLaborRateRow {
-  id: string
-  org_id: string
-  dept: LaborDept
-  rate_per_hour: number
   created_at: string
   updated_at: string
 }
@@ -292,36 +282,9 @@ export async function archiveItem(itemId: string) {
   await supabase.from('rate_book_items').update({ active: false }).eq('id', itemId)
 }
 
-// ── Shop labor rates ──
-
-export async function listShopLaborRates(orgId: string): Promise<ShopLaborRateRow[]> {
-  const { data, error } = await supabase
-    .from('shop_labor_rates')
-    .select('*')
-    .eq('org_id', orgId)
-  if (error) throw error
-  return (data || []) as ShopLaborRateRow[]
-}
-
-export async function updateShopLaborRate(orgId: string, dept: LaborDept, rate: number) {
-  const { data, error } = await supabase
-    .from('shop_labor_rates')
-    .upsert(
-      { org_id: orgId, dept, rate_per_hour: rate, updated_at: new Date().toISOString() },
-      { onConflict: 'org_id,dept' }
-    )
-    .select()
-    .single()
-  if (error) throw error
-  return data as ShopLaborRateRow
-}
-
-// Shape optimized for UI use.
-export function laborRateMap(rows: ShopLaborRateRow[]): Record<LaborDept, number> {
-  const out: Record<LaborDept, number> = { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 }
-  for (const r of rows) out[r.dept] = Number(r.rate_per_hour) || 0
-  return out
-}
+// Shop labor rates table dropped in migration 023 — labor $ now uses a
+// single orgs.shop_rate (Phase 12 item 12). Per-dept hours remain on
+// estimate_lines for scheduling / time tracking.
 
 // ── Options ──
 
@@ -410,9 +373,10 @@ export interface ItemPriceBreakdown {
 
 export function computeBuildup(
   item: RateBookItemRow,
-  rates: Record<LaborDept, number>,
+  shopRate: number,
   consumablePct = 0.1
 ): ItemPriceBreakdown {
+  const rate = Number(shopRate) || 0
   const perDept: ItemPriceBreakdown['perDept'] = LABOR_DEPTS.map((d) => {
     const hours =
       d === 'eng' ? item.base_labor_hours_eng :
@@ -420,7 +384,6 @@ export function computeBuildup(
       d === 'assembly' ? item.base_labor_hours_assembly :
       d === 'finish' ? item.base_labor_hours_finish :
       item.base_labor_hours_install
-    const rate = rates[d] ?? 0
     return { dept: d, hours: Number(hours) || 0, rate, cost: (Number(hours) || 0) * rate }
   })
   const laborHours = perDept.reduce((s, x) => s + x.hours, 0)
