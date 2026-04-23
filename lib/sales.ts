@@ -298,6 +298,18 @@ export async function createRoomSubprojects(input: {
     .filter((r) => r.length > 0)
   if (rooms.length === 0) return []
 
+  // Composer defaults seed: consumablesPct pulls from the org's existing
+  // setting (or 10 if unset), wastePct is hardcoded 5 (no org column to
+  // coalesce with). The composer reads subprojects.defaults only; we never
+  // touch orgs.consumable_markup_pct from here.
+  const defaults = {
+    consumablesPct:
+      typeof input.consumable_markup_pct === 'number' && input.consumable_markup_pct > 0
+        ? input.consumable_markup_pct
+        : 10,
+    wastePct: 5,
+  }
+
   const rows = rooms.map((name, idx) => ({
     project_id: input.project_id,
     org_id: input.org_id,
@@ -305,6 +317,7 @@ export async function createRoomSubprojects(input: {
     sort_order: idx,
     consumable_markup_pct: input.consumable_markup_pct ?? null,
     profit_margin_pct: input.profit_margin_pct ?? null,
+    defaults,
   }))
 
   const { data, error } = await supabase

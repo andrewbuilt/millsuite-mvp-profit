@@ -60,6 +60,7 @@ import {
   type SubActuals,
 } from '@/lib/actual-hours'
 import { ArrowLeft, Copy, Plus, Trash2, X, Pencil } from 'lucide-react'
+import AddLineComposer from '@/components/composer/AddLineComposer'
 
 // ── Formatting ──
 
@@ -123,6 +124,7 @@ export default function SubprojectEditorPage() {
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [cloneOpen, setCloneOpen] = useState(false)
+  const [composerOpen, setComposerOpen] = useState(false)
   // Phase 8: per-dept actuals from time_entries. Populated after load so the
   // "Labor by department" strip can render actuals alongside estimates.
   const [actuals, setActuals] = useState<SubActuals | null>(null)
@@ -522,12 +524,20 @@ export default function SubprojectEditorPage() {
                 {lines.length} {lines.length === 1 ? 'line' : 'lines'}
               </p>
             </div>
-            <button
-              onClick={() => setCloneOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] hover:text-[#111] transition-colors"
-            >
-              <Copy className="w-3.5 h-3.5" /> Clone from past
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCloneOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] hover:text-[#111] transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" /> Clone from past
+              </button>
+              <button
+                onClick={() => setComposerOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-[#2563EB] border border-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors"
+              >
+                + Compose line
+              </button>
+            </div>
           </div>
 
           {/* Keyboard hint strip */}
@@ -885,6 +895,20 @@ export default function SubprojectEditorPage() {
           onClose={() => setCloneOpen(false)}
           onCloned={async () => {
             setCloneOpen(false)
+            const fresh = await loadEstimateLines(subId)
+            setLines(fresh)
+          }}
+        />
+      )}
+
+      {composerOpen && org?.id && (
+        <AddLineComposer
+          subprojectId={subId}
+          orgId={org.id}
+          orgConsumablePct={org?.consumable_markup_pct ?? null}
+          onCancel={() => setComposerOpen(false)}
+          onLineSaved={async () => {
+            setComposerOpen(false)
             const fresh = await loadEstimateLines(subId)
             setLines(fresh)
           }}
