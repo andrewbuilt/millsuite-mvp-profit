@@ -25,12 +25,14 @@
 // Uncalibrated posture:
 //   - carcass labor uncalibrated (Base cabinet item missing or zero) →
 //     full-panel warning strip, composer is view-only, save blocked
-//   - door style uncalibrated → inline "Calibrate this door style"
-//     button opens DoorStyleWalkthrough (item 7). Mini-card mode for
-//     partial gaps, full modal for new/all-zero. On save, rate book
-//     refetches and the newly-calibrated style auto-selects.
-//   - exterior finish uncalibrated for this product → save blocked,
-//     warning strip (walkthrough hatch lands in item 8)
+//   - door style uncalibrated → DoorStyleWalkthrough (item 7). Mini-card
+//     mode for partial gaps, full modal for new/all-zero. On save, rate
+//     book refetches and the newly-calibrated style auto-selects.
+//   - finish uncalibrated for this product → FinishWalkthrough (item 8).
+//     Single walkthrough with 4 collapsible combo rows × 3 cab-height
+//     cards each. Fires from "+ Calibrate finishes" in the dropdown or
+//     the empty-state button. On close, rate book refetches; user picks
+//     the newly-calibrated finish from the dropdown.
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -67,6 +69,7 @@ import {
 import DoorStyleWalkthrough, {
   type DoorStyleWalkthroughExistingStyle,
 } from '@/components/walkthroughs/DoorStyleWalkthrough'
+import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 
 interface Props {
   subprojectId: string
@@ -142,6 +145,8 @@ export default function AddLineComposer({
     | { style: DoorStyleWalkthroughExistingStyle | null }
     | null
   >(null)
+  // Finish walkthrough overlay — single instance, no per-finish config.
+  const [finishWtOpen, setFinishWtOpen] = useState(false)
 
   function resetState() {
     setView('picker')
@@ -150,6 +155,7 @@ export default function AddLineComposer({
     setAddNew(null)
     setSaveError(null)
     setDoorWt(null)
+    setFinishWtOpen(false)
   }
 
   async function refreshRateBook() {
@@ -183,6 +189,17 @@ export default function AddLineComposer({
     setDraft((prev) =>
       prev ? { ...prev, slots: { ...prev.slots, doorStyle: styleId } } : prev
     )
+  }
+
+  function openFinishWalkthrough() {
+    setOpenDropdown(null)
+    setFinishWtOpen(true)
+  }
+  async function handleFinishWalkthroughComplete() {
+    setFinishWtOpen(false)
+    await refreshRateBook()
+    // Don't auto-select anything — the user may have calibrated multiple
+    // combos; they pick from the dropdown after the walkthrough closes.
   }
 
   const pickProduct = useCallback(
@@ -432,6 +449,7 @@ export default function AddLineComposer({
                 saveAddNew={saveAddNew}
                 onDoorUncalibratedPick={openDoorWalkthroughForPick}
                 onAddNewDoorStyle={openDoorWalkthroughForNew}
+                onOpenFinishWalkthrough={openFinishWalkthrough}
               />
             ) : null}
           </div>
@@ -445,6 +463,15 @@ export default function AddLineComposer({
           existingStyle={doorWt.style}
           onCancel={() => setDoorWt(null)}
           onComplete={handleDoorWalkthroughComplete}
+        />
+      )}
+
+      {/* Finish walkthrough overlay — same layering as the door one. */}
+      {finishWtOpen && (
+        <FinishWalkthrough
+          orgId={orgId}
+          onCancel={() => setFinishWtOpen(false)}
+          onComplete={handleFinishWalkthroughComplete}
         />
       )}
     </div>
@@ -555,6 +582,7 @@ function Composer(p: {
   saveAddNew: () => void
   onDoorUncalibratedPick: (styleId: string) => void
   onAddNewDoorStyle: () => void
+  onOpenFinishWalkthrough: () => void
 }) {
   const { draft, rateBook, breakdown, defaults } = p
 
@@ -686,6 +714,8 @@ function Composer(p: {
                 p.setSlot('interiorFinish', id)
                 p.toggleDropdown('interiorFinish')
               }}
+              onAddNew={p.onOpenFinishWalkthrough}
+              addNewLabel="+ Calibrate finishes"
               placeholder="Choose…"
             />
           </Field>
@@ -700,13 +730,18 @@ function Composer(p: {
                 p.setSlot('exteriorFinish', id)
                 p.toggleDropdown('exteriorFinish')
               }}
+              onAddNew={p.onOpenFinishWalkthrough}
+              addNewLabel="+ Calibrate finishes"
               placeholder="Choose…"
             />
             {rateBook.finishes.length === 0 && (
-              <WarnStrip>
-                No finishes yet. Finish walkthrough lands in the next item —
-                calibrate one there before saving.
-              </WarnStrip>
+              <button
+                type="button"
+                onClick={p.onOpenFinishWalkthrough}
+                className="mt-2 w-full px-3 py-2.5 bg-[#0f1a2a] border border-dashed border-[#3b82f6]/60 rounded-md text-[12px] text-[#93c5fd] hover:bg-[#152440] hover:border-[#3b82f6] transition-colors"
+              >
+                + Calibrate your first finish
+              </button>
             )}
           </Field>
 
