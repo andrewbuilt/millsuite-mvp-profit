@@ -185,7 +185,7 @@ export function computeWaterfall(outcome: ProjectOutcome): WaterfallItem[] {
   const items: WaterfallItem[] = []
 
   // Start: estimated margin
-  const estimatedCost = (outcome.estimated_hours * (outcome.shop_rate_at_completion || 75)) + outcome.estimated_materials
+  const estimatedCost = (outcome.estimated_hours * (outcome.shop_rate_at_completion ?? 0)) + outcome.estimated_materials
   const estimatedMargin = outcome.estimated_price - estimatedCost
   const estimatedMarginPct = outcome.estimated_price > 0 ? (estimatedMargin / outcome.estimated_price) * 100 : 0
 
@@ -198,7 +198,7 @@ export function computeWaterfall(outcome: ProjectOutcome): WaterfallItem[] {
 
   // Hours variance impact
   const hoursOverUnder = outcome.actual_hours - outcome.estimated_hours
-  const hoursCostImpact = hoursOverUnder * (outcome.shop_rate_at_completion || 75)
+  const hoursCostImpact = hoursOverUnder * (outcome.shop_rate_at_completion ?? 0)
   const hoursMarginImpact = outcome.estimated_price > 0 ? -(hoursCostImpact / outcome.estimated_price) * 100 : 0
 
   items.push({

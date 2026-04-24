@@ -162,7 +162,7 @@ export default function PreProductionPage() {
   const allReady = readySubs === subs.length && subs.length > 0
 
   const pricing: PricingInputs = {
-    shopRate: org?.shop_rate ?? 75,
+    shopRate: org?.shop_rate ?? 0,
     consumableMarkupPct: org?.consumable_markup_pct ?? 10,
     profitMarginPct: org?.profit_margin_pct ?? 35,
   }

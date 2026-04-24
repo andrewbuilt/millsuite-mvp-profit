@@ -78,7 +78,7 @@ function DashboardContent() {
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
-  const shopRate = org?.shop_rate || 75
+  const shopRate = org?.shop_rate ?? 0
   const [loading, setLoading] = useState(true)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [report, setReport] = useState('')

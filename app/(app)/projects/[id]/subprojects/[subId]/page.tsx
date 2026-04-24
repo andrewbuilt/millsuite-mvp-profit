@@ -30,7 +30,6 @@ import {
   InstallMode,
   PricingContext,
   addEstimateLine,
-  applicableOptionsForItem,
   attachLineOption,
   computeLineBuildup,
   computeSubprojectRollup,
@@ -140,7 +139,6 @@ export default function SubprojectEditorPage() {
   const [items, setItems] = useState<RateBookItemRow[]>([])
   const [options, setOptions] = useState<RateBookOptionRow[]>([])
   const [lineOptions, setLineOptions] = useState<OptionsPerLine>(new Map())
-  const [selectedLineId, setSelectedLineId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [cloneOpen, setCloneOpen] = useState(false)
   const [composerOpen, setComposerOpen] = useState(false)
@@ -174,7 +172,7 @@ export default function SubprojectEditorPage() {
   // readout below shows that target separately.
   const pricingCtx: PricingContext = useMemo(
     () => ({
-      shopRate: org?.shop_rate || 75,
+      shopRate: org?.shop_rate ?? 0,
       consumableMarkupPct:
         subproject?.consumable_markup_pct ?? org?.consumable_markup_pct ?? 10,
       profitMarginPct: 0,
@@ -291,6 +289,9 @@ export default function SubprojectEditorPage() {
   useEffect(() => setAddHighlight(0), [addQuery])
 
   // ── Global keyboard shortcuts ──
+  // The "/" key focuses the freeform-add input. ⌘D and Backspace
+  // shortcuts were tied to the (now-deleted) selected-line side pane;
+  // operators delete via the trash icon on each row.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const inField =
@@ -300,26 +301,11 @@ export default function SubprojectEditorPage() {
       if (!inField && e.key === '/') {
         e.preventDefault()
         addInputRef.current?.focus()
-        return
-      }
-      // ⌘D / Ctrl+D duplicates the selected line.
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
-        if (selectedLineId) {
-          e.preventDefault()
-          onDuplicate(selectedLineId)
-        }
-      }
-      // ⌫ / Del removes the selected line (outside any input — we don't want
-      // to swallow backspace while the user is editing qty in a row).
-      if (!inField && (e.key === 'Backspace' || e.key === 'Delete') && selectedLineId) {
-        e.preventDefault()
-        removeLine(selectedLineId)
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedLineId])
+  }, [])
 
   // ── Add-line flow ──
   async function commitRateBookAdd(item: RateBookItemRow, qty: number) {
@@ -333,7 +319,6 @@ export default function SubprojectEditorPage() {
       })
       if (newLine) {
         setLines((prev) => [...prev, newLine])
-        setSelectedLineId(newLine.id)
       }
       setPendingAdd(null)
       setPendingQty('')
@@ -354,7 +339,6 @@ export default function SubprojectEditorPage() {
       })
       if (newLine) {
         setLines((prev) => [...prev, newLine])
-        setSelectedLineId(newLine.id)
       }
       setAddQuery('')
       addInputRef.current?.focus()
@@ -431,7 +415,6 @@ export default function SubprojectEditorPage() {
     })
     if (!ok) return
     setLines((prev) => prev.filter((l) => l.id !== id))
-    if (selectedLineId === id) setSelectedLineId(null)
     try {
       await deleteEstimateLine(id)
     } catch {
@@ -444,7 +427,6 @@ export default function SubprojectEditorPage() {
     const dup = await duplicateEstimateLine(id)
     if (dup) {
       setLines((prev) => [...prev, dup])
-      setSelectedLineId(dup.id)
     }
   }
 
@@ -529,8 +511,6 @@ export default function SubprojectEditorPage() {
     )
   }
 
-  const selectedLine = selectedLineId ? lines.find((l) => l.id === selectedLineId) || null : null
-
   return (
     <>
       <Nav />
@@ -587,8 +567,7 @@ export default function SubprojectEditorPage() {
         </div>
       )}
 
-      <div className="max-w-[1400px] mx-auto px-6 py-5 grid grid-cols-[1fr_340px] gap-6">
-        {/* Center column */}
+      <div className="max-w-[1400px] mx-auto px-6 py-5">
         <div>
           <div className="flex items-baseline justify-between mb-4">
             <div>
@@ -668,7 +647,6 @@ export default function SubprojectEditorPage() {
                 const item = line.rate_book_item_id ? itemsById.get(line.rate_book_item_id) ?? null : null
                 const opts = lineOptions.get(line.id) || []
                 const b = computeLineBuildup(line, item, opts, pricingCtx)
-                const selected = selectedLineId === line.id
                 const finishSummary =
                   (line.finish_specs || [])
                     .map((f) => [f.material, f.finish].filter(Boolean).join(' / '))
@@ -677,8 +655,7 @@ export default function SubprojectEditorPage() {
                 return (
                   <div
                     key={line.id}
-                    onClick={() => setSelectedLineId(selected ? null : line.id)}
-                    className={`grid grid-cols-[1fr_72px_56px_80px_100px_100px_36px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 cursor-pointer transition-colors ${selected ? 'bg-[#EFF6FF]' : 'hover:bg-[#F9FAFB]'}`}
+                    className="grid grid-cols-[1fr_72px_56px_80px_100px_100px_36px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors"
                   >
                     <div className="pr-3 min-w-0">
                       <div className="text-sm text-[#111] font-medium truncate">
@@ -979,33 +956,6 @@ export default function SubprojectEditorPage() {
           </div>
         </div>
 
-        {/* Right panel — mt-1.5 nudges the card's top border down to line
-            up with the LEFT column's heading-text top. The grid's row
-            top sits above the heading's cap-line by roughly the
-            line-leading (~6px for text-xl), so the card border looks
-            misaligned without this offset. */}
-        <div className="bg-white border border-[#E5E7EB] rounded-xl p-4 h-fit sticky top-[7.5rem] mt-1.5">
-          {selectedLine ? (
-            <LineDetailPanel
-              line={selectedLine}
-              item={selectedLine.rate_book_item_id ? itemsById.get(selectedLine.rate_book_item_id) ?? null : null}
-              appliedOptions={lineOptions.get(selectedLine.id) || []}
-              availableOptions={applicableOptionsForItem(options, selectedLine.rate_book_item_id ? itemsById.get(selectedLine.rate_book_item_id) ?? null : null)}
-              pricingCtx={pricingCtx}
-              isInstallSub={isInstallSub(subproject)}
-              onPatch={(patch) => patchLine(selectedLine.id, patch)}
-              onToggleOption={(opt) => toggleLineOption(selectedLine.id, opt)}
-              onDuplicate={() => onDuplicate(selectedLine.id)}
-            />
-          ) : (
-            <>
-              <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-3">Line detail</div>
-              <p className="text-sm text-[#9CA3AF] leading-relaxed">
-                Click a line to edit its finish specs, options, install mode, and buildup.
-              </p>
-            </>
-          )}
-        </div>
       </div>
 
       {cloneOpen && (
@@ -1105,345 +1055,6 @@ function DeptPill({
   )
 }
 
-// ── Line detail panel ──
-
-function LineDetailPanel({
-  line, item, appliedOptions, availableOptions, pricingCtx, isInstallSub, onPatch, onToggleOption, onDuplicate,
-}: {
-  line: EstimateLine
-  item: RateBookItemRow | null
-  appliedOptions: Array<{ option: RateBookOptionRow; effect_value_override: number | null }>
-  availableOptions: RateBookOptionRow[]
-  pricingCtx: PricingContext
-  isInstallSub: boolean
-  onPatch: (patch: Partial<EstimateLine>) => void
-  onToggleOption: (opt: RateBookOptionRow) => void
-  onDuplicate: () => void
-}) {
-  const b = computeLineBuildup(line, item, appliedOptions, pricingCtx)
-  // Install-vs-regular split: install subs only show the Install dept; every
-  // other sub hides Install (install labor for the project lives on the
-  // install subproject, not on individual cabinet / door / drawer lines).
-  const visibleDepts: LaborDept[] = isInstallSub
-    ? (['install'] as LaborDept[])
-    : (['eng', 'cnc', 'assembly', 'finish'] as LaborDept[])
-  const [newFinishMat, setNewFinishMat] = useState('')
-  const [newFinishFinish, setNewFinishFinish] = useState('')
-  const appliedIds = new Set(appliedOptions.map((o) => o.option.id))
-
-  function addFinishSpec() {
-    const mat = newFinishMat.trim()
-    const fin = newFinishFinish.trim()
-    if (!mat && !fin) return
-    const list = [...(line.finish_specs || []), { material: mat || undefined, finish: fin || undefined }]
-    onPatch({ finish_specs: list })
-    setNewFinishMat('')
-    setNewFinishFinish('')
-  }
-  function removeFinishSpec(i: number) {
-    const list = (line.finish_specs || []).slice()
-    list.splice(i, 1)
-    onPatch({ finish_specs: list.length ? list : null })
-  }
-
-  return (
-    <>
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Selected line</div>
-        <button onClick={onDuplicate} title="Duplicate (⌘D)" className="p-1 text-[#9CA3AF] hover:text-[#111] rounded">
-          <Copy className="w-3.5 h-3.5" />
-        </button>
-      </div>
-      <div className="px-3 py-2.5 bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg mb-4">
-        <div className="text-sm font-semibold text-[#111]">{item?.name || line.description}</div>
-        <div className="text-xs text-[#1D4ED8] font-mono tabular-nums mt-0.5">
-          {line.quantity} {line.unit || item?.unit || ''} · {fmtMoney(b.lineTotal)}
-        </div>
-      </div>
-
-      {/* Description (for freeform) */}
-      {!item && (
-        <div className="mb-4">
-          <FieldLabel>Description</FieldLabel>
-          <input
-            value={line.description}
-            onChange={(e) => onPatch({ description: e.target.value })}
-            placeholder="What is this line?"
-            className="w-full px-2.5 py-1.5 text-sm border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
-          />
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <div>
-              <FieldLabel>Unit</FieldLabel>
-              <select
-                value={line.unit || 'each'}
-                onChange={(e) => onPatch({ unit: e.target.value as Unit })}
-                className="w-full px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none bg-white"
-              >
-                {(['lf', 'each', 'sf', 'day', 'hr', 'job'] as Unit[]).map((u) => (
-                  <option key={u} value={u}>{u}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>Price / unit</FieldLabel>
-              <input
-                type="number"
-                step="any"
-                value={line.unit_price_override ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value
-                  onPatch({ unit_price_override: v === '' ? null : parseFloat(v) })
-                }}
-                placeholder="override"
-                className="w-full px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Dept-hour overrides — shown even for freeform lines (no rate-book
-          item). For rate-book-backed lines the placeholder shows the item's
-          baseline hours so the override is "what's different from base." */}
-      <div className="mb-4">
-        <FieldLabel>
-          Hours by dept
-          {item && <span className="ml-1 font-normal normal-case tracking-normal text-[#D1D5DB]">· override</span>}
-        </FieldLabel>
-        <div className="grid grid-cols-2 gap-1.5">
-          {visibleDepts.map((d) => {
-            const ov = (line.dept_hour_overrides || {})[d]
-            const base = item
-              ? d === 'eng' ? item.base_labor_hours_eng
-                : d === 'cnc' ? item.base_labor_hours_cnc
-                : d === 'assembly' ? item.base_labor_hours_assembly
-                : d === 'finish' ? item.base_labor_hours_finish
-                : item.base_labor_hours_install
-              : 0
-            return (
-              <label key={d} className="flex items-center gap-1.5 text-xs">
-                <span className="w-14 text-[#6B7280]">{LABOR_DEPT_LABEL[d]}</span>
-                <input
-                  type="number"
-                  step="any"
-                  value={ov ?? ''}
-                  placeholder={String(base)}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    const cur = { ...(line.dept_hour_overrides || {}) }
-                    if (v === '') delete cur[d]
-                    else cur[d] = parseFloat(v) || 0
-                    onPatch({ dept_hour_overrides: Object.keys(cur).length ? cur : null })
-                  }}
-                  className="flex-1 min-w-0 px-1.5 py-1 text-xs font-mono tabular-nums border border-[#E5E7EB] rounded focus:border-[#2563EB] focus:outline-none"
-                />
-              </label>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Options */}
-      {availableOptions.length > 0 && (
-        <div className="mb-4">
-          <FieldLabel>Options</FieldLabel>
-          <div className="flex flex-wrap gap-1.5">
-            {availableOptions.map((o) => {
-              const on = appliedIds.has(o.id)
-              return (
-                <button
-                  key={o.id}
-                  onClick={() => onToggleOption(o)}
-                  className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${on ? 'bg-[#F3E8FF] text-[#7E22CE] border-[#C4B5FD]' : 'bg-white text-[#6B7280] border-[#E5E7EB] hover:border-[#9CA3AF]'}`}
-                >
-                  {o.name}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Finish specs */}
-      <div className="mb-4">
-        <FieldLabel>Finish specs
-          <span className="ml-1 font-normal normal-case tracking-normal text-[#D1D5DB]">· become specs in pre-production when sold</span>
-        </FieldLabel>
-        <div className="flex flex-col gap-1 mb-2">
-          {(line.finish_specs || []).map((f, i) => (
-            <span key={i} className="inline-flex items-center gap-1 px-2 py-1 bg-[#EFF6FF] text-[#1D4ED8] text-[11px] rounded-lg border border-[#DBEAFE]">
-              <span className="font-medium">{f.material || '—'}</span>
-              {f.finish && <span>· {f.finish}</span>}
-              <button onClick={() => removeFinishSpec(i)} className="ml-1 text-[#93C5FD] hover:text-[#1D4ED8]" aria-label="Remove">
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
-          {(line.finish_specs || []).length === 0 && (
-            <span className="text-[11px] text-[#9CA3AF] italic">No finish specs on this line</span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <input
-            value={newFinishMat}
-            onChange={(e) => setNewFinishMat(e.target.value)}
-            placeholder="material"
-            className="flex-1 min-w-0 px-2 py-1 text-xs border border-dashed border-[#E5E7EB] rounded focus:border-[#2563EB] focus:outline-none"
-          />
-          <input
-            value={newFinishFinish}
-            onChange={(e) => setNewFinishFinish(e.target.value)}
-            placeholder="finish"
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFinishSpec() } }}
-            className="flex-1 min-w-0 px-2 py-1 text-xs border border-dashed border-[#E5E7EB] rounded focus:border-[#2563EB] focus:outline-none"
-          />
-          <button onClick={addFinishSpec} className="text-[#6B7280] hover:text-[#111]"><Plus className="w-4 h-4" /></button>
-        </div>
-      </div>
-
-      {/* Install mode */}
-      <div className="mb-4">
-        <FieldLabel>Install pricing</FieldLabel>
-        <div className="flex gap-1 mb-2">
-          {(['per_man_per_day', 'per_box', 'flat'] as InstallMode[]).map((m) => {
-            const on = line.install_mode === m
-            const label = m === 'per_man_per_day' ? 'Per man/day' : m === 'per_box' ? 'Per box' : 'Flat'
-            return (
-              <button
-                key={m}
-                onClick={() => {
-                  if (on) {
-                    onPatch({ install_mode: null, install_params: null })
-                  } else {
-                    const params =
-                      m === 'per_man_per_day' ? { days: 1, men: 1, rate: 1200 } :
-                      m === 'per_box' ? { boxes: 1, rate_per_box: 45 } :
-                      { amount: 0 }
-                    onPatch({ install_mode: m, install_params: params as any })
-                  }
-                }}
-                className={`flex-1 px-2 py-1 text-[11px] rounded-lg border transition-colors ${on ? 'bg-[#EFF6FF] border-[#2563EB] text-[#1D4ED8]' : 'bg-white border-[#E5E7EB] text-[#6B7280] hover:border-[#9CA3AF]'}`}
-              >{label}</button>
-            )
-          })}
-        </div>
-        {line.install_mode === 'per_man_per_day' && (
-          <div className="grid grid-cols-3 gap-1.5">
-            <LabeledNumber label="Days"
-              value={(line.install_params as any)?.days ?? 0}
-              onChange={(v) => onPatch({ install_params: { ...(line.install_params as any), days: v } as any })} />
-            <LabeledNumber label="Men"
-              value={(line.install_params as any)?.men ?? 0}
-              onChange={(v) => onPatch({ install_params: { ...(line.install_params as any), men: v } as any })} />
-            <LabeledNumber label="$/day"
-              value={(line.install_params as any)?.rate ?? 0}
-              onChange={(v) => onPatch({ install_params: { ...(line.install_params as any), rate: v } as any })} />
-          </div>
-        )}
-        {line.install_mode === 'per_box' && (
-          <div className="grid grid-cols-2 gap-1.5">
-            <LabeledNumber label="Boxes"
-              value={(line.install_params as any)?.boxes ?? 0}
-              onChange={(v) => onPatch({ install_params: { ...(line.install_params as any), boxes: v } as any })} />
-            <LabeledNumber label="$/box"
-              value={(line.install_params as any)?.rate_per_box ?? 0}
-              onChange={(v) => onPatch({ install_params: { ...(line.install_params as any), rate_per_box: v } as any })} />
-          </div>
-        )}
-        {line.install_mode === 'flat' && (
-          <LabeledNumber label="Flat amount"
-            value={(line.install_params as any)?.amount ?? 0}
-            onChange={(v) => onPatch({ install_params: { amount: v } as any })} />
-        )}
-      </div>
-
-      {/* Notes */}
-      <div className="mb-4">
-        <FieldLabel>Notes</FieldLabel>
-        <textarea
-          value={line.notes || ''}
-          onChange={(e) => onPatch({ notes: e.target.value })}
-          placeholder="Internal notes on this line"
-          rows={2}
-          className="w-full px-2 py-1.5 text-xs border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none resize-none"
-        />
-      </div>
-
-      {/* Buildup */}
-      <div>
-        <FieldLabel>What's in this line's price</FieldLabel>
-        <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-3 space-y-1.5 text-xs font-mono tabular-nums">
-          {visibleDepts.map((d) => {
-            const hrs = b.hoursByDept[d]
-            if (hrs === 0) return null
-            const cost = hrs * pricingCtx.shopRate
-            return (
-              <div key={d} className="flex items-center justify-between">
-                <span className="text-[#6B7280] capitalize">{LABOR_DEPT_LABEL[d]}</span>
-                <span className="text-[#111]">{fmtHours(hrs)} · {fmtMoney(cost)}</span>
-              </div>
-            )
-          })}
-          {b.materialCost > 0 && (
-            <div className="flex items-center justify-between">
-              <span className="text-[#6B7280]">Material</span>
-              <span className="text-[#111]">{fmtMoney(b.materialCost)}</span>
-            </div>
-          )}
-          {b.consumablesCost > 0 && (
-            <div className="flex items-center justify-between">
-              <span className="text-[#6B7280]">Consumables ({pricingCtx.consumableMarkupPct}%)</span>
-              <span className="text-[#111]">{fmtMoney(b.consumablesCost)}</span>
-            </div>
-          )}
-          {b.hardwareCost > 0 && (
-            <div className="flex items-center justify-between">
-              <span className="text-[#6B7280]">Hardware</span>
-              <span className="text-[#111]">{fmtMoney(b.hardwareCost)}</span>
-            </div>
-          )}
-          {b.installCost > 0 && (
-            <div className="flex items-center justify-between">
-              <span className="text-[#6B7280]">Install</span>
-              <span className="text-[#111]">{fmtMoney(b.installCost)}</span>
-            </div>
-          )}
-          {b.optionsFlatAdd !== 0 && (
-            <div className="flex items-center justify-between">
-              <span className="text-[#6B7280]">Options</span>
-              <span className="text-[#111]">{fmtMoney(b.optionsFlatAdd)}</span>
-            </div>
-          )}
-          <div className="flex items-center justify-between pt-2 mt-1 border-t border-[#E5E7EB] font-semibold">
-            <span className="text-[#111]">Line total</span>
-            <span className="text-[#111]">{fmtMoney(b.lineTotal)}</span>
-          </div>
-        </div>
-      </div>
-    </>
-  )
-}
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1.5">{children}</div>
-  )
-}
-
-function LabeledNumber({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-  return (
-    <label className="flex flex-col gap-0.5 text-[10px] text-[#9CA3AF] uppercase tracking-wider">
-      {label}
-      <input
-        type="number"
-        step="any"
-        value={value || ''}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-        className="px-2 py-1 text-xs font-mono tabular-nums text-[#111] border border-[#E5E7EB] rounded focus:border-[#2563EB] focus:outline-none normal-case tracking-normal"
-      />
-    </label>
-  )
-}
 
 // ── Clone from past modal ──
 

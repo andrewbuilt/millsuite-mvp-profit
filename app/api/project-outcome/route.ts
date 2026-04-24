@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     const materials = actualMaterials > 0 ? actualMaterials : estimatedMaterials
 
     // Shop rate and utilization at completion
-    const shopRate = project.locked_shop_rate || 75
+    const shopRate = project.locked_shop_rate ?? 0
     const actualLaborCost = actualHours * shopRate
     const actualMargin = revenue - actualLaborCost - materials
     const actualMarginPct = revenue > 0 ? (actualMargin / revenue) * 100 : 0

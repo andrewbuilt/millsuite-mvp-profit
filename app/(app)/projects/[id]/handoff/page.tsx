@@ -147,7 +147,7 @@ function HandoffPageInner() {
   const router = useRouter()
   const { org } = useAuth()
 
-  const shopRate = org?.shop_rate || 75
+  const shopRate = org?.shop_rate ?? 0
 
   const pricingCtx: PricingContext = useMemo(
     () => ({

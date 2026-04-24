@@ -38,14 +38,14 @@ export async function POST(req: NextRequest) {
     // Build context for Claude
     const shopData = {
       shop_name: org?.name || 'Unknown',
-      shop_rate: org?.shop_rate || 75,
+      shop_rate: org?.shop_rate ?? 0,
       profit_margin: org?.profit_margin_pct || 35,
       consumable_markup: org?.consumable_markup_pct || 15,
       location: [org?.business_city, org?.business_state].filter(Boolean).join(', ') || 'Unknown',
       active_projects: activeProjects.map(p => {
         const laborMins = (timeEntries || []).filter(t => t.project_id === p.id).reduce((s, t) => s + t.duration_minutes, 0)
         const materialCost = (invoices || []).filter(i => i.project_id === p.id).reduce((s, i) => s + i.total_amount, 0)
-        const actualCost = (laborMins / 60) * (org?.shop_rate || 75) + materialCost
+        const actualCost = (laborMins / 60) * (org?.shop_rate ?? 0) + materialCost
         const margin = p.bid_total > 0 ? ((p.bid_total - actualCost) / p.bid_total) * 100 : 0
         return { name: p.name, bid: p.bid_total, actual: Math.round(actualCost), margin: Math.round(margin) }
       }),

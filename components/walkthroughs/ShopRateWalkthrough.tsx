@@ -738,6 +738,13 @@ function ResultScreen({
         </div>
       </div>
 
+      <p className="text-[12.5px] text-[#6B7280] leading-relaxed mb-5">
+        <strong className="text-[#111] font-semibold">This is your baseline rate.</strong>{' '}
+        You need to charge at least this much to keep the lights on. Profit
+        margin is added at the project level, and a default margin can be
+        saved in settings.
+      </p>
+
       {showBothOnReentry && (
         <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-lg p-4 mb-4">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-[#92400E] mb-1.5">
@@ -819,7 +826,7 @@ function ResultScreen({
                   ? 'Saving…'
                   : showBothOnReentry
                     ? `Update to ${fmtRate(derived)}`
-                    : `Use ${fmtRate(derived)}`}
+                    : 'Save this as your shop rate'}
               </button>
             </>
           )}
