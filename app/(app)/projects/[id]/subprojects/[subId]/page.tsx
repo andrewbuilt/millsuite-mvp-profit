@@ -624,15 +624,6 @@ export default function SubprojectEditorPage() {
             </div>
           )}
 
-          {/* Install prefill (Phase 12 item 9) — per-subproject install
-              cost from guys × days × install rate × (1 + complexity%).
-              Cost folds into subprojectTotalWithInstall. */}
-          <InstallPrefill
-            subprojectId={subId}
-            installRatePerHour={org?.shop_rate || 0}
-            onChange={setInstallValues}
-          />
-
           {/* Keyboard hint strip */}
           <div className="flex items-center gap-3 px-3 py-2 bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg text-[11px] text-[#1D4ED8] mb-3 flex-wrap">
             <span className="font-semibold uppercase tracking-wider">Shortcuts</span>
@@ -842,6 +833,19 @@ export default function SubprojectEditorPage() {
             )}
           </div>
 
+          {/* Install prefill (Phase 12 item 9) — per-subproject install
+              cost from guys × days × install rate × (1 + complexity%).
+              Sits below the line list per the dogfood-2 layout call:
+              cabinet scope first, install second. Cost folds into
+              subprojectTotalWithInstall in the bottom rollup. */}
+          <div className="mb-6">
+            <InstallPrefill
+              subprojectId={subId}
+              installRatePerHour={org?.shop_rate || 0}
+              onChange={setInstallValues}
+            />
+          </div>
+
           {/* Bottom rollup */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
             <div className="grid grid-cols-5 gap-5">
@@ -962,8 +966,12 @@ export default function SubprojectEditorPage() {
           </div>
         </div>
 
-        {/* Right panel */}
-        <div className="bg-white border border-[#E5E7EB] rounded-xl p-4 h-fit sticky top-[7.5rem]">
+        {/* Right panel — mt-1.5 nudges the card's top border down to line
+            up with the LEFT column's heading-text top. The grid's row
+            top sits above the heading's cap-line by roughly the
+            line-leading (~6px for text-xl), so the card border looks
+            misaligned without this offset. */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl p-4 h-fit sticky top-[7.5rem] mt-1.5">
           {selectedLine ? (
             <LineDetailPanel
               line={selectedLine}
