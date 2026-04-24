@@ -31,7 +31,7 @@ export async function rollupProject(projectId: string): Promise<{
     .eq('id', project.org_id)
     .single()
 
-  const shopRate = org?.shop_rate || 75
+  const shopRate = org?.shop_rate ?? 0
 
   // Load rollup inputs in parallel
   const [subsRes, timeRes, invoicesRes] = await Promise.all([

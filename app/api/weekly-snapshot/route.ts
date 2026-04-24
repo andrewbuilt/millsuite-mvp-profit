@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 8. Labor cost this week = billable hours * shop rate
-    const totalLaborCost = billableHours * (shopRate || 75)
+    const totalLaborCost = billableHours * (shopRate ?? 0)
 
     // 9. Project counts — "active" is anything past sold and still in flight;
     // "shipped" is stage=complete (or installed, depending on how the shop
