@@ -223,12 +223,16 @@ export interface ComposerBreakdown {
 }
 
 // ── Hardcoded V1 constants per spec ──
-// End panels + filler/scribes are flat per-unit approximations. Lifted
-// into the rate book in a follow-up if real shops push back.
-const END_PANEL_LABOR_HR = 1.2      // applied at finish-dept rate
-const END_PANEL_MATERIAL = 140      // dollars per each
+// Filler/scribes is a flat per-unit approximation. End panels roll up
+// from the line's door style + door material + exterior finish (see
+// computeBreakdown below). Both lifted into the rate book in a
+// follow-up if real shops push back.
 const FILLER_LABOR_HR = 0.5         // applied at assembly-dept rate
 const FILLER_MATERIAL = 18          // dollars per each
+// End-panel geometry — panel is 2 LF of the cabinet height, 24" deep.
+// Operator gets a "Assumes 24" deep. Price multiple panels if oversized."
+// helper next to the count input in the composer.
+const END_PANEL_LF_PER_PANEL = 2
 
 // ── The compute ──
 
@@ -335,27 +339,67 @@ export function computeBreakdown(
   const exteriorFinishMaterial = finishMaterial(efn)
   const finishHoursTotal = finishLaborHours(ifn) + finishLaborHours(efn)
 
-  // End panels + fillers — hardcoded V1. Finish hours land on the finish
-  // dept for scheduling; filler hours land on assembly. Both priced at
-  // the single blended rate.
-  const endPanelsLabor = (s.endPanels || 0) * END_PANEL_LABOR_HR * rate
-  const endPanelsMaterial = (s.endPanels || 0) * END_PANEL_MATERIAL
+  // End panels — roll up from door style + door material + exterior
+  // finish for this product category. A panel = 2 LF of the cabinet
+  // height at 24" deep (the operator hint in the composer notes
+  // oversized panels should bump the count).
+  //   labor/panel    = 2 × (doorStyleLaborPerLf + exteriorFinishLaborPerLf)
+  //   material/panel = 2 × (doorMaterialSheetCost × sheetsPerLfFace
+  //                         + exteriorFinishMaterialPerLf)
+  // Any missing slot contributes zero — a bare sheet unfinished panel
+  // is a valid state (interior-only use case) and shouldn't crash.
+  const endPanelDoorHoursPerLf =
+    ds && ds.calibrated
+      ? (ds.labor.eng + ds.labor.cnc + ds.labor.assembly + ds.labor.finish) *
+        prod.doorsPerLf *
+        prod.doorLaborMultiplier
+      : 0
+  const endPanelFinishHoursPerLf = (() => {
+    if (!efn || efn.isPrefinished) return 0
+    const row = efn.byProduct[draft.productId as 'base' | 'upper' | 'full']
+    return row ? row.laborHr : 0
+  })()
+  const endPanelFinishMatPerLf = (() => {
+    if (!efn || efn.isPrefinished) return 0
+    const row = efn.byProduct[draft.productId as 'base' | 'upper' | 'full']
+    return row ? row.material : 0
+  })()
+  const endPanelLaborHoursPerPanel =
+    END_PANEL_LF_PER_PANEL * (endPanelDoorHoursPerLf + endPanelFinishHoursPerLf)
+  const endPanelMaterialPerPanel =
+    END_PANEL_LF_PER_PANEL *
+    ((em ? em.sheet_cost * prod.sheetsPerLfFace : 0) + endPanelFinishMatPerLf)
+  const endPanelsCount = s.endPanels || 0
+  const endPanelsLabor = endPanelsCount * endPanelLaborHoursPerPanel * rate
+  const endPanelsMaterial = endPanelsCount * endPanelMaterialPerPanel
+
+  // Fillers — flat per-each, still priced at the blended rate.
   const fillersLabor = (s.fillers || 0) * FILLER_LABOR_HR * rate
   const fillersMaterial = (s.fillers || 0) * FILLER_MATERIAL
 
-  // Aggregate dept hours for the saved-line round-trip.
+  // Aggregate dept hours for the saved-line round-trip. End-panel hours
+  // fold into the same depts the line's door style + exterior finish
+  // already occupy (door hours spread across 4 depts, finish hours to
+  // Finish). Filler hours land on Assembly.
+  const doorShareEng  = endPanelDoorHoursPerLf > 0 ? ds!.labor.eng      * prod.doorsPerLf * prod.doorLaborMultiplier : 0
+  const doorShareCnc  = endPanelDoorHoursPerLf > 0 ? ds!.labor.cnc      * prod.doorsPerLf * prod.doorLaborMultiplier : 0
+  const doorShareAsm  = endPanelDoorHoursPerLf > 0 ? ds!.labor.assembly * prod.doorsPerLf * prod.doorLaborMultiplier : 0
+  const doorShareFin  = endPanelDoorHoursPerLf > 0 ? ds!.labor.finish   * prod.doorsPerLf * prod.doorLaborMultiplier : 0
+  const endPanelLfTotal = endPanelsCount * END_PANEL_LF_PER_PANEL
   const hoursByDept = {
-    eng: carcassHoursByDept.eng + doorHoursByDept.eng,
-    cnc: carcassHoursByDept.cnc + doorHoursByDept.cnc,
+    eng: carcassHoursByDept.eng + doorHoursByDept.eng + endPanelLfTotal * doorShareEng,
+    cnc: carcassHoursByDept.cnc + doorHoursByDept.cnc + endPanelLfTotal * doorShareCnc,
     assembly:
       carcassHoursByDept.assembly +
       doorHoursByDept.assembly +
+      endPanelLfTotal * doorShareAsm +
       (s.fillers || 0) * FILLER_LABOR_HR,
     finish:
       carcassHoursByDept.finish +
       doorHoursByDept.finish +
       finishHoursTotal +
-      (s.endPanels || 0) * END_PANEL_LABOR_HR,
+      endPanelLfTotal * doorShareFin +
+      endPanelLfTotal * endPanelFinishHoursPerLf,
   }
 
   const totalLabor =

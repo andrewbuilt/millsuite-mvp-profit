@@ -799,6 +799,9 @@ function Composer(p: {
               onChange={(v) => p.setSlot('endPanels', Math.max(0, Math.round(v)))}
               unit="each"
             />
+            <p className="text-[11px] text-[#9CA3AF] mt-1.5">
+              Assumes 24" deep. Price multiple panels if oversized.
+            </p>
           </Field>
 
           <Field label="Filler/scribes">
