@@ -1005,6 +1005,7 @@ export default function SubprojectEditorPage() {
           subprojectId={subId}
           orgId={org.id}
           orgConsumablePct={org?.consumable_markup_pct ?? null}
+          hasExistingLinesInSubproject={lines.length > 0}
           onCancel={() => setComposerOpen(false)}
           onLineSaved={async () => {
             setComposerOpen(false)
