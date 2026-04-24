@@ -545,6 +545,11 @@ async function ensureFinishItem(
   const row = (existing || [])[0] as { id: string } | undefined
   if (row) return row.id
 
+  // Default new finish items to 'exterior' — same posture as the
+  // migration 025 backfill. Item 8 (FinishWalkthrough rewrite) will
+  // offer a "Duplicate for the other application" affordance so
+  // operators can spin up interior twins when they actually finish
+  // cabinet interiors.
   const { data: created, error } = await supabase
     .from('rate_book_items')
     .insert({
@@ -560,6 +565,7 @@ async function ensureFinishItem(
       hardware_cost: 0,
       confidence: 'untested',
       active: true,
+      application: 'exterior',
     })
     .select('id')
     .single()
