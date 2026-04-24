@@ -104,6 +104,10 @@ interface ProjectRow {
   client_name: string | null
   // Phase 12 item 10: gates the staleness banner (only shown presold).
   stage: ProjectStage
+  // Phase 12 dogfood-2 Issue 12: project's pinned target margin
+  // (NULL = inherit org default). Used for the cost-mode subproject
+  // bottom-bar's target readout so it agrees with the project page.
+  target_margin_pct: number | null
 }
 
 // True when this subproject's activity type is "install" — the install
@@ -164,16 +168,25 @@ export default function SubprojectEditorPage() {
   const [addError, setAddError] = useState<string | null>(null)
   const addInputRef = useRef<HTMLInputElement>(null)
 
+  // Subproject rollup runs at COST. Project markup is applied at the
+  // project rollup uniformly via projects.target_margin_pct (Phase 12
+  // dogfood-2 Issue 12), so we pass 0 here. The subproject bottom-bar
+  // readout below shows that target separately.
   const pricingCtx: PricingContext = useMemo(
     () => ({
       shopRate: org?.shop_rate || 75,
       consumableMarkupPct:
         subproject?.consumable_markup_pct ?? org?.consumable_markup_pct ?? 10,
-      profitMarginPct:
-        subproject?.profit_margin_pct ?? org?.profit_margin_pct ?? 35,
+      profitMarginPct: 0,
     }),
     [org?.shop_rate, subproject, org]
   )
+
+  // Effective project target — sourced same way as the project page:
+  // pinned project value first, then org default. Drives the bottom-bar
+  // readout so subproject + project always show the same target.
+  const effectiveProjectMarginTarget =
+    project?.target_margin_pct ?? org?.profit_margin_pct ?? 35
 
   // ── Load ──
   useEffect(() => {
@@ -184,7 +197,7 @@ export default function SubprojectEditorPage() {
       const [projRes, subRes, siblingsRes, linesData, rb, opts, lineOpts, subActuals, deptRes, composerRb, composerSubDefaults] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, client_name, stage')
+          .select('id, name, client_name, stage, target_margin_pct')
           .eq('id', projectId)
           .single(),
         supabase
@@ -542,8 +555,8 @@ export default function SubprojectEditorPage() {
             <span className="text-[#D1D5DB]">·</span>
             <span><span className="text-[#111] font-semibold">{fmtMoney(subprojectTotalWithInstall)}</span></span>
             <span className="text-[#D1D5DB]">·</span>
-            <span className={rollup.marginPct >= 32 ? 'text-[#059669]' : rollup.marginPct >= 25 ? 'text-[#D97706]' : 'text-[#DC2626]'}>
-              {Math.round(rollup.marginPct)}% margin
+            <span className="text-[#6B7280]">
+              cost · target {effectiveProjectMarginTarget}% at project
             </span>
           </div>
         </div>
@@ -852,8 +865,8 @@ export default function SubprojectEditorPage() {
               <RollupCell
                 label={`${subproject.name} · ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`}
                 value={fmtMoney(subprojectTotalWithInstall)}
-                sub={`${Math.round(rollup.marginPct)}% margin${rollup.marginPct < 32 ? ' · below 32%' : ''}`}
-                subTone={rollup.marginPct >= 32 ? 'ok' : rollup.marginPct >= 25 ? 'warn' : 'bad'}
+                sub={`cost · target ${effectiveProjectMarginTarget}% at project`}
+                subTone="ok"
                 bold
               />
               <RollupCell label="Labor" value={fmtHours(rollup.totalHours)} sub={fmtMoney(rollup.laborCost)} />

@@ -104,7 +104,7 @@ export default function InstallPrefill({ subprojectId, installRatePerHour, onCha
             Install prefill
           </div>
           <div className="text-[11.5px] text-[#9CA3AF]">
-            Guys × days × ${Number(installRatePerHour) || 0}/hr × (1 + complexity%).
+            Guys × days × ${(Number(installRatePerHour) || 0).toFixed(2)}/hr × (1 + complexity%).
             Complexity markup covers <em>elevator access, 2nd-floor stairs, long carry, tight stairwell, historic building, occupied residence, etc.</em> One number, no checkbox matrix.
           </div>
         </div>
