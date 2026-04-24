@@ -78,6 +78,22 @@ export interface ComposerFinish {
  *  of the Interior finish dropdown; not a rate-book row. */
 export const PREFINISHED_FINISH_ID = '__prefinished__'
 
+/** A DB-loaded finish counts as "used" when at least one product
+ *  category has non-zero per-LF labor OR material. Lets the composer
+ *  hide the blank combo rows that FinishWalkthrough creates on first
+ *  open so the operator isn't picking from four zero-cost options.
+ *  Prefinished sentinel is always used (zero is the whole point). */
+export function isFinishUsed(f: ComposerFinish): boolean {
+  if (f.isPrefinished) return true
+  const cats: Array<'base' | 'upper' | 'full'> = ['base', 'upper', 'full']
+  for (const p of cats) {
+    const row = f.byProduct[p]
+    if (!row) continue
+    if (row.laborHr > 0 || row.material > 0) return true
+  }
+  return false
+}
+
 /** Build the Prefinished sentinel that the composer prepends to the
  *  Interior finish dropdown. Zero everywhere, marked interior. */
 export function prefinishedSentinel(): ComposerFinish {

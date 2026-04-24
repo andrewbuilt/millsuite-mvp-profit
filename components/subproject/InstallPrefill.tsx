@@ -149,7 +149,7 @@ export default function InstallPrefill({ subprojectId, installRatePerHour, onCha
         />
         <InputField
           label="Complexity markup"
-          hint="% over base — reasons above"
+          hint="% over base. Reasons above."
           value={values.complexityPct}
           step={5}
           onRaw={(v) => set('complexityPct', v)}

@@ -2,7 +2,7 @@
 
 // components/walkthroughs/ShopRateWalkthrough.tsx
 // Four-screen first-principles shop rate setup.
-// Per BUILD-ORDER Phase 12 item 12 + specs/shop-rate-setup/.
+// Spec: mockups/shop-rate-setup-mockup.html (canonical). BUILD-ORDER Phase 12 item 12.
 //
 // Screens:
 //   1. Overhead   - categorized $ inputs, monthly or annual.
@@ -257,7 +257,7 @@ function OverheadScreen({
       </h2>
       <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
         Every cost not tied to a specific job. Enter each one monthly or
-        annual — the math works either way. Skip what doesn't apply.
+        annual. The math works either way. Skip what doesn't apply.
       </p>
 
       <div className="space-y-2 mb-4">
@@ -425,7 +425,7 @@ function TeamScreen({
       </h2>
       <p className="text-sm text-[#6B7280] leading-relaxed mb-2">
         Name + total annual pay per person. Convert hourly wages to annual
-        before entering ($/hr × hrs/wk × weeks). Owner comp too — if you
+        before entering ($/hr × hrs/wk × weeks). Owner comp too: if you
         pay yourself, count it.
       </p>
       <p className="text-sm text-[#6B7280] leading-relaxed mb-5">

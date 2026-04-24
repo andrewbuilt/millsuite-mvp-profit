@@ -64,14 +64,13 @@ const STEPS: StepConfig[] = [
     key: 'machining',
     heading: 'Wood machining',
     bucketLabel: 'Assembly',
-    prompt:
-      'Rails & stiles, jointer, planer, shaper — for 4 doors. Folds into Assembly on save — asked separately so it doesn\u2019t get lost.',
+    prompt: 'Solid wood processing if applicable. Folds into Assembly on save.',
   },
   {
     key: 'assembly',
     heading: 'Assembly',
     bucketLabel: 'Assembly',
-    prompt: 'Glue-up, square, sand — for 4 doors.',
+    prompt: 'Glue-up, square, sand. For 4 doors.',
   },
   {
     key: 'finish',
@@ -230,7 +229,11 @@ export default function DoorStyleWalkthrough({
             onHour={setHour}
             onStep={stepHour}
             onBack={() => setStepIdx((i) => Math.max(0, i - 1))}
-            onNext={() => setStepIdx((i) => Math.min(STEPS.length - 1, i + 1))}
+            onNext={() =>
+              setStepIdx((i) =>
+                Math.min(isNewStyle ? STEPS.length : STEPS.length - 1, i + 1)
+              )
+            }
             onCancel={onCancel}
             onSave={save}
           />
@@ -319,7 +322,7 @@ function FullModal(p: {
             </h2>
             <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
               The name appears in the composer dropdown. "Shaker," "Slab,"
-              "Reveal-edge slab," anything that reads like what you build.
+              anything that reads like what you build.
             </p>
             <input
               type="text"
@@ -478,7 +481,7 @@ function MiniCard(p: {
       <div className="p-5">
         <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
           Some departments already have hours from a previous calibration.
-          Fill in the missing ones — hours for <b>4 doors at 24" × 30"</b>.
+          Fill in the missing ones. Hours for <b>4 doors at 24" × 30"</b>.
           Machining folds into Assembly on save.
         </p>
 
