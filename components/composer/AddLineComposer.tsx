@@ -81,6 +81,12 @@ interface Props {
   /** Current org.consumable_markup_pct — used for the "no subproject
    *  defaults row yet" fallback. */
   orgConsumablePct: number | null
+  /** True when the subproject already has at least one saved line. On
+   *  the first line of a fresh subproject the composer opens with empty
+   *  slots so the operator isn't staring at a pre-priced table before
+   *  they've picked anything. Last-used carry-over kicks in on the 2nd+
+   *  line. */
+  hasExistingLinesInSubproject: boolean
   onLineSaved: () => void
   onCancel: () => void
 }
@@ -109,6 +115,7 @@ export default function AddLineComposer({
   subprojectId,
   orgId,
   orgConsumablePct,
+  hasExistingLinesInSubproject,
   onLineSaved,
   onCancel,
 }: Props) {
@@ -223,34 +230,45 @@ export default function AddLineComposer({
       const p = PRODUCTS[key]
       if (!p.active || p.locked) return
 
-      const carry = lastUsed[key]
-      const firstCarcass = rateBook.carcassMaterials[0]?.id ?? null
-      const firstExt = rateBook.extMaterials[0]?.id ?? null
-      const firstDoor = rateBook.doorStyles[0]?.id ?? null
-      // Prefinished sentinel sits at the top of Interior — that's the
-      // sane default. Exterior falls back to the first exterior row
-      // (or null if the shop hasn't calibrated any yet).
-      const firstExteriorFinish =
-        rateBook.finishes.find((f) => f.application === 'exterior')?.id ?? null
-      const hardFallback = {
-        carcassMaterial: firstCarcass,
-        doorStyle: firstDoor,
-        doorMaterial: firstExt,
-        interiorFinish: PREFINISHED_FINISH_ID,
-        exteriorFinish: firstExteriorFinish,
-        endPanels: 0,
-        fillers: 0,
-        notes: '',
+      // First line of a fresh subproject opens empty — no pre-selected
+      // materials, no hard fallbacks, no carry-over. Prefinished is still
+      // the sane interior default because it's a client-side sentinel
+      // that adds zero cost. As soon as the subproject has one saved
+      // line, preload from orgs.last_used_slots_by_product on subsequent
+      // product picks so the 2nd+ line carries the shop's recent choices.
+      const shouldPreload = hasExistingLinesInSubproject
+      const carry = shouldPreload ? lastUsed[key] : null
+
+      let slots: ComposerDraft['slots']
+      let qty: number
+
+      if (carry) {
+        const firstCarcass = rateBook.carcassMaterials[0]?.id ?? null
+        const firstExt = rateBook.extMaterials[0]?.id ?? null
+        const firstDoor = rateBook.doorStyles[0]?.id ?? null
+        const firstExteriorFinish =
+          rateBook.finishes.find((f) => f.application === 'exterior')?.id ?? null
+        const hardFallback = {
+          carcassMaterial: firstCarcass,
+          doorStyle: firstDoor,
+          doorMaterial: firstExt,
+          interiorFinish: PREFINISHED_FINISH_ID,
+          exteriorFinish: firstExteriorFinish,
+          endPanels: 0,
+          fillers: 0,
+          notes: '',
+        }
+        slots = { ...emptySlots(), ...hardFallback, ...carry.slots, endPanels: 0, fillers: 0, notes: '' }
+        qty = carry.qty || 8
+      } else {
+        slots = { ...emptySlots(), interiorFinish: PREFINISHED_FINISH_ID }
+        qty = 8
       }
 
-      const slots = carry
-        ? { ...emptySlots(), ...hardFallback, ...carry.slots, endPanels: 0, fillers: 0, notes: '' }
-        : { ...emptySlots(), ...hardFallback }
-      const qty = carry?.qty || 8
       setDraft({ productId: key, qty, slots })
       setView('composer')
     },
-    [rateBook, lastUsed]
+    [rateBook, lastUsed, hasExistingLinesInSubproject]
   )
 
   // Reset everything on cancel per spec.
@@ -832,8 +850,10 @@ function Composer(p: {
         </div>
       </div>
 
-      {/* Breakdown */}
-      {breakdown && (
+      {/* Breakdown — placeholder when no pricing slot is picked yet,
+          live panel once any of carcass / door style / door material /
+          exterior finish is chosen. */}
+      {breakdown && hasAnyPricingSlot(draft.slots) ? (
         <BreakdownPanel
           breakdown={breakdown}
           defaults={defaults}
@@ -842,7 +862,26 @@ function Composer(p: {
           onDefaultsPct={p.setDefaultsPct}
           onPersistDefaults={p.persistDefaults}
         />
+      ) : (
+        <BreakdownPlaceholder />
       )}
+    </div>
+  )
+}
+
+function hasAnyPricingSlot(s: ComposerDraft['slots']): boolean {
+  return !!(s.carcassMaterial || s.doorStyle || s.doorMaterial || s.exteriorFinish)
+}
+
+function BreakdownPlaceholder() {
+  return (
+    <div className="bg-[#F9FAFB] border border-dashed border-[#E5E7EB] rounded-xl p-6 lg:sticky lg:top-4 text-center">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] mb-2">
+        Line breakdown
+      </div>
+      <div className="text-[13px] text-[#6B7280] leading-relaxed">
+        Pick materials and a door style to see pricing.
+      </div>
     </div>
   )
 }
