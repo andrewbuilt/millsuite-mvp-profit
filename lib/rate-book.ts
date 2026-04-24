@@ -207,3 +207,92 @@ export function confidenceLabel(
   if (jobCount >= 5) return 'reliable'
   return 'emerging'
 }
+
+// ===========================
+// Calibration-target find-or-create helpers
+// ===========================
+// Both BaseCabinetWalkthrough and DoorStyleWalkthrough write into a
+// rate_book_items row scoped under a rate_book_categories row of the
+// right item_type. These helpers converge the find-or-create logic so
+// the two walkthroughs don't drift.
+
+/**
+ * Preferred-name matching: first try the category with the given name;
+ * fall back to the first active category of the right item_type;
+ * otherwise create one with the preferred name. Returns the category id.
+ */
+export async function ensureRateBookCategoryId(
+  orgId: string,
+  preferredName: string,
+  itemType: string,
+): Promise<string> {
+  const { data: cats } = await supabase
+    .from('rate_book_categories')
+    .select('id, name')
+    .eq('org_id', orgId)
+    .eq('item_type', itemType)
+    .eq('active', true)
+  const rows = (cats || []) as Array<{ id: string; name: string }>
+  const named = rows.find(
+    (c) => c.name?.toLowerCase() === preferredName.toLowerCase()
+  )
+  if (named) return named.id
+  if (rows.length > 0) return rows[0].id
+  const { data: created, error } = await supabase
+    .from('rate_book_categories')
+    .insert({
+      org_id: orgId,
+      name: preferredName,
+      item_type: itemType,
+      active: true,
+      display_order: 0,
+    })
+    .select('id')
+    .single()
+  if (error) throw error
+  return (created as { id: string }).id
+}
+
+/**
+ * Find-or-update a rate_book_items row by case-insensitive name match
+ * inside a category. Existing row → apply `patch`. Missing row → insert
+ * with `insertDefaults` merged with `patch`. Returns the item id.
+ */
+export async function upsertRateBookItem(args: {
+  orgId: string
+  categoryId: string
+  name: string
+  patch: Record<string, unknown>
+  insertDefaults: Record<string, unknown>
+}): Promise<string> {
+  const { orgId, categoryId, name, patch, insertDefaults } = args
+  const { data: existing } = await supabase
+    .from('rate_book_items')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('category_id', categoryId)
+    .ilike('name', name)
+    .limit(1)
+  const row = (existing || [])[0] as { id: string } | undefined
+  if (row) {
+    const { error } = await supabase
+      .from('rate_book_items')
+      .update(patch)
+      .eq('id', row.id)
+    if (error) throw error
+    return row.id
+  }
+  const { data: created, error } = await supabase
+    .from('rate_book_items')
+    .insert({
+      org_id: orgId,
+      category_id: categoryId,
+      name,
+      ...insertDefaults,
+      ...patch,
+    })
+    .select('id')
+    .single()
+  if (error) throw error
+  return (created as { id: string }).id
+}

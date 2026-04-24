@@ -15,7 +15,7 @@
 //   onCancel   — optional; shown as a ghost "Back" link on the opener
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { ensureRateBookCategoryId, upsertRateBookItem } from '@/lib/rate-book'
 
 interface Props {
   orgId: string
@@ -120,19 +120,55 @@ function emptyAnswers(): Answers {
   }, {} as Answers)
 }
 
-function toPerLfByDept(answers: Answers): {
+// Two ops groups. Carcass ops write per-LF to the "Base cabinet" row;
+// door ops write per-door to a seeded "Slab" door_style row so the
+// composer picks up slab-door labor without re-asking via the
+// DoorStyleWalkthrough.
+const CARCASS_OP_KEYS: OpKey[] = [
+  'engineering',
+  'cutInterior',
+  'edgebandInterior',
+  'boxAssembly',
+  'fullAssembly',
+]
+const DOOR_OP_KEYS: OpKey[] = ['cutDoors', 'edgebandDoors', 'hingeCups', 'finish']
+
+function toCarcassPerLfByDept(answers: Answers): {
   eng: number
   cnc: number
   assembly: number
   finish: number
 } {
   const byDept: Record<Dept, number> = { Engineering: 0, CNC: 0, Assembly: 0, Finish: 0 }
-  for (const op of OPERATIONS) byDept[op.dept] += answers[op.key] || 0
+  for (const op of OPERATIONS) {
+    if (!CARCASS_OP_KEYS.includes(op.key)) continue
+    byDept[op.dept] += answers[op.key] || 0
+  }
   return {
     eng: byDept.Engineering / 8,
     cnc: byDept.CNC / 8,
     assembly: byDept.Assembly / 8,
     finish: byDept.Finish / 8,
+  }
+}
+
+function toDoorPerDoorByDept(answers: Answers): {
+  eng: number
+  cnc: number
+  assembly: number
+  finish: number
+} {
+  const byDept: Record<Dept, number> = { Engineering: 0, CNC: 0, Assembly: 0, Finish: 0 }
+  for (const op of OPERATIONS) {
+    if (!DOOR_OP_KEYS.includes(op.key)) continue
+    byDept[op.dept] += answers[op.key] || 0
+  }
+  // Walkthrough unit is 4 doors per 8' run — divide by 4 to land at per-door.
+  return {
+    eng: byDept.Engineering / 4,
+    cnc: byDept.CNC / 4,
+    assembly: byDept.Assembly / 4,
+    finish: byDept.Finish / 4,
   }
 }
 
@@ -164,7 +200,11 @@ export default function BaseCabinetWalkthrough({ orgId, onComplete, onCancel }: 
     setError(null)
     setSaving(true)
     try {
-      await saveBaseCabinetCalibration(orgId, toPerLfByDept(answers))
+      await saveBaseCabinetAndDoorStyleCalibration(
+        orgId,
+        toCarcassPerLfByDept(answers),
+        toDoorPerDoorByDept(answers),
+      )
       onComplete()
     } catch (err: any) {
       setError(err?.message || 'Failed to save calibration')
@@ -425,10 +465,40 @@ function SummaryScreen({
   saving: boolean
   error: string | null
 }) {
-  const byDept: Record<Dept, number> = { Engineering: 0, CNC: 0, Assembly: 0, Finish: 0 }
-  for (const op of OPERATIONS) byDept[op.dept] += answers[op.key] || 0
-  const perLf = toPerLfByDept(answers)
-  const total = byDept.Engineering + byDept.CNC + byDept.Assembly + byDept.Finish
+  const carcassByDept: Record<Dept, number> = { Engineering: 0, CNC: 0, Assembly: 0, Finish: 0 }
+  const doorByDept: Record<Dept, number> = { Engineering: 0, CNC: 0, Assembly: 0, Finish: 0 }
+  for (const op of OPERATIONS) {
+    const h = answers[op.key] || 0
+    if (CARCASS_OP_KEYS.includes(op.key)) carcassByDept[op.dept] += h
+    else doorByDept[op.dept] += h
+  }
+  const carcassPerLf = toCarcassPerLfByDept(answers)
+  const doorPerDoor = toDoorPerDoorByDept(answers)
+  const carcassTotal = carcassByDept.Engineering + carcassByDept.CNC + carcassByDept.Assembly + carcassByDept.Finish
+  const doorTotal = doorByDept.Engineering + doorByDept.CNC + doorByDept.Assembly + doorByDept.Finish
+  const total = carcassTotal + doorTotal
+
+  const renderOpRow = (op: Operation) => (
+    <tr key={op.key} className="border-t border-[#F3F4F6]">
+      <td className="px-3 py-2 text-[#111]">{op.heading}</td>
+      <td className="px-3 py-2 text-[#6B7280] text-[12px]">{op.dept}</td>
+      <td className="px-3 py-2 text-right">
+        <input
+          type="number"
+          inputMode="decimal"
+          step="0.25"
+          min="0"
+          value={answers[op.key] == null ? '' : (answers[op.key] as number)}
+          placeholder="0"
+          onChange={(e) =>
+            onEdit(op.key, e.target.value === '' ? null : Number(e.target.value))
+          }
+          disabled={saving}
+          className="w-20 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+        />
+      </td>
+    </tr>
+  )
 
   return (
     <div>
@@ -438,10 +508,13 @@ function SummaryScreen({
       <h1 className="text-[20px] font-semibold text-[#111] tracking-tight mb-3">
         Your 8' run of base cabinets
       </h1>
+      <p className="text-sm text-[#6B7280] leading-relaxed mb-1">
+        Tune any number inline, then save.
+      </p>
       <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
-        Tune any number inline, then save. These fold into four per-LF
-        dept values on your rate book so every composer line prices off
-        them.
+        This creates your <strong className="text-[#111]">Base cabinet</strong> row
+        AND a <strong className="text-[#111]">Slab</strong> door style. You can
+        rename or recalibrate either in the rate book later.
       </p>
 
       <div className="border border-[#E5E7EB] rounded-lg overflow-hidden mb-4">
@@ -454,60 +527,65 @@ function SummaryScreen({
             </tr>
           </thead>
           <tbody>
-            {OPERATIONS.map((op) => (
-              <tr key={op.key} className="border-t border-[#F3F4F6]">
-                <td className="px-3 py-2 text-[#111]">{op.heading}</td>
-                <td className="px-3 py-2 text-[#6B7280] text-[12px]">{op.dept}</td>
-                <td className="px-3 py-2 text-right">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    step="0.25"
-                    min="0"
-                    value={answers[op.key] == null ? '' : (answers[op.key] as number)}
-                    placeholder="0"
-                    onChange={(e) =>
-                      onEdit(op.key, e.target.value === '' ? null : Number(e.target.value))
-                    }
-                    disabled={saving}
-                    className="w-20 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
-                  />
-                </td>
-              </tr>
-            ))}
+            <tr className="bg-[#F9FAFB] border-t border-[#E5E7EB]">
+              <td
+                colSpan={3}
+                className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]"
+              >
+                Base cabinet · per-LF on save
+              </td>
+            </tr>
+            {OPERATIONS.filter((op) => CARCASS_OP_KEYS.includes(op.key)).map(renderOpRow)}
+            <tr className="bg-[#F9FAFB] border-t border-[#E5E7EB]">
+              <td
+                colSpan={3}
+                className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]"
+              >
+                Slab door style · per-door on save (÷ 4)
+              </td>
+            </tr>
+            {OPERATIONS.filter((op) => DOOR_OP_KEYS.includes(op.key)).map(renderOpRow)}
           </tbody>
         </table>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 mb-5">
-        {(['Engineering', 'CNC', 'Assembly', 'Finish'] as Dept[]).map((d) => (
-          <div
-            key={d}
-            className="flex items-center justify-between px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg"
-          >
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280]">
-              {d}
-            </span>
-            <span className="font-mono tabular-nums text-sm text-[#111]">
-              {fmtHr(byDept[d])}
-              <span className="text-[#9CA3AF]"> / 8'</span>
-            </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+        <div className="border border-[#E5E7EB] rounded-lg p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#1E40AF] mb-1.5">
+            Base cabinet (per LF)
           </div>
-        ))}
+          <div className="grid grid-cols-4 gap-1 text-[11.5px] font-mono tabular-nums text-[#111]">
+            <div><span className="text-[#9CA3AF]">Eng</span> {carcassPerLf.eng.toFixed(3)}</div>
+            <div><span className="text-[#9CA3AF]">CNC</span> {carcassPerLf.cnc.toFixed(3)}</div>
+            <div><span className="text-[#9CA3AF]">Asm</span> {carcassPerLf.assembly.toFixed(3)}</div>
+            <div><span className="text-[#9CA3AF]">Fin</span> {carcassPerLf.finish.toFixed(3)}</div>
+          </div>
+          <div className="text-[10.5px] text-[#9CA3AF] mt-2">
+            {fmtHr(carcassTotal)} total for 8' run
+          </div>
+        </div>
+        <div className="border border-[#E5E7EB] rounded-lg p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#1E40AF] mb-1.5">
+            Slab door (per door)
+          </div>
+          <div className="grid grid-cols-4 gap-1 text-[11.5px] font-mono tabular-nums text-[#111]">
+            <div><span className="text-[#9CA3AF]">Eng</span> {doorPerDoor.eng.toFixed(3)}</div>
+            <div><span className="text-[#9CA3AF]">CNC</span> {doorPerDoor.cnc.toFixed(3)}</div>
+            <div><span className="text-[#9CA3AF]">Asm</span> {doorPerDoor.assembly.toFixed(3)}</div>
+            <div><span className="text-[#9CA3AF]">Fin</span> {doorPerDoor.finish.toFixed(3)}</div>
+          </div>
+          <div className="text-[10.5px] text-[#9CA3AF] mt-2">
+            {fmtHr(doorTotal)} total across 4 doors
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center justify-between px-4 py-2.5 bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg mb-5">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#1E40AF]">
-            Per linear foot on save
-          </div>
-          <div className="text-[11.5px] text-[#1E3A8A] font-mono">
-            Eng {perLf.eng.toFixed(3)} · CNC {perLf.cnc.toFixed(3)} ·
-            Assembly {perLf.assembly.toFixed(3)} · Finish {perLf.finish.toFixed(3)}
-          </div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-[#1E40AF]">
+          8' run total
         </div>
         <div className="text-[15px] font-semibold font-mono tabular-nums text-[#111]">
-          {total.toFixed(2)} hr / 8'
+          {total.toFixed(2)} hr
         </div>
       </div>
 
@@ -543,88 +621,87 @@ function SummaryScreen({
 // ── Storage ──
 
 /**
- * Find-or-create the org's "Base cabinet" rate_book_item and write the
- * per-LF dept labor. This is usually the first rate_book_item write for
- * an org, so we ensure the parent cabinet_style category exists first.
+ * Write two rate_book_items rows from one walkthrough:
+ *   1. "Base cabinet" under a cabinet_style category — carcass per-LF.
+ *   2. "Slab" under a door_style category — slab-door per-door labor.
+ *
+ * Walkthrough explicitly calibrates against veneer slab doors (cutDoors
+ * / edgebandDoors / hingeCups / finish ops), so we seed a real door
+ * style instead of bundling the door labor into the Base cabinet row.
+ * Without this split the composer's door dropdown would be empty on
+ * first pick and fire DoorStyleWalkthrough for the same calibration
+ * work, AND the Base cabinet row would double-count door labor once
+ * the operator later runs the door walkthrough.
+ *
+ * Category + item lookups use the shared helpers in lib/rate-book.ts
+ * so this walkthrough and DoorStyleWalkthrough can't drift.
  */
-async function saveBaseCabinetCalibration(
+const DOORS_CATEGORY_NAME = 'Doors'
+const SLAB_DOOR_STYLE_NAME = 'Slab'
+
+async function saveBaseCabinetAndDoorStyleCalibration(
   orgId: string,
-  perLf: { eng: number; cnc: number; assembly: number; finish: number }
+  carcassPerLf: { eng: number; cnc: number; assembly: number; finish: number },
+  doorPerDoor: { eng: number; cnc: number; assembly: number; finish: number },
 ): Promise<void> {
-  // 1. Find-or-create a cabinet_style category for this org. Prefer one
-  //    already named "Cabinets"; otherwise take any cabinet_style category;
-  //    otherwise create one. Org might have none on first run.
-  let categoryId: string | null = null
-  {
-    const { data: cats } = await supabase
-      .from('rate_book_categories')
-      .select('id, name, item_type')
-      .eq('org_id', orgId)
-      .eq('item_type', 'cabinet_style')
-      .eq('active', true)
-    const rows = (cats || []) as Array<{ id: string; name: string; item_type: string }>
-    const named = rows.find((c) => c.name?.toLowerCase() === CABINETS_CATEGORY_NAME.toLowerCase())
-    if (named) categoryId = named.id
-    else if (rows.length > 0) categoryId = rows[0].id
-    else {
-      const { data: created, error } = await supabase
-        .from('rate_book_categories')
-        .insert({
-          org_id: orgId,
-          name: CABINETS_CATEGORY_NAME,
-          item_type: 'cabinet_style',
-          active: true,
-          display_order: 0,
-        })
-        .select('id')
-        .single()
-      if (error) throw error
-      categoryId = (created as { id: string }).id
-    }
-  }
-
-  // 2. Find-or-create the "Base cabinet" item under that category.
-  const { data: existing } = await supabase
-    .from('rate_book_items')
-    .select('id, name')
-    .eq('org_id', orgId)
-    .eq('category_id', categoryId)
-    .ilike('name', BASE_CABINET_ITEM_NAME)
-    .limit(1)
-  const existingRow = (existing || [])[0] as { id: string } | undefined
-
-  const patch = {
-    base_labor_hours_eng: perLf.eng,
-    base_labor_hours_cnc: perLf.cnc,
-    base_labor_hours_assembly: perLf.assembly,
-    base_labor_hours_finish: perLf.finish,
-    base_labor_hours_install: 0,
-    updated_at: new Date().toISOString(),
-  }
-
-  if (existingRow) {
-    const { error } = await supabase
-      .from('rate_book_items')
-      .update(patch)
-      .eq('id', existingRow.id)
-    if (error) throw error
-    return
-  }
-
-  const { error } = await supabase.from('rate_book_items').insert({
-    org_id: orgId,
-    category_id: categoryId,
+  // 1. Base cabinet (cabinet_style). Per-LF by dept.
+  const cabinetsCategoryId = await ensureRateBookCategoryId(
+    orgId,
+    CABINETS_CATEGORY_NAME,
+    'cabinet_style',
+  )
+  await upsertRateBookItem({
+    orgId,
+    categoryId: cabinetsCategoryId,
     name: BASE_CABINET_ITEM_NAME,
-    unit: 'lf',
-    material_mode: 'sheets',
-    sheets_per_unit: 0,
-    sheet_cost: 0,
-    linear_cost: 0,
-    lump_cost: 0,
-    hardware_cost: 0,
-    confidence: 'untested',
-    active: true,
-    ...patch,
+    patch: {
+      base_labor_hours_eng: carcassPerLf.eng,
+      base_labor_hours_cnc: carcassPerLf.cnc,
+      base_labor_hours_assembly: carcassPerLf.assembly,
+      base_labor_hours_finish: carcassPerLf.finish,
+      base_labor_hours_install: 0,
+      updated_at: new Date().toISOString(),
+    },
+    insertDefaults: {
+      unit: 'lf',
+      material_mode: 'sheets',
+      sheets_per_unit: 0,
+      sheet_cost: 0,
+      linear_cost: 0,
+      lump_cost: 0,
+      hardware_cost: 0,
+      confidence: 'untested',
+      active: true,
+    },
   })
-  if (error) throw error
+
+  // 2. Slab door style (door_style). Per-door by dept.
+  const doorsCategoryId = await ensureRateBookCategoryId(
+    orgId,
+    DOORS_CATEGORY_NAME,
+    'door_style',
+  )
+  await upsertRateBookItem({
+    orgId,
+    categoryId: doorsCategoryId,
+    name: SLAB_DOOR_STYLE_NAME,
+    patch: {
+      door_labor_hours_eng: doorPerDoor.eng,
+      door_labor_hours_cnc: doorPerDoor.cnc,
+      door_labor_hours_assembly: doorPerDoor.assembly,
+      door_labor_hours_finish: doorPerDoor.finish,
+      updated_at: new Date().toISOString(),
+    },
+    insertDefaults: {
+      unit: 'each',
+      material_mode: 'none',
+      sheets_per_unit: 0,
+      sheet_cost: 0,
+      linear_cost: 0,
+      lump_cost: 0,
+      hardware_cost: 0,
+      confidence: 'untested',
+      active: true,
+    },
+  })
 }
