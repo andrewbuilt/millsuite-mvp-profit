@@ -3,9 +3,14 @@
 // ============================================================================
 // /projects/[id]/subprojects/new — create a subproject, then jump to the editor
 // ============================================================================
-// Lightweight scaffold: pick a name (and optional activity type), persist,
-// then router.replace to /projects/[id]/subprojects/[subId] where the real
-// work happens. Replaces the inline "Add Subproject" form from Phase 0.
+// Lightweight scaffold: pick a name, persist, then router.replace to
+// /projects/[id]/subprojects/[subId] where the real work happens.
+//
+// Phase 12: the composer tiles (Base / Upper / Full) carry the product
+// discriminator on each line, so subprojects no longer need an activity
+// picker. Old subs with activity_type populated keep displaying it in
+// the project cover + handoff pages; new subs stop writing the column.
+// Column drop is a follow-up migration once nothing reads it.
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react'
@@ -16,22 +21,12 @@ import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 
-const ACTIVITY_TYPES: Array<{ key: string; label: string; hint: string }> = [
-  { key: 'cabinets', label: 'Cabinets', hint: 'uppers, lowers, pantries' },
-  { key: 'millwork', label: 'Millwork', hint: 'built-ins, panels, trim' },
-  { key: 'island', label: 'Island', hint: 'single-piece run' },
-  { key: 'vanity', label: 'Vanity', hint: 'bathroom vanity set' },
-  { key: 'install', label: 'Install', hint: 'time + materials install line' },
-  { key: 'custom', label: 'Custom', hint: 'anything else' },
-]
-
 export default function NewSubprojectPage() {
   const { id: projectId } = useParams() as { id: string }
   const router = useRouter()
   const { org } = useAuth()
 
   const [name, setName] = useState('')
-  const [activity, setActivity] = useState<string>('cabinets')
   const [projectName, setProjectName] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -86,7 +81,6 @@ export default function NewSubprojectPage() {
         org_id: org?.id,
         name: name.trim(),
         sort_order: nextOrder,
-        activity_type: activity,
         consumable_markup_pct: org?.consumable_markup_pct ?? null,
         profit_margin_pct: org?.profit_margin_pct ?? null,
         defaults,
@@ -116,8 +110,8 @@ export default function NewSubprojectPage() {
 
         <h1 className="text-2xl font-semibold tracking-tight text-[#111] mb-1">New subproject</h1>
         <p className="text-sm text-[#6B7280] mb-6">
-          Subprojects are the rooms or pieces of the job. Name it, pick the
-          activity, and we'll drop you into the line editor.
+          Subprojects are the rooms or pieces of the job. Name it and we'll
+          drop you into the line editor — the composer handles the rest.
         </p>
 
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
@@ -132,25 +126,6 @@ export default function NewSubprojectPage() {
               className="mt-1 w-full px-3 py-2.5 text-sm border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
             />
           </label>
-
-          <div className="mt-4">
-            <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Activity</div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {ACTIVITY_TYPES.map((a) => {
-                const on = activity === a.key
-                return (
-                  <button
-                    key={a.key}
-                    onClick={() => setActivity(a.key)}
-                    className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${on ? 'bg-[#EFF6FF] border-[#2563EB] text-[#111]' : 'bg-white border-[#E5E7EB] text-[#6B7280] hover:border-[#9CA3AF]'}`}
-                  >
-                    <div className="font-medium">{a.label}</div>
-                    <div className="text-[11px] text-[#9CA3AF]">{a.hint}</div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
 
           {err && (
             <div className="mt-4 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-xs text-[#B91C1C]">
