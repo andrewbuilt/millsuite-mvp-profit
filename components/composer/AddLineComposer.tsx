@@ -878,7 +878,7 @@ function hasAnyPricingSlot(s: ComposerDraft['slots']): boolean {
 
 function BreakdownPlaceholder() {
   return (
-    <div className="bg-[#F9FAFB] border border-dashed border-[#E5E7EB] rounded-xl p-6 lg:sticky lg:top-4 text-center">
+    <div className="bg-[#F9FAFB] border border-dashed border-[#E5E7EB] rounded-xl p-6 lg:sticky lg:top-4 text-center mt-1.5">
       <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] mb-2">
         Line breakdown
       </div>
@@ -1145,7 +1145,7 @@ function BreakdownPanel({
   }
 
   return (
-    <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 lg:sticky lg:top-4">
+    <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 lg:sticky lg:top-4 mt-1.5">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-3">
         Line breakdown · {qty} LF · {label}
       </div>
