@@ -114,6 +114,10 @@ export default function FinishWalkthrough({
   const [savingCard, setSavingCard] = useState<string | null>(null)
   // Uncommitted draft values per (combo × product). Keyed "combo:product".
   const [drafts, setDrafts] = useState<Record<string, CardValues>>({})
+  // "Duplicate for other application" affordance state.
+  const otherApp: 'interior' | 'exterior' = application === 'interior' ? 'exterior' : 'interior'
+  const [duplicating, setDuplicating] = useState(false)
+  const [duplicated, setDuplicated] = useState(false)
 
   // On open: ensure the 4 combo finish items exist + load breakdown rows.
   useEffect(() => {
@@ -228,6 +232,27 @@ export default function FinishWalkthrough({
     }
   }
 
+  /** Create blank twin combo rows under the OTHER application so the
+   *  operator can calibrate them later in context. Doesn't touch the
+   *  current walkthrough's data — just ensures the 4 rate_book_items
+   *  rows exist under the other application.
+   */
+  async function duplicateForOtherApplication() {
+    setDuplicating(true)
+    setError(null)
+    try {
+      const categoryId = await ensureFinishCategory(orgId)
+      for (const combo of COMBOS) {
+        await ensureFinishItem(orgId, categoryId, combo.name, otherApp)
+      }
+      setDuplicated(true)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to duplicate combos')
+    } finally {
+      setDuplicating(false)
+    }
+  }
+
   const totalCalibrated = useMemo(() => {
     if (!data) return 0
     let n = 0
@@ -241,19 +266,22 @@ export default function FinishWalkthrough({
 
   // ── Render ──
 
+  const appLabel = application === 'interior' ? 'Interior' : 'Exterior'
+  const otherAppLabel = otherApp === 'interior' ? 'Interior' : 'Exterior'
+
   return (
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[110] bg-[#0F172A]/85 backdrop-blur-sm flex flex-col overflow-y-auto"
+      className="fixed inset-0 z-[110] bg-black/40 backdrop-blur-[2px] flex flex-col overflow-y-auto"
     >
       <div className="flex-1 flex items-center justify-center p-4 md:p-8">
-        <div className="max-w-[860px] w-full bg-[#0D0D0D] border border-[#1a1a1a] rounded-2xl text-[#e5e5e5] overflow-hidden">
+        <div className="max-w-[860px] w-full bg-white border border-[#E5E7EB] rounded-2xl text-[#111] shadow-xl overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1a1a1a]">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
             <div>
-              <div className="text-[13px] font-semibold text-white">
-                Finish calibration
+              <div className="text-[13px] font-semibold text-[#111]">
+                {appLabel} finish calibration
               </div>
               <div className="text-[11px] text-[#6B7280] mt-0.5">
                 Fill out the combos you sell. Partial calibration is fine —
@@ -262,7 +290,7 @@ export default function FinishWalkthrough({
             </div>
             <button
               onClick={onCancel}
-              className="p-1 text-[#6B7280] hover:text-white rounded"
+              className="p-1 text-[#9CA3AF] hover:text-[#111] rounded"
               aria-label="Close"
             >
               <X className="w-4 h-4" />
@@ -276,7 +304,7 @@ export default function FinishWalkthrough({
                 Loading finishes…
               </div>
             ) : error ? (
-              <div className="px-3.5 py-2.5 bg-[#1e1018] border border-[#3b1c24] rounded-lg text-sm text-[#fecaca]">
+              <div className="px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
                 {error}
               </div>
             ) : !data ? null : (
@@ -299,17 +327,33 @@ export default function FinishWalkthrough({
             )}
 
             {!loading && !error && data && (
-              <div className="mt-5 pt-4 border-t border-[#1a1a1a] flex items-center justify-between">
+              <div className="mt-5 pt-4 border-t border-[#E5E7EB] flex flex-wrap items-center justify-between gap-3">
                 <div className="text-[12px] text-[#6B7280]">
                   {totalCalibrated} of {COMBOS.length * PRODUCT_CATEGORIES.length} cards calibrated.
                   The rest stay dormant until a line needs them.
                 </div>
-                <button
-                  onClick={onComplete}
-                  className="px-4 py-2 bg-[#3B82F6] text-white text-sm font-semibold rounded-md hover:bg-[#2563EB]"
-                >
-                  Done
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {duplicated ? (
+                    <span className="text-[12px] text-[#059669] font-medium">
+                      ✓ Blank {otherAppLabel.toLowerCase()} combos created
+                    </span>
+                  ) : (
+                    <button
+                      onClick={duplicateForOtherApplication}
+                      disabled={duplicating}
+                      className="px-3 py-2 text-sm text-[#2563EB] hover:bg-[#EFF6FF] rounded-md border border-[#E5E7EB] hover:border-[#2563EB] transition-colors disabled:opacity-50"
+                      title={`Creates four blank ${otherAppLabel.toLowerCase()} combo rows so they show up in the composer's ${otherAppLabel.toLowerCase()} dropdown. You calibrate them later in context.`}
+                    >
+                      {duplicating ? 'Duplicating…' : `Duplicate as ${otherAppLabel}`}
+                    </button>
+                  )}
+                  <button
+                    onClick={onComplete}
+                    className="px-4 py-2 bg-[#2563EB] text-white text-sm font-semibold rounded-md hover:bg-[#1D4ED8] transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -334,26 +378,26 @@ function ComboRow(p: {
 }) {
   const calibratedCount = PRODUCT_CATEGORIES.filter((pc) => p.isCalibrated(pc.key)).length
   return (
-    <div className="bg-[#111] border border-[#1a1a1a] rounded-xl overflow-hidden">
+    <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
       <button
         type="button"
         onClick={p.onToggle}
-        className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-[#141414] transition-colors"
+        className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-[#F9FAFB] transition-colors"
       >
         <div className="flex items-center gap-2 min-w-0">
           {p.expanded ? (
-            <ChevronDown className="w-4 h-4 text-[#9CA3AF] shrink-0" />
+            <ChevronDown className="w-4 h-4 text-[#6B7280] shrink-0" />
           ) : (
-            <ChevronRight className="w-4 h-4 text-[#9CA3AF] shrink-0" />
+            <ChevronRight className="w-4 h-4 text-[#6B7280] shrink-0" />
           )}
-          <div className="text-[14px] font-semibold text-white truncate">{p.combo.name}</div>
+          <div className="text-[14px] font-semibold text-[#111] truncate">{p.combo.name}</div>
         </div>
         <div className="text-[11px] text-[#6B7280] shrink-0">
           {calibratedCount} of {PRODUCT_CATEGORIES.length} calibrated
         </div>
       </button>
       {p.expanded && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 border-t border-[#1a1a1a] bg-[#0d0d0d]">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 border-t border-[#E5E7EB] bg-[#F9FAFB]">
           {PRODUCT_CATEGORIES.map((pc) => (
             <CabHeightCard
               key={pc.key}
@@ -388,16 +432,18 @@ function CabHeightCard(p: {
   return (
     <div
       className={
-        'bg-[#0d0d0d] border rounded-lg p-3 ' +
-        (p.calibrated ? 'border-[#1f1f1f]' : 'border-[#3b82f6]/40')
+        'bg-white border rounded-lg p-3 ' +
+        (p.calibrated ? 'border-[#E5E7EB]' : 'border-[#2563EB]/40')
       }
     >
       <div className="flex items-center justify-between mb-2">
-        <div className="text-[13px] font-semibold text-white">{p.productLabel}</div>
+        <div className="text-[13px] font-semibold text-[#111]">{p.productLabel}</div>
         <span
           className={
-            'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold ' +
-            (p.calibrated ? 'bg-[#0d2015] text-[#4ade80]' : 'bg-[#1f1511] text-[#fcd34d]')
+            'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold border ' +
+            (p.calibrated
+              ? 'bg-[#DCFCE7] text-[#059669] border-[#BBF7D0]'
+              : 'bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]')
           }
         >
           {p.calibrated ? 'Calibrated' : 'Empty'}
@@ -425,7 +471,7 @@ function CabHeightCard(p: {
       <button
         onClick={p.onSave}
         disabled={p.saving}
-        className="mt-3 w-full px-3 py-1.5 bg-[#3B82F6] text-white text-[12px] font-semibold rounded-md hover:bg-[#2563EB] disabled:opacity-50"
+        className="mt-3 w-full px-3 py-1.5 bg-[#2563EB] text-white text-[12px] font-semibold rounded-md hover:bg-[#1D4ED8] disabled:opacity-50 transition-colors"
       >
         {p.saving ? 'Saving…' : p.calibrated ? 'Update' : 'Save'}
       </button>
@@ -457,7 +503,7 @@ function NumberField({
           const v = parseFloat(e.target.value)
           onChange(Number.isFinite(v) && v >= 0 ? v : 0)
         }}
-        className="w-20 text-right font-mono text-[12px] px-2 py-1 bg-[#111] border border-[#1f1f1f] rounded-md text-[#eee] outline-none focus:border-[#3b82f6]"
+        className="w-20 text-right font-mono text-[12px] px-2 py-1 bg-white border border-[#E5E7EB] rounded-md text-[#111] outline-none focus:border-[#2563EB]"
       />
     </div>
   )
