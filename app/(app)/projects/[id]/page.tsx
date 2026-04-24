@@ -75,7 +75,7 @@ import {
 } from '@/lib/milestones'
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
-import { computeInstallCost } from '@/lib/install-prefill'
+import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
 
 // ── Types ──
 
@@ -91,6 +91,9 @@ interface Project {
   notes: string | null
   created_at: string
   updated_at: string
+  // Phase 12 dogfood-2 Issue 12 — pinned target margin override
+  // (NULL = inherit org default).
+  target_margin_pct: number | null
 }
 
 interface Subproject {
@@ -131,6 +134,10 @@ interface SubCardData {
    *  off the install_* columns + the shop install rate. Added on top of
    *  rollup.total for the displayed subproject + project totals. */
   installPrefillCost: number
+  /** Hours implied by the install prefill (guys × days × 8). Folds into
+   *  the project rollup's hoursByDept.install + totalHours so the
+   *  breakdown's labor row reflects on-site install time. */
+  installPrefillHours: number
 }
 
 // Aggregate project-level rollup.
@@ -210,7 +217,6 @@ export default function ProjectCoverPage() {
   const { org } = useAuth()
 
   const shopRate = org?.shop_rate || 75
-  const marginTarget = org?.profit_margin_pct ?? 32
   const pricingCtx: PricingContext = useMemo(
     () => ({
       shopRate,
@@ -221,6 +227,12 @@ export default function ProjectCoverPage() {
   )
 
   const [project, setProject] = useState<Project | null>(null)
+  // Phase 12 dogfood-2 Issue 12: per-project target margin overrides
+  // org default. NULL = inherit. Applied uniformly to every cost bucket
+  // at the project rollup; subproject rollups stay at cost so the
+  // editor UI reads raw numbers.
+  const marginTarget =
+    project?.target_margin_pct ?? org?.profit_margin_pct ?? 35
   const [cards, setCards] = useState<SubCardData[]>([])
   // Phase 8: actuals come from time_entries and are surfaced next to every
   // estimated-hours number on this page.
@@ -294,15 +306,21 @@ export default function ProjectCoverPage() {
           (s, l) => s + ((l.finish_specs || []).length || 0),
           0
         )
-        const installPrefillCost = computeInstallCost(
-          {
-            guys: sub.install_guys,
-            days: sub.install_days,
-            complexityPct: sub.install_complexity_pct,
-          },
-          shopRate
-        )
-        return { sub, rollup, lineCount: subLines.length, finishSpecCount, installPrefillCost }
+        const installPrefill = {
+          guys: sub.install_guys,
+          days: sub.install_days,
+          complexityPct: sub.install_complexity_pct,
+        }
+        const installPrefillCost = computeInstallCost(installPrefill, shopRate)
+        const installPrefillHours = computeInstallHours(installPrefill)
+        return {
+          sub,
+          rollup,
+          lineCount: subLines.length,
+          finishSpecCount,
+          installPrefillCost,
+          installPrefillHours,
+        }
       })
 
       // Phase 8 actuals: load time_entries totals per subproject + build a
@@ -385,6 +403,18 @@ export default function ProjectCoverPage() {
   // ── Project-level rollup (summed across subs) ──
 
   const proj: ProjectRollup = useMemo(() => {
+    // Sum every subproject's COST (rollup.subtotal, not rollup.total —
+    // subproject totals are still pre-markup raw cost) plus install
+    // prefill cost. Apply the project's target-margin markup uniformly
+    // across all cost buckets at the very end.
+    const raw = {
+      laborCost: 0,
+      materialCost: 0,
+      hardwareCost: 0,
+      installCost: 0,
+      consumablesCost: 0,
+      optionsCost: 0,
+    }
     const acc: ProjectRollup = {
       total: 0,
       subtotal: 0,
@@ -403,21 +433,29 @@ export default function ProjectCoverPage() {
       actualByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
       actualUnmappedMinutes: 0,
     }
-    for (const { sub, rollup, finishSpecCount, installPrefillCost } of cards) {
-      acc.total += rollup.total + installPrefillCost
-      acc.subtotal += rollup.subtotal + installPrefillCost
+    for (const {
+      sub,
+      rollup,
+      finishSpecCount,
+      installPrefillCost,
+      installPrefillHours,
+    } of cards) {
+      // Cost buckets — install prefill cost lands in installCost.
+      raw.laborCost += rollup.laborCost
+      raw.materialCost += rollup.materialCost
+      raw.hardwareCost += rollup.hardwareCost
+      raw.installCost += rollup.installCost + installPrefillCost
+      raw.consumablesCost += rollup.consumablesCost
+      raw.optionsCost += rollup.optionsCost
+
+      // Hours — install prefill hours fold into hoursByDept.install + totalHours.
       acc.hoursByDept.eng += rollup.hoursByDept.eng
       acc.hoursByDept.cnc += rollup.hoursByDept.cnc
       acc.hoursByDept.assembly += rollup.hoursByDept.assembly
       acc.hoursByDept.finish += rollup.hoursByDept.finish
-      acc.hoursByDept.install += rollup.hoursByDept.install
-      acc.totalHours += rollup.totalHours
-      acc.laborCost += rollup.laborCost
-      acc.materialCost += rollup.materialCost
-      acc.hardwareCost += rollup.hardwareCost
-      acc.installCost += rollup.installCost + installPrefillCost
-      acc.consumablesCost += rollup.consumablesCost
-      acc.optionsCost += rollup.optionsCost
+      acc.hoursByDept.install += rollup.hoursByDept.install + installPrefillHours
+      acc.totalHours += rollup.totalHours + installPrefillHours
+
       acc.finishSpecCount += finishSpecCount
       if (isInstallSub(sub)) acc.installSubprojectTotal += rollup.total + installPrefillCost
 
@@ -432,10 +470,37 @@ export default function ProjectCoverPage() {
         }
       }
     }
+    // Apply project markup uniformly. subtotal = pre-markup cost; total
+    // = marked-up price. marginPct comes out equal to marginTarget when
+    // the buckets are non-empty, by construction.
+    const rawCostSum =
+      raw.laborCost +
+      raw.materialCost +
+      raw.hardwareCost +
+      raw.installCost +
+      raw.consumablesCost +
+      raw.optionsCost
+    const marginFraction = Math.min(Math.max(marginTarget / 100, 0), 0.99)
+    const markup = marginFraction > 0 ? 1 / (1 - marginFraction) : 1
+
+    acc.subtotal = rawCostSum
+    acc.laborCost = raw.laborCost * markup
+    acc.materialCost = raw.materialCost * markup
+    acc.hardwareCost = raw.hardwareCost * markup
+    acc.installCost = raw.installCost * markup
+    acc.consumablesCost = raw.consumablesCost * markup
+    acc.optionsCost = raw.optionsCost * markup
+    acc.total =
+      acc.laborCost +
+      acc.materialCost +
+      acc.hardwareCost +
+      acc.installCost +
+      acc.consumablesCost +
+      acc.optionsCost
     acc.marginPct =
       acc.total > 0 ? ((acc.total - acc.subtotal) / acc.total) * 100 : 0
     return acc
-  }, [cards, subActuals, deptKeyById])
+  }, [cards, subActuals, deptKeyById, marginTarget])
 
   // ── Actions ──
 
@@ -724,25 +789,16 @@ export default function ProjectCoverPage() {
                 <div className="text-[32px] font-semibold text-[#111] font-mono tabular-nums tracking-tight leading-none">
                   {money(proj.total)}
                 </div>
-                <div className="flex items-center gap-2.5 mt-3">
-                  <div
-                    className={`text-lg font-bold font-mono tabular-nums ${marginColor(
-                      proj.marginPct,
-                      marginTarget
-                    )}`}
-                  >
-                    {proj.marginPct.toFixed(0)}%
-                  </div>
-                  <div className="text-[11.5px] text-[#6B7280] leading-tight">
-                    margin · target {marginTarget}%
-                    <br />
-                    {proj.marginPct >= marginTarget
-                      ? "You're above target."
-                      : `You're ${(marginTarget - proj.marginPct).toFixed(
-                          0
-                        )}% below target.`}
-                  </div>
-                </div>
+                <TargetMarginEditor
+                  projectId={projectId}
+                  pinnedTarget={project.target_margin_pct}
+                  orgDefault={org?.profit_margin_pct ?? null}
+                  onPinnedChange={(next) =>
+                    setProject((prev) =>
+                      prev ? { ...prev, target_margin_pct: next } : prev,
+                    )
+                  }
+                />
               </div>
 
               <div className="pt-4">
@@ -855,10 +911,7 @@ export default function ProjectCoverPage() {
                 />
                 <FinRow label="Specialty hardware" value={money(proj.hardwareCost)} />
                 <FinRow label="Options" value={money(proj.optionsCost)} />
-                <FinRow
-                  label="Install (subproject)"
-                  value={money(proj.installSubprojectTotal)}
-                />
+                <FinRow label="Install" value={money(proj.installCost)} />
               </div>
 
               {/* Milestones — per-project builder */}
@@ -1022,6 +1075,136 @@ function FinRow({
     <div className="grid grid-cols-[1fr_auto] gap-2.5 items-center py-2 text-sm border-b border-[#F3F4F6]">
       <span className="text-[#374151]">{label}</span>
       <span className="font-mono text-[#111] tabular-nums">{value}</span>
+    </div>
+  )
+}
+
+// ── Target margin editor ──
+// Editable input in the project total card. Writes
+// projects.target_margin_pct. NULL = inherit org default; non-NULL = pin.
+// Reset button clears the pin so it falls back to the org default again.
+function TargetMarginEditor({
+  projectId,
+  pinnedTarget,
+  orgDefault,
+  onPinnedChange,
+}: {
+  projectId: string
+  pinnedTarget: number | null
+  orgDefault: number | null
+  onPinnedChange: (next: number | null) => void
+}) {
+  const effective = pinnedTarget ?? orgDefault ?? 35
+  const [draft, setDraft] = useState<string>(
+    pinnedTarget == null ? '' : String(pinnedTarget),
+  )
+  const [saving, setSaving] = useState(false)
+
+  // Keep the input in sync if the pinned value changes from elsewhere.
+  useEffect(() => {
+    setDraft(pinnedTarget == null ? '' : String(pinnedTarget))
+  }, [pinnedTarget])
+
+  async function commit() {
+    const trimmed = draft.trim()
+    let next: number | null
+    if (trimmed === '') {
+      next = null
+    } else {
+      const n = Number(trimmed)
+      if (!Number.isFinite(n) || n < 0 || n >= 100) return
+      next = Math.round(n * 100) / 100
+    }
+    if (next === pinnedTarget) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('projects')
+      .update({ target_margin_pct: next })
+      .eq('id', projectId)
+    setSaving(false)
+    if (error) {
+      console.error('target_margin_pct update', error)
+      return
+    }
+    onPinnedChange(next)
+  }
+
+  async function reset() {
+    if (pinnedTarget == null) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('projects')
+      .update({ target_margin_pct: null })
+      .eq('id', projectId)
+    setSaving(false)
+    if (error) {
+      console.error('target_margin_pct reset', error)
+      return
+    }
+    setDraft('')
+    onPinnedChange(null)
+  }
+
+  const inheritedHint =
+    pinnedTarget == null
+      ? `Inherited from org default (${orgDefault ?? 35}%)`
+      : null
+
+  return (
+    <div className="mt-3 space-y-1.5">
+      <div className="flex items-center gap-2 text-[12px] text-[#6B7280]">
+        <span className="font-semibold uppercase tracking-wider text-[10px] text-[#9CA3AF]">
+          Target margin
+        </span>
+        <div className="flex items-center gap-1 ml-auto">
+          <input
+            type="number"
+            min="0"
+            max="99"
+            step="0.5"
+            inputMode="decimal"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            }}
+            placeholder={String(orgDefault ?? 35)}
+            disabled={saving}
+            className="w-16 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+            aria-label="Target margin percent"
+          />
+          <span className="text-[12px] text-[#6B7280]">%</span>
+        </div>
+      </div>
+      {inheritedHint && (
+        <div className="text-[10.5px] text-[#9CA3AF]">{inheritedHint}</div>
+      )}
+      {pinnedTarget != null && (
+        <button
+          type="button"
+          onClick={reset}
+          disabled={saving}
+          className="text-[10.5px] text-[#2563EB] hover:text-[#1D4ED8] disabled:opacity-50"
+        >
+          Reset to org default ({orgDefault ?? 35}%)
+        </button>
+      )}
+      <div className="flex items-center gap-2 pt-1">
+        <span
+          className={`text-[12px] font-mono tabular-nums ${
+            Math.round(effective) <= 0
+              ? 'text-[#9CA3AF]'
+              : 'text-[#111] font-semibold'
+          }`}
+        >
+          {effective.toFixed(0)}%
+        </span>
+        <span className="text-[10.5px] text-[#9CA3AF] leading-tight">
+          applied to every cost bucket. Subproject views show cost; this
+          number is the markup at the project level.
+        </span>
+      </div>
     </div>
   )
 }

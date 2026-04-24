@@ -119,6 +119,11 @@ export interface Project {
   drive_folder_id: string | null
   drive_folder_url: string | null
 
+  /** Project-level markup target. NULL = inherit orgs.profit_margin_pct.
+   *  Applied uniformly to every cost bucket at the project rollup
+   *  (Phase 12 dogfood-2 Issue 12). Subproject rollups stay at cost. */
+  target_margin_pct: number | null
+
   // Joined
   client?: Client | null
   contact?: Contact | null
