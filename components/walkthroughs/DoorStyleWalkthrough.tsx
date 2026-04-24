@@ -215,7 +215,7 @@ export default function DoorStyleWalkthrough({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[110] bg-[#0F172A]/85 backdrop-blur-sm flex flex-col overflow-y-auto"
+      className="fixed inset-0 z-[110] bg-black/40 backdrop-blur-[2px] flex flex-col overflow-y-auto"
     >
       <div className="flex-1 flex items-center justify-center p-4 md:p-8">
         {mode === 'modal' ? (
@@ -278,15 +278,15 @@ function FullModal(p: {
   const isLast = showNameAsFirstStep ? false : displayStepIdx === STEPS.length - 1
 
   return (
-    <div className="max-w-[620px] w-full bg-[#0D0D0D] border border-[#1a1a1a] rounded-2xl text-[#e5e5e5] overflow-hidden">
+    <div className="max-w-[620px] w-full bg-white border border-[#E5E7EB] rounded-2xl text-[#111] shadow-xl overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1a1a1a]">
-        <div className="text-[13px] font-semibold text-white">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
+        <div className="text-[13px] font-semibold text-[#111]">
           {p.isNewStyle ? 'New door style' : p.name || 'Door style'} · calibration
         </div>
         <button
           onClick={p.onCancel}
-          className="p-1 text-[#6B7280] hover:text-white rounded"
+          className="p-1 text-[#9CA3AF] hover:text-[#111] rounded"
           aria-label="Close"
         >
           <X className="w-4 h-4" />
@@ -300,10 +300,10 @@ function FullModal(p: {
             i < currentPos ? 'done' : i === currentPos ? 'current' : 'future'
           const cls =
             state === 'current'
-              ? 'bg-[#3B82F6]'
+              ? 'bg-[#2563EB]'
               : state === 'done'
-              ? 'bg-[#1D4ED8]'
-              : 'bg-[#1f1f1f]'
+              ? 'bg-[#93C5FD]'
+              : 'bg-[#E5E7EB]'
           return <div key={i} className={`h-1 flex-1 rounded-full ${cls}`} />
         })}
       </div>
@@ -311,13 +311,13 @@ function FullModal(p: {
       <div className="p-5">
         {showNameAsFirstStep ? (
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6B7280] mb-1">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#2563EB] mb-1">
               Step 1 of {totalSteps} · Name this door style
             </div>
-            <h2 className="text-[20px] font-semibold text-white mb-2">
+            <h2 className="text-[20px] font-semibold text-[#111] mb-2">
               What do you call this door style?
             </h2>
-            <p className="text-sm text-[#9CA3AF] leading-relaxed mb-5">
+            <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
               The name appears in the composer dropdown. "Shaker," "Slab,"
               "Reveal-edge slab," anything that reads like what you build.
             </p>
@@ -326,7 +326,7 @@ function FullModal(p: {
               value={p.name}
               onChange={(e) => p.onName(e.target.value)}
               placeholder="e.g. Shaker"
-              className="w-full bg-[#141414] border border-[#1f1f1f] rounded-md px-3 py-2.5 text-sm text-[#eee] outline-none focus:border-[#3b82f6]"
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2.5 text-sm text-[#111] outline-none focus:border-[#2563EB]"
               autoFocus
             />
           </div>
@@ -342,7 +342,7 @@ function FullModal(p: {
         )}
 
         {p.error && (
-          <div className="mt-4 px-3.5 py-2.5 bg-[#1e1018] border border-[#3b1c24] rounded-lg text-sm text-[#fecaca]">
+          <div className="mt-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
             {p.error}
           </div>
         )}
@@ -353,7 +353,7 @@ function FullModal(p: {
               <button
                 onClick={p.onBack}
                 disabled={p.saving}
-                className="text-sm text-[#6B7280] hover:text-white disabled:opacity-50"
+                className="text-sm text-[#6B7280] hover:text-[#111] disabled:opacity-50"
               >
                 ← Back
               </button>
@@ -363,7 +363,7 @@ function FullModal(p: {
             <button
               onClick={p.onCancel}
               disabled={p.saving}
-              className="px-3 py-2 text-sm text-[#6B7280] hover:text-white disabled:opacity-50"
+              className="px-3 py-2 text-sm text-[#6B7280] hover:text-[#111] disabled:opacity-50"
             >
               Cancel
             </button>
@@ -371,7 +371,7 @@ function FullModal(p: {
               <button
                 onClick={p.onSave}
                 disabled={p.saving}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#3B82F6] text-white text-sm font-semibold rounded-lg hover:bg-[#2563EB] disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 transition-colors"
               >
                 {p.saving ? 'Saving…' : 'Save to rate book'}
               </button>
@@ -379,7 +379,7 @@ function FullModal(p: {
               <button
                 onClick={p.onNext}
                 disabled={p.saving}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#3B82F6] text-white text-sm font-semibold rounded-lg hover:bg-[#2563EB] disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 transition-colors"
               >
                 Next →
               </button>
@@ -408,18 +408,18 @@ function StepContent({
 }) {
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6B7280] mb-1">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#2563EB] mb-1">
         Step {stepNum} of {totalSteps} · {step.bucketLabel}
       </div>
-      <h2 className="text-[20px] font-semibold text-white mb-2">
+      <h2 className="text-[20px] font-semibold text-[#111] mb-2">
         {step.heading} · hours for 4 doors (24" × 30")
       </h2>
-      <p className="text-sm text-[#9CA3AF] leading-relaxed mb-5">{step.prompt}</p>
+      <p className="text-sm text-[#6B7280] leading-relaxed mb-5">{step.prompt}</p>
 
       <div className="flex items-center gap-2">
         <button
           onClick={() => onStep(-0.25)}
-          className="w-9 h-9 rounded-md border border-[#1f1f1f] bg-[#111] text-[#9CA3AF] hover:text-white text-base"
+          className="w-9 h-9 rounded-md border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] text-base"
           aria-label="Decrease"
         >
           −
@@ -431,17 +431,17 @@ function StepContent({
           value={value === 0 ? '' : value}
           placeholder="0"
           onChange={(e) => onChange(e.target.value)}
-          className="w-24 text-center font-mono text-base px-3 py-2 bg-[#141414] border border-[#1f1f1f] rounded-md text-[#eee] outline-none focus:border-[#3b82f6]"
+          className="w-24 text-center font-mono text-base px-3 py-2 bg-white border border-[#E5E7EB] rounded-md text-[#111] outline-none focus:border-[#2563EB]"
           autoFocus
         />
         <button
           onClick={() => onStep(0.25)}
-          className="w-9 h-9 rounded-md border border-[#1f1f1f] bg-[#111] text-[#9CA3AF] hover:text-white text-base"
+          className="w-9 h-9 rounded-md border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] text-base"
           aria-label="Increase"
         >
           +
         </button>
-        <span className="text-sm text-[#6B7280] ml-2">hours · 0 is fine</span>
+        <span className="text-sm text-[#9CA3AF] ml-2">hours · 0 is fine</span>
       </div>
     </div>
   )
@@ -461,14 +461,14 @@ function MiniCard(p: {
   onSave: () => void
 }) {
   return (
-    <div className="max-w-[620px] w-full bg-[#0D0D0D] border border-[#1a1a1a] rounded-2xl text-[#e5e5e5] overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1a1a1a]">
-        <div className="text-[13px] font-semibold text-white">
+    <div className="max-w-[620px] w-full bg-white border border-[#E5E7EB] rounded-2xl text-[#111] shadow-xl overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
+        <div className="text-[13px] font-semibold text-[#111]">
           {p.name || 'Door style'} · fill in the gaps
         </div>
         <button
           onClick={p.onCancel}
-          className="p-1 text-[#6B7280] hover:text-white rounded"
+          className="p-1 text-[#9CA3AF] hover:text-[#111] rounded"
           aria-label="Close"
         >
           <X className="w-4 h-4" />
@@ -476,7 +476,7 @@ function MiniCard(p: {
       </div>
 
       <div className="p-5">
-        <p className="text-sm text-[#9CA3AF] leading-relaxed mb-5">
+        <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
           Some departments already have hours from a previous calibration.
           Fill in the missing ones — hours for <b>4 doors at 24" × 30"</b>.
           Machining folds into Assembly on save.
@@ -491,22 +491,24 @@ function MiniCard(p: {
               <div
                 key={step.key}
                 className={
-                  'p-3 bg-[#141414] border rounded-lg ' +
-                  (isFilled ? 'border-[#1f1f1f] opacity-60' : 'border-[#3b82f6]/40')
+                  'p-3 border rounded-lg ' +
+                  (isFilled
+                    ? 'bg-[#F9FAFB] border-[#E5E7EB] opacity-70'
+                    : 'bg-white border-[#2563EB]/40')
                 }
               >
                 <div className="flex items-center justify-between gap-4 mb-1">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-white">{step.heading}</div>
+                    <div className="text-sm font-medium text-[#111]">{step.heading}</div>
                     <div className="text-[10.5px] text-[#6B7280] uppercase tracking-wider">
                       {step.bucketLabel}
-                      {isFilled && <span className="ml-1 text-[#4ade80]">· already calibrated</span>}
+                      {isFilled && <span className="ml-1 text-[#059669]">· already calibrated</span>}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => p.onStep(step.key, -0.25)}
-                      className="w-7 h-7 rounded-md border border-[#1f1f1f] bg-[#0d0d0d] text-[#9CA3AF] hover:text-white text-sm"
+                      className="w-7 h-7 rounded-md border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] text-sm"
                     >
                       −
                     </button>
@@ -517,15 +519,15 @@ function MiniCard(p: {
                       value={p.hours[step.key] === 0 ? '' : p.hours[step.key]}
                       placeholder="0"
                       onChange={(e) => p.onHour(step.key, e.target.value)}
-                      className="w-20 text-center font-mono text-sm px-2 py-1 bg-[#0d0d0d] border border-[#1f1f1f] rounded-md text-[#eee] outline-none focus:border-[#3b82f6]"
+                      className="w-20 text-center font-mono text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md text-[#111] outline-none focus:border-[#2563EB]"
                     />
                     <button
                       onClick={() => p.onStep(step.key, 0.25)}
-                      className="w-7 h-7 rounded-md border border-[#1f1f1f] bg-[#0d0d0d] text-[#9CA3AF] hover:text-white text-sm"
+                      className="w-7 h-7 rounded-md border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] text-sm"
                     >
                       +
                     </button>
-                    <span className="text-[11px] text-[#6B7280] ml-1">hr / 4</span>
+                    <span className="text-[11px] text-[#9CA3AF] ml-1">hr / 4</span>
                   </div>
                 </div>
                 <p className="text-[11.5px] text-[#6B7280] leading-snug">{step.prompt}</p>
@@ -535,7 +537,7 @@ function MiniCard(p: {
         </div>
 
         {p.error && (
-          <div className="mt-4 px-3.5 py-2.5 bg-[#1e1018] border border-[#3b1c24] rounded-lg text-sm text-[#fecaca]">
+          <div className="mt-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
             {p.error}
           </div>
         )}
@@ -544,14 +546,14 @@ function MiniCard(p: {
           <button
             onClick={p.onCancel}
             disabled={p.saving}
-            className="px-3 py-2 text-sm text-[#6B7280] hover:text-white disabled:opacity-50"
+            className="px-3 py-2 text-sm text-[#6B7280] hover:text-[#111] disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={p.onSave}
             disabled={p.saving}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#3B82F6] text-white text-sm font-semibold rounded-lg hover:bg-[#2563EB] disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 transition-colors"
           >
             {p.saving ? 'Saving…' : 'Save'}
           </button>
