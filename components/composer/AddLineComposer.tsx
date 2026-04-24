@@ -47,9 +47,12 @@ import {
   computeBreakdown,
   checkSaveGate,
   emptySlots,
+  prefinishedSentinel,
+  PREFINISHED_FINISH_ID,
   type ComposerBreakdown,
   type ComposerDefaults,
   type ComposerDraft,
+  type ComposerFinish,
   type ComposerRateBook,
 } from '@/lib/composer'
 import { loadComposerRateBook } from '@/lib/composer-loader'
@@ -79,6 +82,15 @@ interface Props {
   orgConsumablePct: number | null
   onLineSaved: () => void
   onCancel: () => void
+}
+
+/** Inject the client-side Prefinished sentinel at the top of the finish
+ *  list so the Interior dropdown always has it as a zero-cost option.
+ *  Sentinel is not a rate-book row; it lives only in client state. */
+function withPrefinishedSentinel(rb: ComposerRateBook): ComposerRateBook {
+  const already = rb.finishes.some((f) => f.id === PREFINISHED_FINISH_ID)
+  if (already) return rb
+  return { ...rb, finishes: [prefinishedSentinel(), ...rb.finishes] }
 }
 
 type View = 'picker' | 'composer'
@@ -118,7 +130,7 @@ export default function AddLineComposer({
           loadSubprojectDefaults(subprojectId),
         ])
         if (cancelled) return
-        setRateBook(rb)
+        setRateBook(withPrefinishedSentinel(rb))
         setLastUsed(lu)
         setDefaults(sd ?? initialSubprojectDefaults(orgConsumablePct))
       } catch (err: any) {
@@ -145,8 +157,10 @@ export default function AddLineComposer({
     | { style: DoorStyleWalkthroughExistingStyle | null }
     | null
   >(null)
-  // Finish walkthrough overlay — single instance, no per-finish config.
-  const [finishWtOpen, setFinishWtOpen] = useState(false)
+  // Finish walkthrough overlay — null when closed, otherwise carries
+  // the application the user was calibrating for (drives the row-type
+  // the walkthrough writes).
+  const [finishWtApp, setFinishWtApp] = useState<'interior' | 'exterior' | null>(null)
 
   function resetState() {
     setView('picker')
@@ -155,13 +169,13 @@ export default function AddLineComposer({
     setAddNew(null)
     setSaveError(null)
     setDoorWt(null)
-    setFinishWtOpen(false)
+    setFinishWtApp(null)
   }
 
   async function refreshRateBook() {
     try {
       const rb = await loadComposerRateBook(orgId)
-      setRateBook(rb)
+      setRateBook(withPrefinishedSentinel(rb))
     } catch (err: any) {
       setSaveError(err?.message || 'Failed to refresh rate book')
     }
@@ -191,12 +205,12 @@ export default function AddLineComposer({
     )
   }
 
-  function openFinishWalkthrough() {
+  function openFinishWalkthrough(app: 'interior' | 'exterior') {
     setOpenDropdown(null)
-    setFinishWtOpen(true)
+    setFinishWtApp(app)
   }
   async function handleFinishWalkthroughComplete() {
-    setFinishWtOpen(false)
+    setFinishWtApp(null)
     await refreshRateBook()
     // Don't auto-select anything — the user may have calibrated multiple
     // combos; they pick from the dropdown after the walkthrough closes.
@@ -212,15 +226,17 @@ export default function AddLineComposer({
       const firstCarcass = rateBook.carcassMaterials[0]?.id ?? null
       const firstExt = rateBook.extMaterials[0]?.id ?? null
       const firstDoor = rateBook.doorStyles[0]?.id ?? null
-      // Prefinished for interior if present; otherwise first finish.
-      const prefinished = rateBook.finishes.find((f) => f.isPrefinished)?.id ?? null
-      const firstFinish = rateBook.finishes[0]?.id ?? null
+      // Prefinished sentinel sits at the top of Interior — that's the
+      // sane default. Exterior falls back to the first exterior row
+      // (or null if the shop hasn't calibrated any yet).
+      const firstExteriorFinish =
+        rateBook.finishes.find((f) => f.application === 'exterior')?.id ?? null
       const hardFallback = {
         carcassMaterial: firstCarcass,
         doorStyle: firstDoor,
         doorMaterial: firstExt,
-        interiorFinish: prefinished ?? firstFinish,
-        exteriorFinish: firstFinish,
+        interiorFinish: PREFINISHED_FINISH_ID,
+        exteriorFinish: firstExteriorFinish,
         endPanels: 0,
         fillers: 0,
         notes: '',
@@ -331,16 +347,15 @@ export default function AddLineComposer({
     }
     try {
       if (ctx.category === 'carcass') {
-        const sheetsPerLf = parseFloat(ctx.draftSheetsPerLf)
-        if (!Number.isFinite(sheetsPerLf) || sheetsPerLf <= 0) {
-          setSaveError('Sheets per LF needs a positive number.')
-          return
-        }
+        // Sheets-per-LF is derived from the product at compute time
+        // (lib/products.ts sheetsPerLfFace — Base 1/12, Upper 1/8, Full 1/4).
+        // Store 0 on the row so no stale value shadows the product math if
+        // a future consumer reads sheets_per_lf directly.
         const created = await createCarcassMaterial({
           org_id: orgId,
           name,
           sheet_cost: sheetCost,
-          sheets_per_lf: sheetsPerLf,
+          sheets_per_lf: 0,
         })
         if (created) {
           setRateBook({
@@ -391,18 +406,18 @@ export default function AddLineComposer({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[95] bg-[#0F172A]/85 backdrop-blur-sm flex flex-col overflow-y-auto"
+      className="fixed inset-0 z-[95] bg-black/40 backdrop-blur-[2px] flex flex-col overflow-y-auto"
     >
       <div className="flex-1 flex flex-col items-center p-4 md:p-8">
-        <div className="w-full max-w-[1100px] bg-[#0D0D0D] border border-[#1a1a1a] rounded-2xl text-[#e5e5e5] overflow-hidden">
+        <div className="w-full max-w-[1100px] bg-white border border-[#E5E7EB] rounded-2xl text-[#111] shadow-xl overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1a1a1a]">
-            <div className="text-[13px] font-semibold text-white">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
+            <div className="text-[13px] font-semibold text-[#111]">
               {view === 'picker' ? 'Add a line' : PRODUCTS[draft?.productId ?? 'base'].label}
             </div>
             <button
               onClick={handleCancel}
-              className="p-1 text-[#6B7280] hover:text-white rounded"
+              className="p-1 text-[#9CA3AF] hover:text-[#111] rounded"
               aria-label="Close"
             >
               <X className="w-4 h-4" />
@@ -414,7 +429,7 @@ export default function AddLineComposer({
             {loading ? (
               <div className="py-16 text-center text-[#9CA3AF]">Loading rate book…</div>
             ) : loadError ? (
-              <div className="py-8 px-4 bg-[#1e1018] border border-[#3b1c24] rounded-xl text-[#fecaca] text-sm">
+              <div className="py-8 px-4 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-[#991B1B] text-sm">
                 {loadError}
               </div>
             ) : !rateBook || !defaults ? null : !rateBook.carcassCalibrated ? (
@@ -466,11 +481,14 @@ export default function AddLineComposer({
         />
       )}
 
-      {/* Finish walkthrough overlay — same layering as the door one. */}
-      {finishWtOpen && (
+      {/* Finish walkthrough overlay — same layering as the door one.
+          Carries the application (interior | exterior) of the dropdown
+          that opened it so the walkthrough stamps the new combo rows. */}
+      {finishWtApp && (
         <FinishWalkthrough
           orgId={orgId}
-          onCancel={() => setFinishWtOpen(false)}
+          application={finishWtApp}
+          onCancel={() => setFinishWtApp(null)}
           onComplete={handleFinishWalkthroughComplete}
         />
       )}
@@ -482,13 +500,13 @@ export default function AddLineComposer({
 
 function UncalibratedCarcassWarning() {
   return (
-    <div className="py-4 px-4 bg-[#201a0d] border border-[#3f320e] rounded-xl text-[#fde68a] text-[13px] leading-relaxed">
-      <div className="font-semibold text-[14px] text-[#fbbf24] mb-1.5">
+    <div className="py-4 px-4 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl text-[#78350F] text-[13px] leading-relaxed">
+      <div className="font-semibold text-[14px] text-[#92400E] mb-1.5">
         Base cabinet calibration needed
       </div>
-      The composer prices every line off your per-department base-cabinet labor.
-      Run the base-cabinet walkthrough from Settings before you add a line — once it's
-      saved, come back here and everything will light up.
+      The composer prices every line off your base-cabinet labor. Run the
+      base-cabinet walkthrough from Settings before you add a line — once
+      it's saved, come back here and everything will light up.
     </div>
   )
 }
@@ -498,7 +516,7 @@ function UncalibratedCarcassWarning() {
 function ProductPicker({ onPick }: { onPick: (key: ProductKey) => void }) {
   return (
     <>
-      <div className="mb-5 text-[13px] text-[#9CA3AF] max-w-[640px]">
+      <div className="mb-5 text-[13px] text-[#6B7280] max-w-[640px]">
         Pick what you're pricing. Each product has its own slots — the composer
         walks you through them.
       </div>
@@ -516,36 +534,36 @@ function ProductTile({ product, onPick }: { product: Product; onPick: () => void
   const isActive = product.active && !product.locked
   const statusText = product.locked ? 'Later' : product.active ? 'Ready' : 'Stub'
   const statusTone = product.locked
-    ? 'bg-[#181818] text-[#888]'
+    ? 'bg-[#F3F4F6] text-[#6B7280] border-[#E5E7EB]'
     : product.active
-    ? 'bg-[#0f1a2a] text-[#93c5fd] border-[#1e3a5c]'
-    : 'bg-[#181818] text-[#aaa]'
+    ? 'bg-[#DBEAFE] text-[#1E40AF] border-[#BFDBFE]'
+    : 'bg-[#F3F4F6] text-[#6B7280] border-[#E5E7EB]'
   return (
     <button
       type="button"
       onClick={isActive ? onPick : undefined}
       disabled={!isActive}
       className={
-        'text-left px-5 py-4 bg-[#111] border border-[#1a1a1a] rounded-xl flex items-start justify-between gap-3 transition-colors ' +
+        'text-left px-5 py-4 bg-white border border-[#E5E7EB] rounded-xl flex items-start justify-between gap-3 transition-colors ' +
         (isActive
-          ? 'hover:border-[#3b82f6] hover:bg-[#0f1a2a] cursor-pointer'
-          : 'opacity-55 cursor-not-allowed')
+          ? 'hover:border-[#2563EB] hover:bg-[#EFF6FF] cursor-pointer'
+          : 'opacity-60 cursor-not-allowed')
       }
     >
       <div className="min-w-0">
-        <div className="text-[15px] font-semibold text-white mb-1">
+        <div className="text-[15px] font-semibold text-[#111] mb-1">
           {product.label}
           {product.descriptor && (
-            <span className="ml-1.5 text-[#666] font-normal text-[12px]">
+            <span className="ml-1.5 text-[#9CA3AF] font-normal text-[12px]">
               · {product.descriptor}
             </span>
           )}
         </div>
-        <div className="text-[11px] font-mono text-[#666]">per {product.unit}</div>
+        <div className="text-[11px] font-mono text-[#9CA3AF]">per {product.unit}</div>
       </div>
       <span
         className={
-          'text-[10px] px-2 py-0.5 rounded-full border border-[#222] uppercase tracking-wider font-semibold ' +
+          'text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-wider font-semibold ' +
           statusTone
         }
       >
@@ -582,7 +600,7 @@ function Composer(p: {
   saveAddNew: () => void
   onDoorUncalibratedPick: (styleId: string) => void
   onAddNewDoorStyle: () => void
-  onOpenFinishWalkthrough: () => void
+  onOpenFinishWalkthrough: (app: 'interior' | 'exterior') => void
 }) {
   const { draft, rateBook, breakdown, defaults } = p
 
@@ -593,12 +611,12 @@ function Composer(p: {
         <button
           type="button"
           onClick={p.onBack}
-          className="text-[12px] text-[#6B7280] hover:text-[#aaa] mb-3 inline-flex items-center gap-1.5"
+          className="text-[12px] text-[#6B7280] hover:text-[#111] mb-3 inline-flex items-center gap-1.5"
         >
           ← Back to product
         </button>
 
-        <div className="bg-[#0d0d0d] border border-[#1a1a1a] rounded-xl p-5 space-y-4">
+        <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-4">
           <Field label="Quantity">
             <Stepper
               value={draft.qty}
@@ -612,7 +630,6 @@ function Composer(p: {
             {p.addNew?.ctx.category === 'carcass' ? (
               <AddNewCard
                 ctx={p.addNew.ctx}
-                askSheetsPerLf
                 onCancel={p.cancelAddNew}
                 onSave={p.saveAddNew}
                 onField={p.setAddNewField}
@@ -667,7 +684,7 @@ function Composer(p: {
               <button
                 type="button"
                 onClick={p.onAddNewDoorStyle}
-                className="mt-2 w-full px-3 py-2.5 bg-[#0f1a2a] border border-dashed border-[#3b82f6]/60 rounded-md text-[12px] text-[#93c5fd] hover:bg-[#152440] hover:border-[#3b82f6] transition-colors"
+                className="mt-2 w-full px-3 py-2.5 bg-[#EFF6FF] border border-dashed border-[#2563EB]/60 rounded-md text-[12px] text-[#1E40AF] hover:bg-[#DBEAFE] hover:border-[#2563EB] transition-colors"
               >
                 + Calibrate your first door style
               </button>
@@ -678,7 +695,6 @@ function Composer(p: {
             {p.addNew?.ctx.category === 'ext' ? (
               <AddNewCard
                 ctx={p.addNew.ctx}
-                askSheetsPerLf={false}
                 onCancel={p.cancelAddNew}
                 onSave={p.saveAddNew}
                 onField={p.setAddNewField}
@@ -708,41 +724,52 @@ function Composer(p: {
             <Dropdown
               open={p.openDropdown === 'interiorFinish'}
               value={draft.slots.interiorFinish}
-              options={rateBook.finishes.map((f) => ({ id: f.id, name: f.name }))}
+              options={rateBook.finishes
+                .filter((f) => f.application === 'interior')
+                .map((f) => ({ id: f.id, name: f.name }))}
               onToggle={() => p.toggleDropdown('interiorFinish')}
               onPick={(id) => {
                 p.setSlot('interiorFinish', id)
                 p.toggleDropdown('interiorFinish')
               }}
-              onAddNew={p.onOpenFinishWalkthrough}
-              addNewLabel="+ Calibrate finishes"
+              onAddNew={() => p.onOpenFinishWalkthrough('interior')}
+              addNewLabel="+ Calibrate interior finish"
               placeholder="Choose…"
             />
           </Field>
 
           <Field label="Exterior finish" hint="Applied to doors, drawer fronts, exposed ends.">
-            <Dropdown
-              open={p.openDropdown === 'exteriorFinish'}
-              value={draft.slots.exteriorFinish}
-              options={rateBook.finishes.map((f) => ({ id: f.id, name: f.name }))}
-              onToggle={() => p.toggleDropdown('exteriorFinish')}
-              onPick={(id) => {
-                p.setSlot('exteriorFinish', id)
-                p.toggleDropdown('exteriorFinish')
-              }}
-              onAddNew={p.onOpenFinishWalkthrough}
-              addNewLabel="+ Calibrate finishes"
-              placeholder="Choose…"
-            />
-            {rateBook.finishes.length === 0 && (
-              <button
-                type="button"
-                onClick={p.onOpenFinishWalkthrough}
-                className="mt-2 w-full px-3 py-2.5 bg-[#0f1a2a] border border-dashed border-[#3b82f6]/60 rounded-md text-[12px] text-[#93c5fd] hover:bg-[#152440] hover:border-[#3b82f6] transition-colors"
-              >
-                + Calibrate your first finish
-              </button>
-            )}
+            {(() => {
+              const extFinishes = rateBook.finishes.filter(
+                (f) => f.application === 'exterior'
+              )
+              return (
+                <>
+                  <Dropdown
+                    open={p.openDropdown === 'exteriorFinish'}
+                    value={draft.slots.exteriorFinish}
+                    options={extFinishes.map((f) => ({ id: f.id, name: f.name }))}
+                    onToggle={() => p.toggleDropdown('exteriorFinish')}
+                    onPick={(id) => {
+                      p.setSlot('exteriorFinish', id)
+                      p.toggleDropdown('exteriorFinish')
+                    }}
+                    onAddNew={() => p.onOpenFinishWalkthrough('exterior')}
+                    addNewLabel="+ Calibrate exterior finish"
+                    placeholder="Choose…"
+                  />
+                  {extFinishes.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => p.onOpenFinishWalkthrough('exterior')}
+                      className="mt-2 w-full px-3 py-2.5 bg-[#EFF6FF] border border-dashed border-[#2563EB]/60 rounded-md text-[12px] text-[#1E40AF] hover:bg-[#DBEAFE] hover:border-[#2563EB] transition-colors"
+                    >
+                      + Calibrate your first exterior finish
+                    </button>
+                  )}
+                </>
+              )
+            })()}
           </Field>
 
           <Field label="End panels">
@@ -769,18 +796,18 @@ function Composer(p: {
               value={draft.slots.notes}
               onChange={(e) => p.setSlot('notes', e.target.value)}
               placeholder="Anything unusual about this run…"
-              className="w-full bg-[#141414] border border-[#1f1f1f] rounded-md px-3 py-2 text-sm text-[#eee] outline-none focus:border-[#3b82f6]"
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
             />
           </Field>
         </div>
 
         {p.saveError && (
-          <div className="mt-4 px-3.5 py-2.5 bg-[#1e1018] border border-[#3b1c24] rounded-lg text-sm text-[#fecaca]">
+          <div className="mt-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
             {p.saveError}
           </div>
         )}
         {!p.saveError && p.gateReason && (
-          <div className="mt-4 px-3.5 py-2.5 bg-[#201a0d] border border-[#3f320e] rounded-lg text-sm text-[#fde68a]">
+          <div className="mt-4 px-3.5 py-2.5 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-sm text-[#78350F]">
             {p.gateReason}
           </div>
         )}
@@ -789,14 +816,14 @@ function Composer(p: {
           <button
             onClick={p.onCancel}
             disabled={p.saving}
-            className="px-4 py-2 text-sm text-[#9CA3AF] hover:text-white disabled:opacity-50"
+            className="px-4 py-2 text-sm text-[#6B7280] hover:text-[#111] disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={p.onSave}
             disabled={!p.canSave}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#3B82F6] text-white text-sm font-semibold rounded-lg hover:bg-[#2563EB] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {p.saving ? 'Saving…' : 'Add line'}
           </button>
@@ -831,10 +858,10 @@ function Field({
 }) {
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] mb-1.5">
         {label}
         {hint && (
-          <span className="ml-2 text-[10px] font-normal normal-case tracking-normal text-[#666]">
+          <span className="ml-2 text-[10px] font-normal normal-case tracking-normal text-[#9CA3AF]">
             {hint}
           </span>
         )}
@@ -860,7 +887,7 @@ function Stepper({
       <button
         type="button"
         onClick={() => onChange(Math.max(0, (Number(value) || 0) - step))}
-        className="w-7 h-7 rounded-md border border-[#1f1f1f] bg-[#111] text-[#9CA3AF] hover:text-white text-sm"
+        className="w-7 h-7 rounded-md border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] text-sm"
       >
         −
       </button>
@@ -870,12 +897,12 @@ function Stepper({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-        className="w-20 text-center font-mono text-sm px-2 py-1.5 bg-[#141414] border border-[#1f1f1f] rounded-md text-[#eee] outline-none focus:border-[#3b82f6]"
+        className="w-20 text-center font-mono text-sm px-2 py-1.5 bg-white border border-[#E5E7EB] rounded-md text-[#111] outline-none focus:border-[#2563EB]"
       />
       <button
         type="button"
         onClick={() => onChange((Number(value) || 0) + step)}
-        className="w-7 h-7 rounded-md border border-[#1f1f1f] bg-[#111] text-[#9CA3AF] hover:text-white text-sm"
+        className="w-7 h-7 rounded-md border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] text-sm"
       >
         +
       </button>
@@ -910,19 +937,19 @@ function Dropdown({
         type="button"
         onClick={onToggle}
         className={
-          'w-full text-left px-3 py-2 bg-[#141414] border border-[#1f1f1f] rounded-md text-sm flex items-center justify-between gap-3 ' +
-          (open ? 'border-[#3b82f6]' : 'hover:border-[#2a2a2a]')
+          'w-full text-left px-3 py-2 bg-white border rounded-md text-sm flex items-center justify-between gap-3 ' +
+          (open ? 'border-[#2563EB]' : 'border-[#E5E7EB] hover:border-[#9CA3AF]')
         }
       >
-        <span className={selected ? 'text-[#eee]' : 'text-[#6B7280]'}>
+        <span className={selected ? 'text-[#111]' : 'text-[#9CA3AF]'}>
           {selected ? selected.name : placeholder}
         </span>
         <span className="text-[10px] text-[#6B7280]">▼</span>
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 bg-[#111] border border-[#222] rounded-md shadow-xl z-10 max-h-64 overflow-y-auto">
+        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-[#E5E7EB] rounded-md shadow-lg z-10 max-h-64 overflow-y-auto">
           {options.length === 0 && !onAddNew && (
-            <div className="px-3 py-2 text-[12px] text-[#6B7280] italic">
+            <div className="px-3 py-2 text-[12px] text-[#9CA3AF] italic">
               Nothing here yet.
             </div>
           )}
@@ -932,8 +959,8 @@ function Dropdown({
               type="button"
               onClick={() => onPick(o.id)}
               className={
-                'w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-3 hover:bg-[#1a2033] ' +
-                (o.id === value ? 'bg-[#0f1a2a] text-white' : 'text-[#ddd]')
+                'w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-3 hover:bg-[#F3F4F6] ' +
+                (o.id === value ? 'bg-[#EFF6FF] text-[#111]' : 'text-[#111]')
               }
             >
               <span>{o.name}</span>
@@ -944,7 +971,7 @@ function Dropdown({
             <button
               type="button"
               onClick={onAddNew}
-              className="w-full text-left px-3 py-2 text-sm text-[#93c5fd] hover:bg-[#0f1a2a] border-t border-[#1a1a1a]"
+              className="w-full text-left px-3 py-2 text-sm text-[#2563EB] hover:bg-[#EFF6FF] border-t border-[#E5E7EB] font-medium"
             >
               {addNewLabel}
             </button>
@@ -957,21 +984,19 @@ function Dropdown({
 
 function AddNewCard({
   ctx,
-  askSheetsPerLf,
   onCancel,
   onSave,
   onField,
 }: {
   ctx: AddNewContext
-  askSheetsPerLf: boolean
   onCancel: () => void
   onSave: () => void
   onField: <K extends keyof AddNewContext>(field: K, value: AddNewContext[K]) => void
 }) {
   const label = ctx.category === 'carcass' ? 'carcass material' : 'door/drawer material'
   return (
-    <div className="p-4 bg-[#0e1522] border border-[#1e3a5c] rounded-md space-y-3">
-      <div className="text-[13px] font-semibold text-white">Add a {label}</div>
+    <div className="p-4 bg-[#F9FAFB] border border-[#E5E7EB] rounded-md space-y-3">
+      <div className="text-[13px] font-semibold text-[#111]">Add a {label}</div>
       <div className="grid grid-cols-[1fr_140px] gap-3">
         <div>
           <label className="block text-[10px] uppercase tracking-wider text-[#6B7280] mb-1">
@@ -982,7 +1007,7 @@ function AddNewCard({
             value={ctx.draftName}
             onChange={(e) => onField('draftName', e.target.value)}
             placeholder="e.g. Walnut rift veneer"
-            className="w-full bg-[#141414] border border-[#1f1f1f] rounded-md px-3 py-1.5 text-sm text-[#eee] outline-none focus:border-[#3b82f6]"
+            className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-1.5 text-sm text-[#111] outline-none focus:border-[#2563EB]"
           />
         </div>
         <div>
@@ -995,38 +1020,21 @@ function AddNewCard({
             step="1"
             value={ctx.draftSheetCost}
             onChange={(e) => onField('draftSheetCost', e.target.value)}
-            className="w-full bg-[#141414] border border-[#1f1f1f] rounded-md px-3 py-1.5 text-sm text-[#eee] outline-none focus:border-[#3b82f6] font-mono"
+            className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-1.5 text-sm text-[#111] outline-none focus:border-[#2563EB] font-mono"
           />
         </div>
       </div>
-      {askSheetsPerLf && (
-        <div>
-          <label className="block text-[10px] uppercase tracking-wider text-[#6B7280] mb-1">
-            Sheets per LF
-          </label>
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={ctx.draftSheetsPerLf}
-            onChange={(e) => onField('draftSheetsPerLf', e.target.value)}
-            className="w-40 bg-[#141414] border border-[#1f1f1f] rounded-md px-3 py-1.5 text-sm text-[#eee] outline-none focus:border-[#3b82f6] font-mono"
-          />
-        </div>
-      )}
-      {!askSheetsPerLf && (
-        <p className="text-[11px] text-[#6B7280] leading-snug">
-          Sheets per LF is derived from the product — Base uses 1 sheet per 12 LF,
-          Upper 1 per 8, Full 1 per 4.
-        </p>
-      )}
+      <p className="text-[11px] text-[#6B7280] leading-snug">
+        Sheets per LF is derived from the product — Base uses 1 sheet per 12 LF,
+        Upper 1 per 8, Full 1 per 4. You never enter it.
+      </p>
       <div className="flex items-center justify-end gap-2">
-        <button onClick={onCancel} className="text-[12px] text-[#6B7280] hover:text-white">
+        <button onClick={onCancel} className="text-[12px] text-[#6B7280] hover:text-[#111]">
           Cancel
         </button>
         <button
           onClick={onSave}
-          className="px-3 py-1.5 bg-[#3B82F6] text-white text-[12px] font-semibold rounded-md hover:bg-[#2563EB]"
+          className="px-3 py-1.5 bg-[#2563EB] text-white text-[12px] font-semibold rounded-md hover:bg-[#1D4ED8] transition-colors"
         >
           Save to rate book
         </button>
@@ -1037,7 +1045,7 @@ function AddNewCard({
 
 function WarnStrip({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-2 px-3 py-2 bg-[#201a0d] border border-[#3f320e] rounded-md text-[12px] text-[#fde68a]">
+    <div className="mt-2 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-md text-[12px] text-[#78350F]">
       {children}
     </div>
   )
@@ -1077,15 +1085,15 @@ function BreakdownPanel({
     return (
       <div
         className={
-          'flex items-start justify-between gap-3 py-2 border-b border-[#141414] last:border-b-0 ' +
+          'flex items-start justify-between gap-3 py-2 border-b border-[#F3F4F6] last:border-b-0 ' +
           (isZero ? 'opacity-55' : '')
         }
       >
-        <div className="text-[12px] text-[#ccc]">
+        <div className="text-[12px] text-[#374151]">
           {label}
-          {detail && <div className="text-[11px] text-[#6B7280] mt-0.5">{detail}</div>}
+          {detail && <div className="text-[11px] text-[#9CA3AF] mt-0.5">{detail}</div>}
         </div>
-        <div className="text-[12px] font-mono tabular-nums text-white whitespace-nowrap">
+        <div className="text-[12px] font-mono tabular-nums text-[#111] whitespace-nowrap">
           {money(value)}
         </div>
       </div>
@@ -1093,7 +1101,7 @@ function BreakdownPanel({
   }
 
   return (
-    <div className="bg-[#0d0d0d] border border-[#1a1a1a] rounded-xl p-4 lg:sticky lg:top-4">
+    <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 lg:sticky lg:top-4">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-3">
         Line breakdown · {qty} LF · {label}
       </div>
@@ -1110,8 +1118,8 @@ function BreakdownPanel({
       />
 
       {breakdown.doorLaborWarn ? (
-        <div className="py-2 border-b border-[#141414]">
-          <div className="text-[12px] text-[#fde68a]">⚠ Door style needs walkthrough</div>
+        <div className="py-2 border-b border-[#F3F4F6]">
+          <div className="text-[12px] text-[#78350F]">⚠ Door style needs walkthrough</div>
         </div>
       ) : (
         <Row
@@ -1165,16 +1173,16 @@ function BreakdownPanel({
         onBlur={onPersistDefaults}
       />
 
-      <div className="mt-3 pt-3 border-t border-[#2a2a2a] space-y-1.5">
-        <div className="flex items-center justify-between text-[12px] text-[#93c5fd]">
+      <div className="mt-3 pt-3 border-t border-[#E5E7EB] space-y-1.5">
+        <div className="flex items-center justify-between text-[12px] text-[#1E40AF]">
           <span>Labor</span>
           <span className="font-mono tabular-nums">{money(breakdown.totals.labor)}</span>
         </div>
-        <div className="flex items-center justify-between text-[12px] text-[#c4b5fd]">
+        <div className="flex items-center justify-between text-[12px] text-[#6D28D9]">
           <span>Material</span>
           <span className="font-mono tabular-nums">{money(breakdown.totals.material)}</span>
         </div>
-        <div className="flex items-center justify-between text-[14px] font-semibold text-white pt-1.5 border-t border-[#1a1a1a]">
+        <div className="flex items-center justify-between text-[14px] font-semibold text-[#111] pt-1.5 border-t border-[#E5E7EB]">
           <span>Line total</span>
           <span className="font-mono tabular-nums">{money(breakdown.totals.total)}</span>
         </div>
@@ -1199,8 +1207,8 @@ function PctRow({
   onBlur: () => void
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-2 border-b border-[#141414]">
-      <div className="text-[12px] text-[#ccc]">
+    <div className="flex items-start justify-between gap-3 py-2 border-b border-[#F3F4F6]">
+      <div className="text-[12px] text-[#374151]">
         {label}
         <div className="inline-flex items-center gap-1.5 mt-1.5">
           <input
@@ -1210,12 +1218,12 @@ function PctRow({
             value={value}
             onChange={(e) => onChange(pctKey, e.target.value)}
             onBlur={onBlur}
-            className="w-14 bg-[#141414] border border-[#1f1f1f] rounded px-1.5 py-0.5 text-[11px] font-mono text-right text-[#ddd] outline-none focus:border-[#3b82f6]"
+            className="w-14 bg-white border border-[#E5E7EB] rounded px-1.5 py-0.5 text-[11px] font-mono text-right text-[#111] outline-none focus:border-[#2563EB]"
           />
-          <span className="text-[11px] text-[#6B7280]">% of material</span>
+          <span className="text-[11px] text-[#9CA3AF]">% of material</span>
         </div>
       </div>
-      <div className="text-[12px] font-mono tabular-nums text-white whitespace-nowrap">
+      <div className="text-[12px] font-mono tabular-nums text-[#111] whitespace-nowrap">
         ${Math.round(amount).toLocaleString()}
       </div>
     </div>

@@ -59,13 +59,38 @@ export interface ComposerDoorStyle {
 export interface ComposerFinish {
   id: string
   name: string
-  /** true for a synthetic "prefinished" row — byProduct entries all
-   *  zero, treated as always-valid and labor-free. */
+  /** Which composer dropdown the finish belongs to. DB rows carry
+   *  'interior' or 'exterior' via migration 025. The client-side
+   *  Prefinished sentinel is 'interior'. */
+  application: 'interior' | 'exterior'
+  /** true for the client-side Prefinished sentinel — byProduct entries
+   *  all zero, treated as always-valid and labor-free. Never true on a
+   *  DB-loaded finish. */
   isPrefinished: boolean
   byProduct: {
     base?: ComposerFinishProductRow
     upper?: ComposerFinishProductRow
     full?: ComposerFinishProductRow
+  }
+}
+
+/** Client-side sentinel id for the Prefinished option. Lives at the top
+ *  of the Interior finish dropdown; not a rate-book row. */
+export const PREFINISHED_FINISH_ID = '__prefinished__'
+
+/** Build the Prefinished sentinel that the composer prepends to the
+ *  Interior finish dropdown. Zero everywhere, marked interior. */
+export function prefinishedSentinel(): ComposerFinish {
+  return {
+    id: PREFINISHED_FINISH_ID,
+    name: 'Prefinished',
+    application: 'interior',
+    isPrefinished: true,
+    byProduct: {
+      base: { laborHr: 0, material: 0 },
+      upper: { laborHr: 0, material: 0 },
+      full: { laborHr: 0, material: 0 },
+    },
   }
 }
 
@@ -222,9 +247,13 @@ export function computeBreakdown(
   const ifn = rb.finishes.find((f) => f.id === s.interiorFinish) || null
   const efn = rb.finishes.find((f) => f.id === s.exteriorFinish) || null
 
-  const carcassMaterial = cm ? qty * cm.sheets_per_lf * cm.sheet_cost : 0
+  // Sheets-per-LF comes from the product constant, not the material
+  // template (Phase 12 Item 6 amendment — carcass add-new no longer asks
+  // for it; same math as face material below).
+  const carcassSheets = qty * prod.sheetsPerLfFace
+  const carcassMaterial = cm ? carcassSheets * cm.sheet_cost : 0
   const carcassMaterialDetail = cm
-    ? `${(qty * cm.sheets_per_lf).toFixed(1)} sht × $${cm.sheet_cost}`
+    ? `${carcassSheets.toFixed(2)} sht × $${cm.sheet_cost}`
     : null
 
   // Door labor — per-door × doorsPerLf × product multiplier → per-LF.

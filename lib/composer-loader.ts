@@ -166,12 +166,16 @@ async function loadFinishes(orgId: string): Promise<ComposerFinish[]> {
 
   const { data: items } = await supabase
     .from('rate_book_items')
-    .select('id, name')
+    .select('id, name, application')
     .eq('org_id', orgId)
     .in('category_id', catIds)
     .eq('active', true)
     .order('name')
-  const finishItems = (items || []) as Array<{ id: string; name: string }>
+  const finishItems = (items || []) as Array<{
+    id: string
+    name: string
+    application: string | null
+  }>
   if (finishItems.length === 0) return []
 
   const finishIds = finishItems.map((f) => f.id)
@@ -207,23 +211,27 @@ async function loadFinishes(orgId: string): Promise<ComposerFinish[]> {
     breakdownByItem.set(r.rate_book_item_id, prodMap)
   }
 
-  return finishItems.map((f) => {
-    const isPrefinished = /^prefinished$/i.test(f.name)
-    const prodMap = breakdownByItem.get(f.id)
-    const byProduct: ComposerFinish['byProduct'] = {}
-    if (prodMap) {
-      if (prodMap.has('base')) byProduct.base = prodMap.get('base')!
-      if (prodMap.has('upper')) byProduct.upper = prodMap.get('upper')!
-      if (prodMap.has('full')) byProduct.full = prodMap.get('full')!
-    }
-    // Prefinished is implicit zero everywhere — if a user has a
-    // "Prefinished" item without breakdown rows, synthesize zeros so the
-    // line can still save.
-    if (isPrefinished) {
-      if (!byProduct.base) byProduct.base = { laborHr: 0, material: 0 }
-      if (!byProduct.upper) byProduct.upper = { laborHr: 0, material: 0 }
-      if (!byProduct.full) byProduct.full = { laborHr: 0, material: 0 }
-    }
-    return { id: f.id, name: f.name, isPrefinished, byProduct }
-  })
+  return finishItems
+    .filter((f) => !/^prefinished$/i.test(f.name))
+    .map((f) => {
+      const application: 'interior' | 'exterior' =
+        f.application === 'interior' ? 'interior' : 'exterior'
+      const prodMap = breakdownByItem.get(f.id)
+      const byProduct: ComposerFinish['byProduct'] = {}
+      if (prodMap) {
+        if (prodMap.has('base')) byProduct.base = prodMap.get('base')!
+        if (prodMap.has('upper')) byProduct.upper = prodMap.get('upper')!
+        if (prodMap.has('full')) byProduct.full = prodMap.get('full')!
+      }
+      return {
+        id: f.id,
+        name: f.name,
+        application,
+        isPrefinished: false,
+        byProduct,
+      }
+    })
 }
+// NOTE: legacy "Prefinished" rate_book_item rows (from before the sentinel
+// landed) are filtered out above. The Prefinished option shown in the
+// Interior dropdown is synthesized client-side via prefinishedSentinel().
