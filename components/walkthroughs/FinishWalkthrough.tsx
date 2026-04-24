@@ -46,8 +46,11 @@ const COMBOS: FinishCombo[] = [
   { key: 'paint-shaker',       name: 'Paint on shaker',         fields: ['primer', 'paint'] },
 ]
 
-const PREFINISHED_NAME = 'Prefinished'
 const FINISHES_CATEGORY_NAME = 'Finishes'
+
+// Prefinished is no longer a rate_book_items row — the composer
+// synthesizes it client-side as a sentinel at the top of the Interior
+// finish dropdown (see lib/composer.ts prefinishedSentinel).
 
 const PRODUCT_CATEGORIES: Array<{ key: ProductCategory; label: string }> = [
   { key: 'base',  label: 'Base 8\u2032' },
@@ -66,6 +69,14 @@ const FIELD_LABEL: Record<FinishFieldKey, string> = {
 
 interface Props {
   orgId: string
+  /** Composer passes this when the user opened the walkthrough from
+   *  the Interior or Exterior finish dropdown. Newly-created combo
+   *  rows get stamped with this application so they land in the right
+   *  dropdown. Defaults to 'exterior' (historical behavior) — Item 8's
+   *  rewrite adds a "Duplicate for the other application" affordance
+   *  so operators can spin up interior twins when they finish cabinet
+   *  interiors. */
+  application?: 'interior' | 'exterior'
   onComplete: () => void
   onCancel: () => void
 }
@@ -90,7 +101,12 @@ interface ComboData {
 
 // ── Component ──
 
-export default function FinishWalkthrough({ orgId, onCancel, onComplete }: Props) {
+export default function FinishWalkthrough({
+  orgId,
+  application = 'exterior',
+  onCancel,
+  onComplete,
+}: Props) {
   const [data, setData] = useState<Record<string, ComboData> | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -99,14 +115,14 @@ export default function FinishWalkthrough({ orgId, onCancel, onComplete }: Props
   // Uncommitted draft values per (combo × product). Keyed "combo:product".
   const [drafts, setDrafts] = useState<Record<string, CardValues>>({})
 
-  // On open: ensure the 5 finish items exist + load breakdown rows.
+  // On open: ensure the 4 combo finish items exist + load breakdown rows.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setLoading(true)
       setError(null)
       try {
-        const next = await ensureAndLoadFinishData(orgId)
+        const next = await ensureAndLoadFinishData(orgId, application)
         if (cancelled) return
         setData(next)
       } catch (err: any) {
@@ -449,17 +465,19 @@ function NumberField({
 
 // ── Storage: ensure finish items exist + load existing breakdown ──
 
-async function ensureAndLoadFinishData(orgId: string): Promise<Record<string, ComboData>> {
+async function ensureAndLoadFinishData(
+  orgId: string,
+  application: 'interior' | 'exterior'
+): Promise<Record<string, ComboData>> {
   // 1. Find-or-create the finish category.
   const categoryId = await ensureFinishCategory(orgId)
 
-  // 2. Ensure Prefinished + 4 combo items exist. Return id by combo key.
+  // 2. Ensure the 4 combo items exist for this application. Prefinished
+  //    is no longer a rate-book row — the composer synthesizes it
+  //    client-side for the Interior dropdown.
   const idByComboKey: Record<string, string> = {}
-  // Prefinished is ensured for the composer's interior-finish default; not
-  // part of the walkthrough rows themselves.
-  await ensureFinishItem(orgId, categoryId, PREFINISHED_NAME)
   for (const combo of COMBOS) {
-    const id = await ensureFinishItem(orgId, categoryId, combo.name)
+    const id = await ensureFinishItem(orgId, categoryId, combo.name, application)
     idByComboKey[combo.key] = id
   }
 
@@ -533,23 +551,22 @@ async function ensureFinishCategory(orgId: string): Promise<string> {
 async function ensureFinishItem(
   orgId: string,
   categoryId: string,
-  name: string
+  name: string,
+  application: 'interior' | 'exterior'
 ): Promise<string> {
+  // Match by (name, application) — same recipe on interior vs exterior
+  // is two rows. Don't bucket them together by name alone.
   const { data: existing } = await supabase
     .from('rate_book_items')
     .select('id')
     .eq('org_id', orgId)
     .eq('category_id', categoryId)
+    .eq('application', application)
     .ilike('name', name)
     .limit(1)
   const row = (existing || [])[0] as { id: string } | undefined
   if (row) return row.id
 
-  // Default new finish items to 'exterior' — same posture as the
-  // migration 025 backfill. Item 8 (FinishWalkthrough rewrite) will
-  // offer a "Duplicate for the other application" affordance so
-  // operators can spin up interior twins when they actually finish
-  // cabinet interiors.
   const { data: created, error } = await supabase
     .from('rate_book_items')
     .insert({
@@ -565,7 +582,7 @@ async function ensureFinishItem(
       hardware_cost: 0,
       confidence: 'untested',
       active: true,
-      application: 'exterior',
+      application,
     })
     .select('id')
     .single()
