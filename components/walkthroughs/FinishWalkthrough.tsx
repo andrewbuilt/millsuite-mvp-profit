@@ -284,8 +284,8 @@ export default function FinishWalkthrough({
                 {appLabel} finish calibration
               </div>
               <div className="text-[11px] text-[#6B7280] mt-0.5">
-                Fill out the combos you sell. Partial calibration is fine —
-                each card saves independently.
+                Fill out the combos you sell. Partial calibration is fine.
+                Each card saves independently.
               </div>
             </div>
             <button

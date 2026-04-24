@@ -97,8 +97,8 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
         your shop.
       </p>
       <p className="text-sm text-[#6B7280] leading-relaxed mb-6">
-        Two steps. First, a first-principles shop rate — overhead,
-        team comp, and the hours you actually bill. Then how long one
+        Two steps. First, a first-principles shop rate: overhead, team
+        comp, and the hours you actually bill. Then how long one
         8-foot run of base cabinets takes your shop. Both are editable
         anytime from Settings after setup.
       </p>

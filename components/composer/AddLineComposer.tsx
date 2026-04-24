@@ -47,6 +47,7 @@ import {
   computeBreakdown,
   checkSaveGate,
   emptySlots,
+  isFinishUsed,
   prefinishedSentinel,
   PREFINISHED_FINISH_ID,
   type ComposerBreakdown,
@@ -505,7 +506,7 @@ function UncalibratedCarcassWarning() {
         Base cabinet calibration needed
       </div>
       The composer prices every line off your base-cabinet labor. Run the
-      base-cabinet walkthrough from Settings before you add a line — once
+      base-cabinet walkthrough from Settings before you add a line. Once
       it's saved, come back here and everything will light up.
     </div>
   )
@@ -517,8 +518,8 @@ function ProductPicker({ onPick }: { onPick: (key: ProductKey) => void }) {
   return (
     <>
       <div className="mb-5 text-[13px] text-[#6B7280] max-w-[640px]">
-        Pick what you're pricing. Each product has its own slots — the composer
-        walks you through them.
+        Pick what you're pricing. Each product has its own slots, and the
+        composer walks you through them.
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {PRODUCT_ORDER.map((k) => {
@@ -626,7 +627,7 @@ function Composer(p: {
             />
           </Field>
 
-          <Field label="Carcass material" hint="Interior box — sheet stock you cut parts from.">
+          <Field label="Carcass material" hint="Interior box: sheet stock you cut parts from.">
             {p.addNew?.ctx.category === 'carcass' ? (
               <AddNewCard
                 ctx={p.addNew.ctx}
@@ -720,12 +721,13 @@ function Composer(p: {
             )}
           </Field>
 
-          <Field label="Interior finish" hint="Usually prefinished — no finish labor.">
+          <Field label="Interior finish" hint="Usually prefinished, so no finish labor.">
             <Dropdown
               open={p.openDropdown === 'interiorFinish'}
               value={draft.slots.interiorFinish}
               options={rateBook.finishes
                 .filter((f) => f.application === 'interior')
+                .filter(isFinishUsed)
                 .map((f) => ({ id: f.id, name: f.name }))}
               onToggle={() => p.toggleDropdown('interiorFinish')}
               onPick={(id) => {
@@ -740,9 +742,9 @@ function Composer(p: {
 
           <Field label="Exterior finish" hint="Applied to doors, drawer fronts, exposed ends.">
             {(() => {
-              const extFinishes = rateBook.finishes.filter(
-                (f) => f.application === 'exterior'
-              )
+              const extFinishes = rateBook.finishes
+                .filter((f) => f.application === 'exterior')
+                .filter(isFinishUsed)
               return (
                 <>
                   <Dropdown
@@ -1025,7 +1027,7 @@ function AddNewCard({
         </div>
       </div>
       <p className="text-[11px] text-[#6B7280] leading-snug">
-        Sheets per LF is derived from the product — Base uses 1 sheet per 12 LF,
+        Sheets per LF is derived from the product: Base uses 1 sheet per 12 LF,
         Upper 1 per 8, Full 1 per 4. You never enter it.
       </p>
       <div className="flex items-center justify-end gap-2">
