@@ -37,6 +37,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { ensureRateBookCategoryId, upsertRateBookItem } from '@/lib/rate-book'
 
 type Dept = 'eng' | 'cnc' | 'machining' | 'assembly' | 'finish'
 
@@ -573,7 +574,9 @@ const DOORS_CATEGORY_NAME = 'Doors'
 /**
  * Find-or-create the org's door_style category, then insert or update
  * the named rate_book_item and its per-door labor. Returns the item's
- * id so the composer can select it.
+ * id so the composer can select it. Category + by-name find-or-create
+ * use the shared helpers in lib/rate-book.ts so this walkthrough stays
+ * in lock-step with BaseCabinetWalkthrough's Slab seeding.
  */
 async function saveDoorStyleCalibration(input: {
   orgId: string
@@ -583,36 +586,6 @@ async function saveDoorStyleCalibration(input: {
 }): Promise<string> {
   const { orgId, existingStyleId, name, perDoor } = input
 
-  // 1. Find-or-create a door_style category for this org.
-  let categoryId: string | null = null
-  {
-    const { data: cats } = await supabase
-      .from('rate_book_categories')
-      .select('id, name')
-      .eq('org_id', orgId)
-      .eq('item_type', 'door_style')
-      .eq('active', true)
-    const rows = (cats || []) as Array<{ id: string; name: string }>
-    const named = rows.find((c) => c.name?.toLowerCase() === DOORS_CATEGORY_NAME.toLowerCase())
-    if (named) categoryId = named.id
-    else if (rows.length > 0) categoryId = rows[0].id
-    else {
-      const { data: created, error } = await supabase
-        .from('rate_book_categories')
-        .insert({
-          org_id: orgId,
-          name: DOORS_CATEGORY_NAME,
-          item_type: 'door_style',
-          active: true,
-          display_order: 0,
-        })
-        .select('id')
-        .single()
-      if (error) throw error
-      categoryId = (created as { id: string }).id
-    }
-  }
-
   const patch = {
     door_labor_hours_eng: perDoor.eng,
     door_labor_hours_cnc: perDoor.cnc,
@@ -621,7 +594,9 @@ async function saveDoorStyleCalibration(input: {
     updated_at: new Date().toISOString(),
   }
 
-  // 2. Update existing, or insert new.
+  // Re-calibrating an existing style by id: update in place (keeps the
+  // row id stable so composer selections / saved estimate_lines still
+  // resolve). Also applies a rename if the user edited the name.
   if (existingStyleId) {
     const { error } = await supabase
       .from('rate_book_items')
@@ -631,12 +606,18 @@ async function saveDoorStyleCalibration(input: {
     return existingStyleId
   }
 
-  const { data, error } = await supabase
-    .from('rate_book_items')
-    .insert({
-      org_id: orgId,
-      category_id: categoryId,
-      name,
+  // New style: ensure the category, then upsert by name.
+  const categoryId = await ensureRateBookCategoryId(
+    orgId,
+    DOORS_CATEGORY_NAME,
+    'door_style',
+  )
+  return await upsertRateBookItem({
+    orgId,
+    categoryId,
+    name,
+    patch,
+    insertDefaults: {
       unit: 'each',
       material_mode: 'none',
       sheets_per_unit: 0,
@@ -646,10 +627,6 @@ async function saveDoorStyleCalibration(input: {
       hardware_cost: 0,
       confidence: 'untested',
       active: true,
-      ...patch,
-    })
-    .select('id')
-    .single()
-  if (error) throw error
-  return (data as { id: string }).id
+    },
+  })
 }
