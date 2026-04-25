@@ -69,7 +69,8 @@ import {
   initialSubprojectDefaults,
   loadSubprojectDefaults,
 } from '@/lib/composer-persist'
-import type { ComposerDefaults, ComposerRateBook } from '@/lib/composer'
+import type { ComposerDefaults, ComposerRateBook, ComposerSlots } from '@/lib/composer'
+import type { ProductKey } from '@/lib/products'
 import {
   bulkRefreshStaleLines,
   findStaleLines,
@@ -438,26 +439,39 @@ export default function SubprojectEditorPage() {
   }
 
   // Build a CreateCoModalSeed from a clicked line + its computed buildup.
-  // Locks the modal to this subproject; pre-fills the original side from
-  // the line's identity + materialCost / quantity ≈ $/LF.
+  // Locks the modal to this subproject; passes the composer's product
+  // key + slots so the modal can show a slot-aware editor (Issue 21).
+  // Lines that aren't composer-origin (no product_key) can't seed —
+  // operator can still use the top-level "+ New CO" panel button.
   function openCoFromLine(
     line: EstimateLine,
     item: RateBookItemRow | null,
-    buildup: { materialCost: number },
+    _buildup: { materialCost: number },
   ) {
     if (!subproject) return
-    const qty = Number(line.quantity) || 0
-    const matPerLf =
-      qty > 0 && Number.isFinite(buildup.materialCost)
-        ? Math.round((buildup.materialCost / qty) * 100) / 100
-        : null
+    if (!line.product_key || !line.product_slots) {
+      setAddError(
+        "Change orders from a line require a composer-built line. Use the top-level CO panel for legacy lines.",
+      )
+      return
+    }
+    const productLabel =
+      line.product_key === 'base'
+        ? 'Base cabinet'
+        : line.product_key === 'upper'
+          ? 'Upper cabinet'
+          : line.product_key === 'full'
+            ? 'Full height'
+            : line.product_key
     setCoSeed({
       subprojectId: subId,
       subprojectName: subproject.name,
-      originalLabel: item?.name || line.description || '',
-      originalMaterial: item?.material_description || line.material_description || '',
-      originalLinearFeet: qty,
-      originalMatCostPerLf: matPerLf,
+      lineId: line.id,
+      productKey: line.product_key as ProductKey,
+      productSlots: line.product_slots as unknown as ComposerSlots,
+      qty: Number(line.quantity) || 0,
+      productLabel,
+      description: item?.name || line.description || productLabel,
     })
   }
 
@@ -1074,6 +1088,8 @@ export default function SubprojectEditorPage() {
           pricing={pricingCtx}
           subprojects={[{ id: subId, name: subproject.name }]}
           seed={coSeed}
+          composerRateBook={composerRateBook}
+          composerDefaults={composerDefaults}
           onClose={() => setCoSeed(null)}
           onCreated={async () => {
             setCoSeed(null)
