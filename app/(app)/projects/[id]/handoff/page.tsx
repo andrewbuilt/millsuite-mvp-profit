@@ -59,6 +59,7 @@ import {
   type PricingContext,
   type SubprojectRollup,
 } from '@/lib/estimate-lines'
+import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
 import type { RateBookItemRow, RateBookOptionRow } from '@/lib/rate-book-v2'
 import type { LaborDept } from '@/lib/rate-book-seed'
 import {
@@ -97,6 +98,9 @@ interface Subproject {
   material_finish: string | null
   linear_feet: number | null
   consumable_markup_pct: number | null
+  install_guys: number | null
+  install_days: number | null
+  install_complexity_pct: number | null
 }
 
 // ── Helpers ──
@@ -166,6 +170,12 @@ function HandoffPageInner() {
   const [rollupBySub, setRollupBySub] = useState<
     Record<string, SubprojectRollup>
   >({})
+  // Per-subproject install prefill (Section 9 of the pricing audit). Lives
+  // on subprojects.install_* and rolls into the project total alongside
+  // line-driven labor + material. Without this the snapshot reads project
+  // cost minus the install row — Andrew's $50,710 vs $44,118 divergence.
+  const [installCostBySub, setInstallCostBySub] = useState<Record<string, number>>({})
+  const [installHoursBySub, setInstallHoursBySub] = useState<Record<string, number>>({})
   const [rateBook, setRateBook] = useState<{
     items: RateBookItemRow[]
     itemsById: Map<string, RateBookItemRow>
@@ -196,6 +206,8 @@ function HandoffPageInner() {
 
       const linesBySub: Record<string, EstimateLine[]> = {}
       const rbSub: Record<string, SubprojectRollup> = {}
+      const installCost: Record<string, number> = {}
+      const installHours: Record<string, number> = {}
       await Promise.all(
         subList.map(async (sub) => {
           const lines = await loadEstimateLines(sub.id)
@@ -210,6 +222,13 @@ function HandoffPageInner() {
           }
           // No per-line options loaded here — handoff rollup uses the base buildup.
           rbSub[sub.id] = computeSubprojectRollup(lines, rb.itemsById, new Map(), perSubCtx)
+          const prefill = {
+            guys: sub.install_guys,
+            days: sub.install_days,
+            complexityPct: sub.install_complexity_pct,
+          }
+          installCost[sub.id] = computeInstallCost(prefill, shopRate)
+          installHours[sub.id] = computeInstallHours(prefill)
         })
       )
       // Milestones composed on the rollup page — preview panel below reads
@@ -221,6 +240,8 @@ function HandoffPageInner() {
       setSubs(subList)
       setLineBySub(linesBySub)
       setRollupBySub(rbSub)
+      setInstallCostBySub(installCost)
+      setInstallHoursBySub(installHours)
       setRateBook(rb)
       setMilestones(ms)
       setLoading(false)
@@ -272,38 +293,44 @@ function HandoffPageInner() {
 
   // ── Project-level totals ──
 
-  // Pricing-architecture cleanup: subproject rollups run at COST. Apply the
-  // project-level margin exactly once here so handoff shows customer price.
+  // Pricing-architecture cleanup, Section 9: subproject rollups run at COST,
+  // install prefill is folded in per-sub, project margin is applied exactly
+  // once at the end. Bidding-page PROJECT PRICE === handoff-page header
+  // total; bidding-page subproject card cost === per-sub TOTAL column here.
   const marginTarget =
     project?.target_margin_pct ?? org?.profit_margin_pct ?? 35
   const projectTotals = useMemo(() => {
     const acc = {
-      total: 0,
+      total: 0,            // project price (cost + margin)
+      costTotal: 0,        // pre-margin (cost incl. install prefill)
+      marginAmount: 0,     // total - costTotal
+      marginPct: 0,        // = effective project target margin
       hoursByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
       totalHours: 0,
       subCount: subs.length,
       linearFeet: 0,
-      marginPct: 0,
-      subtotal: 0,
     }
     for (const sub of subs) {
       const r = rollupBySub[sub.id]
+      const installCost = installCostBySub[sub.id] || 0
+      const installHours = installHoursBySub[sub.id] || 0
       acc.linearFeet += Number(sub.linear_feet) || 0
       if (!r) continue
-      acc.subtotal += r.subtotal
+      acc.costTotal += r.subtotal + installCost
       acc.hoursByDept.eng += r.hoursByDept.eng
       acc.hoursByDept.cnc += r.hoursByDept.cnc
       acc.hoursByDept.assembly += r.hoursByDept.assembly
       acc.hoursByDept.finish += r.hoursByDept.finish
-      acc.hoursByDept.install += r.hoursByDept.install
+      acc.hoursByDept.install += r.hoursByDept.install + installHours
       acc.totalHours += r.totalHours
     }
     const marginFraction = Math.min(Math.max(marginTarget / 100, 0), 0.99)
     const markup = marginFraction > 0 ? 1 / (1 - marginFraction) : 1
-    acc.total = acc.subtotal * markup
+    acc.total = acc.costTotal * markup
+    acc.marginAmount = acc.total - acc.costTotal
     acc.marginPct = marginTarget
     return acc
-  }, [subs, rollupBySub, marginTarget])
+  }, [subs, rollupBySub, installCostBySub, installHoursBySub, marginTarget])
 
   const suggested = useMemo(
     () => suggestWindow(projectTotals.totalHours),
@@ -548,13 +575,12 @@ function HandoffPageInner() {
                     <div className="text-right text-xs font-mono text-[#374151]">
                       {specCount}
                     </div>
+                    {/* Section 9 #4: per-sub TOTAL shows COST (incl. install
+                        prefill) — same number that lands on the bidding-page
+                        subproject card. Markup is applied once at the project
+                        total below, never per-sub. */}
                     <div className="text-right text-sm font-mono font-semibold text-[#111] tabular-nums">
-                      {money(
-                        (r?.subtotal || 0) *
-                          (marginTarget > 0
-                            ? 1 / (1 - Math.min(marginTarget / 100, 0.99))
-                            : 1)
-                      )}
+                      {money((r?.subtotal || 0) + (installCostBySub[sub.id] || 0))}
                     </div>
                   </div>
                 )

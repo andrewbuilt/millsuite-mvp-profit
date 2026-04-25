@@ -58,6 +58,7 @@ import {
 } from '@/lib/actual-hours'
 import { ArrowLeft, Copy, Plus, Trash2, X, Pencil } from 'lucide-react'
 import AddLineComposer from '@/components/composer/AddLineComposer'
+import FreeformLineModal from '@/components/subproject/FreeformLineModal'
 import InstallPrefill from '@/components/subproject/InstallPrefill'
 import {
   computeInstallCost,
@@ -147,6 +148,9 @@ export default function SubprojectEditorPage() {
   // this id. null = open-for-new (or closed). Reset whenever the
   // composer closes so the next "+ Compose line" click is fresh.
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
+  // Freeform modal — set to a line id to open. Used both for click-to-edit
+  // on existing freeform rows AND for auto-open after a freeform Enter add.
+  const [freeformLineId, setFreeformLineId] = useState<string | null>(null)
   // Create-CO modal seed. null = closed; non-null = open + line-seeded.
   const [coSeed, setCoSeed] = useState<CreateCoModalSeed | null>(null)
   // Install prefill values — loaded + kept in sync by InstallPrefill via its
@@ -340,9 +344,11 @@ export default function SubprojectEditorPage() {
       })
       if (newLine) {
         setLines((prev) => [...prev, newLine])
+        // Pop the freeform modal open so the operator fills in qty + total
+        // before moving on. Without this they'd be left with a $0 stub line.
+        setFreeformLineId(newLine.id)
       }
       setAddQuery('')
-      addInputRef.current?.focus()
     } catch (err) {
       setAddError(err instanceof Error ? err.message : String(err))
     }
@@ -714,16 +720,18 @@ export default function SubprojectEditorPage() {
                   <div
                     key={line.id}
                     onClick={() => {
-                      if (!isComposerLine) {
-                        setAddError(
-                          "This line was created before the composer existed and can't be edited here. Delete and recreate.",
-                        )
-                        return
+                      if (isComposerLine) {
+                        setEditingLineId(line.id)
+                        setComposerOpen(true)
+                      } else {
+                        // Freeform lines (no product_key) get the minimal
+                        // freeform editor. Same path used after Enter-as-
+                        // freeform creation so the operator fills in qty +
+                        // total immediately.
+                        setFreeformLineId(line.id)
                       }
-                      setEditingLineId(line.id)
-                      setComposerOpen(true)
                     }}
-                    className={`grid grid-cols-[1fr_72px_56px_80px_100px_100px_64px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors ${isComposerLine ? 'cursor-pointer' : ''}`}
+                    className={`grid grid-cols-[1fr_72px_56px_80px_100px_100px_64px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors cursor-pointer`}
                   >
                     <div className="pr-3 min-w-0">
                       <div className="text-sm text-[#111] font-medium truncate">
@@ -1059,6 +1067,15 @@ export default function SubprojectEditorPage() {
           }}
         />
       )}
+
+      <FreeformLineModal
+        line={lines.find((l) => l.id === freeformLineId) ?? null}
+        onClose={() => setFreeformLineId(null)}
+        onSaved={(patched) => {
+          setLines((prev) => prev.map((l) => (l.id === patched.id ? patched : l)))
+          setFreeformLineId(null)
+        }}
+      />
 
       {composerOpen && org?.id && (
         <AddLineComposer
