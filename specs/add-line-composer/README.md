@@ -1,11 +1,18 @@
 # Add-a-line Composer — Prototype Spec
 
-**Status:** Prototype for review · 2026-04-23
+**Status:** Prototype for review · 2026-04-23 · **amended 2026-04-24 (light-mode chrome, interior/exterior finish split, no sheets-per-LF ask, first-principles shop rate)**
 **Owner:** Andrew
 **Related plans:**
 - [`../base-cabinet-walkthrough/`](../base-cabinet-walkthrough/) — upstream calibration that populates the rate book
 - [`../shop-rate-setup/`](../shop-rate-setup/) — upstream shop rate
-- [`../../docs/ONBOARDING-PLAN.md`](../../docs/ONBOARDING-PLAN.md) — overall onboarding strategy
+- [`../../docs/ONBOARDING-PLAN.md`](../../docs/ONBOARDING-PLAN.md) — overall onboarding strategy (⚠️ partially stale — Phase 11 onboarding retired; see `BUILD-ORDER.md`)
+
+> **READ THIS FIRST — amendments that override the body of this spec and the prototype HTML:**
+>
+> 1. **Chrome is light mode** — not the dark `#0a0a0a` shown in `index.html`. Target palette: white panels, `#E5E7EB` borders, `#111` text, `#2563EB` accents, `#F9FAFB` side-panel backgrounds. Dark mode is reserved for the `WelcomeOverlay` first-login sequence; the composer itself lives inside the app shell and must match `/rate-book` and `/projects/[id]`.
+> 2. **Sheets-per-LF is never asked** — not for carcass, not for face. It's a hardcoded product constant in `lib/products.ts` (Base 1/12, Upper 1/8, Full 1/4). The carcass add-new card in `index.html` line 1063 is wrong on this point; carcass add-new = name + $/sheet only.
+> 3. **Interior finish and exterior finish are separate rate-book items.** Finish rows carry an `application` discriminator (`interior` | `exterior`). The Interior dropdown filters to `application='interior'`; the Exterior dropdown to `application='exterior'`. Same recipe name on both sides = two distinct rate-book rows. `Prefinished` is a built-in sentinel option at the top of the Interior dropdown (zero cost, zero labor, not a rate-book row) — always available, default when the carcass material is pre-finished. The Interior field is always rendered; no conditional show/hide.
+> 4. **Shop rate is blended, not per-department** — see the Departments section below. Per-dept hours are still captured for scheduling, but `$` uses `orgs.shop_rate` (Phase 12 Item 12). Ignore anywhere in this doc or the prototype that reads "Department rates + install rate" — that's superseded.
 
 This folder holds the clickable prototype for **adding a pricing line to a subproject**. It's the load-bearing moment where a calibrated rate book turns into a real estimate the user can trust.
 
@@ -50,8 +57,8 @@ User-created products are explicitly out of scope for V1 — the product list is
 | Carcass material | rate-book carcass templates | ~3 typical templates for most shops |
 | Door style | rate-book door styles (labor blocks) | calibrated via door walkthrough |
 | Door/drawer material | rate-book exterior templates | covers both doors and drawer fronts |
-| Interior finish | rate-book finish blocks | usually "prefinished" — no finish labor |
-| Exterior finish | rate-book finish blocks | applied to doors, drawer fronts, end panels |
+| Interior finish | rate-book finish items where `application='interior'` | Dropdown top option is the built-in `Prefinished` sentinel (zero cost, zero labor). Real interior-finish rows live in the rate book only when the shop actually finishes cabinet interiors (paint-grade box painted inside, etc.). Field is always rendered. |
+| Exterior finish | rate-book finish items where `application='exterior'` | applied to doors, drawer fronts, end panels |
 | End panels | count | flat per-unit cost |
 | Filler/scribes | count | flat per-unit cost |
 | Notes | free text |
@@ -161,7 +168,7 @@ Consumables replaces any flat hardware line — it's a material-scaled markup co
 ## Interaction notes
 
 - **Dropdown behavior:** click to open, click outside to close, click an item to select. Last option in a material dropdown is always "+ Add new material."
-- **Inline add-new card:** replaces the dropdown space. For carcass materials: name + $/sheet + sheets/LF. For door/drawer (face) materials: just name + $/sheet — sheets per LF is derived from the product.
+- **Inline add-new card:** replaces the dropdown space. For both carcass and door/drawer (face) materials: name + $/sheet. Sheets per LF is a product constant (never asked).
 - **Door walkthrough modal:** triggered when selecting an uncalibrated door style or "+ Add new door style." 5 stubbed steps in the prototype (Eng / CNC / Machining / Assembly / Finish) asking hours for 4 doors at 24"×30". Completion folds machining into assembly, divides by 4 to get per-door, updates the rate book, selects on the line.
 - **Live breakdown:** right rail shows labor/material per buildup row, updating as slots change. Consumables % and Waste % are editable number inputs on the breakdown itself. Warn row surfaces if the selected door style isn't calibrated yet.
 - **Block on save:** clicking "Add line" while a required slot is uncalibrated shows a toast and blocks the save.
@@ -246,7 +253,7 @@ The welcome and the required first-time calibrations are **not a page** in the a
 **What's in the overlay (required, sequential):**
 
 1. **Welcome screen** — 1 screen. Sets the POV: "You already know your craft. We're going to capture what you know, once, so your estimates match your shop." Single CTA: *Start setup.*
-2. **Shop rate setup** — the shop-rate-setup flow, embedded. Department rates + install rate.
+2. **Shop rate setup** — the first-principles shop-rate walkthrough (Phase 12 Item 12), embedded. Four screens: Overhead → Team → Billable hours → Result. Writes `orgs.overhead_inputs`, `orgs.team_members`, `orgs.billable_hours_inputs`, derives `orgs.shop_rate`. Per-department rate tables are deprecated — do not reintroduce the old 5-slider flow.
 3. **Base cabinet calibration** — the base-cabinet-walkthrough flow, embedded. One 8' run of base cabinets across the four departments. Seeds the rate book.
 
 On completion, the flag is set and the user lands on the dashboard with an empty project list, a populated rate book, and the ability to price a Base line.
