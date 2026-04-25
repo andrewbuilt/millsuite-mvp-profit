@@ -51,6 +51,11 @@ export interface ApprovalItem {
   state: ApprovalState
   last_state_change_at: string
   ball_in_court: BallInCourt
+  /** Migration 032: explicit rev counter. Starts at 1; bumps on a fresh
+   *  sample submission AND on CO-approval that touches an already-approved
+   *  slot (post-sale dogfood pass). Replaces the prior submitted-count
+   *  derivation, which under-reported the second case. */
+  revision: number
   created_at: string
   updated_at: string
   // Populated by loadApprovalItemsForSubproject
@@ -721,12 +726,19 @@ export async function seedApprovalItemsFromEstimate(
 // ── Derived helpers ──
 
 /**
- * Count of item_revisions rows with action='submitted' — this is what the
- * mockup shows as "rev 1", "rev 2", etc. next to a slot badge.
+ * Rev counter shown next to the slot badge ("rev 1", "rev 2", …). Reads
+ * approval_items.revision (migration 032). Falls back to the prior
+ * submitted-count heuristic on rows from before the column existed, and
+ * never returns < 1 — a freshly-created slot reads as rev 1.
  */
 export function revNumber(item: ApprovalItem): number {
-  if (!item.revisions) return 0
-  return item.revisions.filter((r) => r.action === 'submitted').length
+  if (typeof item.revision === 'number' && item.revision > 0) {
+    return item.revision
+  }
+  const submittedCount = (item.revisions || []).filter(
+    (r) => r.action === 'submitted',
+  ).length
+  return Math.max(1, submittedCount)
 }
 
 /**

@@ -16,7 +16,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, Clock, Send, RotateCcw, Link2, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import { CheckCircle2, Clock, Send, RotateCcw, Link2, Lock, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import { useConfirm } from '@/components/confirm-dialog'
 import {
   ApprovalItem,
   ApprovalState,
@@ -45,6 +46,7 @@ interface Props {
 }
 
 export default function ApprovalSlots({ subprojectId, projectId, actorUserId, onChange }: Props) {
+  const { alert } = useConfirm()
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
   const [busyItemId, setBusyItemId] = useState<string | null>(null)
@@ -83,7 +85,10 @@ export default function ApprovalSlots({ subprojectId, projectId, actorUserId, on
       onChange?.()
     } catch (err) {
       console.error(err)
-      alert('Failed to update spec. See console.')
+      await alert({
+        title: 'Couldn’t update spec',
+        message: 'Something went wrong saving that spec change. Open the browser console for the full error and try again.',
+      })
     } finally {
       setBusyItemId(null)
     }
@@ -313,11 +318,21 @@ function StateDot({ state }: { state: ApprovalState }) {
 }
 
 function StateBadge({ state }: { state: ApprovalState }) {
-  const label = state === 'in_review' ? 'In review' : state === 'approved' ? 'Approved' : 'Pending'
+  if (state === 'approved') {
+    // Item 3 of the post-sale dogfood pass: emphasise that the value is
+    // final unless a CO touches it. Once a CO approves with a different
+    // value, applyApprovedCo bumps the rev and resets state to pending,
+    // at which point this badge naturally falls through to "Pending".
+    return (
+      <span className="text-xs px-2 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200 inline-flex items-center gap-1">
+        <Lock className="w-3 h-3" />
+        Approved · locked
+      </span>
+    )
+  }
+  const label = state === 'in_review' ? 'In review' : 'Pending'
   const cls =
-    state === 'approved'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-      : state === 'in_review'
+    state === 'in_review'
       ? 'bg-amber-50 text-amber-700 border-amber-200'
       : 'bg-neutral-100 text-neutral-600 border-neutral-200'
   return <span className={`text-xs px-2 py-0.5 rounded border ${cls}`}>{label}</span>

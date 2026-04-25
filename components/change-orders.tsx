@@ -54,6 +54,7 @@ import {
   type ComposerSlots,
 } from '@/lib/composer'
 import { type ProductKey } from '@/lib/products'
+import { useConfirm } from '@/components/confirm-dialog'
 
 interface Props {
   projectId: string
@@ -68,6 +69,7 @@ interface Props {
 }
 
 export default function ChangeOrders({ projectId, projectName, pricing, subprojects, onChange }: Props) {
+  const { alert } = useConfirm()
   const [cos, setCos] = useState<ChangeOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [busyCoId, setBusyCoId] = useState<string | null>(null)
@@ -115,7 +117,11 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
       onChange?.()
     } catch (err) {
       console.error(err)
-      alert('Failed to update CO. See console.')
+      await alert({
+        title: 'Couldn’t update change order',
+        message:
+          'Something went wrong saving the CO transition. Open the browser console for the full error and try again.',
+      })
     } finally {
       setBusyCoId(null)
     }
@@ -701,6 +707,7 @@ function LegacyCoEditor({
   onClose: () => void
   onCreated: () => Promise<void>
 }) {
+  const { alert } = useConfirm()
   const [title, setTitle] = useState('')
   const [subprojectId, setSubprojectId] = useState<string>(
     subprojects[0]?.id || '',
@@ -770,7 +777,11 @@ function LegacyCoEditor({
         no_price_change: noPriceChange,
       })
       if (!result) {
-        alert('Failed to create CO. See console.')
+        await alert({
+          title: 'Couldn’t create change order',
+          message:
+            'Something went wrong inserting the CO row. Open the browser console for the full error and try again.',
+        })
         return
       }
       await onCreated()
@@ -1008,6 +1019,7 @@ function SeededSlotCoEditor({
   onClose: () => void
   onCreated: () => Promise<void>
 }) {
+  const { alert } = useConfirm()
   const [slotKey, setSlotKey] = useState<SlotKey | ''>('')
   // proposedValue holds whatever the right input is currently typing /
   // selecting. For dropdown slots: the picked option's id (or
@@ -1122,7 +1134,11 @@ function SeededSlotCoEditor({
         no_price_change: noPriceChange,
       })
       if (!result) {
-        alert('Failed to create CO. See console.')
+        await alert({
+          title: 'Couldn’t create change order',
+          message:
+            'Something went wrong inserting the CO row. Open the browser console for the full error and try again.',
+        })
         return
       }
       await onCreated()

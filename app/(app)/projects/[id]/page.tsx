@@ -813,6 +813,7 @@ export default function ProjectCoverPage() {
                   projectId={projectId}
                   pinnedTarget={project.target_margin_pct}
                   orgDefault={org?.profit_margin_pct ?? null}
+                  locked={!isPresold(project.stage)}
                   onPinnedChange={(next) =>
                     setProject((prev) =>
                       prev ? { ...prev, target_margin_pct: next } : prev,
@@ -1066,11 +1067,17 @@ function TargetMarginEditor({
   projectId,
   pinnedTarget,
   orgDefault,
+  locked,
   onPinnedChange,
 }: {
   projectId: string
   pinnedTarget: number | null
   orgDefault: number | null
+  /** When true, render the value read-only with a "(locked)" hint —
+   *  no input, no Reset link. Set whenever the project is past
+   *  bidding (stage !== bidding); the estimate is frozen at that point
+   *  and margin changes belong to a CO, not a free-form input. */
+  locked: boolean
   onPinnedChange: (next: number | null) => void
 }) {
   const effective = pinnedTarget ?? orgDefault ?? 35
@@ -1128,6 +1135,30 @@ function TargetMarginEditor({
     pinnedTarget == null
       ? `Inherited from org default (${orgDefault ?? 35}%)`
       : null
+
+  if (locked) {
+    return (
+      <div className="mt-3 space-y-1.5">
+        <div className="flex items-center gap-2 text-[12px] text-[#6B7280]">
+          <span className="font-semibold uppercase tracking-wider text-[10px] text-[#9CA3AF]">
+            Target margin
+          </span>
+          <div className="ml-auto flex items-baseline gap-1.5 font-mono tabular-nums text-[#111]">
+            <span className="text-sm font-semibold">
+              {effective.toFixed(0)}%
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF]">
+              locked
+            </span>
+          </div>
+        </div>
+        <div className="text-[10.5px] text-[#9CA3AF] leading-tight">
+          Margin is locked once the project is sold. Use a change order on a
+          line to adjust pricing.
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mt-3 space-y-1.5">
