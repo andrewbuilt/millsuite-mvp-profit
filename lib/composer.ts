@@ -170,6 +170,38 @@ export function emptySlots(): ComposerSlots {
   }
 }
 
+/** Human label for a product key. Mirrors what composer-persist.ts
+ *  bakes into estimate_lines.description as the leading segment, so
+ *  callers can strip "{label} · " from the description to get just
+ *  the slot summary. Inactive products (drawer/led/countertop) fall
+ *  through to the raw key string — they don't ship as composer
+ *  outputs in V1. */
+export function productLabelFromKey(key: ProductKey): string {
+  if (key === 'base') return 'Base cabinet'
+  if (key === 'upper') return 'Upper cabinet'
+  if (key === 'full') return 'Full height'
+  return key
+}
+
+/** Count the finish-spec slots set on a composer line:
+ *    +1 if carcassMaterial is set
+ *    +1 if doorMaterial is set
+ *    +1 if exteriorFinish is set AND not the Prefinished sentinel id
+ *  Freeform / rate-book lines (no slots) return 0. Used by surfaces
+ *  that previously read line.finish_specs.length (legacy field). */
+export function countFinishSpecsFromSlots(
+  slots: Partial<ComposerSlots> | null | undefined
+): number {
+  if (!slots) return 0
+  let count = 0
+  if (slots.carcassMaterial) count++
+  if (slots.doorMaterial) count++
+  if (slots.exteriorFinish && slots.exteriorFinish !== PREFINISHED_FINISH_ID) {
+    count++
+  }
+  return count
+}
+
 // ── Breakdown output ──
 
 export interface ComposerBreakdown {

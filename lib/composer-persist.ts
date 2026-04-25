@@ -19,7 +19,7 @@ import type {
   ComposerRateBook,
   ComposerSlots,
 } from './composer'
-import { summarizeSlots } from './composer'
+import { productLabelFromKey, summarizeSlots } from './composer'
 import type { ProductKey } from './products'
 
 export interface LastUsedPerProduct {
@@ -198,14 +198,7 @@ export async function saveComposerLine(input: {
   const nextOrder = last?.sort_order != null ? Number(last.sort_order) + 1 : 0
 
   const summary = summarizeSlots(draft, rateBook)
-  const productLabel =
-    draft.productId === 'base'
-      ? 'Base cabinet'
-      : draft.productId === 'upper'
-      ? 'Upper cabinet'
-      : draft.productId === 'full'
-      ? 'Full height'
-      : draft.productId
+  const productLabel = productLabelFromKey(draft.productId)
   const description = summary ? `${productLabel} · ${summary}` : productLabel
 
   // computeBreakdown returns whole-line totals; the storage columns are
@@ -259,14 +252,7 @@ export async function updateComposerLine(input: {
   const { lineId, draft, breakdown, rateBook } = input
 
   const summary = summarizeSlots(draft, rateBook)
-  const productLabel =
-    draft.productId === 'base'
-      ? 'Base cabinet'
-      : draft.productId === 'upper'
-      ? 'Upper cabinet'
-      : draft.productId === 'full'
-      ? 'Full height'
-      : draft.productId
+  const productLabel = productLabelFromKey(draft.productId)
   const description = summary ? `${productLabel} · ${summary}` : productLabel
 
   const storage = breakdownToStorageValues(breakdown, Number(draft.qty) || 0)

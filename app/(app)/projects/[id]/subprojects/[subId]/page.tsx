@@ -71,6 +71,7 @@ import {
   loadSubprojectDefaults,
 } from '@/lib/composer-persist'
 import type { ComposerDefaults, ComposerRateBook, ComposerSlots } from '@/lib/composer'
+import { productLabelFromKey } from '@/lib/composer'
 import type { ProductKey } from '@/lib/products'
 import {
   bulkRefreshStaleLines,
@@ -608,6 +609,25 @@ export default function SubprojectEditorPage() {
       )}
 
       <div className="max-w-[1400px] mx-auto px-6 py-5">
+        {project && !isPresold(project.stage) && (
+          <div className="mb-4 px-4 py-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-[#1E40AF]">
+                Locked — sold
+              </div>
+              <div className="text-[12px] text-[#1E3A8A] mt-0.5">
+                The estimate is locked. Use change orders on each line to
+                modify scope, lines, or pricing on this project.
+              </div>
+            </div>
+            <Link
+              href={`/projects/${projectId}/pre-production`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#2563EB] rounded-md hover:bg-[#1D4ED8] transition-colors"
+            >
+              Open change orders →
+            </Link>
+          </div>
+        )}
         {org && org.shop_rate == null && (
           <div className="mb-4 px-4 py-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl flex items-center justify-between gap-3 flex-wrap">
             <div className="min-w-0">
@@ -637,23 +657,27 @@ export default function SubprojectEditorPage() {
                 {lines.length} {lines.length === 1 ? 'line' : 'lines'}
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCloneOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] hover:text-[#111] transition-colors"
-              >
-                <Copy className="w-3.5 h-3.5" /> Clone from past
-              </button>
-              <button
-                onClick={() => {
-                  setEditingLineId(null)
-                  setComposerOpen(true)
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-[#2563EB] border border-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors"
-              >
-                + Compose line
-              </button>
-            </div>
+            {/* Add/clone affordances are pre-sold only; post-sold the
+                only legitimate edit path is a per-line CO. */}
+            {project && isPresold(project.stage) && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCloneOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] hover:text-[#111] transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Clone from past
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingLineId(null)
+                    setComposerOpen(true)
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-[#2563EB] border border-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors"
+                >
+                  + Compose line
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Staleness banner (Phase 12 item 10) — pre-sold only. */}
@@ -679,15 +703,18 @@ export default function SubprojectEditorPage() {
             </div>
           )}
 
-          {/* Keyboard hint strip */}
-          <div className="flex items-center gap-3 px-3 py-2 bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg text-[11px] text-[#1D4ED8] mb-3 flex-wrap">
-            <span className="font-semibold uppercase tracking-wider">Shortcuts</span>
-            <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">/</kbd> add</span>
-            <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">↑↓</kbd> navigate</span>
-            <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⏎</kbd> commit</span>
-            <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⌫</kbd> delete</span>
-            <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⌘D</kbd> duplicate</span>
-          </div>
+          {/* Keyboard hint strip — pre-sold only; the shortcuts target
+              add/duplicate/delete affordances that lock post-sold. */}
+          {project && isPresold(project.stage) && (
+            <div className="flex items-center gap-3 px-3 py-2 bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg text-[11px] text-[#1D4ED8] mb-3 flex-wrap">
+              <span className="font-semibold uppercase tracking-wider">Shortcuts</span>
+              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">/</kbd> add</span>
+              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">↑↓</kbd> navigate</span>
+              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⏎</kbd> commit</span>
+              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⌫</kbd> delete</span>
+              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⌘D</kbd> duplicate</span>
+            </div>
+          )}
 
           {/* Line table */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-3">
@@ -703,23 +730,43 @@ export default function SubprojectEditorPage() {
 
             {lines.length === 0 ? (
               <div className="px-3 py-8 text-center text-sm text-[#9CA3AF] italic">
-                No lines yet. Press <kbd className="px-1.5 py-0.5 mx-0.5 bg-[#F3F4F6] border border-[#E5E7EB] rounded font-mono text-[11px]">/</kbd> to add the first one.
+                {project && isPresold(project.stage) ? (
+                  <>
+                    No lines yet. Press <kbd className="px-1.5 py-0.5 mx-0.5 bg-[#F3F4F6] border border-[#E5E7EB] rounded font-mono text-[11px]">/</kbd> to add the first one.
+                  </>
+                ) : (
+                  <>No lines on this subproject.</>
+                )}
               </div>
             ) : (
               lines.map((line) => {
                 const item = line.rate_book_item_id ? itemsById.get(line.rate_book_item_id) ?? null : null
                 const opts = lineOptions.get(line.id) || []
                 const b = computeLineBuildup(line, item, opts, pricingCtx)
-                const finishSummary =
-                  (line.finish_specs || [])
-                    .map((f) => [f.material, f.finish].filter(Boolean).join(' / '))
-                    .filter(Boolean)
-                    .join(' · ') || ''
                 const isComposerLine = !!line.product_key
+                const editable = !!project && isPresold(project.stage)
+                // Composer lines: product label as the headline, then the
+                // slot summary (everything after "{label} · " in the
+                // description) on a second muted line. Freeform / rate-book
+                // lines: description-as-is, no second line. Keeps the cell
+                // narrow even for products with long slot rollups.
+                const productLabel = isComposerLine
+                  ? productLabelFromKey(line.product_key as ProductKey)
+                  : null
+                const slotSummary =
+                  productLabel &&
+                  line.description &&
+                  line.description.startsWith(`${productLabel} · `)
+                    ? line.description.slice(productLabel.length + 3)
+                    : ''
+                const headline = productLabel || item?.name || line.description || '(custom)'
                 return (
                   <div
                     key={line.id}
                     onClick={() => {
+                      // Post-sold rows are read-only; CO is the only edit
+                      // path (the per-row CO button below stays visible).
+                      if (!editable) return
                       if (isComposerLine) {
                         setEditingLineId(line.id)
                         setComposerOpen(true)
@@ -731,14 +778,16 @@ export default function SubprojectEditorPage() {
                         setFreeformLineId(line.id)
                       }
                     }}
-                    className={`grid grid-cols-[1fr_72px_56px_80px_100px_100px_64px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors cursor-pointer`}
+                    className={`grid grid-cols-[1fr_72px_56px_80px_100px_100px_64px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors ${editable ? 'cursor-pointer' : ''}`}
                   >
                     <div className="pr-3 min-w-0">
                       <div className="text-sm text-[#111] font-medium truncate">
-                        {item?.name || line.description || '(custom)'}
+                        {headline}
                       </div>
-                      {finishSummary && (
-                        <div className="text-[11px] text-[#6B7280] truncate mt-0.5">{finishSummary}</div>
+                      {slotSummary && (
+                        <div className="text-[11px] text-[#6B7280] truncate mt-0.5">
+                          {slotSummary}
+                        </div>
                       )}
                       {opts.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
@@ -760,21 +809,27 @@ export default function SubprojectEditorPage() {
                         </div>
                       )}
                     </div>
-                    <input
-                      type="number"
-                      step="any"
-                      value={line.quantity || ''}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0
-                        setLines((prev) => prev.map((l) => (l.id === line.id ? { ...l, quantity: val } : l)))
-                      }}
-                      onBlur={(e) => {
-                        const val = parseFloat(e.target.value) || 0
-                        patchLine(line.id, { quantity: val })
-                      }}
-                      className="w-full text-right text-sm font-mono tabular-nums bg-transparent border-b border-transparent hover:border-[#E5E7EB] focus:border-[#2563EB] focus:outline-none"
-                    />
+                    {editable ? (
+                      <input
+                        type="number"
+                        step="any"
+                        value={line.quantity || ''}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0
+                          setLines((prev) => prev.map((l) => (l.id === line.id ? { ...l, quantity: val } : l)))
+                        }}
+                        onBlur={(e) => {
+                          const val = parseFloat(e.target.value) || 0
+                          patchLine(line.id, { quantity: val })
+                        }}
+                        className="w-full text-right text-sm font-mono tabular-nums bg-transparent border-b border-transparent hover:border-[#E5E7EB] focus:border-[#2563EB] focus:outline-none"
+                      />
+                    ) : (
+                      <div className="text-right text-sm font-mono tabular-nums text-[#374151]">
+                        {line.quantity || 0}
+                      </div>
+                    )}
                     <div className="text-center text-xs text-[#6B7280] font-mono">{line.unit || item?.unit || '—'}</div>
                     <div className="text-right text-sm font-mono tabular-nums text-[#6B7280]">
                       {fmtHours(b.totalHours)}
@@ -786,6 +841,9 @@ export default function SubprojectEditorPage() {
                       {fmtMoney(b.lineTotal)}
                     </div>
                     <div className="flex items-center justify-end gap-2">
+                      {/* CO stays visible in BOTH stages — pre-sold it's
+                          optional, post-sold it's the only edit path
+                          (Issue D). */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -796,15 +854,18 @@ export default function SubprojectEditorPage() {
                       >
                         CO
                       </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          removeLine(line.id)
-                        }}
-                        className="flex items-center justify-center text-[#D1D5DB] hover:text-[#DC2626]"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Trash gates pre-sold; CO replaces deletion post-sold. */}
+                      {editable && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeLine(line.id)
+                          }}
+                          className="flex items-center justify-center text-[#D1D5DB] hover:text-[#DC2626]"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 )
@@ -812,7 +873,9 @@ export default function SubprojectEditorPage() {
             )}
           </div>
 
-          {/* Add-line input */}
+          {/* Add-line input — pre-sold only. Post-sold the only legitimate
+              add path is a CO that creates a line on a sub. */}
+          {project && isPresold(project.stage) && (
           <div className="relative mb-6">
             <div className={`flex items-center gap-3 px-3 py-2.5 bg-white border rounded-lg transition-colors ${pendingAdd ? 'border-[#2563EB]' : 'border-dashed border-[#E5E7EB]'}`}>
               <Plus className="w-4 h-4 text-[#9CA3AF]" />
@@ -910,19 +973,24 @@ export default function SubprojectEditorPage() {
               </div>
             )}
           </div>
+          )}
 
           {/* Install prefill (Phase 12 item 9) — per-subproject install
               cost from guys × days × install rate × (1 + complexity%).
               Sits below the line list per the dogfood-2 layout call:
               cabinet scope first, install second. Cost folds into
-              subprojectTotalWithInstall in the bottom rollup. */}
-          <div className="mb-6">
-            <InstallPrefill
-              subprojectId={subId}
-              installRatePerHour={org?.shop_rate ?? 0}
-              onChange={setInstallValues}
-            />
-          </div>
+              subprojectTotalWithInstall in the bottom rollup. Hidden
+              post-sold; locked install values still surface on the
+              Install row of the rollup below. */}
+          {project && isPresold(project.stage) && (
+            <div className="mb-6">
+              <InstallPrefill
+                subprojectId={subId}
+                installRatePerHour={org?.shop_rate ?? 0}
+                onChange={setInstallValues}
+              />
+            </div>
+          )}
 
           {/* Bottom rollup — at COST. Margin lives on the project page. */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
