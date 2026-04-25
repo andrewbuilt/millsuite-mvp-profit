@@ -8,8 +8,13 @@
 // 'untested' so the badges are gray — the shop sees "yes, something's here,
 // but trust it only after it's been used on real jobs."
 //
-// Dept labor rates default to BUILD-ORDER Phase 1:
-//   Engineering $95 · CNC $85 · Assembly $85 · Finish $90 · Install $80
+// ⚠️ The old Phase 1 per-department rate defaults
+// (Engineering $95 · CNC $85 · Assembly $85 · Finish $90 · Install $80)
+// are HISTORICAL ONLY. Phase 12 Item 12 replaced the per-dept rate table
+// with a single blended `orgs.shop_rate` derived by the first-principles
+// walkthrough. `LaborDept` and `LABOR_DEPTS` below are kept because lines
+// still carry per-dept *hours* for scheduling and time tracking — but
+// dollars are computed at one shop rate, not five.
 //
 // Starter categories + items are a minimal viable kit covering the 9 buckets
 // the rate-book mockup uses. Andrew can delete anything he doesn't want; the

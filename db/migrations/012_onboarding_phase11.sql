@@ -1,21 +1,27 @@
 -- ============================================================================
 -- 012_onboarding_phase11.sql — Phase 11: onboarding wizard state
 -- ============================================================================
--- Shops can use MillSuite on day one without a wizard (the starter rate book
--- is pre-populated). Phase 11 layers a skippable four-step wizard on top:
+-- ⚠️ SUPERSEDED 2026-04-24 — Phase 11 was retired. The four-step parsing
+-- wizard described below was never completed (OCR / past-estimate parse /
+-- bank-statement burden were scoped but not built); the dept-rate slider
+-- flow was replaced by the first-principles blended-rate walkthrough
+-- (Phase 12 Item 12) before shipping in a user-facing form. See
+-- BUILD-ORDER.md Phase 11 (collapsed) + Phase 12 Items 5/12.
+--
+-- These tables (onboarding_progress, onboarding_stashed_baselines) are
+-- dead code in the active app. A follow-up migration will drop them
+-- once the orphan helpers in lib/onboarding.ts are deleted. Until then,
+-- this migration stays applied for historical integrity — do not extend
+-- these tables; build first-run state on `users.onboarded_at` +
+-- `users.onboarding_step` instead (see migrations 020 and later).
+--
+-- Historical intent (retained for archive):
 --
 --   1. Business card parse          → prefill contact + company.
 --   2. Past estimate upload         → baselines into rate_book_items,
 --                                     gray confidence until used.
 --   3. Redacted bank statement      → shop burden / effective rate suggestion.
 --   4. Dept-rate interview          → sliders with real-world references.
---
--- Every step is skippable. State lives in a single onboarding_progress row
--- per org — simple key/value jsonb so we can add steps without another
--- migration. The `stashed_baselines` table holds parsed-estimate hits that
--- the user hasn't yet accepted into the rate book; confirming a row writes
--- to rate_book_items + rate_book_item_history (Phase 10 audit path) and
--- marks the stash row consumed.
 -- ============================================================================
 
 BEGIN;

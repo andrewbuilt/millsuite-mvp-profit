@@ -7,6 +7,12 @@
 -- Three nullable columns on subprojects. Compute at read time:
 --   guys × days × 8 (hrs/day) × shop_labor_rates.install × (1 + complexity%)
 --
+-- ⚠️ 2026-04-24 — the rate source above is superseded. `shop_labor_rates`
+-- was dropped in migration 023 when Phase 12 Item 12 replaced the per-dept
+-- rate table with a single blended `orgs.shop_rate`. The install prefill
+-- now reads `orgs.shop_rate` instead (see lib/install.ts + the
+-- InstallPrefill component). Formula shape unchanged; only the source.
+--
 -- NULL = "not yet configured" — composer shows 0 inputs and install cost
 -- of $0; once the user fills them in the cost flows into the subproject
 -- total. Existing rows default to NULL (no install cost until set).
