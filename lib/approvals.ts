@@ -504,6 +504,42 @@ export function proposeSlotsFromComposerLine(
 }
 
 /**
+ * Expand a freeform line that opted into the approval flow via spec_label
+ * (migration 034) into a single approval slot. Label = the operator's
+ * spec_label ("Custom doors", "Toe kick", etc.); material = the line's
+ * description so the spec card carries the same words the operator typed.
+ * Returns [] when spec_label is empty — the freeform line stays a back-of-
+ * house cost item with no client-facing decision.
+ */
+export function proposeSlotsFromFreeformLine(
+  line: {
+    id: string
+    subproject_id: string
+    description: string
+    spec_label: string | null
+    rate_book_item_id: string | null
+  },
+  ctx: { subproject_name: string }
+): ProposedApprovalSlot[] {
+  const label = (line.spec_label || '').trim()
+  if (!label) return []
+  return [
+    {
+      subproject_id: line.subproject_id,
+      subproject_name: ctx.subproject_name,
+      source_estimate_line_id: line.id,
+      source_line_description: line.description,
+      rate_book_item_id: line.rate_book_item_id,
+      rate_book_material_variant_id: null,
+      label,
+      material: line.description || null,
+      finish: null,
+      owner: 'client',
+    },
+  ]
+}
+
+/**
  * Expand a single estimate_line into the approval slots it would create on
  * handoff. Composer lines (product_key set) belong on
  * proposeSlotsFromComposerLine — this path handles freeform / rate-book
@@ -704,7 +740,24 @@ export async function seedApprovalItemsFromEstimate(
         )
         continue
       }
-      // Freeform / rate-book line: legacy reader.
+      // Freeform line with spec_label (migration 034): one slot, label =
+      // spec_label, material = description.
+      if (line.spec_label) {
+        proposals.push(
+          ...proposeSlotsFromFreeformLine(
+            {
+              id: line.id,
+              subproject_id: line.subproject_id,
+              description: line.description,
+              spec_label: line.spec_label,
+              rate_book_item_id: line.rate_book_item_id,
+            },
+            { subproject_name: sub.name },
+          ),
+        )
+        continue
+      }
+      // Legacy freeform / rate-book reader (finish_specs / callouts).
       const firstFinish = (line.finish_specs || [])[0]
       const variantName = firstFinish?.material
         ? [firstFinish.material, firstFinish.finish].filter(Boolean).join(' / ')

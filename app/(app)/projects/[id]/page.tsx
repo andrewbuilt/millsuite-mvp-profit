@@ -322,15 +322,22 @@ export default function ProjectCoverPage() {
         profitMarginPct: 0,
       }
       const rollup = computeSubprojectRollup(subLines, rateBook.itemsById, new Map(), perSubCtx)
-      // Finish-spec count comes from composer slots, not the legacy
-      // line.finish_specs column. Each composer line contributes:
-      //   +1 carcassMaterial set, +1 doorMaterial set, +1 exteriorFinish
-      //   set (excluding the Prefinished sentinel). Freeform / rate-book
-      //   lines contribute 0 — they're outside the composer spec model.
-      const finishSpecCount = subLines.reduce(
-        (s, l) => s + countFinishSpecsFromSlots(l.product_slots as any),
-        0
-      )
+      // Finish-spec count comes from:
+      //   - composer slots (carcassMaterial / doorMaterial / exteriorFinish
+      //     ≠ Prefinished sentinel) on each composer line, AND
+      //   - freeform lines that opted into the approval flow via
+      //     spec_label (migration 034) — one spec per such line.
+      // Lines with neither contribute 0 — they're back-of-house cost
+      // items with no client-facing decision.
+      const finishSpecCount = subLines.reduce((s, l) => {
+        if (l.product_key && l.product_slots) {
+          return s + countFinishSpecsFromSlots(l.product_slots as any)
+        }
+        if (l.spec_label && l.spec_label.trim().length > 0) {
+          return s + 1
+        }
+        return s
+      }, 0)
       const installPrefill = {
         guys: sub.install_guys,
         days: sub.install_days,

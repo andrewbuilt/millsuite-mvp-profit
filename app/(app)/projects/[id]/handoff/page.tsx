@@ -65,6 +65,7 @@ import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   proposeSlotsForLine,
   proposeSlotsFromComposerLine,
+  proposeSlotsFromFreeformLine,
   resolveComposerSlotNames,
   createApprovalItemsFromProposals,
   type ProposedApprovalSlot,
@@ -291,9 +292,24 @@ function HandoffPageInner() {
           )
           continue
         }
-        // Freeform / rate-book lines (no product_key): legacy finish_specs +
-        // callouts path. Phase 2 finish specs build a display name from the
-        // first spec so approval proposals still have a material hint.
+        // Freeform line with spec_label (migration 034): emit one slot
+        // labeled with the operator's spec_label, material = description.
+        if (line.spec_label) {
+          all.push(
+            ...proposeSlotsFromFreeformLine(
+              {
+                id: line.id,
+                subproject_id: line.subproject_id,
+                description: line.description,
+                spec_label: line.spec_label,
+                rate_book_item_id: line.rate_book_item_id,
+              },
+              { subproject_name: sub.name },
+            ),
+          )
+          continue
+        }
+        // Legacy freeform / rate-book path (finish_specs / callouts).
         const firstFinish = (line.finish_specs || [])[0]
         const variantName =
           firstFinish?.material
