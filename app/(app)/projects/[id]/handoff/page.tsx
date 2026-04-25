@@ -385,6 +385,20 @@ function HandoffPageInner() {
       // were persisted as status='projected' on the rollup, and Phase 9's
       // QB watcher advances them to 'received' as payments arrive.
       const created = await createApprovalItemsFromProposals(proposals)
+      // Persist the live priceTotal so every list / header surface that
+      // reads projects.bid_total (sales card, kanban, /projects card,
+      // dashboard report, pre-prod header) renders the customer-facing
+      // total instead of a pre-pricing-architecture stale value. Project
+      // page also writes this back on load — this is the catch for
+      // projects that go straight from 90% to sold via this button.
+      const liveTotal = Math.round(projectTotals.total)
+      if (Number.isFinite(liveTotal) && liveTotal > 0) {
+        const { error: btErr } = await supabase
+          .from('projects')
+          .update({ bid_total: liveTotal, updated_at: new Date().toISOString() })
+          .eq('id', project.id)
+        if (btErr) console.error('handoff bid_total writeback', btErr)
+      }
       await updateProjectStage(project.id, 'sold')
       const mParts =
         milestones.length > 0
