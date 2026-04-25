@@ -17,7 +17,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Plus,
   X,
   Send,
   CheckCircle2,
@@ -73,7 +72,11 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
   const [loading, setLoading] = useState(true)
   const [busyCoId, setBusyCoId] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [showCreate, setShowCreate] = useState(false)
+  // The standalone "+ New CO" trigger has been removed (post-sale dogfood
+  // pass): the only path to create a CO is from a subproject line row,
+  // which uses the seed-aware CreateCoModal mounted on the subproject page
+  // (Issue 21). Top-level free-form creation produced unscoped COs that
+  // couldn't be auto-priced.
 
   // reload() just refetches — it does NOT call onChange. If onChange fired on
   // every reload, any parent that reloads in response (e.g. pre-production
@@ -124,29 +127,22 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
 
   return (
     <div className="space-y-3">
-      {/* Section header */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium text-neutral-700">
-          Change orders
-          <span className="ml-2 text-neutral-500 font-normal">
-            {cos.length === 0
-              ? 'none yet'
-              : `${cos.length} total · ${openCount} open · ${fmtMoney(netApproved)} approved`}
-          </span>
-        </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
-        >
-          <Plus className="w-3 h-3" />
-          New CO
-        </button>
+      {/* Section header — listing only. Creation lives on the subproject
+          line row's CO button (Issue 21). */}
+      <div className="text-sm font-medium text-neutral-700">
+        Change orders
+        <span className="ml-2 text-neutral-500 font-normal">
+          {cos.length === 0
+            ? 'none yet'
+            : `${cos.length} total · ${openCount} open · ${fmtMoney(netApproved)} approved`}
+        </span>
       </div>
 
       {/* Empty state */}
       {cos.length === 0 && (
         <div className="text-sm text-neutral-500 border border-dashed border-neutral-300 rounded p-4">
-          No change orders yet. Draft one when a material swap or scope change affects the bid.
+          No change orders yet. Open a subproject and click <b>CO</b> on any
+          line row to draft one.
         </div>
       )}
 
@@ -174,20 +170,9 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
         />
       ))}
 
-      {/* Create modal */}
-      {showCreate && (
-        <CreateCoModal
-          projectId={projectId}
-          pricing={pricing}
-          subprojects={subprojects}
-          onClose={() => setShowCreate(false)}
-          onCreated={async () => {
-            setShowCreate(false)
-            await reload()
-            onChange?.()
-          }}
-        />
-      )}
+      {/* CreateCoModal mount removed — the modal export still ships for
+          the line-row CO entry (rendered on the subproject page); this
+          panel no longer hosts an unscoped trigger. */}
     </div>
   )
 }

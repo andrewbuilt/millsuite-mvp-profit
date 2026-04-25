@@ -1754,25 +1754,19 @@ function buildDefaultSpec(sub: Subproject): string {
 // edit affordances (add/edit/delete) hide once the estimate locks; the
 // only legitimate post-sold change path is a CO, which lives on the
 // pre-production page. Link points there.
-function SoldLockBanner({ projectId }: { projectId: string }) {
+// Note signature kept ({ projectId }) so the call site doesn't have to
+// change; the prop is unused now that the CTA was removed.
+function SoldLockBanner(_props: { projectId: string }) {
   return (
     <div className="px-8 pt-4">
-      <div className="max-w-[1240px] mx-auto px-4 py-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl flex items-center justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <div className="text-[13px] font-semibold text-[#1E40AF]">
-            Locked — sold
-          </div>
-          <div className="text-[12px] text-[#1E3A8A] mt-0.5">
-            The estimate is locked. Use change orders to modify scope, lines,
-            or pricing on this project.
-          </div>
+      <div className="max-w-[1240px] mx-auto px-4 py-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl">
+        <div className="text-[13px] font-semibold text-[#1E40AF]">
+          Locked — sold
         </div>
-        <Link
-          href={`/projects/${projectId}/pre-production`}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#2563EB] rounded-md hover:bg-[#1D4ED8] transition-colors"
-        >
-          Open change orders →
-        </Link>
+        <div className="text-[12px] text-[#1E3A8A] mt-0.5">
+          The estimate is locked. Use change orders to modify scope, lines,
+          or pricing — open a subproject and click <b>CO</b> on any line row.
+        </div>
       </div>
     </div>
   )

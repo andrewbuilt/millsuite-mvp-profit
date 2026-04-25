@@ -200,6 +200,61 @@ export async function reopenRevision(
   if (error) throw error
 }
 
+/**
+ * Create an "approved without upload" revision for a subproject. Used when
+ * the shop has shop drawings outside the system (paper, vendor PDF, etc.)
+ * and just needs to record verbal client sign-off so the scheduling gate
+ * can flip green. Persists exactly like a real revision but with
+ * file_url = null and a human-visible note so the absence is auditable.
+ */
+export async function markDrawingsApprovedManually(
+  subprojectId: string,
+  input: { uploaded_by_user_id?: string; notes?: string } = {}
+): Promise<DrawingRevision | null> {
+  const { data: maxRow } = await supabase
+    .from('drawing_revisions')
+    .select('revision_number')
+    .eq('subproject_id', subprojectId)
+    .order('revision_number', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextRevisionNumber = (maxRow?.revision_number ?? 0) + 1
+
+  const { error: demoteErr } = await supabase
+    .from('drawing_revisions')
+    .update({ is_latest: false, updated_at: new Date().toISOString() })
+    .eq('subproject_id', subprojectId)
+    .eq('is_latest', true)
+  if (demoteErr) {
+    console.error('markDrawingsApprovedManually demote', demoteErr)
+    return null
+  }
+
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('drawing_revisions')
+    .insert({
+      subproject_id: subprojectId,
+      revision_number: nextRevisionNumber,
+      file_url: null,
+      state: 'approved' as ApprovalState,
+      is_latest: true,
+      uploaded_by_user_id: input.uploaded_by_user_id || null,
+      submitted_at: now,
+      responded_at: now,
+      notes:
+        input.notes ||
+        'Manually approved (no revision uploaded)',
+    })
+    .select()
+    .single()
+  if (error) {
+    console.error('markDrawingsApprovedManually insert', error)
+    return null
+  }
+  return data as DrawingRevision
+}
+
 // ── Derived helpers ──
 
 /**

@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { PREFINISHED_FINISH_ID, type ComposerRateBook, type ComposerSlots } from './composer'
 
 // ── Types ──
 
@@ -407,11 +408,106 @@ export function guessSlotOwner(label: string): 'client' | 'shop' | 'vendor' {
 }
 
 /**
+ * Resolve composer slot ids → human names against the composer rate book.
+ * Used by proposeSlotsFromComposerLine so the approval-card material/finish
+ * text reads "White oak", not "<uuid>". Prefinished sentinel is treated as
+ * "no exterior finish picked" — those lines didn't elect to spec a finish
+ * and shouldn't generate a finish approval card.
+ */
+export function resolveComposerSlotNames(
+  slots: ComposerSlots,
+  rateBook: ComposerRateBook
+): {
+  carcassMaterial: { id: string; name: string } | null
+  doorMaterial: { id: string; name: string } | null
+  exteriorFinish: { id: string; name: string } | null
+} {
+  const carcass = slots.carcassMaterial
+    ? rateBook.carcassMaterials.find((m) => m.id === slots.carcassMaterial) ?? null
+    : null
+  const door = slots.doorMaterial
+    ? rateBook.extMaterials.find((m) => m.id === slots.doorMaterial) ?? null
+    : null
+  const finish =
+    slots.exteriorFinish && slots.exteriorFinish !== PREFINISHED_FINISH_ID
+      ? rateBook.finishes.find((f) => f.id === slots.exteriorFinish) ?? null
+      : null
+  return {
+    carcassMaterial: carcass ? { id: carcass.id, name: carcass.name } : null,
+    doorMaterial: door ? { id: door.id, name: door.name } : null,
+    exteriorFinish: finish ? { id: finish.id, name: finish.name } : null,
+  }
+}
+
+/**
+ * Expand a composer line (product_key set) into approval slots — one per
+ * filled slot on the line:
+ *   - carcassMaterial → "Carcass material"
+ *   - doorMaterial    → "Door/drawer material"
+ *   - exteriorFinish  → "Exterior finish" (skipped when value is the
+ *                        Prefinished sentinel)
+ * Caller resolves slot ids → names via resolveComposerSlotNames before
+ * passing the line in. Cards are deduped at write time by
+ * (subproject_id, label, material, finish) so identical specs on multiple
+ * lines collapse but distinct material picks under the same label survive.
+ */
+export function proposeSlotsFromComposerLine(
+  line: {
+    id: string
+    subproject_id: string
+    description: string
+    rate_book_item_id: string | null
+  },
+  resolved: ReturnType<typeof resolveComposerSlotNames>,
+  ctx: { subproject_name: string }
+): ProposedApprovalSlot[] {
+  const out: ProposedApprovalSlot[] = []
+  const baseRow = {
+    subproject_id: line.subproject_id,
+    subproject_name: ctx.subproject_name,
+    source_estimate_line_id: line.id,
+    source_line_description: line.description,
+    rate_book_item_id: line.rate_book_item_id,
+    rate_book_material_variant_id: null as string | null,
+    owner: 'client' as const,
+  }
+  if (resolved.carcassMaterial) {
+    out.push({
+      ...baseRow,
+      label: 'Carcass material',
+      material: resolved.carcassMaterial.name,
+      finish: null,
+    })
+  }
+  if (resolved.doorMaterial) {
+    out.push({
+      ...baseRow,
+      label: 'Door/drawer material',
+      material: resolved.doorMaterial.name,
+      finish: null,
+    })
+  }
+  if (resolved.exteriorFinish) {
+    out.push({
+      ...baseRow,
+      label: 'Exterior finish',
+      material: null,
+      finish: resolved.exteriorFinish.name,
+    })
+  }
+  return out
+}
+
+/**
  * Expand a single estimate_line into the approval slots it would create on
- * handoff. Phase 6: finish_specs are the primary source. Each {material,
- * finish} spec on a line becomes one card. Cards with identical (material,
- * finish) across lines inside the same subproject merge via the dedupe in
- * createApprovalItemsFromProposals (label is the dedupe key).
+ * handoff. Composer lines (product_key set) belong on
+ * proposeSlotsFromComposerLine — this path handles freeform / rate-book
+ * lines that pre-date the composer or carry only finish_specs.
+ *
+ * finish_specs are the primary source. Each {material, finish} spec on a
+ * line becomes one card. Cards with identical (label, material, finish)
+ * across lines inside the same subproject merge via the dedupe in
+ * createApprovalItemsFromProposals.
  *
  * Back-compat: if a line has no finish_specs but does have legacy callouts,
  * fall through to callout-based slot creation so old projects still generate
@@ -496,23 +592,27 @@ export async function createApprovalItemsFromProposals(
   if (proposals.length === 0) return 0
 
   // De-dupe against existing slots per subproject so a re-run is idempotent.
+  // Composite key is (subproject_id, label, material, finish) so two lines
+  // on the same sub picking different materials under the same slot label
+  // (e.g. "Carcass material · White oak" vs "Carcass material · Black liner")
+  // each get their own card — they're genuinely distinct decisions.
   const subIds = Array.from(new Set(proposals.map((p) => p.subproject_id)))
   const { data: existing } = await supabase
     .from('approval_items')
-    .select('subproject_id, label')
+    .select('subproject_id, label, material, finish')
     .in('subproject_id', subIds)
 
-  const existingKey = new Set(
-    (existing || []).map((r: any) => `${r.subproject_id}::${r.label}`)
-  )
+  const k = (r: { subproject_id: string; label: string; material: string | null; finish: string | null }) =>
+    `${r.subproject_id}::${r.label}::${r.material ?? ''}::${r.finish ?? ''}`
+  const existingKey = new Set((existing || []).map((r: any) => k(r)))
 
   // Dedupe within the incoming proposals too — multiple lines on the same
-  // sub with the same (material, finish) collapse to one card. First proposal
-  // wins for source_estimate_line_id, which is fine — the card represents the
-  // spec, not the line, and both lines share it.
+  // sub with the same (label, material, finish) collapse to one card. First
+  // proposal wins for source_estimate_line_id, which is fine — the card
+  // represents the spec, not the line, and both lines share it.
   const seenProp = new Set<string>()
   const uniqueProposals = proposals.filter((p) => {
-    const key = `${p.subproject_id}::${p.label}`
+    const key = k(p)
     if (seenProp.has(key) || existingKey.has(key)) return false
     seenProp.add(key)
     return true
@@ -538,6 +638,84 @@ export async function createApprovalItemsFromProposals(
     throw error
   }
   return toInsert.length
+}
+
+/**
+ * Build the full proposal set for a project from estimate lines + the
+ * composer rate book, then write idempotently into approval_items via
+ * createApprovalItemsFromProposals. Used by:
+ *   - sold-handoff page: fires once when the user marks the project sold.
+ *   - pre-production page: fires on every page load to self-heal existing
+ *     sold projects whose composer lines didn't produce cards under the
+ *     pre-Phase-12 finish_specs reader (the original bug). Dedupe makes
+ *     repeated calls a no-op.
+ *
+ * Returns the count of new rows inserted (0 when everything was already
+ * deduped).
+ */
+export async function seedApprovalItemsFromEstimate(
+  projectId: string,
+  orgId: string
+): Promise<number> {
+  // Local imports to keep the top-of-file deps minimal — these helpers are
+  // only needed when actually seeding.
+  const { loadEstimateLines } = await import('./estimate-lines')
+  const { loadComposerRateBook } = await import('./composer-loader')
+
+  const { data: subsData, error: subsErr } = await supabase
+    .from('subprojects')
+    .select('id, name')
+    .eq('project_id', projectId)
+    .order('sort_order')
+  if (subsErr || !subsData) {
+    console.error('seedApprovalItemsFromEstimate subs', subsErr)
+    return 0
+  }
+  const subs = subsData as Array<{ id: string; name: string }>
+  if (subs.length === 0) return 0
+
+  const composerRb = await loadComposerRateBook(orgId)
+
+  const proposals: ProposedApprovalSlot[] = []
+  for (const sub of subs) {
+    const lines = await loadEstimateLines(sub.id)
+    for (const line of lines) {
+      if (line.product_key && line.product_slots) {
+        const resolved = resolveComposerSlotNames(
+          line.product_slots as unknown as ComposerSlots,
+          composerRb,
+        )
+        proposals.push(
+          ...proposeSlotsFromComposerLine(
+            {
+              id: line.id,
+              subproject_id: line.subproject_id,
+              description: line.description,
+              rate_book_item_id: line.rate_book_item_id,
+            },
+            resolved,
+            { subproject_name: sub.name },
+          ),
+        )
+        continue
+      }
+      // Freeform / rate-book line: legacy reader.
+      const firstFinish = (line.finish_specs || [])[0]
+      const variantName = firstFinish?.material
+        ? [firstFinish.material, firstFinish.finish].filter(Boolean).join(' / ')
+        : null
+      proposals.push(
+        ...proposeSlotsForLine(line as any, {
+          subproject_name: sub.name,
+          item_default_callouts: null,
+          variant_name: variantName,
+        }),
+      )
+    }
+  }
+
+  if (proposals.length === 0) return 0
+  return createApprovalItemsFromProposals(proposals)
 }
 
 // ── Derived helpers ──

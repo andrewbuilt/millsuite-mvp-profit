@@ -64,9 +64,13 @@ import type { RateBookItemRow, RateBookOptionRow } from '@/lib/rate-book-v2'
 import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   proposeSlotsForLine,
+  proposeSlotsFromComposerLine,
+  resolveComposerSlotNames,
   createApprovalItemsFromProposals,
   type ProposedApprovalSlot,
 } from '@/lib/approvals'
+import { loadComposerRateBook } from '@/lib/composer-loader'
+import type { ComposerRateBook, ComposerSlots } from '@/lib/composer'
 import { updateProjectStage } from '@/lib/sales'
 import {
   loadMilestones,
@@ -180,6 +184,10 @@ function HandoffPageInner() {
     items: RateBookItemRow[]
     itemsById: Map<string, RateBookItemRow>
   }>({ items: [], itemsById: new Map() })
+  // Composer rate book — needed to resolve composer line slot ids
+  // (carcassMaterial / doorMaterial / exteriorFinish) to human names
+  // for the approval-card proposals.
+  const [composerRateBook, setComposerRateBook] = useState<ComposerRateBook | null>(null)
   const [loading, setLoading] = useState(true)
   const [confirming, setConfirming] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -192,7 +200,7 @@ function HandoffPageInner() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const [projRes, subsRes, rb] = await Promise.all([
+      const [projRes, subsRes, rb, crb] = await Promise.all([
         supabase.from('projects').select('*').eq('id', projectId).single(),
         supabase
           .from('subprojects')
@@ -200,6 +208,7 @@ function HandoffPageInner() {
           .eq('project_id', projectId)
           .order('sort_order'),
         loadRateBook(org!.id),
+        loadComposerRateBook(org!.id),
       ])
       if (cancelled) return
       const subList = (subsRes.data || []) as Subproject[]
@@ -243,6 +252,7 @@ function HandoffPageInner() {
       setInstallCostBySub(installCost)
       setInstallHoursBySub(installHours)
       setRateBook(rb)
+      setComposerRateBook(crb)
       setMilestones(ms)
       setLoading(false)
     }
@@ -256,16 +266,34 @@ function HandoffPageInner() {
 
   const proposals: ProposedApprovalSlot[] = useMemo(() => {
     const all: ProposedApprovalSlot[] = []
-    const itemById = rateBook.itemsById
     for (const sub of subs) {
       const lines = lineBySub[sub.id] || []
       for (const line of lines) {
-        const item = line.rate_book_item_id
-          ? itemById.get(line.rate_book_item_id) ?? null
-          : null
-        // Phase 2 finish specs replace the variant concept; build a display
-        // name from the first finish spec so approval proposals still have
-        // a material hint.
+        // Composer lines: read filled slots from product_slots → 1-3 cards
+        // (carcassMaterial / doorMaterial / exteriorFinish). This is the
+        // primary path now that the composer is the V1 line creator.
+        if (line.product_key && line.product_slots && composerRateBook) {
+          const resolved = resolveComposerSlotNames(
+            line.product_slots as unknown as ComposerSlots,
+            composerRateBook,
+          )
+          all.push(
+            ...proposeSlotsFromComposerLine(
+              {
+                id: line.id,
+                subproject_id: line.subproject_id,
+                description: line.description,
+                rate_book_item_id: line.rate_book_item_id,
+              },
+              resolved,
+              { subproject_name: sub.name },
+            ),
+          )
+          continue
+        }
+        // Freeform / rate-book lines (no product_key): legacy finish_specs +
+        // callouts path. Phase 2 finish specs build a display name from the
+        // first spec so approval proposals still have a material hint.
         const firstFinish = (line.finish_specs || [])[0]
         const variantName =
           firstFinish?.material
@@ -276,12 +304,12 @@ function HandoffPageInner() {
             subproject_name: sub.name,
             item_default_callouts: null,
             variant_name: variantName,
-          })
+          }),
         )
       }
     }
     return all
-  }, [subs, lineBySub, rateBook])
+  }, [subs, lineBySub, composerRateBook])
 
   const grouped = useMemo(() => {
     return {

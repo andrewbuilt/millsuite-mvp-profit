@@ -610,22 +610,14 @@ export default function SubprojectEditorPage() {
 
       <div className="max-w-[1400px] mx-auto px-6 py-5">
         {project && !isPresold(project.stage) && (
-          <div className="mb-4 px-4 py-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl flex items-center justify-between gap-3 flex-wrap">
-            <div className="min-w-0">
-              <div className="text-[13px] font-semibold text-[#1E40AF]">
-                Locked — sold
-              </div>
-              <div className="text-[12px] text-[#1E3A8A] mt-0.5">
-                The estimate is locked. Use change orders on each line to
-                modify scope, lines, or pricing on this project.
-              </div>
+          <div className="mb-4 px-4 py-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl">
+            <div className="text-[13px] font-semibold text-[#1E40AF]">
+              Locked — sold
             </div>
-            <Link
-              href={`/projects/${projectId}/pre-production`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#2563EB] rounded-md hover:bg-[#1D4ED8] transition-colors"
-            >
-              Open change orders →
-            </Link>
+            <div className="text-[12px] text-[#1E3A8A] mt-0.5">
+              The estimate is locked. Click <b>CO</b> on any line row below
+              to draft a change order — that's the only edit path post-sale.
+            </div>
           </div>
         )}
         {org && org.shop_rate == null && (
