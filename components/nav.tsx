@@ -27,7 +27,8 @@
 // don't need top-bar shortcuts.
 // ============================================================================
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -231,19 +232,50 @@ function NavGroup({
   pathname: string
 }) {
   const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Active when the parent route OR any child route is current.
   const isActive =
     pathname.startsWith(item.href) ||
     item.children.some((c) => pathname.startsWith(c.href))
 
+  // Anchor the portal-rendered menu to the wrap's bounding rect.
+  // The inner nav row uses overflow-x-auto to keep things scrollable on
+  // narrow viewports — that creates a clipping context, which is why
+  // the previous absolute-positioned menu rendered "empty" (it sat
+  // outside the visible area). Portal + fixed positioning sidesteps
+  // the clip entirely.
+  useLayoutEffect(() => {
+    if (!open) return
+    function recalc() {
+      if (!wrapRef.current) return
+      const r = wrapRef.current.getBoundingClientRect()
+      setMenuPos({ top: r.bottom + 4, left: r.left })
+    }
+    recalc()
+    window.addEventListener('resize', recalc)
+    window.addEventListener('scroll', recalc, true)
+    return () => {
+      window.removeEventListener('resize', recalc)
+      window.removeEventListener('scroll', recalc, true)
+    }
+  }, [open])
+
   // Close on outside click + Escape.
   useEffect(() => {
     if (!open) return
     function onDoc(e: MouseEvent) {
-      if (!wrapRef.current) return
-      if (!wrapRef.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (wrapRef.current?.contains(target)) return
+      // Don't close when the click lands inside the portal menu either.
+      if ((target as HTMLElement)?.closest?.('[data-nav-menu="true"]')) return
+      setOpen(false)
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false)
@@ -261,51 +293,22 @@ function NavGroup({
     return <NavItem item={item} pathname={pathname} />
   }
 
-  return (
-    <div
-      ref={wrapRef}
-      className="relative flex items-stretch flex-shrink-0"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
-      <Link
-        href={item.href}
-        className={`flex items-center gap-1.5 sm:gap-2 pl-2.5 sm:pl-3 pr-1.5 py-1.5 rounded-l-lg text-sm font-medium transition-colors ${
-          isActive
-            ? 'bg-[#F3F4F6] text-[#111]'
-            : 'text-[#6B7280] hover:text-[#111] hover:bg-[#F9FAFB]'
-        }`}
-      >
-        <item.icon className="w-4 h-4 flex-shrink-0" />
-        <span className="hidden sm:inline">{item.label}</span>
-      </Link>
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Open ${item.label} menu`}
-        onClick={() => setOpen((v) => !v)}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') {
-            e.preventDefault()
-            setOpen(true)
-          }
-        }}
-        className={`flex items-center px-1 py-1.5 rounded-r-lg transition-colors ${
-          isActive
-            ? 'bg-[#F3F4F6] text-[#6B7280]'
-            : 'text-[#9CA3AF] hover:text-[#111] hover:bg-[#F9FAFB]'
-        }`}
-      >
-        <ChevronDown
-          className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-
-      {open && (
+  const menu = open && menuPos && mounted
+    ? createPortal(
         <div
+          data-nav-menu="true"
           role="menu"
-          className="absolute top-full left-0 mt-1 min-w-[180px] bg-white border border-[#E5E7EB] rounded-lg shadow-lg py-1 z-50"
+          // pointer-events: auto so hovering the menu (which sits
+          // outside the wrap) keeps it open; the portal-host body
+          // doesn't have onMouseLeave wired for it.
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          style={{
+            position: 'fixed',
+            top: menuPos.top,
+            left: menuPos.left,
+          }}
+          className="min-w-[180px] bg-white border border-[#E5E7EB] rounded-lg shadow-lg py-1 z-[60]"
         >
           {item.children.map((child) => {
             const childActive = pathname.startsWith(child.href)
@@ -326,8 +329,54 @@ function NavGroup({
               </Link>
             )
           })}
-        </div>
-      )}
-    </div>
+        </div>,
+        document.body,
+      )
+    : null
+
+  return (
+    <>
+      <div
+        ref={wrapRef}
+        className="relative flex items-stretch flex-shrink-0"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        <Link
+          href={item.href}
+          className={`flex items-center gap-1.5 sm:gap-2 pl-2.5 sm:pl-3 pr-1.5 py-1.5 rounded-l-lg text-sm font-medium transition-colors ${
+            isActive
+              ? 'bg-[#F3F4F6] text-[#111]'
+              : 'text-[#6B7280] hover:text-[#111] hover:bg-[#F9FAFB]'
+          }`}
+        >
+          <item.icon className="w-4 h-4 flex-shrink-0" />
+          <span className="hidden sm:inline">{item.label}</span>
+        </Link>
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={`Open ${item.label} menu`}
+          onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault()
+              setOpen(true)
+            }
+          }}
+          className={`flex items-center px-1 py-1.5 rounded-r-lg transition-colors ${
+            isActive
+              ? 'bg-[#F3F4F6] text-[#6B7280]'
+              : 'text-[#9CA3AF] hover:text-[#111] hover:bg-[#F9FAFB]'
+          }`}
+        >
+          <ChevronDown
+            className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        </button>
+      </div>
+      {menu}
+    </>
   )
 }
