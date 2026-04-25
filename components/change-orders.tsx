@@ -279,6 +279,7 @@ function CoCard({
           <CoActions
             state={co.state}
             isBusy={isBusy}
+            specGated={!!co.approval_item_id}
             onSend={onSend}
             onApprove={onApprove}
             onReject={onReject}
@@ -378,23 +379,35 @@ function SnapshotBlock({
 interface CoActionsProps {
   state: CoState
   isBusy: boolean
+  /** When true, this CO is gated on a spec approval (approval_item_id
+   *  is set). The send / approve / decline buttons hide — the CO
+   *  auto-finalizes when the spec lands. Void stays visible so the
+   *  operator can kill a draft that was created in error. */
+  specGated: boolean
   onSend: () => void
   onApprove: (note?: string) => void
   onReject: (note?: string) => void
   onVoid: () => void
 }
 
-function CoActions({ state, isBusy, onSend, onApprove, onReject, onVoid }: CoActionsProps) {
+function CoActions({ state, isBusy, specGated, onSend, onApprove, onReject, onVoid }: CoActionsProps) {
   if (state === 'draft') {
     return (
       <div className="flex flex-wrap gap-2">
-        <button
-          disabled={isBusy}
-          onClick={onSend}
-          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-neutral-900 text-white hover:bg-neutral-700 disabled:opacity-50"
-        >
-          <Send className="w-3 h-3" /> Send to client
-        </button>
+        {specGated ? (
+          <span className="text-[11px] text-neutral-500 italic px-1 py-1">
+            Awaiting spec approval — auto-finalizes when the linked spec
+            is approved.
+          </span>
+        ) : (
+          <button
+            disabled={isBusy}
+            onClick={onSend}
+            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-neutral-900 text-white hover:bg-neutral-700 disabled:opacity-50"
+          >
+            <Send className="w-3 h-3" /> Send to client
+          </button>
+        )}
         <button
           disabled={isBusy}
           onClick={onVoid}
@@ -406,6 +419,26 @@ function CoActions({ state, isBusy, onSend, onApprove, onReject, onVoid }: CoAct
     )
   }
   if (state === 'sent_to_client') {
+    if (specGated) {
+      // Spec-gated COs shouldn't normally reach 'sent_to_client'
+      // (they skip the send/decline path entirely). If one does —
+      // legacy data, manual override — render as awaiting and only
+      // expose Void.
+      return (
+        <div className="flex flex-wrap gap-2">
+          <span className="text-[11px] text-neutral-500 italic px-1 py-1">
+            Awaiting spec approval.
+          </span>
+          <button
+            disabled={isBusy}
+            onClick={onVoid}
+            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 text-neutral-700 hover:border-neutral-500 disabled:opacity-50"
+          >
+            <Archive className="w-3 h-3" /> Void
+          </button>
+        </div>
+      )
+    }
     return (
       <ApprovalControls isBusy={isBusy} onApprove={onApprove} onReject={onReject} />
     )
@@ -653,6 +686,20 @@ export interface CreateCoModalSeed {
   /** The line's display description, used in the modal header AND as
    *  the snapshot label so the CO list reads cleanly. */
   description: string
+  /** Spec-CO redesign (post-sale dogfood pass): when source === 'spec',
+   *  the modal is pre-scoped to one slot with the spec's current value
+   *  pre-filled. The slot picker locks; saving writes
+   *  approval_item_id so the CO auto-approves when the spec is
+   *  approved. When source === 'line' (or unset), the modal opens with
+   *  the slot picker free — that's the line-row CO entry from
+   *  Issue 21. */
+  source?: 'spec' | 'line'
+  /** Required when source='spec'. The approval_items.id this CO is
+   *  gated on. */
+  approvalItemId?: string
+  /** Required when source='spec'. The pre-locked slot. Maps to
+   *  ComposerSlots keys via SLOT_LABELS. */
+  preSelectedSlot?: SlotKey
 }
 
 /** Slot keys an operator can target in a slot-aware CO. Mirrors
@@ -1055,7 +1102,13 @@ function SeededSlotCoEditor({
   onCreated: () => Promise<void>
 }) {
   const { alert } = useConfirm()
-  const [slotKey, setSlotKey] = useState<SlotKey | ''>('')
+  // Spec-CO redesign: when seed.source === 'spec' the slot is pre-locked
+  // to seed.preSelectedSlot. The slot picker renders disabled with the
+  // pre-locked value visible.
+  const isSpecCo = seed.source === 'spec' && !!seed.preSelectedSlot
+  const [slotKey, setSlotKey] = useState<SlotKey | ''>(
+    isSpecCo ? (seed.preSelectedSlot as SlotKey) : '',
+  )
   // proposedValue holds whatever the right input is currently typing /
   // selecting. For dropdown slots: the picked option's id (or
   // PREFINISHED_FINISH_ID for the sentinel). For numeric slots: the
@@ -1162,6 +1215,10 @@ function SeededSlotCoEditor({
       const result = await createChangeOrder({
         project_id: projectId,
         subproject_id: seed.subprojectId,
+        // Spec-CO mode: link the CO to the approval_item it targets.
+        // approveCo's auto-finalize path (lib/approvals.approve →
+        // finalizeSpecCosOnApproval) keys off this column.
+        approval_item_id: isSpecCo ? seed.approvalItemId ?? null : null,
         title: effectiveTitle,
         original_line_snapshot: origSnap,
         proposed_line: propSnap,
@@ -1207,28 +1264,44 @@ function SeededSlotCoEditor({
             </div>
           </div>
 
-          {/* Slot picker. */}
-          <div>
-            <label className="text-xs font-medium text-neutral-700 block mb-1">
-              What's changing? <span className="text-red-600">*</span>
-            </label>
-            <select
-              value={slotKey}
-              onChange={(e) => {
-                setSlotKey(e.target.value as SlotKey | '')
-                setProposedValue('')
-              }}
-              className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
-              autoFocus
-            >
-              <option value="">Pick a slot…</option>
-              {(Object.keys(SLOT_LABELS) as SlotKey[]).map((k) => (
-                <option key={k} value={k}>
-                  {SLOT_LABELS[k]}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Slot picker. Spec-CO mode locks the slot to whatever the
+              parent spec card pre-selected — operator's job is to pick
+              the new value, not the slot. */}
+          {isSpecCo ? (
+            <div>
+              <label className="text-xs font-medium text-neutral-700 block mb-1">
+                Changing
+              </label>
+              <div className="px-2 py-1.5 bg-neutral-100 border border-neutral-200 rounded text-xs text-neutral-700 font-medium">
+                {SLOT_LABELS[slotKey as SlotKey]}{' '}
+                <span className="text-neutral-500 font-normal">
+                  · locked from spec card
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs font-medium text-neutral-700 block mb-1">
+                What's changing? <span className="text-red-600">*</span>
+              </label>
+              <select
+                value={slotKey}
+                onChange={(e) => {
+                  setSlotKey(e.target.value as SlotKey | '')
+                  setProposedValue('')
+                }}
+                className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+                autoFocus
+              >
+                <option value="">Pick a slot…</option>
+                {(Object.keys(SLOT_LABELS) as SlotKey[]).map((k) => (
+                  <option key={k} value={k}>
+                    {SLOT_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {slotKey && (
             <div className="grid grid-cols-2 gap-3">

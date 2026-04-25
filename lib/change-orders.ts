@@ -514,7 +514,16 @@ export async function draftCoFromApprovalCard(
  * The CO row itself remains the canonical audit record (original_line_snapshot
  * is frozen at draft time and can be replayed).
  */
-export async function applyApprovedCo(coId: string): Promise<void> {
+export async function applyApprovedCo(
+  coId: string,
+  opts: {
+    /** Suppress the "approved spec → reset to pending + bump rev" branch.
+     *  Used by the spec-CO finalize path where the spec is being approved
+     *  WITH the proposed value; we don't want to immediately re-pending
+     *  the spec we just approved. */
+    skipReopen?: boolean
+  } = {},
+): Promise<void> {
   const { data: co, error } = await supabase
     .from('change_orders')
     .select(
@@ -600,7 +609,7 @@ export async function applyApprovedCo(coId: string): Promise<void> {
       patch.rate_book_material_variant_id =
         proposed.rate_book_material_variant_id ?? null
     }
-    if (wasApproved) {
+    if (wasApproved && !opts.skipReopen) {
       // Item 3 of the post-sale dogfood pass: an approved spec touched by
       // an approved CO is no longer truly approved — the value moved.
       // Bump rev and reset to pending so the operator knows a new sample
@@ -696,6 +705,65 @@ export async function applyApprovedCo(coId: string): Promise<void> {
       }
     }
   }
+}
+
+/**
+ * Spec-CO redesign (post-sale dogfood pass): a CO whose
+ * approval_item_id is non-null is "spec-gated" — it doesn't have its own
+ * approve/decline buttons. It auto-flips to approved when the spec it
+ * targets transitions to approved. This helper runs from the approve()
+ * handler in lib/approvals.ts after the spec's state is written.
+ *
+ * For each draft CO targeting `approvalItemId`:
+ *   - State → 'approved'
+ *   - applyApprovedCo runs with skipReopen=true so the spec we just
+ *     approved doesn't immediately re-pending. The proposed value gets
+ *     written through to estimate_lines.product_slots / .finish_specs
+ *     and to approval_items.material/.finish.
+ *   - bid_total recompute fires once at the end.
+ *
+ * Errors are best-effort: each CO is processed independently, failures
+ * log and move on. The spec's approval state is already committed by
+ * the caller; we don't roll it back if a CO finalize fails.
+ *
+ * Returns the count of COs flipped.
+ */
+export async function finalizeSpecCosOnApproval(
+  approvalItemId: string,
+): Promise<number> {
+  const { data: drafts, error } = await supabase
+    .from('change_orders')
+    .select('id, project_id')
+    .eq('approval_item_id', approvalItemId)
+    .eq('state', 'draft')
+  if (error) {
+    console.error('finalizeSpecCosOnApproval: read drafts', error)
+    return 0
+  }
+  if (!drafts || drafts.length === 0) return 0
+
+  const now = new Date().toISOString()
+  let flipped = 0
+  let projectId: string | null = null
+  for (const co of drafts as Array<{ id: string; project_id: string | null }>) {
+    if (!projectId && co.project_id) projectId = co.project_id
+    const { error: updErr } = await supabase
+      .from('change_orders')
+      .update({ state: 'approved' as CoState, updated_at: now })
+      .eq('id', co.id)
+    if (updErr) {
+      console.error('finalizeSpecCosOnApproval: update CO', co.id, updErr)
+      continue
+    }
+    try {
+      await applyApprovedCo(co.id, { skipReopen: true })
+      flipped += 1
+    } catch (err) {
+      console.error('finalizeSpecCosOnApproval: applyApprovedCo', co.id, err)
+    }
+  }
+  if (projectId) void recomputeProjectBidTotal(projectId)
+  return flipped
 }
 
 /**

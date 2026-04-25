@@ -596,11 +596,14 @@ function HandoffPageInner() {
             </div>
           ) : (
             <div className="space-y-1">
-              {/* header */}
-              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              {/* header. Explicit widths so the columns spread across
+                  the row (Subproject left-justified, Lines + Specs
+                  centered, Total right-justified) instead of bunching
+                  on the right with auto-fit. */}
+              <div className="grid grid-cols-[1fr_60px_100px_140px] gap-4 px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
                 <div>Subproject</div>
-                <div className="text-right">Lines</div>
-                <div className="text-right">Finish specs</div>
+                <div className="text-center">Lines</div>
+                <div className="text-center">Finish specs</div>
                 <div className="text-right">Total</div>
               </div>
               {subs.map((sub) => {
@@ -613,7 +616,7 @@ function HandoffPageInner() {
                 return (
                   <div
                     key={sub.id}
-                    className="grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center px-1 py-2 border-b border-[#F3F4F6] last:border-b-0"
+                    className="grid grid-cols-[1fr_60px_100px_140px] gap-4 items-center px-1 py-2 border-b border-[#F3F4F6] last:border-b-0"
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-[#111] truncate">
@@ -627,10 +630,10 @@ function HandoffPageInner() {
                         </div>
                       )}
                     </div>
-                    <div className="text-right text-xs font-mono text-[#374151]">
+                    <div className="text-center text-xs font-mono text-[#374151]">
                       {lines.length}
                     </div>
-                    <div className="text-right text-xs font-mono text-[#374151]">
+                    <div className="text-center text-xs font-mono text-[#374151]">
                       {specCount}
                     </div>
                     {/* Section 9 #4: per-sub TOTAL shows COST (incl. install
@@ -643,7 +646,7 @@ function HandoffPageInner() {
                   </div>
                 )
               })}
-              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center px-1 pt-3 mt-1 border-t-2 border-[#111]">
+              <div className="grid grid-cols-[1fr_60px_100px_140px] gap-4 items-center px-1 pt-3 mt-1 border-t-2 border-[#111]">
                 <div className="text-sm font-semibold text-[#111]">
                   Project total
                 </div>
