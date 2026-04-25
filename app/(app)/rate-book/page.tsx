@@ -40,6 +40,26 @@ import {
 import {
   LABOR_DEPTS, LABOR_DEPT_LABEL, type LaborDept,
 } from '@/lib/rate-book-seed'
+import { PRODUCTS, type ProductKey } from '@/lib/products'
+
+// Upper / Full are multipliers on Base cabinet, not standalone rate
+// book rows. Surface them in the sidebar as derived read-only entries
+// so operators see all three cabinet types in one place. Each derived
+// row uses a synthetic id with this prefix so selectedId branches can
+// detect it.
+const DERIVED_ID_PREFIX = 'derived:'
+const DERIVED_PRODUCTS: { key: 'upper' | 'full'; id: string }[] = [
+  { key: 'upper', id: `${DERIVED_ID_PREFIX}upper` },
+  { key: 'full', id: `${DERIVED_ID_PREFIX}full` },
+]
+function isDerivedId(id: string | null): boolean {
+  return !!id && id.startsWith(DERIVED_ID_PREFIX)
+}
+function derivedKey(id: string): 'upper' | 'full' | null {
+  if (id === `${DERIVED_ID_PREFIX}upper`) return 'upper'
+  if (id === `${DERIVED_ID_PREFIX}full`) return 'full'
+  return null
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Small helpers
@@ -116,9 +136,15 @@ export default function RateBookPage() {
     }
   }
 
-  // Load per-item side data whenever selection changes.
+  // Load per-item side data whenever selection changes. Skip the lookup
+  // for derived ids — they don't have rows in approval_items / options.
   useEffect(() => {
     if (!selectedId) return
+    if (isDerivedId(selectedId)) {
+      setHistory([])
+      setItemOptionIds(new Set())
+      return
+    }
     ;(async () => {
       const [h, opts] = await Promise.all([
         listItemHistory(selectedId),
@@ -129,14 +155,32 @@ export default function RateBookPage() {
     })()
   }, [selectedId])
 
-  const selectedItem = useMemo(
-    () => items.find((i) => i.id === selectedId) || null,
-    [items, selectedId]
-  )
+  // Resolve selectedItem either to a real row or, for the synthetic
+  // upper/full ids, to a thin derived row built from Base. The detail
+  // pane branches on isDerivedId(selectedId) for read-only render.
+  const selectedItem = useMemo(() => {
+    if (!selectedId) return null
+    if (isDerivedId(selectedId)) {
+      const cabinetCat = categories.find((c) => c.item_type === 'cabinet_style')
+      const baseRow = items.find(
+        (it) => it.category_id === cabinetCat?.id && it.name === 'Base cabinet',
+      )
+      const key = derivedKey(selectedId)
+      if (!baseRow || !key || !cabinetCat) return null
+      return {
+        ...baseRow,
+        id: selectedId,
+        name: PRODUCTS[key].label,
+        category_id: cabinetCat.id,
+      } as RateBookItemRow
+    }
+    return items.find((i) => i.id === selectedId) || null
+  }, [items, categories, selectedId])
   const selectedCategory = useMemo(
     () => (selectedItem ? categories.find((c) => c.id === selectedItem.category_id) || null : null),
     [categories, selectedItem]
   )
+  const selectedIsDerived = isDerivedId(selectedId)
 
   const shopRate = org?.shop_rate ?? 0
   const buildup = useMemo(
@@ -145,16 +189,39 @@ export default function RateBookPage() {
   )
 
   // Tree: categories → items, filtered by search.
+  // For cabinet_style categories, we also append derived Upper / Full
+  // rows synthesized from products.ts so all three cabinet types show
+  // up in one list. The derived rows are read-only — clicking one
+  // surfaces the multiplier explanation in the detail view.
   const filteredTree = useMemo(() => {
     const s = treeSearch.trim().toLowerCase()
     return categories.map((cat) => {
       const catItems = items.filter((it) => it.category_id === cat.id)
+      let allItems: RateBookItemRow[] = catItems
+      if (cat.item_type === 'cabinet_style') {
+        const baseRow = catItems.find((it) => it.name === 'Base cabinet')
+        if (baseRow) {
+          // Synthesize a thin derived row per upper/full; only the
+          // fields the sidebar reads (id, name, confidence, hours)
+          // need to be present and meaningful.
+          const derivedRows: RateBookItemRow[] = DERIVED_PRODUCTS.map(
+            ({ key, id }) =>
+              ({
+                ...baseRow,
+                id,
+                name: PRODUCTS[key].label,
+                category_id: cat.id,
+              }) as RateBookItemRow,
+          )
+          allItems = [...catItems, ...derivedRows]
+        }
+      }
       const filteredItems = s
-        ? catItems.filter((it) => it.name.toLowerCase().includes(s))
-        : catItems
+        ? allItems.filter((it) => it.name.toLowerCase().includes(s))
+        : allItems
       const catMatches = s ? cat.name.toLowerCase().includes(s) : false
       const visible = catMatches || filteredItems.length > 0
-      return { cat, items: catMatches ? catItems : filteredItems, visible, hasSearch: !!s }
+      return { cat, items: catMatches ? allItems : filteredItems, visible, hasSearch: !!s }
     })
   }, [categories, items, treeSearch])
 
@@ -269,6 +336,19 @@ export default function RateBookPage() {
                     {open &&
                       its.map((it) => {
                         const isSel = it.id === selectedId
+                        // "Uncalibrated" = every per-dept hour is zero.
+                        // Pre-seeded finish combos land in this state
+                        // until FinishWalkthrough writes real numbers.
+                        // Surface as a small gray pill so an operator
+                        // can tell intentional zero (custom freeform
+                        // line) from unfinished setup.
+                        const totalHours =
+                          (Number(it.base_labor_hours_eng) || 0) +
+                          (Number(it.base_labor_hours_cnc) || 0) +
+                          (Number(it.base_labor_hours_assembly) || 0) +
+                          (Number(it.base_labor_hours_finish) || 0) +
+                          (Number(it.base_labor_hours_install) || 0)
+                        const uncalibrated = totalHours === 0
                         return (
                           <button
                             key={it.id}
@@ -278,6 +358,14 @@ export default function RateBookPage() {
                             }`}
                           >
                             <span className="flex-1 truncate">{it.name}</span>
+                            {uncalibrated && (
+                              <span
+                                title="No labor hours yet — calibrate via the matching walkthrough"
+                                className="text-[8.5px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded bg-[#F3F4F6] text-[#9CA3AF] border border-[#E5E7EB]"
+                              >
+                                ø
+                              </span>
+                            )}
                             <ConfidencePill c={it.confidence} size="dot" />
                           </button>
                         )
@@ -294,6 +382,12 @@ export default function RateBookPage() {
               <span className="flex items-center gap-1.5"><ConfidencePill c="few_jobs" size="dot" /> few jobs</span>
               <span className="flex items-center gap-1.5"><ConfidencePill c="untested" size="dot" /> new</span>
               <span className="flex items-center gap-1.5"><ConfidencePill c="looking_weird" size="dot" /> looking weird</span>
+              <span className="flex items-center gap-1.5">
+                <span className="text-[8.5px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded bg-[#F3F4F6] text-[#9CA3AF] border border-[#E5E7EB]">
+                  ø
+                </span>
+                uncalibrated
+              </span>
             </div>
           </div>
         </aside>
@@ -315,12 +409,14 @@ export default function RateBookPage() {
               <div className="flex items-center justify-between mb-3">
                 <h1 className="text-[22px] font-semibold text-[#111]">{selectedItem.name}</h1>
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setEditOpen(true)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] text-[#374151] hover:bg-[#F3F4F6] rounded-md transition-colors"
-                  >
-                    <Pencil className="w-3.5 h-3.5" /> Edit
-                  </button>
+                  {!selectedIsDerived && (
+                    <button
+                      onClick={() => setEditOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] text-[#374151] hover:bg-[#F3F4F6] rounded-md transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </button>
+                  )}
                   <button
                     disabled
                     title="Clone — coming soon"
@@ -330,6 +426,46 @@ export default function RateBookPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Derived-item explainer. Upper/Full are multipliers
+                  on Base — the rate book row doesn't exist for them.
+                  Show what the multiplier IS and point at Base for
+                  recalibration. */}
+              {selectedIsDerived && (() => {
+                const key = derivedKey(selectedId!) as 'upper' | 'full'
+                const product = PRODUCTS[key]
+                return (
+                  <div className="mb-5 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg text-[12.5px] text-[#374151] space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#6B7280] border border-[#E5E7EB]">
+                        Read-only
+                      </span>
+                      <span className="text-[#6B7280]">
+                        Multiplier of Base cabinet
+                      </span>
+                    </div>
+                    <p className="leading-relaxed text-[12px] text-[#374151]">
+                      {product.label} shares Base cabinet's per-LF carcass
+                      labor + material. The composer applies a face-material
+                      multiplier (
+                      <span className="font-mono">
+                        {(product.sheetsPerLfFace * 12).toFixed(2)}× sheets/LF
+                      </span>
+                      ) and a door-labor multiplier (
+                      <span className="font-mono">
+                        {product.doorLaborMultiplier.toFixed(1)}×
+                      </span>
+                      ) at line compute time.
+                    </p>
+                    <p className="leading-relaxed text-[11.5px] text-[#9CA3AF] italic">
+                      To recalibrate, edit the Base cabinet row above or
+                      re-run the BaseCabinet walkthrough. Door labor lives
+                      on the Slab door style row and the DoorStyle
+                      walkthrough.
+                    </p>
+                  </div>
+                )
+              })()}
 
               {/* Meta row */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#6B7280] mb-5">
@@ -433,6 +569,9 @@ export default function RateBookPage() {
       {editOpen && selectedItem && (
         <EditItemModal
           item={selectedItem}
+          // The item's category drives field-relevance gating in the
+          // modal (hardware $ only for cabinet_style; etc).
+          categoryItemType={selectedCategory?.item_type ?? null}
           onClose={() => setEditOpen(false)}
           onSaved={async () => {
             setEditOpen(false)
@@ -485,21 +624,34 @@ function CurrentTab({
           </span>
         </div>
         <div className="divide-y divide-[#F3F4F6] font-mono text-[12.5px]">
-          {/* Labor row */}
-          <button
-            onClick={() => setExpandLabor((v) => !v)}
-            className="w-full grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center hover:bg-[#F9FAFB] transition-colors text-left"
-          >
-            <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Labor</span>
-            <span className="text-[#374151]">
-              {buildup.laborHours.toFixed(2)} hr total
-              <span className="text-[#9CA3AF]"> · across 5 depts</span>
-              <span className="ml-2 text-[10px] text-[#6B7280] bg-[#F3F4F6] border border-[#E5E7EB] px-1.5 py-0.5 rounded">
-                {expandLabor ? '▾ hide' : '▸ show'} breakdown
-              </span>
-            </span>
-            <span className="text-[#111] font-semibold">{fmt$(buildup.laborCost)}</span>
-          </button>
+          {/* Labor row. Hours read per-unit (e.g. "0.50 hr/lf") and the
+              dept count reflects only depts with non-zero hours — the
+              old "across 5 depts" copy was confusing when a row only
+              touched 2 or 3 depts. */}
+          {(() => {
+            const activeDepts = buildup.perDept.filter((d) => d.hours > 0).length
+            return (
+              <button
+                onClick={() => setExpandLabor((v) => !v)}
+                className="w-full grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center hover:bg-[#F9FAFB] transition-colors text-left"
+              >
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Labor</span>
+                <span className="text-[#374151]">
+                  {buildup.laborHours.toFixed(2)} hr/{item.unit}
+                  {activeDepts > 0 && (
+                    <span className="text-[#9CA3AF]">
+                      {' · '}
+                      across {activeDepts} dept{activeDepts === 1 ? '' : 's'}
+                    </span>
+                  )}
+                  <span className="ml-2 text-[10px] text-[#6B7280] bg-[#F3F4F6] border border-[#E5E7EB] px-1.5 py-0.5 rounded">
+                    {expandLabor ? '▾ hide' : '▸ show'} breakdown
+                  </span>
+                </span>
+                <span className="text-[#111] font-semibold">{fmt$(buildup.laborCost)}</span>
+              </button>
+            )
+          })()}
           {expandLabor &&
             buildup.perDept
               .filter((d) => d.hours > 0)
@@ -553,6 +705,16 @@ function CurrentTab({
                 )}
               </span>
               <span className="text-[#111] font-semibold">{fmt$(buildup.materialCost)}</span>
+            </div>
+          )}
+          {item.material_mode === 'none' && (
+            <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
+              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Material</span>
+              <span className="text-[#9CA3AF] italic text-[11.5px] leading-relaxed">
+                Material picked per-line. Calibrate door labor via the door
+                style walkthrough.
+              </span>
+              <span className="text-[#9CA3AF]">—</span>
             </div>
           )}
 
@@ -635,13 +797,59 @@ function HistoryTab({ rows }: { rows: RateBookItemHistoryRow[] }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Edit modal
 
+// System items are seeded by walkthroughs (BaseCabinetWalkthrough,
+// DoorStyleWalkthrough, FinishWalkthrough). Their name + unit are
+// canonical lookups elsewhere — renaming them would orphan the rows
+// the composer math joins to. The fields lock; the rest of the row
+// stays editable so an operator can still tune labor / material costs.
+const SYSTEM_ITEM_NAMES = new Set([
+  'Base cabinet',
+  'Slab',
+])
+
+/**
+ * Field-relevance gate. Returns false → render the input disabled and
+ * the label dimmed. Lives outside the component so consumers can pass
+ * a single source of truth: the item + its category type.
+ */
+function isFieldRelevant(
+  field:
+    | 'name'
+    | 'unit'
+    | 'sheets_per_unit'
+    | 'sheet_cost'
+    | 'linear_cost'
+    | 'lump_cost'
+    | 'hardware_cost'
+    | 'hardware_note'
+    | 'material_mode',
+  item: { name: string; material_mode: MaterialMode },
+  categoryItemType: string | null,
+): boolean {
+  const isSystem = SYSTEM_ITEM_NAMES.has(item.name)
+  if (field === 'name' || field === 'unit') return !isSystem
+  if (field === 'sheets_per_unit' || field === 'sheet_cost') {
+    return item.material_mode === 'sheets'
+  }
+  if (field === 'linear_cost') return item.material_mode === 'linear'
+  if (field === 'lump_cost') return item.material_mode === 'lump'
+  if (field === 'hardware_cost' || field === 'hardware_note') {
+    return categoryItemType === 'cabinet_style'
+  }
+  // material_mode is always editable; the operator may need to switch
+  // a freshly-imported row to the right mode.
+  return true
+}
+
 function EditItemModal({
   item,
+  categoryItemType,
   onClose,
   onSaved,
   changedBy,
 }: {
   item: RateBookItemRow
+  categoryItemType: string | null
   onClose: () => void
   onSaved: () => void
   changedBy: string | null
@@ -692,11 +900,32 @@ function EditItemModal({
     }
   }
 
+  // Cache the gate per render so JSX reads cleanly.
+  const itemForGate = { name: item.name, material_mode: draft.material_mode }
+  const canEditName = isFieldRelevant('name', itemForGate, categoryItemType)
+  const canEditUnit = isFieldRelevant('unit', itemForGate, categoryItemType)
+  const canEditSheets = isFieldRelevant('sheets_per_unit', itemForGate, categoryItemType)
+  const canEditSheetCost = isFieldRelevant('sheet_cost', itemForGate, categoryItemType)
+  const canEditLinear = isFieldRelevant('linear_cost', itemForGate, categoryItemType)
+  const canEditLump = isFieldRelevant('lump_cost', itemForGate, categoryItemType)
+  const canEditHardware = isFieldRelevant('hardware_cost', itemForGate, categoryItemType)
+  const isSystemItem = SYSTEM_ITEM_NAMES.has(item.name)
+
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-6">
       <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl">
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E5E7EB]">
-          <h2 className="text-[14px] font-semibold text-[#111]">Edit item</h2>
+          <h2 className="text-[14px] font-semibold text-[#111] inline-flex items-center gap-2">
+            Edit item
+            {isSystemItem && (
+              <span
+                title="System item — name + unit are referenced by the composer's slot lookups; calibrate via the matching walkthrough"
+                className="text-[9.5px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#6B7280] border border-[#E5E7EB]"
+              >
+                System
+              </span>
+            )}
+          </h2>
           <button onClick={onClose} className="p-1 text-[#9CA3AF] hover:text-[#111]">
             <X className="w-4 h-4" />
           </button>
@@ -706,15 +935,23 @@ function EditItemModal({
           <div className="grid grid-cols-3 gap-3">
             <Field label="Name" span={3}>
               <input
-                className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
+                className={`w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md ${
+                  canEditName ? '' : 'bg-[#F9FAFB] text-[#9CA3AF] cursor-not-allowed'
+                }`}
                 value={draft.name}
+                disabled={!canEditName}
+                title={canEditName ? '' : 'Locked — system item name is referenced by composer math'}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
             </Field>
             <Field label="Unit">
               <select
-                className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
+                className={`w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md ${
+                  canEditUnit ? '' : 'bg-[#F9FAFB] text-[#9CA3AF] cursor-not-allowed'
+                }`}
                 value={draft.unit}
+                disabled={!canEditUnit}
+                title={canEditUnit ? '' : 'Locked — system item unit is referenced by composer math'}
                 onChange={(e) => setDraft({ ...draft, unit: e.target.value as Unit })}
               >
                 <option value="lf">LF</option>
@@ -753,10 +990,12 @@ function EditItemModal({
             </Field>
           </div>
 
-          {/* Per-dept hours */}
+          {/* Per-dept hours. Header makes the per-unit dimension
+              explicit (e.g. "Labor hours / LF") so a 0.50 number isn't
+              misread as an absolute total. */}
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] mb-2">
-              Labor hours per {draft.unit.toUpperCase()}
+              Labor hours / {draft.unit}
             </div>
             <div className="grid grid-cols-5 gap-2">
               {LABOR_DEPTS.map((d) => {
@@ -778,15 +1017,20 @@ function EditItemModal({
             </div>
           </div>
 
-          {/* Material fields (conditional on mode) */}
+          {/* Material fields (conditional on mode). Label dimension is
+              explicit ("Sheets per LF" / "Sheets per each") so the
+              operator doesn't have to guess what the input means. */}
           {draft.material_mode === 'sheets' && (
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Sheets / unit">
+              <Field label={`Sheets per ${draft.unit}`}>
                 <input
                   type="number"
                   step="0.01"
-                  className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
+                  className={`w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md ${
+                    canEditSheets ? '' : 'bg-[#F9FAFB] text-[#9CA3AF] cursor-not-allowed'
+                  }`}
                   value={draft.sheets_per_unit}
+                  disabled={!canEditSheets}
                   onChange={(e) => setDraft({ ...draft, sheets_per_unit: Number(e.target.value) })}
                 />
               </Field>
@@ -794,8 +1038,11 @@ function EditItemModal({
                 <input
                   type="number"
                   step="0.01"
-                  className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
+                  className={`w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md ${
+                    canEditSheetCost ? '' : 'bg-[#F9FAFB] text-[#9CA3AF] cursor-not-allowed'
+                  }`}
                   value={draft.sheet_cost}
+                  disabled={!canEditSheetCost}
                   onChange={(e) => setDraft({ ...draft, sheet_cost: Number(e.target.value) })}
                 />
               </Field>
@@ -814,8 +1061,11 @@ function EditItemModal({
                 <input
                   type="number"
                   step="0.01"
-                  className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
+                  className={`w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md ${
+                    canEditLinear ? '' : 'bg-[#F9FAFB] text-[#9CA3AF] cursor-not-allowed'
+                  }`}
                   value={draft.linear_cost}
+                  disabled={!canEditLinear}
                   onChange={(e) => setDraft({ ...draft, linear_cost: Number(e.target.value) })}
                 />
               </Field>
@@ -834,8 +1084,11 @@ function EditItemModal({
                 <input
                   type="number"
                   step="0.01"
-                  className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
+                  className={`w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md ${
+                    canEditLump ? '' : 'bg-[#F9FAFB] text-[#9CA3AF] cursor-not-allowed'
+                  }`}
                   value={draft.lump_cost}
+                  disabled={!canEditLump}
                   onChange={(e) => setDraft({ ...draft, lump_cost: Number(e.target.value) })}
                 />
               </Field>
@@ -849,21 +1102,31 @@ function EditItemModal({
             </div>
           )}
 
-          {/* Hardware */}
+          {/* Hardware. Only meaningful for cabinet_style items — door
+              and finish rows don't carry hardware costs. Disabled for
+              other category types so the operator doesn't accidentally
+              add a $ that won't be picked up by composer math. */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Hardware $">
               <input
                 type="number"
                 step="0.01"
-                className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
+                className={`w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md ${
+                  canEditHardware ? '' : 'bg-[#F9FAFB] text-[#9CA3AF] cursor-not-allowed'
+                }`}
                 value={draft.hardware_cost}
+                disabled={!canEditHardware}
+                title={canEditHardware ? '' : 'Hardware $ only applies to cabinet items.'}
                 onChange={(e) => setDraft({ ...draft, hardware_cost: Number(e.target.value) })}
               />
             </Field>
             <Field label="Hardware note">
               <input
-                className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
+                className={`w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md ${
+                  canEditHardware ? '' : 'bg-[#F9FAFB] text-[#9CA3AF] cursor-not-allowed'
+                }`}
                 value={draft.hardware_note}
+                disabled={!canEditHardware}
                 onChange={(e) => setDraft({ ...draft, hardware_note: e.target.value })}
               />
             </Field>
