@@ -10,6 +10,7 @@
 import { supabase } from './supabase'
 import type { ProjectStage } from './types'
 import type { ParsedScopeItem } from './pdf-parser'
+import { recomputeProjectBidTotal } from './project-totals'
 
 // ── Types ──
 
@@ -328,6 +329,11 @@ export async function createRoomSubprojects(input: {
     console.error('createRoomSubprojects', error)
     return []
   }
+  // Pricing-input write-back (see lib/project-totals.ts contract).
+  // New empty subs don't shift priceTotal yet, but seedEstimateLines or
+  // composer saves on them will trigger their own recompute. Safe to
+  // call here too — idempotent.
+  void recomputeProjectBidTotal(input.project_id)
   return (data || []) as Array<{ id: string; name: string }>
 }
 
@@ -427,6 +433,21 @@ export async function seedEstimateLinesFromParsed(input: {
   if (error) {
     console.error('seedEstimateLinesFromParsed', error)
     return 0
+  }
+  // Pricing-input write-back: a parsed bid that lands lines on multiple
+  // subs of the same project should trigger one recompute. Pull project_id
+  // off the first sub we touched.
+  if (subsByRoom.length > 0) {
+    const firstSubId = subsByRoom[0].id
+    void (async () => {
+      const { data: row } = await supabase
+        .from('subprojects')
+        .select('project_id')
+        .eq('id', firstSubId)
+        .maybeSingle()
+      const pid = (row as { project_id: string | null } | null)?.project_id
+      if (pid) void recomputeProjectBidTotal(pid)
+    })()
   }
   return (data || []).length
 }

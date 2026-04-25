@@ -23,6 +23,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { recomputeProjectBidTotalForSubproject } from './project-totals'
 
 export interface InstallPrefill {
   guys: number | null
@@ -98,4 +99,6 @@ export async function saveInstallPrefill(
     console.error('saveInstallPrefill', error)
     throw error
   }
+  // Pricing-input write-back (see lib/project-totals.ts contract).
+  void recomputeProjectBidTotalForSubproject(subprojectId)
 }
