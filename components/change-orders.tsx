@@ -597,24 +597,48 @@ function fmtDate(iso: string): string {
 
 // ── Create CO modal ──
 
+/** Seed for "Create CO from a line" — opens the modal pre-populated
+ *  with the line's identity + original-side values, locks the
+ *  subproject to the line's parent, and autofocuses the proposed
+ *  material input. When null/undefined, the modal opens in legacy
+ *  mode with the title required + the subproject picker. */
+export interface CreateCoModalSeed {
+  subprojectId: string
+  subprojectName: string
+  originalLabel: string
+  originalMaterial: string
+  originalLinearFeet: number
+  originalMatCostPerLf: number | null
+}
+
 interface CreateCoModalProps {
   projectId: string
   pricing: PricingInputs
   subprojects: { id: string; name: string }[]
+  /** When provided, the modal opens in line-seeded mode. */
+  seed?: CreateCoModalSeed | null
   onClose: () => void
   onCreated: () => Promise<void>
 }
 
-function CreateCoModal({ projectId, pricing, subprojects, onClose, onCreated }: CreateCoModalProps) {
+export function CreateCoModal({ projectId, pricing, subprojects, seed, onClose, onCreated }: CreateCoModalProps) {
   const [title, setTitle] = useState('')
-  const [subprojectId, setSubprojectId] = useState<string>(subprojects[0]?.id || '')
+  // When seeded, lock subproject to the line's parent. Otherwise default
+  // to the first available subproject (legacy behavior).
+  const [subprojectId, setSubprojectId] = useState<string>(
+    seed?.subprojectId || subprojects[0]?.id || '',
+  )
   const [noPriceChange, setNoPriceChange] = useState(false)
   const [manualNet, setManualNet] = useState<string>('')
 
-  const [origLabel, setOrigLabel] = useState('')
-  const [origMaterial, setOrigMaterial] = useState('')
-  const [origLF, setOrigLF] = useState<string>('')
-  const [origMatCostLF, setOrigMatCostLF] = useState<string>('')
+  const [origLabel, setOrigLabel] = useState(seed?.originalLabel || '')
+  const [origMaterial, setOrigMaterial] = useState(seed?.originalMaterial || '')
+  const [origLF, setOrigLF] = useState<string>(
+    seed?.originalLinearFeet ? String(seed.originalLinearFeet) : '',
+  )
+  const [origMatCostLF, setOrigMatCostLF] = useState<string>(
+    seed?.originalMatCostPerLf != null ? String(seed.originalMatCostPerLf) : '',
+  )
 
   const [propMaterial, setPropMaterial] = useState('')
   const [propLF, setPropLF] = useState<string>('')
@@ -622,13 +646,18 @@ function CreateCoModal({ projectId, pricing, subprojects, onClose, onCreated }: 
 
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const isSeeded = !!seed
+  const derivedTitle = seed
+    ? `${seed.originalLabel} — material change`
+    : ''
 
   // V1 scope: simple material-swap CO. Labor hours come across at zero delta
   // by default; user can add them into manualNet if labor shifts materially.
   // This keeps the modal small. Estimate-line-integrated repricing comes
   // through the approval slot "material changed" flow (follow-up).
+  const effectiveTitle = title.trim() || derivedTitle
   const origSnap: LineSnapshot = {
-    label: origLabel || title,
+    label: origLabel || effectiveTitle,
     material: origMaterial,
     linear_feet: origLF ? Number(origLF) : null,
     material_cost_per_lf: origMatCostLF ? Number(origMatCostLF) : null,
@@ -639,7 +668,7 @@ function CreateCoModal({ projectId, pricing, subprojects, onClose, onCreated }: 
     labor_hours_install: 0,
   }
   const propSnap: LineSnapshot = {
-    label: origLabel || title,
+    label: origLabel || effectiveTitle,
     material: propMaterial,
     linear_feet: propLF ? Number(propLF) : origLF ? Number(origLF) : null,
     material_cost_per_lf: propMatCostLF ? Number(propMatCostLF) : null,
@@ -657,7 +686,10 @@ function CreateCoModal({ projectId, pricing, subprojects, onClose, onCreated }: 
     ? Number(manualNet)
     : computeNetChange(origSnap, propSnap, pricing)
 
-  const canSave = title.trim().length > 0 && computed !== null && !saving
+  // Seeded flow drops the title-required gate — the (label, original →
+  // proposed material) summary on the CO card is enough context.
+  const canSave =
+    (isSeeded || title.trim().length > 0) && computed !== null && !saving
 
   const save = async () => {
     if (!canSave || computed === null) return
@@ -666,7 +698,7 @@ function CreateCoModal({ projectId, pricing, subprojects, onClose, onCreated }: 
       const result = await createChangeOrder({
         project_id: projectId,
         subproject_id: subprojectId || null,
-        title: title.trim(),
+        title: effectiveTitle,
         original_line_snapshot: origSnap,
         proposed_line: propSnap,
         net_change: computed,
@@ -693,35 +725,64 @@ function CreateCoModal({ projectId, pricing, subprojects, onClose, onCreated }: 
         </div>
 
         <div className="p-4 space-y-4">
-          <div>
-            <label className="text-xs font-medium text-neutral-700 block mb-1">
-              Title <span className="text-red-600">*</span>
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Island cabinet material change — walnut to white oak"
-              className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
-              autoFocus
-            />
-          </div>
+          {/* Seeded flow: subproject is locked to the line's parent and
+              shown as a read-only label at the top. Legacy flow: title
+              first, then optional subproject picker. */}
+          {isSeeded ? (
+            <div className="text-xs text-neutral-700">
+              <span className="text-[10px] uppercase tracking-wider text-neutral-500 mr-2">
+                Subproject
+              </span>
+              <span className="font-medium text-neutral-900">{seed!.subprojectName}</span>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="text-xs font-medium text-neutral-700 block mb-1">
+                  Title <span className="text-red-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Island cabinet material change, walnut to white oak"
+                  className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+                  autoFocus
+                />
+              </div>
 
-          {subprojects.length > 1 && (
+              {subprojects.length > 1 && (
+                <div>
+                  <label className="text-xs font-medium text-neutral-700 block mb-1">Subproject</label>
+                  <select
+                    value={subprojectId}
+                    onChange={(e) => setSubprojectId(e.target.value)}
+                    className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+                  >
+                    <option value="">Project-level (no subproject)</option>
+                    {subprojects.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
+          )}
+
+          {isSeeded && (
             <div>
-              <label className="text-xs font-medium text-neutral-700 block mb-1">Subproject</label>
-              <select
-                value={subprojectId}
-                onChange={(e) => setSubprojectId(e.target.value)}
+              <label className="text-xs font-medium text-neutral-700 block mb-1">
+                Title <span className="text-neutral-400">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={derivedTitle || 'Override the auto-generated title'}
                 className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
-              >
-                <option value="">Project-level (no subproject)</option>
-                {subprojects.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
           )}
 
@@ -784,6 +845,7 @@ function CreateCoModal({ projectId, pricing, subprojects, onClose, onCreated }: 
                     value={propMaterial}
                     onChange={(e) => setPropMaterial(e.target.value)}
                     placeholder="Material (e.g. White oak rift)"
+                    autoFocus={isSeeded}
                     className="w-full border border-blue-200 bg-blue-50 rounded px-2 py-1.5 text-xs"
                   />
                   <div className="flex gap-2">
