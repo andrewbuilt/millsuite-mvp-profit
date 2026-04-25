@@ -705,13 +705,7 @@ export default function SubprojectEditorPage() {
 
             {lines.length === 0 ? (
               <div className="px-3 py-8 text-center text-sm text-[#9CA3AF] italic">
-                {project && isPresold(project.stage) ? (
-                  <>
-                    No lines yet. Press <kbd className="px-1.5 py-0.5 mx-0.5 bg-[#F3F4F6] border border-[#E5E7EB] rounded font-mono text-[11px]">/</kbd> to add the first one.
-                  </>
-                ) : (
-                  <>No lines on this subproject.</>
-                )}
+                No lines yet.
               </div>
             ) : (
               lines.map((line) => {
