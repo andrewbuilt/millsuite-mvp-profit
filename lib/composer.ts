@@ -142,6 +142,10 @@ export interface ComposerDefaults {
 
 export interface ComposerSlots {
   carcassMaterial: string | null
+  /** Back-panel sheet stock (1/4" ply typical). Picked from extMaterials —
+   *  the same sheet-stock pool as door/drawer faces. Null = no back panel
+   *  material priced (rare but valid for open-back specials). */
+  backPanelMaterial: string | null
   doorStyle: string | null
   doorMaterial: string | null
   interiorFinish: string | null
@@ -160,6 +164,7 @@ export interface ComposerDraft {
 export function emptySlots(): ComposerSlots {
   return {
     carcassMaterial: null,
+    backPanelMaterial: null,
     doorStyle: null,
     doorMaterial: null,
     interiorFinish: null,
@@ -209,6 +214,8 @@ export interface ComposerBreakdown {
   carcassLaborPerLf: number
   carcassMaterial: number
   carcassMaterialDetail: string | null
+  backPanelMaterial: number
+  backPanelMaterialDetail: string | null
 
   doorLabor: number
   doorLaborPerLf: number
@@ -294,18 +301,29 @@ export function computeBreakdown(
   }
 
   const cm = rb.carcassMaterials.find((m) => m.id === s.carcassMaterial) || null
+  const bm = rb.extMaterials.find((m) => m.id === s.backPanelMaterial) || null
   const em = rb.extMaterials.find((m) => m.id === s.doorMaterial) || null
   const ds = rb.doorStyles.find((d) => d.id === s.doorStyle) || null
   const ifn = rb.finishes.find((f) => f.id === s.interiorFinish) || null
   const efn = rb.finishes.find((f) => f.id === s.exteriorFinish) || null
 
-  // Sheets-per-LF comes from the product constant, not the material
-  // template (Phase 12 Item 6 amendment — carcass add-new no longer asks
-  // for it; same math as face material below).
-  const carcassSheets = qty * prod.sheetsPerLfFace
+  // Carcass sheets/LF comes from the product's dedicated carcass constant
+  // (3/4" ply yield, much higher than face yield because every cab eats
+  // sides + bottom + shelf + nailers — face math underpriced this badly
+  // before sheetsPerLfCarcass was split out from sheetsPerLfFace).
+  const carcassSheets = qty * prod.sheetsPerLfCarcass
   const carcassMaterial = cm ? carcassSheets * cm.sheet_cost : 0
   const carcassMaterialDetail = cm
     ? `${carcassSheets.toFixed(2)} sht × $${cm.sheet_cost}`
+    : null
+
+  // Back panel — separate stock (1/4" ply typical) picked from the same
+  // extMaterials pool as door faces. Per-LF ratio mirrors the legacy
+  // face-sheet ratio because back-panel area scales with cabinet face.
+  const backPanelSheets = qty * prod.sheetsPerLfBack
+  const backPanelMaterial = bm ? backPanelSheets * bm.sheet_cost : 0
+  const backPanelMaterialDetail = bm
+    ? `${backPanelSheets.toFixed(2)} sht × $${bm.sheet_cost}`
     : null
 
   // Door labor — per-door × doorsPerLf × product multiplier → per-LF.
@@ -444,6 +462,7 @@ export function computeBreakdown(
 
   const materialSubtotal =
     carcassMaterial +
+    backPanelMaterial +
     doorMaterial +
     interiorFinishMaterial +
     exteriorFinishMaterial +
@@ -461,6 +480,8 @@ export function computeBreakdown(
     carcassLaborPerLf,
     carcassMaterial,
     carcassMaterialDetail,
+    backPanelMaterial,
+    backPanelMaterialDetail,
 
     doorLabor,
     doorLaborPerLf,
@@ -566,6 +587,8 @@ export function summarizeSlots(
   const bits: string[] = []
   const cm = rb.carcassMaterials.find((m) => m.id === draft.slots.carcassMaterial)
   if (cm) bits.push(cm.name)
+  const bm = rb.extMaterials.find((m) => m.id === draft.slots.backPanelMaterial)
+  if (bm) bits.push(`${bm.name} back`)
   const ds = rb.doorStyles.find((d) => d.id === draft.slots.doorStyle)
   if (ds) bits.push(`${ds.name} door`)
   const em = rb.extMaterials.find((m) => m.id === draft.slots.doorMaterial)
