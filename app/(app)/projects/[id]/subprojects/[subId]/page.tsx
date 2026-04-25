@@ -143,6 +143,10 @@ export default function SubprojectEditorPage() {
   const [loading, setLoading] = useState(true)
   const [cloneOpen, setCloneOpen] = useState(false)
   const [composerOpen, setComposerOpen] = useState(false)
+  // Issue 19 — line click opens AddLineComposer in edit mode keyed on
+  // this id. null = open-for-new (or closed). Reset whenever the
+  // composer closes so the next "+ Compose line" click is fresh.
+  const [editingLineId, setEditingLineId] = useState<string | null>(null)
   // Create-CO modal seed. null = closed; non-null = open + line-seeded.
   const [coSeed, setCoSeed] = useState<CreateCoModalSeed | null>(null)
   // Install prefill values — loaded + kept in sync by InstallPrefill via its
@@ -632,7 +636,10 @@ export default function SubprojectEditorPage() {
                 <Copy className="w-3.5 h-3.5" /> Clone from past
               </button>
               <button
-                onClick={() => setComposerOpen(true)}
+                onClick={() => {
+                  setEditingLineId(null)
+                  setComposerOpen(true)
+                }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-[#2563EB] border border-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors"
               >
                 + Compose line
@@ -699,10 +706,21 @@ export default function SubprojectEditorPage() {
                     .map((f) => [f.material, f.finish].filter(Boolean).join(' / '))
                     .filter(Boolean)
                     .join(' · ') || ''
+                const isComposerLine = !!line.product_key
                 return (
                   <div
                     key={line.id}
-                    className="grid grid-cols-[1fr_72px_56px_80px_100px_100px_64px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors"
+                    onClick={() => {
+                      if (!isComposerLine) {
+                        setAddError(
+                          "This line was created before the composer existed and can't be edited here. Delete and recreate.",
+                        )
+                        return
+                      }
+                      setEditingLineId(line.id)
+                      setComposerOpen(true)
+                    }}
+                    className={`grid grid-cols-[1fr_72px_56px_80px_100px_100px_64px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors ${isComposerLine ? 'cursor-pointer' : ''}`}
                   >
                     <div className="pr-3 min-w-0">
                       <div className="text-sm text-[#111] font-medium truncate">
@@ -1036,9 +1054,14 @@ export default function SubprojectEditorPage() {
           orgId={org.id}
           orgConsumablePct={org?.consumable_markup_pct ?? null}
           hasExistingLinesInSubproject={lines.length > 0}
-          onCancel={() => setComposerOpen(false)}
+          editingLineId={editingLineId}
+          onCancel={() => {
+            setComposerOpen(false)
+            setEditingLineId(null)
+          }}
           onLineSaved={async () => {
             setComposerOpen(false)
+            setEditingLineId(null)
             const fresh = await loadEstimateLines(subId)
             setLines(fresh)
           }}

@@ -37,6 +37,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import {
   PRODUCT_ORDER,
   PRODUCTS,
@@ -64,6 +65,7 @@ import {
   saveComposerLine,
   saveLastUsedForProduct,
   saveSubprojectDefaults,
+  updateComposerLine,
   type LastUsedPerProduct,
 } from '@/lib/composer-persist'
 import {
@@ -87,6 +89,11 @@ interface Props {
    *  they've picked anything. Last-used carry-over kicks in on the 2nd+
    *  line. */
   hasExistingLinesInSubproject: boolean
+  /** When non-null, opens the composer in EDIT mode for this saved
+   *  line: hydrates qty + slots from the existing row, skips the
+   *  product picker, and the save button persists via
+   *  updateComposerLine instead of saveComposerLine. (Issue 19) */
+  editingLineId?: string | null
   onLineSaved: () => void
   onCancel: () => void
 }
@@ -116,9 +123,11 @@ export default function AddLineComposer({
   orgId,
   orgConsumablePct,
   hasExistingLinesInSubproject,
+  editingLineId,
   onLineSaved,
   onCancel,
 }: Props) {
+  const isEditMode = !!editingLineId
   // ── Data load ──
   const [rateBook, setRateBook] = useState<ComposerRateBook | null>(null)
   const [defaults, setDefaults] = useState<ComposerDefaults | null>(null)
@@ -141,6 +150,39 @@ export default function AddLineComposer({
         setRateBook(withPrefinishedSentinel(rb))
         setLastUsed(lu)
         setDefaults(sd ?? initialSubprojectDefaults(orgConsumablePct))
+
+        // Edit mode (Issue 19): hydrate qty + slots from the existing
+        // estimate_lines row, skip the product picker, drop into the
+        // composer view directly. Refuse to edit non-composer lines —
+        // the composer doesn't have the math model for legacy lines.
+        if (editingLineId) {
+          const { data: line, error } = await supabase
+            .from('estimate_lines')
+            .select('id, product_key, product_slots, quantity, notes')
+            .eq('id', editingLineId)
+            .single()
+          if (cancelled) return
+          if (error || !line) {
+            setLoadError(error?.message || 'Could not load line for edit')
+            return
+          }
+          if (!line.product_key) {
+            setLoadError(
+              "This line was created before the composer existed and can't be edited here. Delete and recreate.",
+            )
+            return
+          }
+          setDraft({
+            productId: line.product_key as ProductKey,
+            qty: Number(line.quantity) || 0,
+            slots: {
+              ...emptySlots(),
+              ...(line.product_slots as Partial<ComposerDraft['slots']>),
+              notes: (line.product_slots as { notes?: string })?.notes ?? line.notes ?? '',
+            },
+          })
+          setView('composer')
+        }
       } catch (err: any) {
         if (!cancelled) setLoadError(err?.message || 'Failed to load rate book')
       } finally {
@@ -150,7 +192,7 @@ export default function AddLineComposer({
     return () => {
       cancelled = true
     }
-  }, [orgId, subprojectId, orgConsumablePct])
+  }, [orgId, subprojectId, orgConsumablePct, editingLineId])
 
   // ── View state ──
   const [view, setView] = useState<View>('picker')
@@ -323,9 +365,19 @@ export default function AddLineComposer({
     setSaving(true)
     setSaveError(null)
     try {
-      await saveComposerLine({ subprojectId, draft, breakdown, rateBook })
+      if (editingLineId) {
+        await updateComposerLine({
+          lineId: editingLineId,
+          draft,
+          breakdown,
+          rateBook,
+        })
+      } else {
+        await saveComposerLine({ subprojectId, draft, breakdown, rateBook })
+      }
       // Spec: every saved line updates the shop-wide last-used for its
       // product so the next line of the same type carries over.
+      // Edit mode counts too — operator's most recent picks win.
       await saveLastUsedForProduct(orgId, draft.productId, {
         qty: draft.qty,
         slots: { ...draft.slots },
@@ -432,7 +484,11 @@ export default function AddLineComposer({
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
             <div className="text-[13px] font-semibold text-[#111]">
-              {view === 'picker' ? 'Add a line' : PRODUCTS[draft?.productId ?? 'base'].label}
+              {view === 'picker'
+                ? 'Add a line'
+                : isEditMode
+                  ? `Edit · ${PRODUCTS[draft?.productId ?? 'base'].label}`
+                  : PRODUCTS[draft?.productId ?? 'base'].label}
             </div>
             <button
               onClick={handleCancel}
@@ -467,6 +523,7 @@ export default function AddLineComposer({
                 saveError={saveError}
                 gateReason={gate.ok ? null : gate.reason}
                 canSave={gate.ok && !saving}
+                isEditMode={isEditMode}
                 onBack={() => setView('picker')}
                 onCancel={handleCancel}
                 onSave={save}
@@ -605,6 +662,10 @@ function Composer(p: {
   saveError: string | null
   gateReason: string | null
   canSave: boolean
+  /** Edit mode hides the "Back to product" link (the user picked a
+   *  product when they originally created the line; we don't let them
+   *  swap product type mid-edit) and switches the save button label. */
+  isEditMode: boolean
   onBack: () => void
   onCancel: () => void
   onSave: () => void
@@ -627,13 +688,15 @@ function Composer(p: {
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6 items-start">
       {/* Form */}
       <div>
-        <button
-          type="button"
-          onClick={p.onBack}
-          className="text-[12px] text-[#6B7280] hover:text-[#111] mb-3 inline-flex items-center gap-1.5"
-        >
-          ← Back to product
-        </button>
+        {!p.isEditMode && (
+          <button
+            type="button"
+            onClick={p.onBack}
+            className="text-[12px] text-[#6B7280] hover:text-[#111] mb-3 inline-flex items-center gap-1.5"
+          >
+            ← Back to product
+          </button>
+        )}
 
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-4">
           <Field label="Quantity">
@@ -848,7 +911,7 @@ function Composer(p: {
             disabled={!p.canSave}
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {p.saving ? 'Saving…' : 'Add line'}
+            {p.saving ? 'Saving…' : p.isEditMode ? 'Save changes' : 'Add line'}
           </button>
         </div>
       </div>

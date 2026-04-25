@@ -209,3 +209,65 @@ export async function saveComposerLine(input: {
   }
   return data as { id: string }
 }
+
+// ── Update an existing composer line (edit mode) ──
+
+/**
+ * Mirror of saveComposerLine for an existing row. Used by AddLineComposer
+ * when opened in edit mode (Issue 19) so a line click round-trips through
+ * the same form the line was created in. sort_order stays put;
+ * subproject_id, product_key, rate_book_item_id are left alone.
+ *
+ * Per-unit divides match the save path (Issue 18). Stamps
+ * composer_hours_corrected = true so this row is excluded from any
+ * future rerun of migration 029.
+ */
+export async function updateComposerLine(input: {
+  lineId: string
+  draft: ComposerDraft
+  breakdown: ComposerBreakdown
+  rateBook: ComposerRateBook
+}): Promise<void> {
+  const { lineId, draft, breakdown, rateBook } = input
+
+  const summary = summarizeSlots(draft, rateBook)
+  const productLabel =
+    draft.productId === 'base'
+      ? 'Base cabinet'
+      : draft.productId === 'upper'
+      ? 'Upper cabinet'
+      : draft.productId === 'full'
+      ? 'Full height'
+      : draft.productId
+  const description = summary ? `${productLabel} · ${summary}` : productLabel
+
+  const qty = Number(draft.qty) || 0
+  const deptHourOverrides: Record<string, number> = {}
+  if (qty > 0) {
+    if (breakdown.hoursByDept.eng > 0)      deptHourOverrides.eng      = breakdown.hoursByDept.eng      / qty
+    if (breakdown.hoursByDept.cnc > 0)      deptHourOverrides.cnc      = breakdown.hoursByDept.cnc      / qty
+    if (breakdown.hoursByDept.assembly > 0) deptHourOverrides.assembly = breakdown.hoursByDept.assembly / qty
+    if (breakdown.hoursByDept.finish > 0)   deptHourOverrides.finish   = breakdown.hoursByDept.finish   / qty
+  }
+  const materialPerUnit =
+    qty > 0 ? (breakdown.materialSubtotal + breakdown.waste) / qty : 0
+
+  const { error } = await supabase
+    .from('estimate_lines')
+    .update({
+      description,
+      quantity: draft.qty,
+      product_slots: draft.slots,
+      material_mode_override: 'lump',
+      lump_cost_override: materialPerUnit,
+      dept_hour_overrides:
+        Object.keys(deptHourOverrides).length > 0 ? deptHourOverrides : null,
+      notes: draft.slots.notes || null,
+      composer_hours_corrected: true,
+    })
+    .eq('id', lineId)
+  if (error) {
+    console.error('updateComposerLine', error)
+    throw new Error(error.message || 'Failed to update line')
+  }
+}
