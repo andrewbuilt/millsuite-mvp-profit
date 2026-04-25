@@ -56,6 +56,27 @@ export interface Product {
    * breakdown doesn't have to eval anything at render time.
    */
   sheetsPerLfFace: number
+  /**
+   * Carcass sheet stock (3/4" ply) consumed per LF. Carcass yield is much
+   * higher than face yield because every 30"-tall base eats sides + bottom
+   * + shelf + nailers from one or more sheets — face math (which counts
+   * door area only) underpriced this badly before the dedicated constant.
+   *
+   *   Base   0.4   sheets per LF
+   *   Upper  0.3   sheets per LF
+   *   Full   1.25  sheets per LF
+   */
+  sheetsPerLfCarcass: number
+  /**
+   * Back panel sheet stock (1/4" ply) consumed per LF. Same shape numbers
+   * as the legacy face-sheet ratio because back panel area scales with
+   * cabinet face area.
+   *
+   *   Base   1/12 (0.0833…) sheets per LF
+   *   Upper  1/8  (0.125)   sheets per LF
+   *   Full   1/4  (0.25)    sheets per LF
+   */
+  sheetsPerLfBack: number
   /** Doors per unit of qty. 0.5 across Base/Upper/Full — an 8' run averages
    *  4 doors of mixed widths. */
   doorsPerLf: number
@@ -81,6 +102,8 @@ function make(p: Partial<Product> & Pick<Product, 'key' | 'label' | 'unit'>): Pr
   return {
     descriptor: '',
     sheetsPerLfFace: 0,
+    sheetsPerLfCarcass: 0,
+    sheetsPerLfBack: 0,
     doorsPerLf: 0,
     doorLaborMultiplier: 0,
     active: false,
@@ -97,6 +120,8 @@ export const PRODUCT_BASE: Product = make({
   descriptor: '30" typical',
   unit: 'lf',
   sheetsPerLfFace: 1 / 12,
+  sheetsPerLfCarcass: 0.4,
+  sheetsPerLfBack: 1 / 12,
   doorsPerLf: 0.5,
   doorLaborMultiplier: 1.0,
   active: true,
@@ -108,6 +133,8 @@ export const PRODUCT_UPPER: Product = make({
   descriptor: '42" or less',
   unit: 'lf',
   sheetsPerLfFace: 1 / 8,
+  sheetsPerLfCarcass: 0.3,
+  sheetsPerLfBack: 1 / 8,
   doorsPerLf: 0.5,
   doorLaborMultiplier: 1.3,
   active: true,
@@ -119,6 +146,8 @@ export const PRODUCT_FULL: Product = make({
   descriptor: '96" or less',
   unit: 'lf',
   sheetsPerLfFace: 1 / 4,
+  sheetsPerLfCarcass: 1.25,
+  sheetsPerLfBack: 1 / 4,
   doorsPerLf: 0.5,
   doorLaborMultiplier: 2.5,
   active: true,

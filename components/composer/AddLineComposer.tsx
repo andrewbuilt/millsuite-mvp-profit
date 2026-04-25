@@ -723,7 +723,7 @@ function Composer(p: {
                 options={rateBook.carcassMaterials.map((m) => ({
                   id: m.id,
                   name: m.name,
-                  meta: `$${m.sheet_cost}/sht · ${m.sheets_per_lf} sht/LF`,
+                  meta: `$${m.sheet_cost}/sht`,
                 }))}
                 onToggle={() => p.toggleDropdown('carcassMaterial')}
                 onPick={(id) => {
@@ -731,6 +731,35 @@ function Composer(p: {
                   p.toggleDropdown('carcassMaterial')
                 }}
                 onAddNew={() => p.openAddNew('carcassMaterial', 'carcass')}
+                addNewLabel="+ Add new material"
+                placeholder="Choose…"
+              />
+            )}
+          </Field>
+
+          <Field label="Back panel material" hint="Cabinet backs (1/4&quot; ply typical). Different stock from carcass.">
+            {p.addNew?.slotKey === 'backPanelMaterial' && p.addNew?.ctx.category === 'ext' ? (
+              <AddNewCard
+                ctx={p.addNew.ctx}
+                onCancel={p.cancelAddNew}
+                onSave={p.saveAddNew}
+                onField={p.setAddNewField}
+              />
+            ) : (
+              <Dropdown
+                open={p.openDropdown === 'backPanelMaterial'}
+                value={draft.slots.backPanelMaterial}
+                options={rateBook.extMaterials.map((m) => ({
+                  id: m.id,
+                  name: m.name,
+                  meta: `$${m.sheet_cost}/sht`,
+                }))}
+                onToggle={() => p.toggleDropdown('backPanelMaterial')}
+                onPick={(id) => {
+                  p.setSlot('backPanelMaterial', id)
+                  p.toggleDropdown('backPanelMaterial')
+                }}
+                onAddNew={() => p.openAddNew('backPanelMaterial', 'ext')}
                 addNewLabel="+ Add new material"
                 placeholder="Choose…"
               />
@@ -774,7 +803,7 @@ function Composer(p: {
           </Field>
 
           <Field label="Door/drawer material" hint="Face material for all doors + drawer fronts.">
-            {p.addNew?.ctx.category === 'ext' ? (
+            {p.addNew?.slotKey === 'doorMaterial' && p.addNew?.ctx.category === 'ext' ? (
               <AddNewCard
                 ctx={p.addNew.ctx}
                 onCancel={p.cancelAddNew}
@@ -1222,6 +1251,11 @@ function BreakdownPanel({
         label="Carcass material"
         detail={breakdown.carcassMaterialDetail}
         value={breakdown.carcassMaterial}
+      />
+      <Row
+        label="Back panel material"
+        detail={breakdown.backPanelMaterialDetail}
+        value={breakdown.backPanelMaterial}
       />
 
       {breakdown.doorLaborWarn ? (
