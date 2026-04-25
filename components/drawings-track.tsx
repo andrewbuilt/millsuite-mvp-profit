@@ -31,6 +31,7 @@ import {
   approveRevision,
   isDrawingsGateGreen,
   loadDrawingRevisions,
+  markDrawingsApprovedManually,
   reopenRevision,
   submitRevisionForReview,
   uploadNewRevision,
@@ -41,13 +42,18 @@ interface Props {
   subprojectId: string
   /** Optional, set as uploaded_by_user_id on new revision rows. */
   actorUserId?: string
+  /** Called after every successful state mutation (upload / submit /
+   *  approve / reopen / manual-approve). Lets the parent refetch the
+   *  scheduling-gate view so the project header updates immediately. */
+  onChange?: () => void
 }
 
-export default function DrawingsTrack({ subprojectId, actorUserId }: Props) {
+export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: Props) {
   const [revs, setRevs] = useState<DrawingRevision[]>([])
   const [loading, setLoading] = useState(true)
   const [busyRevId, setBusyRevId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
+  const [markingManual, setMarkingManual] = useState(false)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -68,6 +74,7 @@ export default function DrawingsTrack({ subprojectId, actorUserId }: Props) {
     try {
       await fn(revId)
       await reload()
+      onChange?.()
     } catch (err) {
       console.error(err)
       alert('Failed to update revision. See console.')
@@ -103,13 +110,44 @@ export default function DrawingsTrack({ subprojectId, actorUserId }: Props) {
             <span className="ml-2 text-neutral-400 font-normal">no revisions yet</span>
           )}
         </div>
-        <button
-          onClick={() => setShowUpload(true)}
-          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
-        >
-          <Upload className="w-3 h-3" />
-          Upload revision
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              if (markingManual) return
+              const ok = window.confirm(
+                "Mark drawings approved without uploading a revision? Use this when shop drawings live outside the system and the client signed off verbally. The card will read \"Manually approved (no revision uploaded)\" so it's auditable.",
+              )
+              if (!ok) return
+              setMarkingManual(true)
+              try {
+                const result = await markDrawingsApprovedManually(subprojectId, {
+                  uploaded_by_user_id: actorUserId,
+                })
+                if (!result) {
+                  alert('Failed to mark drawings approved. See console.')
+                  return
+                }
+                await reload()
+                onChange?.()
+              } finally {
+                setMarkingManual(false)
+              }
+            }}
+            disabled={markingManual}
+            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700 disabled:opacity-50"
+            title="Mark drawings approved without uploading a revision (drawings live outside the system)"
+          >
+            <CheckCircle2 className="w-3 h-3" />
+            {markingManual ? 'Marking…' : 'Mark approved manually'}
+          </button>
+          <button
+            onClick={() => setShowUpload(true)}
+            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
+          >
+            <Upload className="w-3 h-3" />
+            Upload revision
+          </button>
+        </div>
       </div>
 
       {/* Empty state */}
@@ -154,6 +192,7 @@ export default function DrawingsTrack({ subprojectId, actorUserId }: Props) {
           onUploaded={async () => {
             setShowUpload(false)
             await reload()
+            onChange?.()
           }}
         />
       )}

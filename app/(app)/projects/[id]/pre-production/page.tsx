@@ -31,7 +31,11 @@ import ApprovalSlots from '@/components/approval-slots'
 import DrawingsTrack from '@/components/drawings-track'
 import ChangeOrders from '@/components/change-orders'
 import { loadSubprojectStatusMap, type SubprojectStatus } from '@/lib/subproject-status'
-import { loadApprovalItemsForSubproject, type ApprovalItem } from '@/lib/approvals'
+import {
+  loadApprovalItemsForSubproject,
+  seedApprovalItemsFromEstimate,
+  type ApprovalItem,
+} from '@/lib/approvals'
 import type { PricingInputs } from '@/lib/change-orders'
 import type { ProjectStage } from '@/lib/types'
 
@@ -92,6 +96,18 @@ export default function PreProductionPage() {
 
   const reload = useCallback(async () => {
     if (!projectId || !org?.id) return
+    // Self-heal: seed approval_items from estimate lines (composer slots
+    // first, then legacy finish_specs/callouts) before reading. Idempotent
+    // via dedupe in createApprovalItemsFromProposals — repeated calls become
+    // a no-op once every (sub, label, material, finish) is covered. This is
+    // what produces the "3 spec rows from one composer line" Andrew expects
+    // on a sold project whose original handoff didn't see composer slots.
+    try {
+      await seedApprovalItemsFromEstimate(projectId, org.id)
+    } catch (err) {
+      console.error('seedApprovalItemsFromEstimate', err)
+    }
+
     const [projRes, subsRes] = await Promise.all([
       supabase
         .from('projects')
@@ -298,13 +314,18 @@ export default function PreProductionPage() {
                     subprojectId={sub.id}
                     projectId={projectId}
                     actorUserId={user?.id}
+                    onChange={reload}
                   />
                 </div>
                 <div>
                   <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.1em] mb-2">
                     Drawings
                   </div>
-                  <DrawingsTrack subprojectId={sub.id} actorUserId={user?.id} />
+                  <DrawingsTrack
+                    subprojectId={sub.id}
+                    actorUserId={user?.id}
+                    onChange={reload}
+                  />
                 </div>
               </div>
             </section>
