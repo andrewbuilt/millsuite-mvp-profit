@@ -16,6 +16,7 @@
 
 import { useState } from 'react'
 import { ensureRateBookCategoryId, upsertRateBookItem } from '@/lib/rate-book'
+import { supabase } from '@/lib/supabase'
 
 interface Props {
   orgId: string
@@ -644,7 +645,9 @@ async function saveBaseCabinetAndDoorStyleCalibration(
   carcassPerLf: { eng: number; cnc: number; assembly: number; finish: number },
   doorPerDoor: { eng: number; cnc: number; assembly: number; finish: number },
 ): Promise<void> {
-  // 1. Base cabinet (cabinet_style). Per-LF by dept.
+  // 1. Base cabinet (cabinet_style). Per-LF by dept. Always written —
+  //    this walkthrough is the canonical entry point for the base-cab
+  //    rates.
   const cabinetsCategoryId = await ensureRateBookCategoryId(
     orgId,
     CABINETS_CATEGORY_NAME,
@@ -676,11 +679,50 @@ async function saveBaseCabinetAndDoorStyleCalibration(
   })
 
   // 2. Slab door style (door_style). Per-door by dept.
+  //    First-run only: if the Slab row already has any non-zero
+  //    door_labor_hours_*, skip the write. The dedicated
+  //    DoorStyleWalkthrough is the canonical entry point for tuning
+  //    door rates; if we overwrite here on every BaseCabinet save, any
+  //    composer line referencing Slab gets flagged stale on next
+  //    reload (its stored breakdown was computed against the previous
+  //    door rates). Discovered as the cause of staleness-banner false
+  //    positives on freshly-composed lines.
   const doorsCategoryId = await ensureRateBookCategoryId(
     orgId,
     DOORS_CATEGORY_NAME,
     'door_style',
   )
+  const { data: existingDoor } = await supabase
+    .from('rate_book_items')
+    .select(
+      'id, door_labor_hours_eng, door_labor_hours_cnc, door_labor_hours_assembly, door_labor_hours_finish',
+    )
+    .eq('org_id', orgId)
+    .eq('category_id', doorsCategoryId)
+    .ilike('name', SLAB_DOOR_STYLE_NAME)
+    .limit(1)
+  const existingRow = (existingDoor || [])[0] as
+    | {
+        id: string
+        door_labor_hours_eng: number | null
+        door_labor_hours_cnc: number | null
+        door_labor_hours_assembly: number | null
+        door_labor_hours_finish: number | null
+      }
+    | undefined
+  const existingTotal =
+    (Number(existingRow?.door_labor_hours_eng) || 0) +
+    (Number(existingRow?.door_labor_hours_cnc) || 0) +
+    (Number(existingRow?.door_labor_hours_assembly) || 0) +
+    (Number(existingRow?.door_labor_hours_finish) || 0)
+
+  if (existingRow && existingTotal > 0) {
+    // Already calibrated by DoorStyleWalkthrough (or a previous run of
+    // this walkthrough). Don't clobber it — the user's intent on
+    // recompose is to update base-cab rates, not door-style rates.
+    return
+  }
+
   await upsertRateBookItem({
     orgId,
     categoryId: doorsCategoryId,
