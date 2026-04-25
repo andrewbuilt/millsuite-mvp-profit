@@ -37,6 +37,7 @@ import {
   uploadNewRevision,
 } from '@/lib/drawings'
 import type { ApprovalState } from '@/lib/approvals'
+import { useConfirm } from '@/components/confirm-dialog'
 
 interface Props {
   subprojectId: string
@@ -49,6 +50,7 @@ interface Props {
 }
 
 export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: Props) {
+  const { confirm, alert } = useConfirm()
   const [revs, setRevs] = useState<DrawingRevision[]>([])
   const [loading, setLoading] = useState(true)
   const [busyRevId, setBusyRevId] = useState<string | null>(null)
@@ -77,7 +79,10 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
       onChange?.()
     } catch (err) {
       console.error(err)
-      alert('Failed to update revision. See console.')
+      await alert({
+        title: 'Couldn’t update revision',
+        message: 'Something went wrong saving the revision change. Open the browser console for the full error and try again.',
+      })
     } finally {
       setBusyRevId(null)
     }
@@ -90,6 +95,12 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
   const latest = revs.find((r) => r.is_latest)
   const superseded = revs.filter((r) => !r.is_latest)
   const gateGreen = isDrawingsGateGreen(revs)
+  // Item 4: once the latest revision is approved the manual-approve path
+  // can't add new information — clicking it would just stack synthetic
+  // R2/R3/etc revisions in the same approved state. To genuinely change
+  // what's approved, the operator uploads a new revision (which demotes
+  // the current latest to superseded and starts the new one as pending).
+  const alreadyApproved = !!latest && latest.state === 'approved'
 
   return (
     <div className="space-y-3">
@@ -113,10 +124,13 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
         <div className="flex items-center gap-2">
           <button
             onClick={async () => {
-              if (markingManual) return
-              const ok = window.confirm(
-                "Mark drawings approved without uploading a revision? Use this when shop drawings live outside the system and the client signed off verbally. The card will read \"Manually approved (no revision uploaded)\" so it's auditable.",
-              )
+              if (markingManual || alreadyApproved) return
+              const ok = await confirm({
+                title: 'Mark drawings approved manually?',
+                message:
+                  "Use this when shop drawings live outside the system and the client signed off verbally. The card will read \"Manually approved (no revision uploaded)\" so it's auditable.",
+                confirmLabel: 'Mark approved',
+              })
               if (!ok) return
               setMarkingManual(true)
               try {
@@ -124,7 +138,11 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
                   uploaded_by_user_id: actorUserId,
                 })
                 if (!result) {
-                  alert('Failed to mark drawings approved. See console.')
+                  await alert({
+                    title: 'Couldn’t mark drawings approved',
+                    message:
+                      'Something went wrong creating the manual-approve revision. Open the browser console for the full error and try again.',
+                  })
                   return
                 }
                 await reload()
@@ -133,9 +151,13 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
                 setMarkingManual(false)
               }
             }}
-            disabled={markingManual}
-            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700 disabled:opacity-50"
-            title="Mark drawings approved without uploading a revision (drawings live outside the system)"
+            disabled={markingManual || alreadyApproved}
+            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={
+              alreadyApproved
+                ? 'Latest revision is already approved. Upload a new revision to supersede it.'
+                : 'Mark drawings approved without uploading a revision (drawings live outside the system)'
+            }
           >
             <CheckCircle2 className="w-3 h-3" />
             {markingManual ? 'Marking…' : 'Mark approved manually'}
@@ -401,6 +423,7 @@ function UploadRevisionModal({
   onClose,
   onUploaded,
 }: UploadModalProps) {
+  const { alert } = useConfirm()
   const [fileUrl, setFileUrl] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
@@ -417,7 +440,11 @@ function UploadRevisionModal({
         uploaded_by_user_id: actorUserId,
       })
       if (!result) {
-        alert('Failed to upload revision. See console.')
+        await alert({
+          title: 'Couldn’t upload revision',
+          message:
+            'Something went wrong creating the revision row. Open the browser console for the full error and try again.',
+        })
         return
       }
       await onUploaded()

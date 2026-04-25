@@ -500,7 +500,9 @@ export async function draftCoFromApprovalCard(
 export async function applyApprovedCo(coId: string): Promise<void> {
   const { data: co, error } = await supabase
     .from('change_orders')
-    .select('id, approval_item_id, proposed_line, original_line_snapshot, state')
+    .select(
+      'id, approval_item_id, subproject_id, proposed_line, original_line_snapshot, state',
+    )
     .eq('id', coId)
     .maybeSingle()
   if (error || !co) {
@@ -515,35 +517,109 @@ export async function applyApprovedCo(coId: string): Promise<void> {
   const proposed = (co.proposed_line || {}) as LineSnapshot
   const original = (co.original_line_snapshot || {}) as LineSnapshot
 
-  // 1. Update the approval card if linked.
-  if (co.approval_item_id) {
-    const patch: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
+  // Resolve which approval_item this CO targets:
+  //   1. Direct link (legacy "Material changed — reopen" path) carried
+  //      approval_item_id on the row.
+  //   2. Seeded slot-aware COs (Issue 21) leave approval_item_id null but
+  //      stash the targeted slot label as the prefix on proposed.material
+  //      ("Carcass material: White oak"). Match against the
+  //      subproject + label so we can find the same approval_item that
+  //      proposeSlotsFromComposerLine generated on handoff.
+  let approvalItemId: string | null = co.approval_item_id ?? null
+  let slotLabelFromCo: string | null = null
+  let slotValueFromCo: string | null = null
+  const slotPrefixMatch = (proposed.material || '').match(/^([^:]+):\s*(.*)$/)
+  if (slotPrefixMatch) {
+    slotLabelFromCo = slotPrefixMatch[1].trim()
+    slotValueFromCo = slotPrefixMatch[2].trim() || null
+    if (!approvalItemId && co.subproject_id) {
+      const { data: matched } = await supabase
+        .from('approval_items')
+        .select('id, state')
+        .eq('subproject_id', co.subproject_id)
+        .eq('label', slotLabelFromCo)
+        .maybeSingle()
+      if (matched?.id) approvalItemId = matched.id
     }
-    if (proposed.material !== undefined) patch.material = proposed.material ?? null
-    if (proposed.finish !== undefined) patch.finish = proposed.finish ?? null
+  }
+
+  // 1. Update the approval card.
+  if (approvalItemId) {
+    // Read the existing row so we know whether to bump (was approved) and
+    // how much (revision + 1). Fail-soft: if the read errors, fall back to
+    // a no-op patch so the CO state flip still stands.
+    const { data: priorItem, error: priorErr } = await supabase
+      .from('approval_items')
+      .select('id, state, revision, label')
+      .eq('id', approvalItemId)
+      .maybeSingle()
+    if (priorErr) console.error('applyApprovedCo: read approval_item', priorErr)
+
+    const wasApproved = priorItem?.state === 'approved'
+    const currentRev = Number(priorItem?.revision) || 1
+    const slotLabel = slotLabelFromCo || priorItem?.label || ''
+    // Map slot label → which approval_item column the new value lives in.
+    // proposeSlotsFromComposerLine puts carcassMaterial / doorMaterial
+    // under .material and exteriorFinish under .finish.
+    const isFinishSlot = /finish/i.test(slotLabel)
+
+    const now = new Date().toISOString()
+    const patch: Record<string, unknown> = { updated_at: now }
+    if (slotValueFromCo != null) {
+      // Seeded CO: write the new value into the appropriate column. Clear
+      // the other column so the card doesn't read with stale text.
+      if (isFinishSlot) {
+        patch.finish = slotValueFromCo
+      } else {
+        patch.material = slotValueFromCo
+      }
+    } else {
+      // Legacy CO (linked via approval_item_id): use the snapshot fields
+      // directly.
+      if (proposed.material !== undefined) patch.material = proposed.material ?? null
+      if (proposed.finish !== undefined) patch.finish = proposed.finish ?? null
+    }
     if (proposed.rate_book_material_variant_id !== undefined) {
       patch.rate_book_material_variant_id =
         proposed.rate_book_material_variant_id ?? null
     }
+    if (wasApproved) {
+      // Item 3 of the post-sale dogfood pass: an approved spec touched by
+      // an approved CO is no longer truly approved — the value moved.
+      // Bump rev and reset to pending so the operator knows a new sample
+      // round is needed against the new value. Ball flips to shop because
+      // they own the next move (resample / re-confirm).
+      patch.revision = currentRev + 1
+      patch.state = 'pending'
+      patch.last_state_change_at = now
+      patch.ball_in_court = 'shop'
+    }
     const { error: itemErr } = await supabase
       .from('approval_items')
       .update(patch)
-      .eq('id', co.approval_item_id)
+      .eq('id', approvalItemId)
     if (itemErr) console.error('applyApprovedCo: approval_items update', itemErr)
 
-    // Audit trail: material_changed revision row referencing the CO.
+    // Audit trail: material_changed revision row referencing the CO. The
+    // note carries the old → new value so the timeline reads cleanly even
+    // when the CO row is later voided.
+    const oldDisp = wasApproved
+      ? slotValueFromCo
+        ? `${original.material ?? '?'}`
+        : original.material ?? '?'
+      : original.material ?? '?'
+    const newDisp = slotValueFromCo ?? proposed.material ?? '?'
     await supabase.from('item_revisions').insert({
-      approval_item_id: co.approval_item_id,
+      approval_item_id: approvalItemId,
       action: 'material_changed',
-      note: `Applied via change order ${coId.slice(0, 8)}: ${original.material ?? '?'} → ${proposed.material ?? '?'}`,
+      note: `Applied via change order ${coId.slice(0, 8)}: ${oldDisp} → ${newDisp}`,
     })
 
     // 2. Update the source estimate_line's finish_specs jsonb in place.
     const { data: itemRow } = await supabase
       .from('approval_items')
       .select('source_estimate_line_id')
-      .eq('id', co.approval_item_id)
+      .eq('id', approvalItemId)
       .maybeSingle()
 
     const lineId = itemRow?.source_estimate_line_id
