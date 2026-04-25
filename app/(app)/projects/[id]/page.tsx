@@ -849,13 +849,18 @@ export default function ProjectCoverPage() {
                 </button>
                 {deptOpen && (
                   <div className="pl-4 ml-1 border-l border-[#DBEAFE] py-1 mb-1 space-y-1">
+                    {/* Install used to render here too. Issue 20 (Phase 12
+                        dogfood-4): Install is its own peer-level row at the
+                        bottom of the breakdown — surfaces hours + the
+                        marked-up $ together — so it doesn't need to also
+                        appear under Labor where it would render at raw cost
+                        and double-count visually. */}
                     {(
                       [
                         ['Engineering', 'eng'],
                         ['CNC', 'cnc'],
                         ['Assembly', 'assembly'],
                         ['Finish', 'finish'],
-                        ['Install', 'install'],
                       ] as const
                     ).map(([label, key]) => {
                       const hrs = proj.hoursByDept[key]
