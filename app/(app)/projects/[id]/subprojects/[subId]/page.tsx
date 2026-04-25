@@ -95,7 +95,6 @@ interface SubprojectRow {
   name: string
   linear_feet: number | null
   consumable_markup_pct: number | null
-  profit_margin_pct: number | null
   activity_type: string | null
 }
 
@@ -188,12 +187,6 @@ export default function SubprojectEditorPage() {
     [org?.shop_rate, subproject, org]
   )
 
-  // Effective project target — sourced same way as the project page:
-  // pinned project value first, then org default. Drives the bottom-bar
-  // readout so subproject + project always show the same target.
-  const effectiveProjectMarginTarget =
-    project?.target_margin_pct ?? org?.profit_margin_pct ?? 35
-
   // ── Load ──
   useEffect(() => {
     if (!org?.id) return
@@ -208,7 +201,7 @@ export default function SubprojectEditorPage() {
           .single(),
         supabase
           .from('subprojects')
-          .select('id, project_id, name, linear_feet, consumable_markup_pct, profit_margin_pct, activity_type')
+          .select('id, project_id, name, linear_feet, consumable_markup_pct, activity_type')
           .eq('id', subId)
           .single(),
         supabase
@@ -579,10 +572,6 @@ export default function SubprojectEditorPage() {
             <span><span className="text-[#111] font-semibold">{fmtHours(rollup.totalHours)}</span></span>
             <span className="text-[#D1D5DB]">·</span>
             <span><span className="text-[#111] font-semibold">{fmtMoney(subprojectTotalWithInstall)}</span></span>
-            <span className="text-[#D1D5DB]">·</span>
-            <span className="text-[#6B7280]">
-              cost · target {effectiveProjectMarginTarget}% at project
-            </span>
           </div>
         </div>
       </div>
@@ -927,37 +916,46 @@ export default function SubprojectEditorPage() {
             />
           </div>
 
-          {/* Bottom rollup */}
+          {/* Bottom rollup — at COST. Margin lives on the project page. */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
-            <div className="grid grid-cols-5 gap-5">
+            <div className="grid grid-cols-6 gap-5">
               <RollupCell
                 label={`${subproject.name} · ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`}
                 value={fmtMoney(subprojectTotalWithInstall)}
-                sub={`cost · target ${effectiveProjectMarginTarget}% at project`}
+                sub={fmtHours(rollup.totalHours) + ' est'}
                 subTone="ok"
                 bold
               />
-              <RollupCell label="Labor" value={fmtHours(rollup.totalHours)} sub={fmtMoney(rollup.laborCost)} />
+              <RollupCell label="Labor" value={fmtMoney(rollup.laborCost)} sub={fmtHours(rollup.totalHours)} />
               <RollupCell
                 label="Material"
                 value={fmtMoney(rollup.materialCost)}
                 sub={`+ ${fmtMoney(rollup.consumablesCost)} consumables`}
               />
               <RollupCell
-                label="Hardware / Install"
-                value={fmtMoney(rollup.hardwareCost + rollup.installCost + installPrefillCost)}
+                label="Hardware"
+                value={fmtMoney(rollup.hardwareCost)}
+                sub={
+                  rollup.hardwareCost > 0
+                    ? `${lines.filter((l) => { const it = l.rate_book_item_id ? itemsById.get(l.rate_book_item_id) : null; return it && it.hardware_cost > 0 }).length} lines`
+                    : '—'
+                }
+              />
+              <RollupCell
+                label="Install"
+                value={fmtMoney(rollup.installCost + installPrefillCost)}
                 sub={
                   installPrefillCost > 0
-                    ? `${fmtMoney(installPrefillCost)} install prefill`
+                    ? `${fmtMoney(installPrefillCost)} prefill`
                     : rollup.installCost > 0
-                    ? `${fmtMoney(rollup.installCost)} install`
-                    : `${lines.filter((l) => { const it = l.rate_book_item_id ? itemsById.get(l.rate_book_item_id) : null; return it && it.hardware_cost > 0 }).length} lines`
+                    ? 'line-driven'
+                    : '—'
                 }
               />
               <RollupCell
                 label="Subtotal"
                 value={fmtMoney(subprojectTotalWithInstall)}
-                sub={`${fmtHours(rollup.totalHours)} labor · ${fmtMoney(rollup.materialCost + rollup.consumablesCost)} mat · ${fmtMoney(rollup.hardwareCost + rollup.installCost + installPrefillCost)} hw/inst`}
+                sub={fmtHours(rollup.totalHours) + ' est'}
                 divider
               />
             </div>

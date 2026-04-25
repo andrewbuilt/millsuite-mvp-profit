@@ -82,7 +82,6 @@ export default function NewSubprojectPage() {
         name: name.trim(),
         sort_order: nextOrder,
         consumable_markup_pct: org?.consumable_markup_pct ?? null,
-        profit_margin_pct: org?.profit_margin_pct ?? null,
         defaults,
       })
       .select('id')
