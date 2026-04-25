@@ -448,13 +448,18 @@ export default function ProjectCoverPage() {
       raw.consumablesCost += rollup.consumablesCost
       raw.optionsCost += rollup.optionsCost
 
-      // Hours — install prefill hours fold into hoursByDept.install + totalHours.
+      // Hours — install prefill hours land ONLY on hoursByDept.install,
+      // NOT in totalHours. The Labor BREAKDOWN row reads totalHours +
+      // laborCost together; folding install hours into totalHours while
+      // their $ stays in installCost made the Labor row read "X hours
+      // for $0" (Issue 17b). Install hours surface on the Install
+      // breakdown row alongside their $.
       acc.hoursByDept.eng += rollup.hoursByDept.eng
       acc.hoursByDept.cnc += rollup.hoursByDept.cnc
       acc.hoursByDept.assembly += rollup.hoursByDept.assembly
       acc.hoursByDept.finish += rollup.hoursByDept.finish
       acc.hoursByDept.install += rollup.hoursByDept.install + installPrefillHours
-      acc.totalHours += rollup.totalHours + installPrefillHours
+      acc.totalHours += rollup.totalHours
 
       acc.finishSpecCount += finishSpecCount
       if (isInstallSub(sub)) acc.installSubprojectTotal += rollup.total + installPrefillCost
@@ -605,6 +610,8 @@ export default function ProjectCoverPage() {
       {/* Stage-aware layer: 5-node stage strip + attention strip */}
       <StageStrip stage={project.stage} />
       <AttentionStrip stage={project.stage} cards={cards} milestones={milestones} />
+
+      {org && org.shop_rate == null && <ShopRateNotConfiguredBanner />}
 
       {/* Main grid */}
       <div className="px-8 py-6">
@@ -911,7 +918,11 @@ export default function ProjectCoverPage() {
                 />
                 <FinRow label="Specialty hardware" value={money(proj.hardwareCost)} />
                 <FinRow label="Options" value={money(proj.optionsCost)} />
-                <FinRow label="Install" value={money(proj.installCost)} />
+                <FinRow
+                  label="Install"
+                  hours={proj.hoursByDept.install}
+                  value={money(proj.installCost)}
+                />
               </div>
 
               {/* Milestones — per-project builder */}
@@ -1067,14 +1078,26 @@ export default function ProjectCoverPage() {
 function FinRow({
   label,
   value,
+  hours,
 }: {
   label: React.ReactNode
   value: string
+  /** Optional hours readout. Renders next to the $ as
+   *  "X.Xh · $Y". Used on the Install row so install
+   *  hours don't have to ride on the Labor row. */
+  hours?: number
 }) {
   return (
-    <div className="grid grid-cols-[1fr_auto] gap-2.5 items-center py-2 text-sm border-b border-[#F3F4F6]">
+    <div className="flex items-center justify-between gap-2.5 py-2 text-sm border-b border-[#F3F4F6]">
       <span className="text-[#374151]">{label}</span>
-      <span className="font-mono text-[#111] tabular-nums">{value}</span>
+      <div className="flex items-center gap-2.5">
+        {hours != null && hours > 0 && (
+          <span className="text-[11px] font-mono text-[#9CA3AF]">
+            {hours.toFixed(1)}h
+          </span>
+        )}
+        <span className="font-mono text-[#111] tabular-nums">{value}</span>
+      </div>
     </div>
   )
 }
@@ -1723,6 +1746,34 @@ function buildDefaultSpec(sub: Subproject): string {
     ? '\nExcludes: electrical, plumbing, drywall repair, disposal of existing cabinetry.'
     : '\nExcludes: appliances, plumbing, countertops, backsplash, paint touch-up after install.'
   return lead + exclusions
+}
+
+// ── Shop-rate-not-configured banner ──
+// Surfaces the NULL state of orgs.shop_rate so the operator understands
+// why the project's labor / install / breakdown numbers are zero. Links
+// to /settings where they can finish the walkthrough or set a rate.
+function ShopRateNotConfiguredBanner() {
+  return (
+    <div className="px-8 pt-4">
+      <div className="max-w-[1240px] mx-auto px-4 py-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl flex items-center justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold text-[#92400E]">
+            Shop rate not configured
+          </div>
+          <div className="text-[12px] text-[#78350F] mt-0.5">
+            Labor and install costs render as $0 until you finish the shop
+            rate walkthrough or set a rate manually in Settings.
+          </div>
+        </div>
+        <Link
+          href="/settings"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#D97706] rounded-md hover:bg-[#B45309] transition-colors"
+        >
+          Open settings →
+        </Link>
+      </div>
+    </div>
+  )
 }
 
 // ── Stage-aware layer components ──
