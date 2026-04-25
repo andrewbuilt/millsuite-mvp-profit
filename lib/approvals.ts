@@ -189,6 +189,12 @@ export async function requestChange(
 /**
  * in_review → approved via 'approved'. Ball clears. Per D6, shop user marks
  * this on the client's behalf after verbal/email sign-off.
+ *
+ * Post-sale dogfood pass: spec-gated COs auto-finalize here. Any draft CO
+ * with approval_item_id = itemId gets flipped to approved + its proposed
+ * value applied to the spec + the underlying line. See
+ * finalizeSpecCosOnApproval for the full contract. Best-effort — failure
+ * logs but doesn't roll back the approval.
  */
 export async function approve(
   itemId: string,
@@ -200,6 +206,12 @@ export async function approve(
     newBallInCourt: null,
     ...args,
   })
+  try {
+    const { finalizeSpecCosOnApproval } = await import('./change-orders')
+    await finalizeSpecCosOnApproval(itemId)
+  } catch (err) {
+    console.error('approve: spec-CO finalize failed', err)
+  }
 }
 
 /**

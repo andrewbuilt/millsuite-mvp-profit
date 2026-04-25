@@ -29,7 +29,10 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import ApprovalSlots from '@/components/approval-slots'
 import DrawingsTrack from '@/components/drawings-track'
-import ChangeOrders from '@/components/change-orders'
+import ChangeOrders, {
+  CreateCoModal,
+  type CreateCoModalSeed,
+} from '@/components/change-orders'
 import { loadSubprojectStatusMap, type SubprojectStatus } from '@/lib/subproject-status'
 import {
   loadApprovalItemsForSubproject,
@@ -38,6 +41,13 @@ import {
 } from '@/lib/approvals'
 import type { PricingInputs } from '@/lib/change-orders'
 import type { ProjectStage } from '@/lib/types'
+import { loadComposerRateBook } from '@/lib/composer-loader'
+import {
+  initialSubprojectDefaults,
+  loadSubprojectDefaults,
+} from '@/lib/composer-persist'
+import { productLabelFromKey, type ComposerRateBook, type ComposerDefaults, type ComposerSlots } from '@/lib/composer'
+import type { ProductKey } from '@/lib/products'
 
 interface Project {
   id: string
@@ -93,6 +103,12 @@ export default function PreProductionPage() {
   // reload was making ChangeOrders + ApprovalSlots remount, which re-fired
   // their mount effects, which caused a render loop.
   const [loading, setLoading] = useState(true)
+  // Spec-CO modal: when a SlotCard's "+ CO" is clicked we resolve the
+  // underlying composer line + build a seed, then mount CreateCoModal
+  // here once. composerRateBook is loaded lazily on first open.
+  const [composerRateBook, setComposerRateBook] = useState<ComposerRateBook | null>(null)
+  const [coSeed, setCoSeed] = useState<CreateCoModalSeed | null>(null)
+  const [coDefaults, setCoDefaults] = useState<ComposerDefaults | null>(null)
 
   const reload = useCallback(async () => {
     if (!projectId || !org?.id) return
@@ -137,6 +153,91 @@ export default function PreProductionPage() {
   useEffect(() => {
     reload()
   }, [reload])
+
+  // Map an approval-item label to a composer slot key. Mirrors the
+  // built-in mapping in lib/approvals.proposeSlotsFromComposerLine.
+  function slotKeyForLabel(label: string): string | null {
+    if (label === 'Carcass material') return 'carcassMaterial'
+    if (label === 'Door/drawer material') return 'doorMaterial'
+    if (label === 'Exterior finish') return 'exteriorFinish'
+    return null
+  }
+
+  // Spec-CO entry: ApprovalSlots calls into here when a "+ CO" button
+  // is clicked. We resolve the underlying composer line off the
+  // approval_item, lazy-load the composer rate book + per-sub defaults
+  // (cached after the first call), then build a CreateCoModalSeed
+  // pre-scoped to the slot. The modal mount below handles the rest.
+  async function openSpecCo(
+    approvalItemId: string,
+    subprojectId: string,
+    subprojectName: string,
+  ) {
+    if (!org?.id) return
+    try {
+      // 1. Resolve the source composer line.
+      const { data: itemRaw } = await supabase
+        .from('approval_items')
+        .select('id, label, source_estimate_line_id')
+        .eq('id', approvalItemId)
+        .maybeSingle()
+      const item = itemRaw as
+        | { id: string; label: string; source_estimate_line_id: string | null }
+        | null
+      if (!item) return
+      const slotKey = slotKeyForLabel(item.label)
+      if (!slotKey || !item.source_estimate_line_id) return
+
+      const { data: lineRaw } = await supabase
+        .from('estimate_lines')
+        .select('id, description, quantity, product_key, product_slots')
+        .eq('id', item.source_estimate_line_id)
+        .maybeSingle()
+      const line = lineRaw as
+        | {
+            id: string
+            description: string
+            quantity: number
+            product_key: ProductKey | null
+            product_slots: ComposerSlots | null
+          }
+        | null
+      if (!line || !line.product_key || !line.product_slots) return
+
+      // 2. Lazy-load the composer rate book (one fetch per session)
+      //    and the subproject's composer defaults (one fetch per
+      //    subproject per modal open — small enough to skip caching).
+      let rb = composerRateBook
+      if (!rb) {
+        rb = await loadComposerRateBook(org.id)
+        setComposerRateBook(rb)
+      }
+      const defaults =
+        (await loadSubprojectDefaults(subprojectId)) ||
+        initialSubprojectDefaults(org?.consumable_markup_pct ?? null)
+      setCoDefaults(defaults)
+
+      // 3. Build the seed.
+      setCoSeed({
+        subprojectId,
+        subprojectName,
+        lineId: line.id,
+        productKey: line.product_key,
+        productSlots: line.product_slots,
+        qty: Number(line.quantity) || 0,
+        productLabel: productLabelFromKey(line.product_key),
+        description: line.description || '',
+        source: 'spec',
+        approvalItemId,
+        preSelectedSlot: slotKey as
+          | 'carcassMaterial'
+          | 'doorMaterial'
+          | 'exteriorFinish',
+      })
+    } catch (err) {
+      console.error('openSpecCo', err)
+    }
+  }
 
   // Pre-computed counts — one pass across the project's approval items.
   const counts = useMemo(() => {
@@ -315,6 +416,9 @@ export default function PreProductionPage() {
                     projectId={projectId}
                     actorUserId={user?.id}
                     onChange={reload}
+                    onCreateSpecCo={(approvalItemId) =>
+                      void openSpecCo(approvalItemId, sub.id, sub.name)
+                    }
                   />
                 </div>
                 <div>
@@ -373,6 +477,24 @@ export default function PreProductionPage() {
           </p>
         </div>
       </div>
+
+      {/* Spec-CO modal — single mount, opens whenever coSeed is set
+          via openSpecCo from a SlotCard's "+ CO" click. */}
+      {coSeed && composerRateBook && coDefaults && (
+        <CreateCoModal
+          projectId={projectId}
+          pricing={pricing}
+          subprojects={subs.map((s) => ({ id: s.id, name: s.name }))}
+          seed={coSeed}
+          composerRateBook={composerRateBook}
+          composerDefaults={coDefaults}
+          onClose={() => setCoSeed(null)}
+          onCreated={async () => {
+            setCoSeed(null)
+            await reload()
+          }}
+        />
+      )}
     </div>
   )
 }

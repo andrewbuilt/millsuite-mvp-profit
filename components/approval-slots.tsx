@@ -15,7 +15,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
 import { CheckCircle2, Clock, Send, RotateCcw, Link2, Lock, Plus, ChevronDown, ChevronUp } from 'lucide-react'
 import { useConfirm } from '@/components/confirm-dialog'
 import {
@@ -43,9 +42,26 @@ interface Props {
    *  this, local approve clicks updated the slot card but left the
    *  header / counts stale until a manual reload. */
   onChange?: () => void
+  /** Spec-CO redesign (post-sale dogfood pass): clicking "+ CO" on a
+   *  spec card calls this with the approval_item id. The parent
+   *  (pre-prod page) resolves the underlying composer line, builds a
+   *  CreateCoModalSeed with source='spec' + preSelectedSlot, and mounts
+   *  the modal. Buttons hide entirely when this prop isn't provided. */
+  onCreateSpecCo?: (approvalItemId: string) => void
 }
 
-export default function ApprovalSlots({ subprojectId, projectId, actorUserId, onChange }: Props) {
+/** Map an approval_items.label to the composer slot key the spec drives.
+ *  Spec labels come from proposeSlotsFromComposerLine in lib/approvals.ts.
+ *  Anything else (freeform spec_label, legacy callouts) returns null and
+ *  the per-spec "+ CO" button hides. */
+function slotKeyForApprovalLabel(label: string): string | null {
+  if (label === 'Carcass material') return 'carcassMaterial'
+  if (label === 'Door/drawer material') return 'doorMaterial'
+  if (label === 'Exterior finish') return 'exteriorFinish'
+  return null
+}
+
+export default function ApprovalSlots({ subprojectId, projectId, actorUserId, onChange, onCreateSpecCo }: Props) {
   const { alert } = useConfirm()
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -101,25 +117,16 @@ export default function ApprovalSlots({ subprojectId, projectId, actorUserId, on
   return (
     <div className="space-y-3">
       {/* Section header — specs are derived from the locked estimate.
-          Adding a spec post-sale means making a change order, which is
-          authored on a line in the subproject editor. */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium text-neutral-700">
-          Specs
-          <span className="ml-2 text-neutral-500 font-normal">
-            {approvedCount} of {items.length} approved
-          </span>
-          {items.length > 0 && (
-            <span className="ml-2 text-neutral-400 font-normal">· pulled from estimate lines</span>
-          )}
-        </div>
-        <Link
-          href={`/projects/${projectId}/subprojects/${subprojectId}`}
-          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
-        >
-          <Plus className="w-3 h-3" />
-          New change order
-        </Link>
+          Per-spec CO entry lives on each card now; the page-level
+          "+ New change order" link was redundant. */}
+      <div className="text-sm font-medium text-neutral-700">
+        Specs
+        <span className="ml-2 text-neutral-500 font-normal">
+          {approvedCount} of {items.length} approved
+        </span>
+        {items.length > 0 && (
+          <span className="ml-2 text-neutral-400 font-normal">· pulled from estimate lines</span>
+        )}
       </div>
 
       {/* Empty state */}
@@ -129,20 +136,35 @@ export default function ApprovalSlots({ subprojectId, projectId, actorUserId, on
         </div>
       )}
 
-      {/* Slot list. Approval-state buttons only — content edits (material
-          / finish swap) go through a CO authored on the line. */}
-      {items.map((item) => (
-        <SlotCard
-          key={item.id}
-          item={item}
-          isExpanded={expanded.has(item.id)}
-          isBusy={busyItemId === item.id}
-          onToggleExpanded={() => toggleExpanded(item.id)}
-          onSubmit={() => runTransition(submitSample, item.id)}
-          onApprove={() => runTransition(approve, item.id)}
-          onRequestChange={() => runTransition(requestChange, item.id)}
-        />
-      ))}
+      {/* Slot list. Approval-state buttons + per-spec "+ CO" entry.
+          A material / finish swap on a non-approved spec opens the
+          spec-CO modal (parent decides). When the spec lands as
+          approved, any draft CO targeting it auto-finalizes (see
+          lib/change-orders.finalizeSpecCosOnApproval). */}
+      {items.map((item) => {
+        const slotKey = slotKeyForApprovalLabel(item.label)
+        // Spec-CO is only meaningful when:
+        //   1. The parent wired onCreateSpecCo (pre-prod page does;
+        //      the project-detail Client picker doesn't).
+        //   2. The spec is composer-derived (slotKey resolves).
+        //   3. The spec isn't already approved (locked).
+        const canCreateCo =
+          !!onCreateSpecCo && !!slotKey && item.state !== 'approved'
+        return (
+          <SlotCard
+            key={item.id}
+            item={item}
+            isExpanded={expanded.has(item.id)}
+            isBusy={busyItemId === item.id}
+            canCreateCo={canCreateCo}
+            onToggleExpanded={() => toggleExpanded(item.id)}
+            onSubmit={() => runTransition(submitSample, item.id)}
+            onApprove={() => runTransition(approve, item.id)}
+            onRequestChange={() => runTransition(requestChange, item.id)}
+            onCreateCo={() => onCreateSpecCo?.(item.id)}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -153,10 +175,14 @@ interface SlotCardProps {
   item: ApprovalItem
   isExpanded: boolean
   isBusy: boolean
+  /** Pre-resolved gate: parent wired up + composer-derived spec +
+   *  state !== approved. Hides the button when false. */
+  canCreateCo: boolean
   onToggleExpanded: () => void
   onSubmit: () => void
   onApprove: () => void
   onRequestChange: () => void
+  onCreateCo: () => void
 }
 
 function SlotCard(p: SlotCardProps) {
@@ -186,6 +212,22 @@ function SlotCard(p: SlotCardProps) {
           <StateBadge state={item.state} />
           {item.state !== 'approved' && item.ball_in_court && (
             <BallChip party={item.ball_in_court} tone={tone} days={days} />
+          )}
+          {/* Per-spec CO entry. Hidden when the spec is approved
+              (locked) or the spec didn't come from a composer slot.
+              Click → parent opens CreateCoModal pre-scoped to this
+              spec; CO auto-finalizes when the spec is approved. */}
+          {p.canCreateCo && (
+            <button
+              type="button"
+              onClick={p.onCreateCo}
+              disabled={p.isBusy}
+              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-[#2563EB] hover:text-[#2563EB] text-neutral-700 disabled:opacity-50"
+              title="Draft a change order on this spec — auto-approves when the spec lands"
+            >
+              <Plus className="w-3 h-3" />
+              CO
+            </button>
           )}
           <button onClick={p.onToggleExpanded} className="text-neutral-500 hover:text-neutral-800 p-1">
             {p.isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
