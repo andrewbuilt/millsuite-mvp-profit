@@ -76,10 +76,11 @@ import {
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
 import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
+import { countFinishSpecsFromSlots } from '@/lib/composer'
 
 // ── Types ──
 
-import type { ProjectStage } from '@/lib/types'
+import { isPresold, type ProjectStage } from '@/lib/types'
 
 interface Project {
   id: string
@@ -309,8 +310,13 @@ export default function ProjectCoverPage() {
           profitMarginPct: 0,
         }
         const rollup = computeSubprojectRollup(subLines, rateBook.itemsById, new Map(), perSubCtx)
+        // Finish-spec count comes from composer slots, not the legacy
+        // line.finish_specs column. Each composer line contributes:
+        //   +1 carcassMaterial set, +1 doorMaterial set, +1 exteriorFinish
+        //   set (excluding the Prefinished sentinel). Freeform / rate-book
+        //   lines contribute 0 — they're outside the composer spec model.
         const finishSpecCount = subLines.reduce(
-          (s, l) => s + ((l.finish_specs || []).length || 0),
+          (s, l) => s + countFinishSpecsFromSlots(l.product_slots as any),
           0
         )
         const installPrefill = {
@@ -607,6 +613,7 @@ export default function ProjectCoverPage() {
       <StageStrip stage={project.stage} />
       <AttentionStrip stage={project.stage} cards={cards} milestones={milestones} />
 
+      {!isPresold(project.stage) && <SoldLockBanner projectId={projectId} />}
       {org && org.shop_rate == null && <ShopRateNotConfiguredBanner />}
 
       {/* Main grid */}
@@ -615,7 +622,7 @@ export default function ProjectCoverPage() {
           {/* LEFT — subproject cards */}
           <div>
             <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-3">
-              Subprojects · click any to edit
+              Subprojects · click any to {isPresold(project.stage) ? 'edit' : 'view'}
             </div>
             <div className="space-y-2.5">
               {cards.length === 0 && (
@@ -767,14 +774,17 @@ export default function ProjectCoverPage() {
                 )
               })}
               {/* Add subproject — jumps into the new-subproject form, which
-                  persists and routes to the editor on save. */}
-              <Link
-                href={`/projects/${projectId}/subprojects/new`}
-                className="block border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5 inline mr-1" />
-                Add subproject
-              </Link>
+                  persists and routes to the editor on save. Hidden post-sold
+                  (stage strip locks the estimate; CO is the only edit path). */}
+              {isPresold(project.stage) && (
+                <Link
+                  href={`/projects/${projectId}/subprojects/new`}
+                  className="block border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5 inline mr-1" />
+                  Add subproject
+                </Link>
+              )}
             </div>
           </div>
 
@@ -1740,6 +1750,34 @@ function buildDefaultSpec(sub: Subproject): string {
 // Surfaces the NULL state of orgs.shop_rate so the operator understands
 // why the project's labor / install / breakdown numbers are zero. Links
 // to /settings where they can finish the walkthrough or set a rate.
+// Banner shown post-sold on the project + subproject pages. Direct
+// edit affordances (add/edit/delete) hide once the estimate locks; the
+// only legitimate post-sold change path is a CO, which lives on the
+// pre-production page. Link points there.
+function SoldLockBanner({ projectId }: { projectId: string }) {
+  return (
+    <div className="px-8 pt-4">
+      <div className="max-w-[1240px] mx-auto px-4 py-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl flex items-center justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold text-[#1E40AF]">
+            Locked — sold
+          </div>
+          <div className="text-[12px] text-[#1E3A8A] mt-0.5">
+            The estimate is locked. Use change orders to modify scope, lines,
+            or pricing on this project.
+          </div>
+        </div>
+        <Link
+          href={`/projects/${projectId}/pre-production`}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#2563EB] rounded-md hover:bg-[#1D4ED8] transition-colors"
+        >
+          Open change orders →
+        </Link>
+      </div>
+    </div>
+  )
+}
+
 function ShopRateNotConfiguredBanner() {
   return (
     <div className="px-8 pt-4">
