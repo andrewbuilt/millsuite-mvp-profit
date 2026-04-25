@@ -10,8 +10,9 @@
 // What counts as stale
 // --------------------
 // A composer line stores two snapshots on the estimate_lines row:
-//   - dept_hour_overrides  — per-dept hours computed at save time
-//   - lump_cost_override   — material subtotal (incl. consumables + waste)
+//   - dept_hour_overrides  — PER-UNIT hours by dept
+//   - lump_cost_override   — PER-UNIT (materialSubtotal + waste, no
+//                            consumables — the rollup re-applies them)
 // Labor $ is computed live at read time (computeSubprojectRollup reads
 // current orgs.shop_rate), so a shop-rate edit alone is NOT stale —
 // every displayed labor cost already reflects the new rate.
@@ -22,6 +23,18 @@
 //     dept_hour_overrides no longer match a fresh computeBreakdown.
 //   - Material template edits (sheet cost / sheets-per-LF) — shift the
 //     material total. Stored lump_cost_override no longer matches.
+//
+// Per-unit contract
+// -----------------
+// Storage is per-unit; computeBreakdown returns whole-line totals.
+// Both the comparison (checkLineStaleness) and the writeback
+// (bulkRefreshStaleLines) MUST go through breakdownToStorageValues so
+// the units match storage. Without that:
+//   - Comparing per-unit stored to whole-line fresh gives a false-positive
+//     banner on every untouched line at qty > 1.
+//   - Writing whole-line back as the override regenerates Issue 18's 8×
+//     labor / 8× material bug — every "Update to latest rates" click
+//     multiplies the line by qty.
 //
 // Freeform lines (no product_key) and lines whose product is inactive
 // (drawer / led / countertop stubs) are skipped — they were never
@@ -40,6 +53,10 @@ import {
   type ComposerRateBook,
   type ComposerSlots,
 } from './composer'
+import {
+  breakdownToStorageValues,
+  type ComposerStorageValues,
+} from './composer-persist'
 import { PRODUCTS, type ProductKey } from './products'
 
 const EPS_HR = 0.01
@@ -49,18 +66,22 @@ export interface StaleLineInfo {
   lineId: string
   productKey: ProductKey
   qty: number
-  /** The recomputed hours — used by bulkRefreshStaleLines to write back. */
-  freshHoursByDept: { eng: number; cnc: number; assembly: number; finish: number }
-  /** The recomputed material total (incl. consumables + waste). */
-  freshMaterial: number
-  /** Stored values — so the UI can describe the delta if it wants. */
+  /** Recomputed PER-UNIT storage values — what bulkRefreshStaleLines
+   *  writes back into estimate_lines. */
+  freshStorage: ComposerStorageValues
+  /** Stored values, normalized to the same shape, for diff display. */
   storedHoursByDept: { eng: number; cnc: number; assembly: number; finish: number }
   storedMaterial: number
+  /** Recomputed PER-UNIT values mirrored as plain numbers, for diff
+   *  display alongside storedHoursByDept / storedMaterial. */
+  freshHoursByDept: { eng: number; cnc: number; assembly: number; finish: number }
+  freshMaterial: number
 }
 
 /**
  * Return null if the line isn't stale (or isn't a composer line); otherwise
- * return fresh values the caller can use to write the refresh back.
+ * return fresh PER-UNIT values the caller can use to write the refresh
+ * back via bulkRefreshStaleLines.
  */
 export function checkLineStaleness(
   line: EstimateLine,
@@ -71,12 +92,20 @@ export function checkLineStaleness(
   const product = PRODUCTS[line.product_key as ProductKey]
   if (!product || !product.active) return null
 
+  const qty = Number(line.quantity) || 0
   const draft: ComposerDraft = {
     productId: line.product_key as ProductKey,
-    qty: Number(line.quantity) || 0,
+    qty,
     slots: line.product_slots as unknown as ComposerSlots,
   }
   const fresh = computeBreakdown(draft, rateBook, defaults)
+  const freshStorage = breakdownToStorageValues(fresh, qty)
+  const freshHoursByDept = {
+    eng: Number(freshStorage.deptHourOverrides?.eng) || 0,
+    cnc: Number(freshStorage.deptHourOverrides?.cnc) || 0,
+    assembly: Number(freshStorage.deptHourOverrides?.assembly) || 0,
+    finish: Number(freshStorage.deptHourOverrides?.finish) || 0,
+  }
 
   const stored = {
     eng: Number((line.dept_hour_overrides as any)?.eng) || 0,
@@ -87,20 +116,21 @@ export function checkLineStaleness(
   const storedMat = Number(line.lump_cost_override) || 0
 
   const hoursDrift =
-    Math.abs(stored.eng - fresh.hoursByDept.eng) > EPS_HR ||
-    Math.abs(stored.cnc - fresh.hoursByDept.cnc) > EPS_HR ||
-    Math.abs(stored.assembly - fresh.hoursByDept.assembly) > EPS_HR ||
-    Math.abs(stored.finish - fresh.hoursByDept.finish) > EPS_HR
-  const matDrift = Math.abs(storedMat - fresh.totals.material) > EPS_DOLLARS
+    Math.abs(stored.eng - freshHoursByDept.eng) > EPS_HR ||
+    Math.abs(stored.cnc - freshHoursByDept.cnc) > EPS_HR ||
+    Math.abs(stored.assembly - freshHoursByDept.assembly) > EPS_HR ||
+    Math.abs(stored.finish - freshHoursByDept.finish) > EPS_HR
+  const matDrift = Math.abs(storedMat - freshStorage.lumpCostOverride) > EPS_DOLLARS
 
   if (!hoursDrift && !matDrift) return null
 
   return {
     lineId: line.id,
     productKey: line.product_key as ProductKey,
-    qty: Number(line.quantity) || 0,
-    freshHoursByDept: fresh.hoursByDept,
-    freshMaterial: fresh.totals.material,
+    qty,
+    freshStorage,
+    freshHoursByDept,
+    freshMaterial: freshStorage.lumpCostOverride,
     storedHoursByDept: stored,
     storedMaterial: storedMat,
   }
@@ -128,18 +158,12 @@ export function findStaleLines(
 export async function bulkRefreshStaleLines(stale: StaleLineInfo[]): Promise<number> {
   let updated = 0
   for (const s of stale) {
-    const deptHourOverrides: Record<string, number> = {}
-    if (s.freshHoursByDept.eng > 0)      deptHourOverrides.eng      = s.freshHoursByDept.eng
-    if (s.freshHoursByDept.cnc > 0)      deptHourOverrides.cnc      = s.freshHoursByDept.cnc
-    if (s.freshHoursByDept.assembly > 0) deptHourOverrides.assembly = s.freshHoursByDept.assembly
-    if (s.freshHoursByDept.finish > 0)   deptHourOverrides.finish   = s.freshHoursByDept.finish
-
     const { error } = await supabase
       .from('estimate_lines')
       .update({
-        dept_hour_overrides:
-          Object.keys(deptHourOverrides).length > 0 ? deptHourOverrides : null,
-        lump_cost_override: s.freshMaterial,
+        dept_hour_overrides: s.freshStorage.deptHourOverrides,
+        lump_cost_override: s.freshStorage.lumpCostOverride,
+        composer_hours_corrected: true,
         updated_at: new Date().toISOString(),
       })
       .eq('id', s.lineId)

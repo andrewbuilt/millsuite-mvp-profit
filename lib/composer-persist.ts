@@ -112,6 +112,57 @@ export function initialSubprojectDefaults(
   return { consumablesPct, wastePct: 5 }
 }
 
+// ── Storage-value helper ──
+
+/**
+ * The estimate_lines storage contract for composer lines:
+ *   - dept_hour_overrides   keys: eng/cnc/assembly/finish, PER-UNIT hours
+ *                           (computeLineBuildup multiplies by quantity at
+ *                           read time). Only positive entries written;
+ *                           null when every dept is zero.
+ *   - lump_cost_override    PER-UNIT material total (materialSubtotal +
+ *                           waste, NO consumables). computeSubprojectRollup
+ *                           multiplies by quantity AND re-applies
+ *                           consumables via ctx.consumableMarkupPct, so
+ *                           consumables must NOT be baked in here.
+ *
+ * computeBreakdown returns whole-line totals (qty already multiplied in).
+ * Anywhere we persist or compare against storage we must divide by qty
+ * and strip consumables.
+ *
+ * Issue 18 lived here for save (8× labor on round-trip). The same shape
+ * is required by checkLineStaleness (false-positive banner if it
+ * compares per-unit storage to whole-line fresh) and bulkRefreshStaleLines
+ * (writes 8× back if it stores whole-line totals on refresh). One helper,
+ * one contract, four callers.
+ */
+export interface ComposerStorageValues {
+  /** Per-unit hours by dept; null when every dept is zero. */
+  deptHourOverrides: Record<string, number> | null
+  /** Per-unit (materialSubtotal + waste) — no consumables. */
+  lumpCostOverride: number
+}
+
+export function breakdownToStorageValues(
+  breakdown: ComposerBreakdown,
+  qty: number
+): ComposerStorageValues {
+  const deptHourOverrides: Record<string, number> = {}
+  if (qty > 0) {
+    if (breakdown.hoursByDept.eng > 0)      deptHourOverrides.eng      = breakdown.hoursByDept.eng      / qty
+    if (breakdown.hoursByDept.cnc > 0)      deptHourOverrides.cnc      = breakdown.hoursByDept.cnc      / qty
+    if (breakdown.hoursByDept.assembly > 0) deptHourOverrides.assembly = breakdown.hoursByDept.assembly / qty
+    if (breakdown.hoursByDept.finish > 0)   deptHourOverrides.finish   = breakdown.hoursByDept.finish   / qty
+  }
+  const lumpCostOverride =
+    qty > 0 ? (breakdown.materialSubtotal + breakdown.waste) / qty : 0
+  return {
+    deptHourOverrides:
+      Object.keys(deptHourOverrides).length > 0 ? deptHourOverrides : null,
+    lumpCostOverride,
+  }
+}
+
 // ── Save a composer line ──
 
 /**
@@ -157,31 +208,9 @@ export async function saveComposerLine(input: {
       : draft.productId
   const description = summary ? `${productLabel} · ${summary}` : productLabel
 
-  // computeBreakdown returns hours-by-dept AND totals.material for the
-  // WHOLE LINE (qty already multiplied in). The estimate_lines columns
-  // they map to are PER-UNIT contracts — computeLineBuildup multiplies
-  // by quantity at read time. Divide here so the saved line round-trips
-  // correctly.
-  //
-  // Issue 18 (Phase 12 dogfood-4): without these divides composer lines
-  // read back at qty² hours and qty² material, producing ~8× line cost
-  // on an 8-LF line.
-  //
-  // Material also has a second wrinkle: breakdown.totals.material bakes
-  // consumables AND waste into the dollar figure. computeSubprojectRollup
-  // re-applies consumables via ctx.consumableMarkupPct, so storing the
-  // post-consumables total double-counts. Store materialSubtotal + waste
-  // (no consumables); the rollup adds the consumables markup on read.
-  const qty = Number(draft.qty) || 0
-  const deptHourOverrides: Record<string, number> = {}
-  if (qty > 0) {
-    if (breakdown.hoursByDept.eng > 0)      deptHourOverrides.eng      = breakdown.hoursByDept.eng      / qty
-    if (breakdown.hoursByDept.cnc > 0)      deptHourOverrides.cnc      = breakdown.hoursByDept.cnc      / qty
-    if (breakdown.hoursByDept.assembly > 0) deptHourOverrides.assembly = breakdown.hoursByDept.assembly / qty
-    if (breakdown.hoursByDept.finish > 0)   deptHourOverrides.finish   = breakdown.hoursByDept.finish   / qty
-  }
-  const materialPerUnit =
-    qty > 0 ? (breakdown.materialSubtotal + breakdown.waste) / qty : 0
+  // computeBreakdown returns whole-line totals; the storage columns are
+  // per-unit. See breakdownToStorageValues for the full contract.
+  const storage = breakdownToStorageValues(breakdown, Number(draft.qty) || 0)
 
   const { data, error } = await supabase
     .from('estimate_lines')
@@ -195,9 +224,8 @@ export async function saveComposerLine(input: {
       product_key: draft.productId,
       product_slots: draft.slots,
       material_mode_override: 'lump',
-      lump_cost_override: materialPerUnit,
-      dept_hour_overrides:
-        Object.keys(deptHourOverrides).length > 0 ? deptHourOverrides : null,
+      lump_cost_override: storage.lumpCostOverride,
+      dept_hour_overrides: storage.deptHourOverrides,
       notes: draft.slots.notes || null,
       composer_hours_corrected: true,
     })
@@ -218,9 +246,9 @@ export async function saveComposerLine(input: {
  * the same form the line was created in. sort_order stays put;
  * subproject_id, product_key, rate_book_item_id are left alone.
  *
- * Per-unit divides match the save path (Issue 18). Stamps
- * composer_hours_corrected = true so this row is excluded from any
- * future rerun of migration 029.
+ * Per-unit divides match the save path via breakdownToStorageValues.
+ * Stamps composer_hours_corrected = true so this row is excluded from
+ * any future rerun of migration 029.
  */
 export async function updateComposerLine(input: {
   lineId: string
@@ -241,16 +269,7 @@ export async function updateComposerLine(input: {
       : draft.productId
   const description = summary ? `${productLabel} · ${summary}` : productLabel
 
-  const qty = Number(draft.qty) || 0
-  const deptHourOverrides: Record<string, number> = {}
-  if (qty > 0) {
-    if (breakdown.hoursByDept.eng > 0)      deptHourOverrides.eng      = breakdown.hoursByDept.eng      / qty
-    if (breakdown.hoursByDept.cnc > 0)      deptHourOverrides.cnc      = breakdown.hoursByDept.cnc      / qty
-    if (breakdown.hoursByDept.assembly > 0) deptHourOverrides.assembly = breakdown.hoursByDept.assembly / qty
-    if (breakdown.hoursByDept.finish > 0)   deptHourOverrides.finish   = breakdown.hoursByDept.finish   / qty
-  }
-  const materialPerUnit =
-    qty > 0 ? (breakdown.materialSubtotal + breakdown.waste) / qty : 0
+  const storage = breakdownToStorageValues(breakdown, Number(draft.qty) || 0)
 
   const { error } = await supabase
     .from('estimate_lines')
@@ -259,9 +278,8 @@ export async function updateComposerLine(input: {
       quantity: draft.qty,
       product_slots: draft.slots,
       material_mode_override: 'lump',
-      lump_cost_override: materialPerUnit,
-      dept_hour_overrides:
-        Object.keys(deptHourOverrides).length > 0 ? deptHourOverrides : null,
+      lump_cost_override: storage.lumpCostOverride,
+      dept_hour_overrides: storage.deptHourOverrides,
       notes: draft.slots.notes || null,
       composer_hours_corrected: true,
     })
