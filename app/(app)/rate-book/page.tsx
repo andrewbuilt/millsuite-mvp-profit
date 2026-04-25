@@ -138,7 +138,7 @@ export default function RateBookPage() {
     [categories, selectedItem]
   )
 
-  const shopRate = org?.shop_rate || 0
+  const shopRate = org?.shop_rate ?? 0
   const buildup = useMemo(
     () => (selectedItem ? computeBuildup(selectedItem, shopRate) : null),
     [selectedItem, shopRate]

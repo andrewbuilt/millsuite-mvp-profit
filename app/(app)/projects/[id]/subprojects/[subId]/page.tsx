@@ -491,7 +491,7 @@ export default function SubprojectEditorPage() {
   // subproject total below. Separate from rollup.installCost, which is
   // the per-line install mode from Phase 2.
   const installPrefillCost = useMemo(
-    () => computeInstallCost(installValues, org?.shop_rate || 0),
+    () => computeInstallCost(installValues, org?.shop_rate ?? 0),
     [installValues, org?.shop_rate]
   )
   const subprojectTotalWithInstall = rollup.total + installPrefillCost
@@ -595,6 +595,26 @@ export default function SubprojectEditorPage() {
       )}
 
       <div className="max-w-[1400px] mx-auto px-6 py-5">
+        {org && org.shop_rate == null && (
+          <div className="mb-4 px-4 py-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-[#92400E]">
+                Shop rate not configured
+              </div>
+              <div className="text-[12px] text-[#78350F] mt-0.5">
+                Labor and install costs render as $0 until you finish the
+                shop rate walkthrough or set a rate manually in Settings.
+              </div>
+            </div>
+            <Link
+              href="/settings"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#D97706] rounded-md hover:bg-[#B45309] transition-colors"
+            >
+              Open settings →
+            </Link>
+          </div>
+        )}
+
         <div>
           <div className="flex items-baseline justify-between mb-4">
             <div>
@@ -870,7 +890,7 @@ export default function SubprojectEditorPage() {
           <div className="mb-6">
             <InstallPrefill
               subprojectId={subId}
-              installRatePerHour={org?.shop_rate || 0}
+              installRatePerHour={org?.shop_rate ?? 0}
               onChange={setInstallValues}
             />
           </div>
@@ -941,7 +961,7 @@ export default function SubprojectEditorPage() {
                         key={d}
                         label={LABOR_DEPT_LABEL[d]}
                         hours={rollup.hoursByDept[d]}
-                        rate={org?.shop_rate || 0}
+                        rate={org?.shop_rate ?? 0}
                         actualMinutes={actualByKey[d]}
                       />
                     ))}
