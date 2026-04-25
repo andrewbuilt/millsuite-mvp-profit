@@ -1,5 +1,5 @@
 // lib/shop-rate-setup.ts - first-principles shop rate compute + IO.
-// Per BUILD-ORDER Phase 12 item 12 + specs/shop-rate-setup/.
+// Spec: mockups/shop-rate-setup-mockup.html (canonical). BUILD-ORDER Phase 12 item 12.
 //
 // Four walkthrough screens capture three input groups, which persist to
 // the jsonb columns added in migration 022. The Result screen derives
