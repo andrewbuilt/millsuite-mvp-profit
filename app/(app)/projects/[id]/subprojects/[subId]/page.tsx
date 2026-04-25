@@ -75,6 +75,7 @@ import {
   findStaleLines,
 } from '@/lib/composer-staleness'
 import { isPresold, type ProjectStage } from '@/lib/types'
+import { CreateCoModal, type CreateCoModalSeed } from '@/components/change-orders'
 
 // ── Formatting ──
 
@@ -142,6 +143,8 @@ export default function SubprojectEditorPage() {
   const [loading, setLoading] = useState(true)
   const [cloneOpen, setCloneOpen] = useState(false)
   const [composerOpen, setComposerOpen] = useState(false)
+  // Create-CO modal seed. null = closed; non-null = open + line-seeded.
+  const [coSeed, setCoSeed] = useState<CreateCoModalSeed | null>(null)
   // Install prefill values — loaded + kept in sync by InstallPrefill via its
   // onChange. We hold them here so the subproject total + header strip can
   // reflect the install cost without needing to refetch.
@@ -430,6 +433,30 @@ export default function SubprojectEditorPage() {
     }
   }
 
+  // Build a CreateCoModalSeed from a clicked line + its computed buildup.
+  // Locks the modal to this subproject; pre-fills the original side from
+  // the line's identity + materialCost / quantity ≈ $/LF.
+  function openCoFromLine(
+    line: EstimateLine,
+    item: RateBookItemRow | null,
+    buildup: { materialCost: number },
+  ) {
+    if (!subproject) return
+    const qty = Number(line.quantity) || 0
+    const matPerLf =
+      qty > 0 && Number.isFinite(buildup.materialCost)
+        ? Math.round((buildup.materialCost / qty) * 100) / 100
+        : null
+    setCoSeed({
+      subprojectId: subId,
+      subprojectName: subproject.name,
+      originalLabel: item?.name || line.description || '',
+      originalMaterial: item?.material_description || line.material_description || '',
+      originalLinearFeet: qty,
+      originalMatCostPerLf: matPerLf,
+    })
+  }
+
   async function toggleLineOption(lineId: string, option: RateBookOptionRow) {
     const current = lineOptions.get(lineId) || []
     const already = current.some((o) => o.option.id === option.id)
@@ -628,7 +655,7 @@ export default function SubprojectEditorPage() {
 
           {/* Line table */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-3">
-            <div className="grid grid-cols-[1fr_72px_56px_80px_100px_100px_36px] px-3 py-2 bg-[#F9FAFB] border-b border-[#E5E7EB] text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+            <div className="grid grid-cols-[1fr_72px_56px_80px_100px_100px_64px] px-3 py-2 bg-[#F9FAFB] border-b border-[#E5E7EB] text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
               <div>Item / Finish</div>
               <div className="text-right">Qty</div>
               <div className="text-center">Unit</div>
@@ -655,7 +682,7 @@ export default function SubprojectEditorPage() {
                 return (
                   <div
                     key={line.id}
-                    className="grid grid-cols-[1fr_72px_56px_80px_100px_100px_36px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors"
+                    className="grid grid-cols-[1fr_72px_56px_80px_100px_100px_64px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors"
                   >
                     <div className="pr-3 min-w-0">
                       <div className="text-sm text-[#111] font-medium truncate">
@@ -709,15 +736,27 @@ export default function SubprojectEditorPage() {
                     <div className="text-right text-sm font-mono tabular-nums font-semibold text-[#111]">
                       {fmtMoney(b.lineTotal)}
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        removeLine(line.id)
-                      }}
-                      className="flex items-center justify-center text-[#D1D5DB] hover:text-[#DC2626]"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openCoFromLine(line, item, b)
+                        }}
+                        title="Create change order from this line"
+                        className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] hover:text-[#2563EB]"
+                      >
+                        CO
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeLine(line.id)
+                        }}
+                        className="flex items-center justify-center text-[#D1D5DB] hover:text-[#DC2626]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 )
               })
@@ -982,6 +1021,19 @@ export default function SubprojectEditorPage() {
             setComposerOpen(false)
             const fresh = await loadEstimateLines(subId)
             setLines(fresh)
+          }}
+        />
+      )}
+
+      {coSeed && subproject && (
+        <CreateCoModal
+          projectId={projectId}
+          pricing={pricingCtx}
+          subprojects={[{ id: subId, name: subproject.name }]}
+          seed={coSeed}
+          onClose={() => setCoSeed(null)}
+          onCreated={async () => {
+            setCoSeed(null)
           }}
         />
       )}
