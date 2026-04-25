@@ -649,26 +649,17 @@ export default function SubprojectEditorPage() {
                 {lines.length} {lines.length === 1 ? 'line' : 'lines'}
               </p>
             </div>
-            {/* Add/clone affordances are pre-sold only; post-sold the
-                only legitimate edit path is a per-line CO. */}
+            {/* Top-right is a secondary action only — Clone from past stays
+                here. Compose line is the primary action and lives below the
+                line table as a full-width dashed CTA, matching the style of
+                "+ Add subproject" on the project page. */}
             {project && isPresold(project.stage) && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setCloneOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] hover:text-[#111] transition-colors"
-                >
-                  <Copy className="w-3.5 h-3.5" /> Clone from past
-                </button>
-                <button
-                  onClick={() => {
-                    setEditingLineId(null)
-                    setComposerOpen(true)
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-dashed border-[#D1D5DB] rounded-lg hover:bg-[#EFF6FF] hover:text-[#2563EB] hover:border-[#2563EB] transition-colors"
-                >
-                  + Compose line
-                </button>
-              </div>
+              <button
+                onClick={() => setCloneOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] hover:text-[#111] transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" /> Clone from past
+              </button>
             )}
           </div>
 
@@ -868,8 +859,25 @@ export default function SubprojectEditorPage() {
             )}
           </div>
 
-          {/* Add-line input — pre-sold only. Post-sold the only legitimate
-              add path is a CO that creates a line on a sub. */}
+          {/* Primary CTA: full-width dashed "+ Compose line" — same visual
+              weight as "+ Add subproject" on the project page. Composer is
+              the V1 line creator; the freeform / rate-book search input
+              below is the secondary path. Pre-sold only. */}
+          {project && isPresold(project.stage) && (
+            <button
+              onClick={() => {
+                setEditingLineId(null)
+                setComposerOpen(true)
+              }}
+              className="block w-full mb-3 border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5 inline mr-1" />
+              Compose line
+            </button>
+          )}
+
+          {/* Search-or-freeform add — pre-sold only. Post-sold the only
+              legitimate add path is a CO that creates a line on a sub. */}
           {project && isPresold(project.stage) && (
           <div className="relative mb-6">
             <div className={`flex items-center gap-3 px-3 py-2.5 bg-white border rounded-lg transition-colors ${pendingAdd ? 'border-[#2563EB]' : 'border-dashed border-[#E5E7EB]'}`}>
