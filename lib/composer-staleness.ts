@@ -58,6 +58,7 @@ import {
   type ComposerStorageValues,
 } from './composer-persist'
 import { PRODUCTS, type ProductKey } from './products'
+import { recomputeProjectBidTotalForLine } from './project-totals'
 
 const EPS_HR = 0.01
 const EPS_DOLLARS = 0.5
@@ -169,6 +170,13 @@ export async function bulkRefreshStaleLines(stale: StaleLineInfo[]): Promise<num
       .eq('id', s.lineId)
     if (!error) updated++
     else console.error('bulkRefreshStaleLines row', s.lineId, error)
+  }
+  // Pricing-input write-back. The fresh storage values change line totals,
+  // so the project price moves with them. One refresh per touched
+  // subproject would be lighter; recompute-by-line dedupes implicitly when
+  // batched lines share a project.
+  if (stale.length > 0) {
+    void recomputeProjectBidTotalForLine(stale[0].lineId)
   }
   return updated
 }

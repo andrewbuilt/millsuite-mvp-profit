@@ -14,6 +14,10 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import {
+  recomputeProjectBidTotalForLine,
+  recomputeProjectBidTotalForSubproject,
+} from './project-totals'
 import type {
   RateBookItemRow,
   RateBookOptionRow,
@@ -253,6 +257,8 @@ export async function addEstimateLine(input: {
     console.error('addEstimateLine', error)
     throw new Error(error.message || 'Failed to add line')
   }
+  // Pricing-input write-back (see lib/project-totals.ts contract).
+  void recomputeProjectBidTotalForSubproject(input.subprojectId)
   return normalizeLine(data)
 }
 
@@ -268,13 +274,27 @@ export async function updateEstimateLine(
     console.error('updateEstimateLine', error)
     throw error
   }
+  // Pricing-input write-back. Most callers patch qty / unit_price /
+  // material_mode_override etc — all priceTotal-affecting.
+  void recomputeProjectBidTotalForLine(id)
 }
 
 export async function deleteEstimateLine(id: string): Promise<void> {
+  // Resolve subproject_id BEFORE the delete so we can fan out the
+  // bid_total recompute after the row is gone.
+  const { data: lineRow } = await supabase
+    .from('estimate_lines')
+    .select('subproject_id')
+    .eq('id', id)
+    .maybeSingle()
+  const subprojectId = lineRow?.subproject_id as string | undefined
   const { error } = await supabase.from('estimate_lines').delete().eq('id', id)
   if (error) {
     console.error('deleteEstimateLine', error)
     throw error
+  }
+  if (subprojectId) {
+    void recomputeProjectBidTotalForSubproject(subprojectId)
   }
 }
 
@@ -306,6 +326,7 @@ export async function duplicateEstimateLine(
     console.error('duplicateEstimateLine', error)
     return null
   }
+  void recomputeProjectBidTotalForSubproject(src.subproject_id as string)
   return normalizeLine(data)
 }
 
@@ -325,6 +346,8 @@ export async function attachLineOption(
     { onConflict: 'estimate_line_id,rate_book_option_id' }
   )
   if (error) throw error
+  // Options can carry $ via flat_add / per_unit_add — recompute.
+  void recomputeProjectBidTotalForLine(lineId)
 }
 
 export async function detachLineOption(lineId: string, optionId: string) {
@@ -334,6 +357,7 @@ export async function detachLineOption(lineId: string, optionId: string) {
     .eq('estimate_line_id', lineId)
     .eq('rate_book_option_id', optionId)
   if (error) throw error
+  void recomputeProjectBidTotalForLine(lineId)
 }
 
 // ── Pricing ──

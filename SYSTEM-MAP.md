@@ -255,6 +255,60 @@ Accept → rate book item updates, old value preserved in Changes tab.
 
 ---
 
+## Denormalized columns (read this before writing to them)
+
+A handful of columns hold a cached copy of a value that lives canonically
+elsewhere. They exist because every list / header surface reads them, and
+loading the canonical source (estimate lines, full client row) on each
+render would be too expensive. The trade-off is that **mutating the
+canonical source must propagate to every cache, on every code path**.
+
+| Column | Canonical source | Canonical write path(s) | Notes |
+|---|---|---|---|
+| `projects.bid_total` | live `priceTotal` from the project rollup (cost buckets × project margin) | `lib/project-totals.ts` exports `recomputeProjectBidTotal{,ForSubproject,ForLine}` — call after every pricing-input mutation | All list / header surfaces read this column directly: sales card, kanban, /projects card, dashboard report, pre-prod header. The project page also writes back on render as a backstop. |
+| `projects.client_name` | `clients.name` (when `client_id` is set), or a fallback freeform string from import (when `client_id` is null) | `lib/clients.ts` exports `setProjectClient` (link/unlink) + `updateClient` (rename + propagate) | The picker on the project detail page is the only UI that writes `client_id`; other surfaces read `client_name` only. |
+
+### `projects.bid_total` write paths
+
+Every mutation that affects `priceTotal` MUST call `recomputeProjectBidTotal*`
+after the underlying write succeeds. The current call sites are:
+
+- `lib/composer-persist.ts` — `saveComposerLine`, `updateComposerLine`
+- `lib/estimate-lines.ts` — `addEstimateLine`, `updateEstimateLine`,
+  `deleteEstimateLine`, `duplicateEstimateLine`, `attachLineOption`,
+  `detachLineOption`
+- `lib/install-prefill.ts` — `saveInstallPrefill`
+- `lib/change-orders.ts` — `approveCo` (after `applyApprovedCo`)
+- `lib/composer-staleness.ts` — `bulkRefreshStaleLines`
+- `lib/sales.ts` — `createRoomSubprojects`, `seedEstimateLinesFromParsed`
+- `app/(app)/projects/[id]/page.tsx` — TargetMarginEditor commit/reset
+  (handled implicitly by the project page write-back useEffect)
+- `app/(app)/projects/[id]/handoff/page.tsx` — `handleConfirm` (Mark Sold)
+
+Adding a new pricing-input mutation? Add a `recomputeProjectBidTotal*` call
+right after the underlying write. Failure to do so leaves dashboards
+stale silently.
+
+A future DB trigger (`AFTER UPDATE OR INSERT OR DELETE` on
+`estimate_lines`, `estimate_line_options`, `subprojects` (install_*),
+`projects.target_margin_pct`, `change_orders.state`) could enforce this
+server-side and let us delete every call site. Until then, the call-site
+list above is the contract.
+
+### `projects.client_name` write paths
+
+`lib/clients.ts` is the only file that should be doing `UPDATE clients`
+or `UPDATE projects SET client_name`. `setProjectClient` handles
+link/unlink (writes both `client_id` and `client_name`); `updateClient`
+handles rename and propagates the new name to every linked project's
+`client_name` cache.
+
+If you find yourself doing a direct supabase mutation on either column,
+move it through these helpers instead. The denorm cache is the kind of
+thing that drifts silently when bypassed.
+
+---
+
 ## Where data lives (who owns what)
 
 - **Shop** (one per tenant) — name, dept list, shop rate(s), rate book items, options library

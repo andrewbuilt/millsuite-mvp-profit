@@ -9,6 +9,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { recomputeProjectBidTotal } from './project-totals'
 
 // ── Types ──
 
@@ -302,6 +303,22 @@ export async function approveCo(coId: string, note?: string): Promise<void> {
     await applyApprovedCo(coId)
   } catch (err) {
     console.error('approveCo: applyApprovedCo failed (state already flipped)', err)
+  }
+  // Pricing-input write-back: a CO approval shifts material/finish on
+  // the underlying line, which can move priceTotal. Resolve project_id
+  // off the CO row and refresh.
+  try {
+    const { data: coRow } = await supabase
+      .from('change_orders')
+      .select('project_id')
+      .eq('id', coId)
+      .maybeSingle()
+    const projectId = (coRow as { project_id: string | null } | null)?.project_id
+    if (projectId) {
+      void recomputeProjectBidTotal(projectId)
+    }
+  } catch (err) {
+    console.error('approveCo: bid_total recompute', err)
   }
 }
 

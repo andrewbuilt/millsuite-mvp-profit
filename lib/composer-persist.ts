@@ -21,6 +21,10 @@ import type {
 } from './composer'
 import { productLabelFromKey, summarizeSlots } from './composer'
 import type { ProductKey } from './products'
+import {
+  recomputeProjectBidTotalForLine,
+  recomputeProjectBidTotalForSubproject,
+} from './project-totals'
 
 export interface LastUsedPerProduct {
   qty: number
@@ -228,6 +232,10 @@ export async function saveComposerLine(input: {
     console.error('saveComposerLine', error)
     throw new Error(error.message || 'Failed to save line')
   }
+  // Pricing-input write-back: keep projects.bid_total in sync with the
+  // live priceTotal. Fire-and-forget; failures log but don't block the
+  // save UI. See lib/project-totals.ts for the contract.
+  void recomputeProjectBidTotalForSubproject(subprojectId)
   return data as { id: string }
 }
 
@@ -274,4 +282,7 @@ export async function updateComposerLine(input: {
     console.error('updateComposerLine', error)
     throw new Error(error.message || 'Failed to update line')
   }
+  // Pricing-input write-back. The lineId path resolves project_id via a
+  // single subproject_id lookup — see recomputeProjectBidTotalForLine.
+  void recomputeProjectBidTotalForLine(lineId)
 }
