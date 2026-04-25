@@ -66,6 +66,7 @@ import {
 } from '@/lib/actual-hours'
 import {
   loadMilestones,
+  markMilestoneReceived,
   saveMilestones,
   sumMilestonePct,
   TRIGGER_LABEL,
@@ -82,6 +83,7 @@ import {
   type SubprojectStatus,
 } from '@/lib/subproject-status'
 import ClientPicker from '@/components/project/ClientPicker'
+import { useConfirm } from '@/components/confirm-dialog'
 
 // ── Types ──
 
@@ -563,6 +565,27 @@ export default function ProjectCoverPage() {
     return acc
   }, [cards, subActuals, deptKeyById, marginTarget])
 
+  // Item 4 of post-sale-3: Sold → Production gate visual. True when:
+  //   (a) every subproject reads ready_for_scheduling on the
+  //       subproject_approval_status view (which itself = all approval
+  //       items approved AND drawings approved), AND
+  //   (b) at least the deposit milestone (trigger='signing') is
+  //       received.
+  // The gate doesn't auto-advance the stage — it just decorates the
+  // Sold pip on the strip green-checked so the operator can see at a
+  // glance that they could move to Production now.
+  const soldGateMet = useMemo(() => {
+    if (cards.length === 0) return false
+    const allSubsReady = cards.every(
+      (c) => subStatusMap[c.sub.id]?.ready_for_scheduling === true,
+    )
+    if (!allSubsReady) return false
+    const depositReceived = milestones.some(
+      (m) => m.trigger === 'signing' && m.status === 'received',
+    )
+    return depositReceived
+  }, [cards, subStatusMap, milestones])
+
   // Item 6 + dashboard fix: keep projects.bid_total in sync with the live
   // priceTotal so every list surface that reads it (sales card, kanban,
   // /projects card, dashboard report, pre-prod header) stays current. We
@@ -680,8 +703,9 @@ export default function ProjectCoverPage() {
       </div>
 
       {/* Stage-aware layer: 5-node stage strip + attention strip */}
-      <StageStrip stage={project.stage} />
+      <StageStrip stage={project.stage} soldGateMet={soldGateMet} />
       <AttentionStrip
+        projectId={projectId}
         stage={project.stage}
         cards={cards}
         milestones={milestones}
@@ -1011,6 +1035,21 @@ export default function ProjectCoverPage() {
                     const fresh = await loadMilestones(projectId)
                     setMilestones(fresh)
                   }
+                }}
+                onReceived={async (id) => {
+                  await markMilestoneReceived(id)
+                  // Optimistic local update — keep the list in place,
+                  // just flip status + stamp received_date so the pill
+                  // turns green immediately.
+                  const today = new Date().toISOString().slice(0, 10)
+                  setMilestones((prev) =>
+                    prev.map((m) =>
+                      m.id === id
+                        ? { ...m, status: 'received', expected_date: m.expected_date || today }
+                        : m,
+                    ),
+                  )
+                  showToast('Milestone marked received.')
                 }}
                 dirty={milestonesDirty}
                 saving={milestonesSaving}
@@ -1355,6 +1394,7 @@ function MilestoneBuilder({
   total,
   onChange,
   onSave,
+  onReceived,
   dirty,
   saving,
 }: {
@@ -1362,9 +1402,14 @@ function MilestoneBuilder({
   total: number
   onChange: (next: ProjectMilestone[]) => void
   onSave: () => void
+  /** Manual mark-received fallback for shops without QB connected. The
+   *  parent flips status='received' optimistically and persists via
+   *  lib/milestones.markMilestoneReceived. */
+  onReceived?: (id: string) => Promise<void>
   dirty: boolean
   saving: boolean
 }) {
+  const { confirm, alert } = useConfirm()
   const sum = sumMilestonePct(milestones)
   const balanced = Math.abs(sum - 100) < 0.01
   const empty = milestones.length === 0
@@ -1492,48 +1537,97 @@ function MilestoneBuilder({
         </div>
       )}
 
-      {milestones.map((m, i) => (
-        <div
-          key={m.id}
-          className="flex items-center gap-1.5 py-1.5 border-b border-[#F3F4F6] last:border-b-0"
-        >
-          <input
-            value={m.label}
-            onChange={(e) => updateOne(i, { label: e.target.value })}
-            placeholder="Milestone name"
-            className="flex-1 min-w-0 text-xs bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-[#111]"
-          />
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={m.pct}
-            onChange={(e) =>
-              updateOne(i, {
-                pct: Number(e.target.value) || 0,
-                amount: Math.round((total * (Number(e.target.value) || 0)) / 100),
-              })
-            }
-            className="w-[54px] flex-shrink-0 text-xs font-mono bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-right text-[#111]"
-          />
-          <select
-            value={m.trigger}
-            onChange={(e) => updateOne(i, { trigger: e.target.value as MilestoneTrigger })}
-            className="flex-shrink-0 max-w-[130px] text-[11px] bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1 py-1 outline-none text-[#6B7280] truncate"
+      {milestones.map((m, i) => {
+        const amount = Math.round((total * (Number(m.pct) || 0)) / 100)
+        const isReceived = m.status === 'received'
+        const isPersisted = !m.id.startsWith('new-')
+        return (
+          <div
+            key={m.id}
+            className="flex items-center gap-1.5 py-1.5 border-b border-[#F3F4F6] last:border-b-0"
           >
-            {TRIGGER_ORDER.map((t) => (
-              <option key={t} value={t}>{TRIGGER_LABEL[t]}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => remove(i)}
-            className="flex-shrink-0 p-1 text-[#9CA3AF] hover:text-[#DC2626] rounded"
-            title="Remove milestone"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      ))}
+            <input
+              value={m.label}
+              onChange={(e) => updateOne(i, { label: e.target.value })}
+              placeholder="Milestone name"
+              disabled={isReceived}
+              className="flex-1 min-w-0 text-xs bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-[#111] disabled:opacity-60"
+            />
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={m.pct}
+              onChange={(e) =>
+                updateOne(i, {
+                  pct: Number(e.target.value) || 0,
+                  amount: Math.round((total * (Number(e.target.value) || 0)) / 100),
+                })
+              }
+              disabled={isReceived}
+              className="w-[54px] flex-shrink-0 text-xs font-mono bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-right text-[#111] disabled:opacity-60"
+            />
+            <select
+              value={m.trigger}
+              onChange={(e) => updateOne(i, { trigger: e.target.value as MilestoneTrigger })}
+              disabled={isReceived}
+              className="flex-shrink-0 max-w-[130px] text-[11px] bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1 py-1 outline-none text-[#6B7280] truncate disabled:opacity-60"
+            >
+              {TRIGGER_ORDER.map((t) => (
+                <option key={t} value={t}>{TRIGGER_LABEL[t]}</option>
+              ))}
+            </select>
+            {/* Status pill — clickable when projected (manual mark-received
+                fallback when QB isn't connected); read-only green when
+                already received. New rows (not yet persisted) hide the
+                pill until the operator saves. */}
+            {isReceived ? (
+              <span
+                className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#D1FAE5] text-[#065F46]"
+                title="Marked received — flip via QB watcher or manual button"
+              >
+                <CheckCircle2 className="w-3 h-3" /> Received
+              </span>
+            ) : isPersisted && onReceived ? (
+              <button
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: 'Mark milestone as received?',
+                    message: `Records ${money(amount)} (${m.label || 'this milestone'}) received on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Use this when you've taken the payment outside QB or want to override the watcher.`,
+                    confirmLabel: 'Mark received',
+                  })
+                  if (!ok) return
+                  try {
+                    await onReceived(m.id)
+                  } catch {
+                    await alert({
+                      title: 'Couldn’t mark received',
+                      message:
+                        'Something went wrong saving the change. Open the browser console for the full error and try again.',
+                    })
+                  }
+                }}
+                className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#6B7280] hover:bg-[#DBEAFE] hover:text-[#1E40AF] transition-colors"
+                title="Mark this milestone as received (manual fallback for non-QB shops)"
+              >
+                Projected
+              </button>
+            ) : (
+              <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#9CA3AF]">
+                New
+              </span>
+            )}
+            <button
+              onClick={() => remove(i)}
+              disabled={isReceived}
+              className="flex-shrink-0 p-1 text-[#9CA3AF] hover:text-[#DC2626] rounded disabled:opacity-40 disabled:hover:text-[#9CA3AF]"
+              title={isReceived ? 'Received milestones can\'t be removed — refund via QB instead' : 'Remove milestone'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )
+      })}
 
       {!empty && (
         <div className="flex items-center gap-2 mt-2">
@@ -1976,7 +2070,19 @@ function StagePill({ stage }: { stage: ProjectStage }) {
   )
 }
 
-function StageStrip({ stage }: { stage: ProjectStage }) {
+function StageStrip({
+  stage,
+  soldGateMet,
+}: {
+  stage: ProjectStage
+  /** When true AND the current cover stage is 'sold', the Sold pip
+   *  renders with a green check + emerald tone (same treatment as
+   *  completed stages) instead of the active blue. The actual stage
+   *  doesn't change — it stays 'sold' until the operator advances —
+   *  this is a purely visual "you're cleared to move to Production"
+   *  signal. Connector to the next pip is unchanged. */
+  soldGateMet?: boolean
+}) {
   const cover = coverStageOf(stage)
   if (cover === 'lost') {
     return (
@@ -1992,25 +2098,34 @@ function StageStrip({ stage }: { stage: ProjectStage }) {
         {COVER_STAGE_ORDER.map((s, i) => {
           const isDone = i < currentIdx
           const isCurrent = i === currentIdx
+          // Sold pip green-checks when the gate clears, even though the
+          // stage hasn't advanced. Treat it as "done-styled, current"
+          // for the dot; keep the connector logic alone so Production
+          // doesn't look active.
+          const isGateGreen = !!soldGateMet && s === 'sold' && isCurrent
           return (
             <div key={s} className="flex items-center gap-3 flex-1 last:flex-none">
               <div className="flex items-center gap-2.5">
                 <div
                   className={
                     'w-6 h-6 rounded-full border-[1.5px] flex items-center justify-center text-[10px] font-bold ' +
-                    (isCurrent
+                    (isGateGreen
+                      ? 'border-[#059669] bg-[#D1FAE5] text-[#065F46]'
+                      : isCurrent
                       ? 'border-[#2563EB] bg-[#DBEAFE] text-[#1E40AF]'
                       : isDone
                       ? 'border-[#059669] bg-[#D1FAE5] text-[#065F46]'
                       : 'border-[#D1D5DB] bg-white text-[#9CA3AF]')
                   }
                 >
-                  {isDone ? '✓' : i + 1}
+                  {isDone || isGateGreen ? '✓' : i + 1}
                 </div>
                 <div
                   className={
                     'text-xs ' +
-                    (isCurrent
+                    (isGateGreen
+                      ? 'text-[#059669] font-semibold'
+                      : isCurrent
                       ? 'text-[#111] font-semibold'
                       : isDone
                       ? 'text-[#059669]'
@@ -2018,6 +2133,11 @@ function StageStrip({ stage }: { stage: ProjectStage }) {
                   }
                 >
                   {COVER_STAGE_LABEL[s]}
+                  {isGateGreen && (
+                    <span className="ml-1.5 text-[10px] font-normal text-[#059669]">
+                      · ready
+                    </span>
+                  )}
                 </div>
               </div>
               {i < COVER_STAGE_ORDER.length - 1 && (
@@ -2036,12 +2156,20 @@ function StageStrip({ stage }: { stage: ProjectStage }) {
   )
 }
 
+interface AttentionItem {
+  text: string
+  /** Optional CTA rendered on the right side of the banner. */
+  cta?: { label: string; href: string }
+}
+
 function AttentionStrip({
+  projectId,
   stage,
   cards,
   milestones,
   subStatusMap,
 }: {
+  projectId: string
   stage: ProjectStage
   cards: SubCardData[]
   milestones: ProjectMilestone[]
@@ -2051,22 +2179,25 @@ function AttentionStrip({
    *  until the first load completes. */
   subStatusMap: Record<string, SubprojectStatus>
 }) {
-  // Per-stage issues that need attention. Short, actionable strings.
-  const items: string[] = []
+  // Per-stage issues that need attention. Short, actionable strings,
+  // each optionally with a CTA on the right.
+  const items: AttentionItem[] = []
   const cover = coverStageOf(stage)
 
   if (cover === 'bidding') {
     const emptySubs = cards.filter((c) => c.lineCount === 0).length
     if (emptySubs > 0) {
-      items.push(
-        `${emptySubs} subproject${emptySubs === 1 ? '' : 's'} ${
+      items.push({
+        text: `${emptySubs} subproject${emptySubs === 1 ? '' : 's'} ${
           emptySubs === 1 ? 'has' : 'have'
-        } no lines yet`
-      )
+        } no lines yet`,
+      })
     }
     const pct = milestones.reduce((s, m) => s + (m.pct || 0), 0)
     if (milestones.length > 0 && Math.abs(pct - 100) > 0.01) {
-      items.push(`Milestones total ${pct.toFixed(0)}% — should sum to 100% before sold`)
+      items.push({
+        text: `Milestones total ${pct.toFixed(0)}% — should sum to 100% before sold`,
+      })
     }
   } else if (cover === 'sold') {
     // Item 1: read live readiness from subproject_approval_status. Banner
@@ -2081,16 +2212,24 @@ function AttentionStrip({
       // production) lives in the StageActionBar.
     } else {
       const remaining = Math.max(0, total - ready)
-      items.push(
-        `Pre-production approvals pending · ${ready} of ${total} subproject${
+      items.push({
+        text: `Pre-production approvals pending · ${ready} of ${total} subproject${
           total === 1 ? '' : 's'
         } ready · ${remaining} blocked on specs or drawings`,
-      )
+        cta: {
+          label: 'Open pre-production',
+          href: `/projects/${projectId}/pre-production`,
+        },
+      })
     }
   } else if (cover === 'production') {
-    items.push('Log time against this project from /time — shop hours feed the actual vs. estimate rollup')
+    items.push({
+      text: 'Log time against this project from /time — shop hours feed the actual vs. estimate rollup',
+    })
   } else if (cover === 'installed') {
-    items.push('Final invoice + punchout — complete when all milestones are received and no open clock-ins')
+    items.push({
+      text: 'Final invoice + punchout — complete when all milestones are received and no open clock-ins',
+    })
   }
 
   if (items.length === 0) return null
@@ -2101,11 +2240,27 @@ function AttentionStrip({
         <span className="text-[12px] font-semibold uppercase tracking-wider text-[#92400E]">
           Needs attention
         </span>
-        <div className="flex gap-5 flex-wrap text-[#78350F]">
+        <div className="flex gap-5 flex-wrap text-[#78350F] flex-1 min-w-0">
           {items.map((it, i) => (
-            <span key={i}>{it}</span>
+            <span key={i}>{it.text}</span>
           ))}
         </div>
+        {/* CTA from the first item that carries one. Items with their
+            own CTA are rare (today: only the post-sold approvals
+            banner), so a single right-side button keeps the layout
+            tight. */}
+        {(() => {
+          const cta = items.find((it) => it.cta)?.cta
+          if (!cta) return null
+          return (
+            <Link
+              href={cta.href}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#D97706] rounded-md hover:bg-[#B45309] transition-colors flex-shrink-0"
+            >
+              {cta.label} →
+            </Link>
+          )
+        })()}
       </div>
     </div>
   )

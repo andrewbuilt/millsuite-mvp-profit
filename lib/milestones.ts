@@ -149,3 +149,31 @@ export async function saveMilestones(input: {
 export function sumMilestonePct(milestones: Array<{ pct: number }>): number {
   return milestones.reduce((s, m) => s + (Number(m.pct) || 0), 0)
 }
+
+/**
+ * Manual flip: projected → received with received_date stamped to now.
+ * Mirror of what the QB watcher does automatically when a deposit lands.
+ * Used as a fallback for shops that aren't connected to QB or take a
+ * payment outside QB. Returns the patched row.
+ */
+export async function markMilestoneReceived(
+  milestoneId: string,
+): Promise<ProjectMilestone | null> {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('cash_flow_receivables')
+    .update({
+      status: 'received',
+      received_date: now.slice(0, 10),
+    })
+    .eq('id', milestoneId)
+    .select(
+      'id, project_id, milestone_label, milestone_pct, milestone_trigger, amount, status, expected_date, created_at, notes',
+    )
+    .single()
+  if (error) {
+    console.error('markMilestoneReceived', error)
+    throw error
+  }
+  return data ? rowToMilestone(data as Raw, 0) : null
+}
