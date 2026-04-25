@@ -291,7 +291,8 @@ export async function createRoomSubprojects(input: {
   project_id: string
   rooms: string[]
   consumable_markup_pct?: number | null
-  profit_margin_pct?: number | null
+  // profit_margin_pct removed — margin is project-level only (single
+  // source of truth: projects.target_margin_pct ?? orgs.profit_margin_pct).
 }): Promise<Array<{ id: string; name: string }>> {
   const rooms = input.rooms
     .map((r) => r.trim())
@@ -316,7 +317,6 @@ export async function createRoomSubprojects(input: {
     name,
     sort_order: idx,
     consumable_markup_pct: input.consumable_markup_pct ?? null,
-    profit_margin_pct: input.profit_margin_pct ?? null,
     defaults,
   }))
 

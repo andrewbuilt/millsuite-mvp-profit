@@ -85,6 +85,7 @@ interface Project {
   delivery_address: string | null
   stage: ProjectStage
   bid_total: number
+  target_margin_pct: number | null
 }
 
 interface Subproject {
@@ -96,7 +97,6 @@ interface Subproject {
   material_finish: string | null
   linear_feet: number | null
   consumable_markup_pct: number | null
-  profit_margin_pct: number | null
 }
 
 // ── Helpers ──
@@ -204,8 +204,9 @@ function HandoffPageInner() {
             shopRate,
             consumableMarkupPct:
               sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
-            profitMarginPct:
-              sub.profit_margin_pct ?? (org?.profit_margin_pct ?? 35),
+            // Subproject rollups always run at COST. Margin is applied
+            // exactly once at the project total.
+            profitMarginPct: 0,
           }
           // No per-line options loaded here — handoff rollup uses the base buildup.
           rbSub[sub.id] = computeSubprojectRollup(lines, rb.itemsById, new Map(), perSubCtx)
@@ -271,6 +272,10 @@ function HandoffPageInner() {
 
   // ── Project-level totals ──
 
+  // Pricing-architecture cleanup: subproject rollups run at COST. Apply the
+  // project-level margin exactly once here so handoff shows customer price.
+  const marginTarget =
+    project?.target_margin_pct ?? org?.profit_margin_pct ?? 35
   const projectTotals = useMemo(() => {
     const acc = {
       total: 0,
@@ -285,7 +290,6 @@ function HandoffPageInner() {
       const r = rollupBySub[sub.id]
       acc.linearFeet += Number(sub.linear_feet) || 0
       if (!r) continue
-      acc.total += r.total
       acc.subtotal += r.subtotal
       acc.hoursByDept.eng += r.hoursByDept.eng
       acc.hoursByDept.cnc += r.hoursByDept.cnc
@@ -294,10 +298,12 @@ function HandoffPageInner() {
       acc.hoursByDept.install += r.hoursByDept.install
       acc.totalHours += r.totalHours
     }
-    acc.marginPct =
-      acc.total > 0 ? ((acc.total - acc.subtotal) / acc.total) * 100 : 0
+    const marginFraction = Math.min(Math.max(marginTarget / 100, 0), 0.99)
+    const markup = marginFraction > 0 ? 1 / (1 - marginFraction) : 1
+    acc.total = acc.subtotal * markup
+    acc.marginPct = marginTarget
     return acc
-  }, [subs, rollupBySub])
+  }, [subs, rollupBySub, marginTarget])
 
   const suggested = useMemo(
     () => suggestWindow(projectTotals.totalHours),
@@ -543,7 +549,12 @@ function HandoffPageInner() {
                       {specCount}
                     </div>
                     <div className="text-right text-sm font-mono font-semibold text-[#111] tabular-nums">
-                      {money(r?.total || 0)}
+                      {money(
+                        (r?.subtotal || 0) *
+                          (marginTarget > 0
+                            ? 1 / (1 - Math.min(marginTarget / 100, 0.99))
+                            : 1)
+                      )}
                     </div>
                   </div>
                 )

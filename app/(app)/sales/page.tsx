@@ -309,7 +309,6 @@ function SalesInner() {
             project_id: p.id,
             rooms,
             consumable_markup_pct: (org as any).consumable_markup_pct ?? null,
-            profit_margin_pct: (org as any).profit_margin_pct ?? null,
           })
         }
         const parsedItems = parsed?.items || []

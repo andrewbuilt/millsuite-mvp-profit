@@ -141,10 +141,23 @@ interface SubCardData {
 }
 
 // Aggregate project-level rollup.
+//
+// Pricing-architecture cleanup: every cost bucket is at COST. Margin is
+// applied exactly once at the project total and is exposed as three
+// fields:
+//   costTotal    — sum of all cost buckets (no markup)
+//   marginAmount — priceTotal - costTotal
+//   priceTotal   — costTotal × markup (customer-facing)
+// `total` and `subtotal` are deprecated aliases kept for downstream
+// readers that haven't migrated yet (most should use priceTotal /
+// costTotal explicitly).
 interface ProjectRollup {
-  total: number
-  subtotal: number
-  marginPct: number
+  total: number          // alias for priceTotal — DEPRECATED
+  subtotal: number       // alias for costTotal — DEPRECATED
+  marginPct: number      // = effective project target margin (input)
+  costTotal: number
+  marginAmount: number
+  priceTotal: number
   hoursByDept: { eng: number; cnc: number; assembly: number; finish: number; install: number }
   totalHours: number
   laborCost: number
@@ -183,12 +196,6 @@ function money(n: number): string {
 
 function hoursFmt(n: number): string {
   return `${(Math.round(n * 10) / 10).toFixed(1)}h`
-}
-
-function marginColor(margin: number, target: number): string {
-  if (margin >= target) return 'text-[#059669]'
-  if (margin >= target - 5) return 'text-[#D97706]'
-  return 'text-[#DC2626]'
 }
 
 // Cover stage collapses the three pre-sold stages (new_lead / fifty_fifty /
@@ -242,7 +249,6 @@ export default function ProjectCoverPage() {
   // is a UUID. Falls back to null for custom / unmapped departments.
   const [deptKeyById, setDeptKeyById] = useState<Record<string, LaborDept>>({})
   const [loading, setLoading] = useState(true)
-  const [deptOpen, setDeptOpen] = useState(false)
   const [historicalOpen, setHistoricalOpen] = useState(false)
   const [qbOpen, setQbOpen] = useState(false)
   const [qbLines, setQbLines] = useState<QbLine[]>([])
@@ -298,8 +304,9 @@ export default function ProjectCoverPage() {
           shopRate,
           consumableMarkupPct:
             sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
-          profitMarginPct:
-            sub.profit_margin_pct ?? (org?.profit_margin_pct ?? 35),
+          // Subproject rollups always run at COST. Margin is applied
+          // exactly once at the project total below.
+          profitMarginPct: 0,
         }
         const rollup = computeSubprojectRollup(subLines, rateBook.itemsById, new Map(), perSubCtx)
         const finishSpecCount = subLines.reduce(
@@ -379,17 +386,29 @@ export default function ProjectCoverPage() {
       // Seed QB lines from the computed per-subproject totals. Descriptions
       // start as "<Name> — custom millwork" (the mockup convention) but the
       // user is expected to edit each one before sending.
+      // Pricing-architecture cleanup: subproject rollups are at COST now, so
+      // we apply the project-level markup here to surface customer-facing
+      // prices on each QB line. Install prefill cost gets marked up too.
+      const qbMarginPct =
+        (projRes.data as Project | null)?.target_margin_pct ??
+        org?.profit_margin_pct ??
+        35
+      const qbMarginFrac = Math.min(Math.max(qbMarginPct / 100, 0), 0.99)
+      const qbMarkup = qbMarginFrac > 0 ? 1 / (1 - qbMarginFrac) : 1
       setQbLines(
-        cardData.map(({ sub, rollup }) => ({
-          subId: sub.id,
-          desc: isInstallSub(sub)
-            ? 'Installation'
-            : `${sub.name} — custom millwork`,
-          spec: buildDefaultSpec(sub),
-          qty: '1',
-          rate: Math.round(rollup.total),
-          amount: Math.round(rollup.total),
-        }))
+        cardData.map(({ sub, rollup, installPrefillCost }) => {
+          const price = Math.round((rollup.subtotal + installPrefillCost) * qbMarkup)
+          return {
+            subId: sub.id,
+            desc: isInstallSub(sub)
+              ? 'Installation'
+              : `${sub.name} — custom millwork`,
+            spec: buildDefaultSpec(sub),
+            qty: '1',
+            rate: price,
+            amount: price,
+          }
+        })
       )
 
       setLoading(false)
@@ -403,22 +422,17 @@ export default function ProjectCoverPage() {
   // ── Project-level rollup (summed across subs) ──
 
   const proj: ProjectRollup = useMemo(() => {
-    // Sum every subproject's COST (rollup.subtotal, not rollup.total —
-    // subproject totals are still pre-markup raw cost) plus install
-    // prefill cost. Apply the project's target-margin markup uniformly
-    // across all cost buckets at the very end.
-    const raw = {
-      laborCost: 0,
-      materialCost: 0,
-      hardwareCost: 0,
-      installCost: 0,
-      consumablesCost: 0,
-      optionsCost: 0,
-    }
+    // Cost buckets stay at COST. Project markup is applied exactly once
+    // at the project total, surfacing as marginAmount + priceTotal.
+    // Subproject views display the same cost numbers — no double-markup,
+    // no surprise discrepancies between subproject card and breakdown.
     const acc: ProjectRollup = {
       total: 0,
       subtotal: 0,
       marginPct: 0,
+      costTotal: 0,
+      marginAmount: 0,
+      priceTotal: 0,
       hoursByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
       totalHours: 0,
       laborCost: 0,
@@ -441,19 +455,17 @@ export default function ProjectCoverPage() {
       installPrefillHours,
     } of cards) {
       // Cost buckets — install prefill cost lands in installCost.
-      raw.laborCost += rollup.laborCost
-      raw.materialCost += rollup.materialCost
-      raw.hardwareCost += rollup.hardwareCost
-      raw.installCost += rollup.installCost + installPrefillCost
-      raw.consumablesCost += rollup.consumablesCost
-      raw.optionsCost += rollup.optionsCost
+      acc.laborCost += rollup.laborCost
+      acc.materialCost += rollup.materialCost
+      acc.hardwareCost += rollup.hardwareCost
+      acc.installCost += rollup.installCost + installPrefillCost
+      acc.consumablesCost += rollup.consumablesCost
+      acc.optionsCost += rollup.optionsCost
 
       // Hours — install prefill hours land ONLY on hoursByDept.install,
-      // NOT in totalHours. The Labor BREAKDOWN row reads totalHours +
-      // laborCost together; folding install hours into totalHours while
-      // their $ stays in installCost made the Labor row read "X hours
-      // for $0" (Issue 17b). Install hours surface on the Install
-      // breakdown row alongside their $.
+      // not in totalHours (dogfood3 invariant 17b). Install hours
+      // surface on the Install breakdown row alongside their $; Labor
+      // row reflects line-driven labor only.
       acc.hoursByDept.eng += rollup.hoursByDept.eng
       acc.hoursByDept.cnc += rollup.hoursByDept.cnc
       acc.hoursByDept.assembly += rollup.hoursByDept.assembly
@@ -462,7 +474,10 @@ export default function ProjectCoverPage() {
       acc.totalHours += rollup.totalHours
 
       acc.finishSpecCount += finishSpecCount
-      if (isInstallSub(sub)) acc.installSubprojectTotal += rollup.total + installPrefillCost
+      // installSubprojectTotal is at COST now (subproject rollups run
+      // at cost). Kept for any downstream reader; can drop in follow-up.
+      if (isInstallSub(sub))
+        acc.installSubprojectTotal += rollup.total + installPrefillCost
 
       // Phase 8: fold in actuals for this sub.
       const a = subActuals[sub.id]
@@ -475,35 +490,25 @@ export default function ProjectCoverPage() {
         }
       }
     }
-    // Apply project markup uniformly. subtotal = pre-markup cost; total
-    // = marked-up price. marginPct comes out equal to marginTarget when
-    // the buckets are non-empty, by construction.
-    const rawCostSum =
-      raw.laborCost +
-      raw.materialCost +
-      raw.hardwareCost +
-      raw.installCost +
-      raw.consumablesCost +
-      raw.optionsCost
-    const marginFraction = Math.min(Math.max(marginTarget / 100, 0), 0.99)
-    const markup = marginFraction > 0 ? 1 / (1 - marginFraction) : 1
 
-    acc.subtotal = rawCostSum
-    acc.laborCost = raw.laborCost * markup
-    acc.materialCost = raw.materialCost * markup
-    acc.hardwareCost = raw.hardwareCost * markup
-    acc.installCost = raw.installCost * markup
-    acc.consumablesCost = raw.consumablesCost * markup
-    acc.optionsCost = raw.optionsCost * markup
-    acc.total =
+    acc.costTotal =
       acc.laborCost +
       acc.materialCost +
       acc.hardwareCost +
       acc.installCost +
       acc.consumablesCost +
       acc.optionsCost
-    acc.marginPct =
-      acc.total > 0 ? ((acc.total - acc.subtotal) / acc.total) * 100 : 0
+
+    const marginFraction = Math.min(Math.max(marginTarget / 100, 0), 0.99)
+    const markup = marginFraction > 0 ? 1 / (1 - marginFraction) : 1
+    acc.priceTotal = acc.costTotal * markup
+    acc.marginAmount = acc.priceTotal - acc.costTotal
+    acc.marginPct = marginTarget
+
+    // Deprecated aliases kept for downstream readers.
+    acc.subtotal = acc.costTotal
+    acc.total = acc.priceTotal
+
     return acc
   }, [cards, subActuals, deptKeyById, marginTarget])
 
@@ -590,18 +595,10 @@ export default function ProjectCoverPage() {
           </div>
           <div className="text-right">
             <div className="text-[28px] font-semibold text-[#111] font-mono tabular-nums tracking-tight">
-              {money(proj.total)}
+              {money(proj.priceTotal)}
             </div>
-            <div
-              className={`text-xs font-semibold mt-1 ${marginColor(
-                proj.marginPct,
-                marginTarget
-              )}`}
-            >
-              {proj.marginPct.toFixed(0)}% margin
-              {proj.marginPct >= marginTarget
-                ? ` · above ${marginTarget}% target`
-                : ` · ${(marginTarget - proj.marginPct).toFixed(0)}% under target`}
+            <div className="text-xs font-semibold mt-1 text-[#059669] font-mono tabular-nums">
+              {marginTarget.toFixed(0)}% margin · {money(proj.marginAmount)}
             </div>
           </div>
         </div>
@@ -628,7 +625,6 @@ export default function ProjectCoverPage() {
                 </div>
               )}
               {cards.map(({ sub, rollup, lineCount, finishSpecCount, installPrefillCost }) => {
-                const mCls = marginColor(rollup.marginPct, marginTarget)
                 const install = isInstallSub(sub)
                 const statusReady = !!sub.ready_for_production
                 const subTotalWithInstall = rollup.total + installPrefillCost
@@ -751,9 +747,6 @@ export default function ProjectCoverPage() {
                             + {money(installPrefillCost)} install
                           </div>
                         )}
-                        <div className={`text-xs font-semibold mt-0.5 ${mCls}`}>
-                          {rollup.marginPct.toFixed(0)}% margin
-                        </div>
                         <div
                           className={`text-[10px] mt-1.5 uppercase tracking-wider font-medium flex items-center gap-1 justify-end ${
                             statusReady ? 'text-[#059669]' : 'text-[#D97706]'
@@ -787,6 +780,11 @@ export default function ProjectCoverPage() {
           </div>
 
           {/* RIGHT — financial panel */}
+          {/* Pricing-architecture cleanup: contractor-style cost-plus quote.
+              Header shows final PRICE + margin amount. Breakdown rows show
+              COST (not marked up) so they reconcile with subproject cards.
+              Margin is applied exactly ONCE at the end — explicit row,
+              then PROJECT PRICE. */}
           <div>
             <div className="sticky top-[72px] bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm">
               <div className="pb-4 border-b border-[#F3F4F6]">
@@ -794,7 +792,13 @@ export default function ProjectCoverPage() {
                   Project total
                 </div>
                 <div className="text-[32px] font-semibold text-[#111] font-mono tabular-nums tracking-tight leading-none">
-                  {money(proj.total)}
+                  {money(proj.priceTotal)}
+                </div>
+                <div className="text-xs text-[#6B7280] mt-1.5 font-mono tabular-nums">
+                  {marginTarget.toFixed(0)}% margin ·{' '}
+                  <span className="text-[#059669]">
+                    {money(proj.marginAmount)}
+                  </span>
                 </div>
                 <TargetMarginEditor
                   projectId={projectId}
@@ -810,105 +814,14 @@ export default function ProjectCoverPage() {
 
               <div className="pt-4">
                 <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
-                  Breakdown
+                  Cost breakdown
                 </div>
 
-                {/* Labor (expandable) */}
-                <button
-                  onClick={() => setDeptOpen((v) => !v)}
-                  className="w-full grid grid-cols-[1fr_auto_auto] gap-2.5 items-center py-2 text-sm border-b border-[#F3F4F6] hover:bg-[#F9FAFB] -mx-2 px-2 rounded transition-colors"
-                >
-                  <span className="text-[#374151] text-left flex items-center gap-1.5">
-                    <ChevronRight
-                      className={`w-3 h-3 text-[#9CA3AF] transition-transform ${
-                        deptOpen ? 'rotate-90' : ''
-                      }`}
-                    />
-                    Labor
-                  </span>
-                  <span className="text-[11px] font-mono text-[#9CA3AF] text-right">
-                    {hoursFmt(proj.totalHours)} est
-                    {proj.actualMinutes > 0 && (
-                      <>
-                        <br />
-                        <span
-                          className={
-                            proj.actualMinutes / 60 > proj.totalHours
-                              ? 'text-[#DC2626]'
-                              : 'text-[#059669]'
-                          }
-                        >
-                          {fmtActualHours(proj.actualMinutes)} actual
-                        </span>
-                      </>
-                    )}
-                  </span>
-                  <span className="font-mono text-[#111] tabular-nums">
-                    {money(proj.laborCost)}
-                  </span>
-                </button>
-                {deptOpen && (
-                  <div className="pl-4 ml-1 border-l border-[#DBEAFE] py-1 mb-1 space-y-1">
-                    {/* Install used to render here too. Issue 20 (Phase 12
-                        dogfood-4): Install is its own peer-level row at the
-                        bottom of the breakdown — surfaces hours + the
-                        marked-up $ together — so it doesn't need to also
-                        appear under Labor where it would render at raw cost
-                        and double-count visually. */}
-                    {(
-                      [
-                        ['Engineering', 'eng'],
-                        ['CNC', 'cnc'],
-                        ['Assembly', 'assembly'],
-                        ['Finish', 'finish'],
-                      ] as const
-                    ).map(([label, key]) => {
-                      const hrs = proj.hoursByDept[key]
-                      const cost = hrs * shopRate
-                      const actMins = proj.actualByDept[key] || 0
-                      if (hrs <= 0 && actMins <= 0) return null
-                      return (
-                        <div
-                          key={key}
-                          className="grid grid-cols-[1fr_auto_auto] gap-2.5 py-0.5 text-[11.5px] text-[#6B7280]"
-                        >
-                          <span>
-                            {label}
-                            {actMins > 0 && (
-                              <span
-                                className={`ml-1.5 font-mono text-[10px] ${
-                                  actMins / 60 > hrs
-                                    ? 'text-[#DC2626]'
-                                    : 'text-[#059669]'
-                                }`}
-                                title={`${fmtActualHours(actMins)} clocked`}
-                              >
-                                · {fmtActualHours(actMins)} act
-                              </span>
-                            )}
-                          </span>
-                          <span className="font-mono">{hoursFmt(hrs)}</span>
-                          <span className="font-mono text-[#374151]">
-                            {money(cost)}
-                          </span>
-                        </div>
-                      )
-                    })}
-                    {proj.actualUnmappedMinutes > 0 && (
-                      <div
-                        className="grid grid-cols-[1fr_auto_auto] gap-2.5 py-0.5 text-[10.5px] text-[#9CA3AF] italic"
-                        title="Clock-ins against departments that don't map to a canonical labor bucket"
-                      >
-                        <span>Other dept actuals</span>
-                        <span className="font-mono">
-                          {fmtActualHours(proj.actualUnmappedMinutes)}
-                        </span>
-                        <span />
-                      </div>
-                    )}
-                  </div>
-                )}
-
+                <FinRow
+                  label="Labor"
+                  hours={proj.totalHours}
+                  value={money(proj.laborCost)}
+                />
                 <FinRow label="Material" value={money(proj.materialCost)} />
                 <FinRow
                   label={
@@ -928,12 +841,41 @@ export default function ProjectCoverPage() {
                   hours={proj.hoursByDept.install}
                   value={money(proj.installCost)}
                 />
+
+                {/* Cost-plus summary: cost, margin, price. */}
+                <div className="mt-3 pt-3 border-t border-[#E5E7EB] space-y-1.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[#374151]">Project cost</span>
+                    <span className="font-mono text-[#111] tabular-nums">
+                      {money(proj.costTotal)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[#374151]">
+                      Project margin
+                      <span className="text-[10px] text-[#9CA3AF] ml-1">
+                        ({marginTarget.toFixed(0)}%)
+                      </span>
+                    </span>
+                    <span className="font-mono text-[#059669] tabular-nums">
+                      + {money(proj.marginAmount)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-[#E5E7EB]">
+                    <span className="text-[11px] font-semibold text-[#111] uppercase tracking-wider">
+                      Project price
+                    </span>
+                    <span className="text-[18px] font-semibold font-mono text-[#111] tabular-nums">
+                      {money(proj.priceTotal)}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {/* Milestones — per-project builder */}
               <MilestoneBuilder
                 milestones={milestones}
-                total={proj.total}
+                total={proj.priceTotal}
                 onChange={(next) => {
                   setMilestones(next)
                   setMilestonesDirty(true)
@@ -944,7 +886,7 @@ export default function ProjectCoverPage() {
                   const ok = await saveMilestones({
                     org_id: org.id,
                     project_id: projectId,
-                    project_total: proj.total,
+                    project_total: proj.priceTotal,
                     milestones: milestones.map((m) => ({
                       label: m.label,
                       pct: m.pct,
