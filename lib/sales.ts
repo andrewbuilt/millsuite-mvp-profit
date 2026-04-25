@@ -183,6 +183,11 @@ export function summarizePipeline(
 export async function createBlankLeadProject(input: {
   org_id: string
   name: string
+  /** Linked client (when picked from the typeahead). Writes both
+   *  client_id (FK) and client_name (denormalized cache) so every
+   *  card / list surface that reads client_name keeps working without
+   *  a join. */
+  client_id?: string | null
   client_name?: string | null
   delivery_address?: string | null
 }): Promise<SalesProject | null> {
@@ -191,6 +196,7 @@ export async function createBlankLeadProject(input: {
     .insert({
       org_id: input.org_id,
       name: input.name,
+      client_id: input.client_id ?? null,
       client_name: input.client_name ?? null,
       delivery_address: input.delivery_address ?? null,
       stage: 'new_lead' as ProjectStage,
