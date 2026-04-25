@@ -534,7 +534,6 @@ export default function ProjectCoverPage() {
   }
 
   const qbTotal = qbLines.reduce((s, l) => s + (l.amount || 0), 0)
-  const depositAmount = Math.round(qbTotal * 0.3)
 
   // ── Render states ──
 
@@ -996,7 +995,7 @@ export default function ProjectCoverPage() {
           lines={qbLines}
           terms={qbTerms}
           total={qbTotal}
-          deposit={depositAmount}
+          milestones={milestones}
           projectName={project.name}
           clientName={project.client_name}
           onClose={() => setQbOpen(false)}
@@ -1417,7 +1416,7 @@ function QbPreviewModal({
   lines,
   terms,
   total,
-  deposit,
+  milestones,
   projectName,
   clientName,
   onClose,
@@ -1428,7 +1427,9 @@ function QbPreviewModal({
   lines: QbLine[]
   terms: string
   total: number
-  deposit: number
+  /** Saved payment milestones — drive the deposit/payment rows in the
+   *  preview + clipboard text. Empty array → 30% default fallback. */
+  milestones: ProjectMilestone[]
   projectName: string
   clientName: string | null
   onClose: () => void
@@ -1440,7 +1441,8 @@ function QbPreviewModal({
 
   // Build a plain-text block optimised for pasting into a fresh QuickBooks
   // estimate. One paragraph per line item (description → specs → qty/rate/
-  // amount), then deposit, total, and terms. No markdown — QB is plain text.
+  // amount), then payment schedule, total, and terms. No markdown — QB is
+  // plain text.
   function buildClipboardText(): string {
     const lead = [
       `Estimate — ${projectName}`,
@@ -1465,11 +1467,21 @@ function QbPreviewModal({
       })
       .join('\n\n')
 
-    const depositBlock = [
-      '',
-      `Deposit (30%): ${money(deposit)}`,
-      '  Due at contract signing. Balance billed at production milestones.',
-    ].join('\n')
+    const depositBlock =
+      milestones.length === 0
+        ? [
+            '',
+            `Deposit (30%): ${money(Math.round(total * 0.3))}`,
+            '  Default — no payment milestones composed yet.',
+          ].join('\n')
+        : [
+            '',
+            'Payment schedule',
+            ...milestones.map((m) => {
+              const amt = Math.round((total * m.pct) / 100)
+              return `  ${m.label} (${m.pct.toFixed(0)}%): ${money(amt)} — ${TRIGGER_LABEL[m.trigger]}`
+            }),
+          ].join('\n')
 
     const totalBlock = ['', `ESTIMATE TOTAL: ${money(total)}`].join('\n')
 
@@ -1592,29 +1604,58 @@ function QbPreviewModal({
             ))
           )}
 
-          {/* Deposit row */}
-          {lines.length > 0 && (
+          {/* Payment milestones — one row per saved milestone, or a 30%
+              default deposit row when none have been composed yet. */}
+          {lines.length > 0 && milestones.length === 0 && (
             <div className="grid grid-cols-[1fr_60px_90px_90px] gap-3.5 px-1 py-3 border-b border-[#F3F4F6] items-start">
               <div>
                 <div className="text-sm font-medium text-[#111] px-1.5">
                   Deposit (30%)
                 </div>
-                <div className="text-[11.5px] text-[#6B7280] mt-1 px-1.5">
-                  Due at contract signing. Balance billed at production
-                  milestones.
+                <div className="text-[11.5px] text-[#9CA3AF] italic mt-1 px-1.5">
+                  Default — no payment milestones composed yet.
                 </div>
               </div>
               <div className="text-right text-sm font-mono tabular-nums text-[#374151] pt-1.5">
                 1
               </div>
               <div className="text-right text-sm font-mono tabular-nums text-[#374151] pt-1.5">
-                {money(deposit)}
+                {money(Math.round(total * 0.3))}
               </div>
               <div className="text-right text-sm font-mono tabular-nums text-[#059669] font-semibold pt-1.5">
-                {money(deposit)}
+                {money(Math.round(total * 0.3))}
               </div>
             </div>
           )}
+          {lines.length > 0 &&
+            milestones.length > 0 &&
+            milestones.map((m) => {
+              const amt = Math.round((total * m.pct) / 100)
+              return (
+                <div
+                  key={m.id}
+                  className="grid grid-cols-[1fr_60px_90px_90px] gap-3.5 px-1 py-3 border-b border-[#F3F4F6] items-start"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-[#111] px-1.5">
+                      {m.label} ({m.pct.toFixed(0)}%)
+                    </div>
+                    <div className="text-[11.5px] text-[#6B7280] mt-1 px-1.5">
+                      {TRIGGER_LABEL[m.trigger]}
+                    </div>
+                  </div>
+                  <div className="text-right text-sm font-mono tabular-nums text-[#374151] pt-1.5">
+                    1
+                  </div>
+                  <div className="text-right text-sm font-mono tabular-nums text-[#374151] pt-1.5">
+                    {money(amt)}
+                  </div>
+                  <div className="text-right text-sm font-mono tabular-nums text-[#059669] font-semibold pt-1.5">
+                    {money(amt)}
+                  </div>
+                </div>
+              )
+            })}
 
           {/* Total */}
           <div className="grid grid-cols-[1fr_auto] px-1 py-3 mt-2 border-t border-[#111] text-base font-semibold text-[#111]">
