@@ -1,0 +1,1561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MillSuite · Add-a-line Composer (Clickable Wireframe)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #0a0a0a; color: #e5e5e5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* Top bar */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; background: #0d0d0d; border-bottom: 1px solid #1a1a1a;
+  }
+  .brand { font-size: 13px; color: #fff; font-weight: 600; letter-spacing: 0.3px; }
+  .brand .diamond { color: #3b82f6; margin-right: 6px; }
+  .topbar-right { display: flex; align-items: center; gap: 18px; }
+  .crumbs { font-size: 12px; color: #777; }
+  .crumbs .sep { margin: 0 8px; color: #444; }
+  .crumbs .cur { color: #ccc; }
+
+  /* Content */
+  .content {
+    flex: 1; display: flex; justify-content: center; align-items: flex-start;
+    padding: 36px 24px 120px;
+  }
+  .screen {
+    width: 100%; max-width: 1100px;
+    animation: fadeIn 0.25s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  h1.page-h1 {
+    font-size: 26px; color: #fff; font-weight: 600; letter-spacing: -0.3px;
+    margin-bottom: 6px; line-height: 1.25;
+  }
+  .page-lede {
+    font-size: 13.5px; color: #999; line-height: 1.55; margin-bottom: 28px;
+  }
+
+  /* Subproject lines list */
+  .lines-panel {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 14px;
+    overflow: hidden; margin-bottom: 16px;
+  }
+  .lines-head {
+    display: grid; grid-template-columns: 1fr 110px 130px 130px 30px;
+    padding: 10px 18px; background: #0f0f0f; border-bottom: 1px solid #1a1a1a;
+    font-size: 10.5px; color: #666; text-transform: uppercase; letter-spacing: 1px;
+    font-weight: 600;
+  }
+  .lines-head .right { text-align: right; }
+  .line-row {
+    display: grid; grid-template-columns: 1fr 110px 130px 130px 30px;
+    padding: 14px 18px; border-bottom: 1px solid #141414; align-items: center;
+    font-size: 13.5px;
+  }
+  .line-row:last-child { border-bottom: none; }
+  .line-row .prod-name {
+    color: #fff; font-weight: 600; margin-bottom: 3px;
+  }
+  .line-row .prod-specs { color: #888; font-size: 12px; line-height: 1.45; }
+  .line-row .num {
+    font-family: "SF Mono", Menlo, monospace; font-size: 13px; color: #ddd;
+    text-align: right;
+  }
+  .line-row .labor { color: #93c5fd; }
+  .line-row .material { color: #c4b5fd; }
+  .line-row .total { color: #fff; font-weight: 600; }
+  .line-row .del {
+    color: #444; cursor: pointer; font-size: 16px; text-align: center;
+  }
+  .line-row .del:hover { color: #f87171; }
+  .lines-empty {
+    padding: 48px 24px; text-align: center; color: #666; font-size: 13px;
+  }
+  .lines-empty strong { color: #aaa; display: block; margin-bottom: 6px; font-size: 14px; font-weight: 600; }
+
+  .line-row:hover { background: #101010; }
+
+  /* Subtotals footer */
+  .lines-foot {
+    display: grid; grid-template-columns: 1fr 110px 130px 130px 30px;
+    padding: 14px 18px; background: #0f0f0f; border-top: 1px solid #1a1a1a;
+    align-items: center; font-size: 12.5px;
+  }
+  .lines-foot .lbl { color: #888; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; font-size: 10.5px; }
+  .lines-foot .num { font-family: "SF Mono", Menlo, monospace; text-align: right; color: #fff; font-weight: 600; font-size: 14px; }
+  .lines-foot .labor { color: #93c5fd; }
+  .lines-foot .material { color: #c4b5fd; }
+
+  /* Buttons */
+  .btn {
+    padding: 10px 20px; font-size: 13px; font-weight: 500;
+    border-radius: 8px; cursor: pointer; transition: all 0.15s;
+    background: #1e1e1e; border: 1px solid #2a2a2a; color: #ddd;
+    font-family: inherit; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn:hover:not(:disabled) { background: #252525; border-color: #333; color: #fff; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #2563eb; border-color: #2563eb; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover:not(:disabled) { color: #ccc; background: #1a1a1a; }
+  .btn-big { padding: 12px 24px; font-size: 14px; font-weight: 600; }
+  .btn-add-line {
+    background: #0f1a2a; border: 1px dashed #2d5a8a; color: #93c5fd;
+    padding: 14px 22px; font-size: 13.5px; font-weight: 500; border-radius: 10px;
+    cursor: pointer; transition: all 0.15s; width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-family: inherit;
+  }
+  .btn-add-line:hover { background: #152440; border-color: #3b82f6; color: #dbeafe; }
+
+  /* Product picker (modal) */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 50; padding: 24px; overflow-y: auto;
+    animation: fadeIn 0.2s ease-out;
+  }
+  .modal {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 16px;
+    max-width: 860px; width: 100%; padding: 32px;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal h2 {
+    font-size: 22px; color: #fff; font-weight: 600; letter-spacing: -0.3px;
+    margin-bottom: 8px;
+  }
+  .modal .lede { font-size: 13.5px; color: #999; margin-bottom: 24px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+
+  .product-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+  }
+  @media (max-width: 640px) { .product-grid { grid-template-columns: 1fr; } }
+  .product-tile {
+    padding: 18px 20px; background: #111; border: 1px solid #1a1a1a;
+    border-radius: 12px; cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  }
+  .product-tile:hover:not(.locked):not(.stub) {
+    border-color: #3b82f6; background: #0f1a2a; transform: translateY(-1px);
+  }
+  .product-tile.locked, .product-tile.stub { opacity: 0.55; cursor: default; }
+  .product-tile .t-body { flex: 1; min-width: 0; }
+  .product-tile .t-name { font-size: 15px; color: #fff; font-weight: 600; margin-bottom: 4px; }
+  .product-tile .t-desc { font-size: 12px; color: #888; line-height: 1.4; }
+  .product-tile .t-unit {
+    font-family: "SF Mono", Menlo, monospace; font-size: 11px; color: #666;
+    margin-top: 6px;
+  }
+  .product-tile .t-status {
+    font-size: 10px; color: #666; padding: 3px 8px; border-radius: 10px;
+    background: #1a1a1a; border: 1px solid #222; text-transform: uppercase; letter-spacing: 0.7px;
+    font-weight: 600; white-space: nowrap;
+  }
+  .product-tile .t-status.ready { color: #93c5fd; background: #0f1a2a; border-color: #1e3a5c; }
+  .product-tile .t-status.stub { color: #aaa; background: #181818; }
+  .product-tile .t-status.later { color: #888; background: #181818; }
+
+  /* Composer layout */
+  .composer {
+    display: grid; grid-template-columns: 1fr 380px;
+    gap: 28px;
+    align-items: flex-start;
+  }
+  @media (max-width: 900px) { .composer { grid-template-columns: 1fr; } }
+
+  .composer-head {
+    margin-bottom: 22px;
+  }
+  .composer-head .back {
+    font-size: 12px; color: #666; cursor: pointer; margin-bottom: 12px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .composer-head .back:hover { color: #aaa; }
+  .composer-head h1 {
+    font-size: 26px; color: #fff; font-weight: 600; letter-spacing: -0.3px;
+  }
+  .composer-head .sub { font-size: 13px; color: #999; margin-top: 4px; line-height: 1.5; max-width: 560px; }
+
+  .form {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 14px;
+    padding: 24px;
+  }
+  .field-group {
+    display: grid; gap: 16px;
+  }
+  .field {
+    display: grid; grid-template-columns: 160px 1fr; gap: 16px; align-items: center;
+  }
+  @media (max-width: 620px) { .field { grid-template-columns: 1fr; gap: 4px; } }
+  .field-label {
+    font-size: 12.5px; color: #ccc; font-weight: 500;
+  }
+  .field-label .req { color: #f87171; margin-left: 3px; }
+  .field-label .hint { font-size: 11px; color: #666; display: block; margin-top: 2px; font-weight: 400; }
+  .field-input-row { display: flex; align-items: center; gap: 10px; }
+
+  .input, .select {
+    background: #111; border: 1px solid #2a2a2a; border-radius: 8px;
+    padding: 10px 12px; color: #fff; font-size: 13.5px; font-family: inherit;
+    width: 100%; transition: all 0.15s;
+  }
+  .input:focus, .select:focus { outline: none; border-color: #3b82f6; background: #141820; }
+  .input::placeholder { color: #444; }
+  .select {
+    appearance: none; -webkit-appearance: none;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="%23888" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+    cursor: pointer;
+  }
+  .input.small { width: 100px; }
+  .input.qty { width: 88px; font-family: "SF Mono", Menlo, monospace; font-weight: 500; }
+  .input-unit { color: #888; font-size: 12.5px; }
+
+  .slot-meta {
+    font-size: 11px; color: #666; margin-top: 4px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .slot-meta .warn { color: #fbbf24; }
+
+  /* Dropdown w/ escape hatch */
+  .dropdown {
+    position: relative; width: 100%;
+  }
+  .dropdown-btn {
+    background: #111; border: 1px solid #2a2a2a; border-radius: 8px;
+    padding: 10px 12px; color: #fff; font-size: 13.5px;
+    width: 100%; text-align: left; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: inherit; transition: all 0.15s;
+  }
+  .dropdown-btn:hover { border-color: #3a3a3a; }
+  .dropdown-btn.open { border-color: #3b82f6; background: #141820; }
+  .dropdown-btn .caret { color: #888; margin-left: 8px; font-size: 11px; }
+  .dropdown-btn.empty { color: #666; }
+  .dropdown-list {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    background: #0f0f0f; border: 1px solid #2a2a2a; border-radius: 8px;
+    overflow: hidden; z-index: 20;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    max-height: 320px; overflow-y: auto;
+  }
+  .dropdown-item {
+    padding: 10px 14px; font-size: 13px; color: #ddd; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; border-bottom: 1px solid #181818;
+  }
+  .dropdown-item:last-child { border-bottom: none; }
+  .dropdown-item:hover { background: #1a1a1a; color: #fff; }
+  .dropdown-item.selected { background: #0f1a2a; color: #dbeafe; }
+  .dropdown-item .item-meta {
+    font-family: "SF Mono", Menlo, monospace; font-size: 11px; color: #666;
+  }
+  .dropdown-item.add-new {
+    color: #93c5fd; font-weight: 500;
+    background: #0a1420;
+  }
+  .dropdown-item.add-new:hover { background: #0f1a2a; color: #dbeafe; }
+  .dropdown-item .uncal-tag {
+    font-size: 10px; color: #fbbf24; background: #2a1e08;
+    padding: 2px 6px; border-radius: 4px; text-transform: uppercase;
+    letter-spacing: 0.5px; font-weight: 600;
+  }
+
+  /* Inline "add new" card */
+  .add-new-card {
+    background: #0a1420; border: 1px solid #1e3a5c; border-radius: 10px;
+    padding: 16px 18px; margin-top: 6px;
+  }
+  .add-new-card .card-title {
+    font-size: 12px; color: #93c5fd; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 12px;
+  }
+  .add-new-card .card-fields {
+    display: grid; grid-template-columns: 1fr 120px 120px; gap: 10px;
+    align-items: flex-end; margin-bottom: 14px;
+  }
+  @media (max-width: 620px) { .add-new-card .card-fields { grid-template-columns: 1fr; } }
+  .add-new-card label {
+    font-size: 11px; color: #888; text-transform: uppercase;
+    letter-spacing: 0.7px; font-weight: 600; display: block; margin-bottom: 4px;
+  }
+  .add-new-card .card-actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+
+  /* Composer right rail — price breakdown */
+  .breakdown {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 14px;
+    padding: 22px; position: sticky; top: 20px;
+  }
+  .breakdown .b-title {
+    font-size: 11px; color: #777; text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 18px;
+  }
+  .b-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 14px;
+    padding: 8px 0; border-bottom: 1px solid #141414; font-size: 12.5px;
+    align-items: baseline;
+  }
+  .b-row:last-child { border-bottom: none; }
+  .b-row .b-label { color: #bbb; }
+  .b-row .b-label .b-detail { color: #666; font-size: 11px; display: block; margin-top: 2px; font-family: "SF Mono", Menlo, monospace; }
+  .b-row .b-val {
+    font-family: "SF Mono", Menlo, monospace; font-size: 13px;
+    color: #ddd; text-align: right;
+  }
+  .b-row.zero { opacity: 0.35; }
+  .b-row.warn .b-label { color: #fbbf24; }
+  .b-totals {
+    margin-top: 14px; padding-top: 14px; border-top: 2px solid #222;
+    display: grid; gap: 6px;
+  }
+  .b-totals .t-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 14px;
+    font-size: 12.5px;
+  }
+  .b-totals .t-row .t-lbl { color: #888; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; font-size: 10.5px; }
+  .b-totals .t-row .t-val { font-family: "SF Mono", Menlo, monospace; text-align: right; }
+  .b-totals .t-row.labor .t-val { color: #93c5fd; }
+  .b-totals .t-row.material .t-val { color: #c4b5fd; }
+  .b-totals .t-row.total {
+    margin-top: 8px; padding-top: 10px; border-top: 1px solid #1a1a1a;
+    font-size: 14px; align-items: baseline;
+  }
+  .b-totals .t-row.total .t-lbl { color: #fff; font-weight: 700; font-size: 11px; }
+  .b-totals .t-row.total .t-val { color: #fff; font-weight: 700; font-size: 20px; }
+
+  .composer-actions {
+    display: flex; justify-content: space-between; gap: 10px; margin-top: 20px;
+    padding: 16px 0 0; border-top: 1px solid #1a1a1a;
+  }
+
+  /* Walkthrough modal (stubbed door walkthrough) */
+  .wt-modal .wt-step-num {
+    font-size: 11px; color: #3b82f6; text-transform: uppercase;
+    letter-spacing: 1.4px; font-weight: 600; margin-bottom: 10px;
+  }
+  .wt-modal h3 {
+    font-size: 20px; color: #fff; font-weight: 600; margin-bottom: 10px;
+  }
+  .wt-modal .wt-prompt {
+    font-size: 14px; color: #aaa; margin-bottom: 24px; line-height: 1.55;
+  }
+  .wt-modal .wt-input-row {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 8px;
+  }
+  .wt-modal .wt-note {
+    background: #0f1a2a; border: 1px solid #1e3a5c; border-radius: 8px;
+    padding: 12px 14px; font-size: 12px; color: #93c5fd; line-height: 1.5;
+    margin-bottom: 20px;
+  }
+  .wt-progress {
+    display: flex; gap: 4px; margin-bottom: 20px;
+  }
+  .wt-progress-dot {
+    height: 3px; flex: 1; background: #1a1a1a; border-radius: 2px;
+  }
+  .wt-progress-dot.done { background: #3b82f6; }
+  .wt-progress-dot.current { background: #3b82f6; opacity: 0.6; }
+
+  /* Stub banner */
+  .stub-banner {
+    padding: 14px 18px; background: #1a1208; border: 1px solid #3a2a0d;
+    border-radius: 10px; color: #fbbf24; font-size: 12.5px;
+    margin-bottom: 22px; line-height: 1.5;
+  }
+  .stub-banner strong { color: #fcd34d; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    z-index: 100; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* small utilities */
+  .spacer-sm { height: 12px; }
+  .spacer-md { height: 20px; }
+  .count-row { display: flex; align-items: center; gap: 10px; }
+  .count-row .stepper-mini {
+    display: inline-flex; align-items: center;
+    border: 1px solid #2a2a2a; border-radius: 8px; background: #111;
+    overflow: hidden;
+  }
+  .count-row .stepper-mini button {
+    width: 36px; background: transparent; border: none; color: #aaa;
+    font-size: 16px; cursor: pointer; font-family: inherit;
+    padding: 8px 0; line-height: 1;
+  }
+  .count-row .stepper-mini button:hover:not(:disabled) { color: #fff; background: #1a1a1a; }
+  .count-row .stepper-mini input {
+    width: 52px; background: transparent; border: none; outline: none;
+    color: #fff; text-align: center;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 14px; padding: 8px 0;
+    -moz-appearance: textfield;
+  }
+  .count-row .stepper-mini input::-webkit-outer-spin-button,
+  .count-row .stepper-mini input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><span class="diamond">◆</span> MillSuite</div>
+    <div class="topbar-right">
+      <div class="crumbs">
+        <span>Projects</span>
+        <span class="sep">/</span>
+        <span>Johnson Residence</span>
+        <span class="sep">/</span>
+        <span class="cur">Kitchen — main run</span>
+      </div>
+    </div>
+  </div>
+  <div class="content">
+    <div class="screen" id="screen"></div>
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Product definitions
+// ---------------------------------------------------------------------------
+const PRODUCTS = [
+  {
+    id: 'base', name: 'Base cabinet run', unit: 'LF', active: true,
+    heightLabel: '30" typical',
+    desc: 'A run of base cabinetry including all face openings — doors, drawer fronts, fillers, end panels.',
+  },
+  {
+    id: 'upper', name: 'Upper cabinet run', unit: 'LF', active: true,
+    heightLabel: '42" or less',
+    desc: 'Wall cabinets above counters. Shallower box, no toe kick.',
+  },
+  {
+    id: 'full', name: 'Full height run', unit: 'LF', active: true,
+    heightLabel: '96" or less',
+    desc: 'Pantries, built-ins, to-ceiling storage. Taller than 96" is custom.',
+  },
+  {
+    id: 'drawer', name: 'Drawer', unit: 'each', active: false,
+    desc: 'Drawer box + slides only (fronts are on the cabinet line). Legrabox / prefinished maple / solid dovetail / baltic birch.',
+    stub: 'Same composer shell — slot schema: box type, slide type, notes. Build in V1.',
+  },
+  {
+    id: 'led', name: 'LED', unit: 'LF', active: false,
+    desc: 'LED strip + driver. Install labor + per-LF material.',
+    stub: 'Same composer shell — minimal slots. Build in V1.',
+  },
+  {
+    id: 'counter', name: 'Countertop', unit: 'LF', locked: true,
+    desc: 'Stone / solid surface / butcher block. Coming soon.',
+  },
+];
+
+// Product dimensions — the system knows what a LF of this product implies,
+// so every math block upstream (sheets, finish labor, door-labor conversion) keys
+// off the product category and the user never has to specify heights.
+//
+// sheetsPerLfFace: how much face sheet a LF of this product consumes.
+//   Base = 1 sheet / 12 LF, Upper = 1 / 8 LF, Full height = 1 / 4 LF.
+// doorsPerLf: used internally to convert per-door walkthrough calibration → per-LF labor.
+//   8 LF run ≈ 4 doors → 0.5 doors/LF.
+// doorLaborMultiplier: scales per-door labor for non-base product categories.
+//   The door walkthrough calibrates against 24"×30" base doors. Upper doors are
+//   24"×42" (taller) and full-height doors are 24"×96" (much taller) — more
+//   material, more finishing area, more assembly. Rather than recalibrate per
+//   category, apply a markup.
+//     base:  1.0   (baseline — 24×30)
+//     upper: 1.3   (24×42, ~40% more face area → ~30% more labor)
+//     full:  2.5   (24×96 paired → effectively two doors per slot)
+//   User-tunable in V1 from the product settings.
+const PRODUCT_DIMS = {
+  base:  { sheetsPerLfFace: 1/12, doorsPerLf: 0.5, doorLaborMultiplier: 1.0 },
+  upper: { sheetsPerLfFace: 1/8,  doorsPerLf: 0.5, doorLaborMultiplier: 1.3 },
+  full:  { sheetsPerLfFace: 1/4,  doorsPerLf: 0.5, doorLaborMultiplier: 2.5 },
+};
+
+// ---------------------------------------------------------------------------
+// Seeded rate book — as if the user has completed shop rate setup + base
+// cabinet walkthrough + one material walkthrough.
+// ---------------------------------------------------------------------------
+const rateBook = {
+  // Labor blocks (from walkthroughs)
+  carcassLabor: {
+    // Per LF of base carcass run, by dept (from base walkthrough summary).
+    // 4 depts (eng, cnc, assembly, finish). "Wood machining" is a guided sub-step
+    // inside the walkthrough, not a separate department — its hours roll into assembly.
+    eng: 0.08, cnc: 0.25, assembly: 1.40, finish: 0.10,
+    calibrated: true,
+  },
+  doorStyles: [
+    // Per-door labor by dept. Any slot can be zero (e.g. cnc=0 for hand-built shops).
+    // Machining hours captured by the walkthrough roll into the assembly bucket.
+    { id: 'slab',   name: 'Slab',   calibrated: true,
+      labor: { eng: 0.02, cnc: 0.12, assembly: 0.20, finish: 0.40 } },
+    { id: 'shaker', name: 'Shaker', calibrated: false,
+      labor: null },
+  ],
+  carcassMaterials: [
+    { id: 'maple-pf', name: 'Maple prefinished ply', sheetCost: 68,  sheetsPerLf: 1.2, note: '¾" maple prefinished both faces' },
+    { id: 'white-pf', name: 'White prefinished ply', sheetCost: 58,  sheetsPerLf: 1.2, note: '¾" white thermofoil' },
+    { id: 'baltic',   name: 'Baltic birch',          sheetCost: 95,  sheetsPerLf: 1.2, note: '¾" baltic, unfinished' },
+  ],
+  // Face/exterior materials. Sheets/LF is NOT on the template — the system
+  // derives it from the product's PRODUCT_DIMS (base=1/12, upper=1/8, full=1/4).
+  extMaterials: [
+    { id: 'mdf-paint',  name: 'Paint-grade MDF',          sheetCost: 42  },
+    { id: 'oak-veneer', name: 'White oak veneer, rift',    sheetCost: 195 },
+    { id: 'maple-rft',  name: 'Maple veneer, rift',        sheetCost: 185 },
+  ],
+  // Finishes — three classes with per-product-category per-LF labor & material.
+  // Seeded as if a separate finish walkthrough has calibrated each class against
+  // base / upper / full height runs. Any category can be zero (prefinished is
+  // zero everywhere). Material is $/LF of run.
+  finishes: [
+    { id: 'prefinished', name: 'Prefinished (no finish labor)', calibrated: true,
+      byProduct: {
+        base:  { laborHr: 0, material: 0 },
+        upper: { laborHr: 0, material: 0 },
+        full:  { laborHr: 0, material: 0 },
+      } },
+    { id: 'cv-satin', name: 'CV — clear only', calibrated: true,
+      byProduct: {
+        base:  { laborHr: 0.10, material: 3.0 },
+        upper: { laborHr: 0.14, material: 4.2 },
+        full:  { laborHr: 0.32, material: 9.6 },
+      } },
+    { id: 'stain-cv', name: 'Stain + CV clear', calibrated: true,
+      byProduct: {
+        base:  { laborHr: 0.18, material: 4.5 },
+        upper: { laborHr: 0.25, material: 6.3 },
+        full:  { laborHr: 0.58, material: 14.4 },
+      } },
+    { id: 'paint-white', name: 'Paint — BM Super White', calibrated: true,
+      byProduct: {
+        base:  { laborHr: 0.22, material: 2.5 },
+        upper: { laborHr: 0.30, material: 3.5 },
+        full:  { laborHr: 0.70, material: 8.0 },
+      } },
+  ],
+};
+
+// Shop rates (would come from Shop Rate Setup step).
+// 4 depts: eng, cnc, assembly, finish. Install is separate. No "machining" dept —
+// wood-machining time is captured by the walkthrough as a sub-step of assembly.
+const rates = { eng: 95, cnc: 85, assembly: 85, finish: 90, install: 80 };
+
+// No separate org-defaults constant. Defaults resolve to "last used" across the
+// session, regardless of subproject. V1 persists this per-org in a single
+// `last_used_slots_by_product` jsonb column that any subproject reads from.
+
+// ---------------------------------------------------------------------------
+// App state
+// ---------------------------------------------------------------------------
+const state = {
+  view: 'subproject',    // 'subproject' | 'composer'
+  modal: null,           // 'picker' | 'walkthrough' | null
+  subprojectLines: [],   // persisted lines
+  draft: null,           // line being composed
+
+  // Per-subproject last-used slot values, keyed by productId.
+  // Populated on saveLine; consulted on pickProduct.
+  lastSlotsByProduct: {},
+
+  // Subproject-level defaults (editable in breakdown; carry forward line-to-line)
+  defaults: {
+    consumablesPct: 10,  // 10% of material subtotal — covers hardware, glue, screws, sandpaper
+    wastePct: 5,         // buffer on material for offcuts/scrap
+  },
+
+  // UI transient state
+  openDropdown: null,    // slot key that's currently expanded
+  addNewContext: null,   // { slotKey, category, draftName, draftSheetCost, draftSheetsPerLf } when inline-add is open
+  walkthrough: null,     // stubbed door walkthrough state
+};
+
+// ---------------------------------------------------------------------------
+// DOM + rendering
+// ---------------------------------------------------------------------------
+const screenEl = document.getElementById('screen');
+const modalRootEl = document.getElementById('modalRoot');
+
+function money(n)  { return '$' + Math.round(n).toLocaleString(); }
+function money2(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+
+function render() {
+  // Main screen
+  if (state.view === 'subproject') renderSubproject();
+  else if (state.view === 'composer') renderComposer();
+
+  // Modals
+  renderModal();
+}
+
+// ---------------------------------------------------------------------------
+// Subproject view
+// ---------------------------------------------------------------------------
+function renderSubproject() {
+  const lines = state.subprojectLines;
+  let laborTotal = 0, matTotal = 0, grandTotal = 0;
+  lines.forEach(l => {
+    laborTotal += l.breakdown.lineTotals.labor;
+    matTotal   += l.breakdown.lineTotals.material;
+    grandTotal += l.breakdown.lineTotals.total;
+  });
+
+  screenEl.innerHTML = `
+    <h1 class="page-h1">Kitchen — main run</h1>
+    <div class="page-lede">Pricing lines for this subproject. Each line composes from your calibrated rate book.</div>
+
+    <div class="lines-panel">
+      <div class="lines-head">
+        <span>Line</span>
+        <span class="right">Qty</span>
+        <span class="right">Labor</span>
+        <span class="right">Material</span>
+        <span></span>
+      </div>
+      ${lines.length === 0
+        ? `<div class="lines-empty">
+             <strong>No lines yet.</strong>
+             Click "Add a line" to compose the first one.
+           </div>`
+        : lines.map((l, i) => {
+            const p = PRODUCTS.find(p => p.id === l.productId);
+            return `
+              <div class="line-row">
+                <div>
+                  <div class="prod-name">${p.name} · ${l.qty} ${p.unit}</div>
+                  <div class="prod-specs">${summarizeLine(l)}</div>
+                </div>
+                <div class="num">${l.qty} ${p.unit}</div>
+                <div class="num labor">${money(l.breakdown.lineTotals.labor)}</div>
+                <div class="num material">${money(l.breakdown.lineTotals.material)}</div>
+                <div class="del" onclick="deleteLine(${i})" title="Remove line">×</div>
+              </div>
+            `;
+          }).join('')
+      }
+      ${lines.length > 0 ? `
+        <div class="lines-foot">
+          <span class="lbl">Subtotal</span>
+          <span></span>
+          <span class="num labor">${money(laborTotal)}</span>
+          <span class="num material">${money(matTotal)}</span>
+          <span></span>
+        </div>
+        <div class="lines-foot" style="border-top: 1px solid #141414; background: #0d0d0d;">
+          <span class="lbl" style="color:#fff;">Total</span>
+          <span></span>
+          <span></span>
+          <span class="num" style="font-size: 16px;">${money(grandTotal)}</span>
+          <span></span>
+        </div>
+      ` : ''}
+    </div>
+
+    <button class="btn-add-line" onclick="openProductPicker()">
+      <span style="font-size: 16px; font-weight: 600;">+</span>
+      Add a line
+    </button>
+  `;
+}
+
+function summarizeLine(line) {
+  const slots = line.slots;
+  const bits = [];
+  if (slots.carcassMaterial) {
+    const m = rateBook.carcassMaterials.find(x => x.id === slots.carcassMaterial);
+    if (m) bits.push(m.name);
+  }
+  if (slots.doorStyle) {
+    const d = rateBook.doorStyles.find(x => x.id === slots.doorStyle);
+    if (d) bits.push(d.name + ' door');
+  }
+  if (slots.doorMaterial) {
+    const em = rateBook.extMaterials.find(x => x.id === slots.doorMaterial);
+    if (em) bits.push(em.name);
+  }
+  if (slots.exteriorFinish && slots.exteriorFinish !== 'prefinished') {
+    const f = rateBook.finishes.find(x => x.id === slots.exteriorFinish);
+    if (f) bits.push(f.name);
+  }
+  if (slots.endPanels > 0) bits.push(`${slots.endPanels} end panel${slots.endPanels === 1 ? '' : 's'}`);
+  if (slots.fillers  > 0)  bits.push(`${slots.fillers} filler/scribe${slots.fillers === 1 ? '' : 's'}`);
+  return bits.join(' · ');
+}
+
+function deleteLine(i) {
+  state.subprojectLines.splice(i, 1);
+  render();
+  toast('Line removed.');
+}
+
+// ---------------------------------------------------------------------------
+// Product picker modal
+// ---------------------------------------------------------------------------
+function openProductPicker() {
+  state.modal = 'picker';
+  render();
+}
+function closeModal() {
+  state.modal = null;
+  state.addNewContext = null;
+  state.openDropdown = null;
+  state.walkthrough = null;
+  render();
+}
+
+function renderModal() {
+  if (!state.modal) { modalRootEl.innerHTML = ''; return; }
+
+  if (state.modal === 'picker') {
+    modalRootEl.innerHTML = `
+      <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+        <div class="modal">
+          <h2>Add a line</h2>
+          <div class="lede">Pick what you're pricing. Each product has its own slots — the composer walks you through them.</div>
+          <div class="product-grid">
+            ${PRODUCTS.map(p => {
+              const statusText = p.locked ? 'Later' : (p.active ? 'Ready' : 'Stub');
+              const statusCls  = p.locked ? 'later' : (p.active ? 'ready' : 'stub');
+              const tileCls    = p.locked ? 'locked' : (p.active ? '' : 'stub');
+              const click      = p.active ? `onclick="pickProduct('${p.id}')"` : '';
+              return `
+                <div class="product-tile ${tileCls}" ${click}>
+                  <div class="t-body">
+                    <div class="t-name">${p.name}${p.heightLabel ? ` <span style="color:#666;font-weight:400;font-size:12px;">· ${p.heightLabel}</span>` : ''}</div>
+                    <div class="t-desc">${p.desc}</div>
+                    <div class="t-unit">per ${p.unit}</div>
+                  </div>
+                  <div class="t-status ${statusCls}">${statusText}</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.modal === 'walkthrough') {
+    renderWalkthroughModal();
+    return;
+  }
+}
+
+function pickProduct(id) {
+  const p = PRODUCTS.find(x => x.id === id);
+  if (!p.active) return;
+
+  // Defaults resolution, in order:
+  //   1. Last used for this product (carries across subprojects within the org).
+  //   2. Hard-coded safe fallback: first option in each rate-book slot.
+  const carry = state.lastSlotsByProduct[id];
+  const hardFallback = {
+    carcassMaterial: rateBook.carcassMaterials[0].id,
+    doorStyle:       'slab',
+    doorMaterial:    rateBook.extMaterials[0].id,
+    interiorFinish:  'prefinished',
+    exteriorFinish:  'cv-satin',
+    endPanels: 0, fillers: 0, notes: '',
+  };
+
+  let qty, slots;
+  if (carry) {
+    qty = carry.qty || 8;
+    slots = { ...hardFallback, ...carry.slots, endPanels: 0, fillers: 0, notes: '' };
+  } else {
+    qty = 8;
+    slots = hardFallback;
+  }
+
+  state.draft = { productId: id, qty, slots };
+  state.view = 'composer';
+  state.modal = null;
+  render();
+}
+
+// ---------------------------------------------------------------------------
+// Composer
+// ---------------------------------------------------------------------------
+function renderComposer() {
+  const draft = state.draft;
+  if (!draft) { state.view = 'subproject'; render(); return; }
+  const prod = PRODUCTS.find(p => p.id === draft.productId);
+
+  screenEl.innerHTML = `
+    <div class="composer-head">
+      <span class="back" onclick="cancelComposer()">← Back to subproject</span>
+      <h1>${prod.name}</h1>
+      <div class="sub">${prod.desc}</div>
+    </div>
+
+    <div class="composer">
+      <div class="form" id="composerForm">
+        ${renderBaseComposerSlots(draft)}
+      </div>
+
+      <div class="breakdown" id="breakdownPanel">
+        ${renderBreakdown(draft)}
+      </div>
+    </div>
+
+    <div class="composer-actions">
+      <button class="btn btn-ghost" onclick="cancelComposer()">Cancel</button>
+      <button class="btn btn-primary btn-big" onclick="saveLine()">Add line</button>
+    </div>
+  `;
+}
+
+function renderBaseComposerSlots(draft) {
+  const s = draft.slots;
+
+  return `
+    <div class="field-group">
+
+      <div class="field">
+        <div class="field-label">
+          Quantity<span class="req">*</span>
+        </div>
+        <div class="field-input-row">
+          <div class="count-row">
+            <div class="stepper-mini">
+              <button onclick="stepQty(-1)" type="button">−</button>
+              <input class="qty" type="number" min="0" step="0.5" value="${draft.qty}"
+                     oninput="setQty(this.value)">
+              <button onclick="stepQty(1)" type="button">+</button>
+            </div>
+            <span class="input-unit">LF</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          Carcass material
+          <span class="hint">The interior box — sheet stock you cut parts from.</span>
+        </div>
+        ${renderDropdown('carcassMaterial', 'carcass', s.carcassMaterial, rateBook.carcassMaterials.map(m => ({
+          id: m.id, name: m.name, meta: `$${m.sheetCost}/sht · ${m.sheetsPerLf} sht/LF`,
+        })))}
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          Door style
+          <span class="hint">Also applies to drawer fronts.</span>
+        </div>
+        ${renderDoorStyleDropdown(s.doorStyle)}
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          Door/drawer material
+          <span class="hint">Face material for all doors and drawer fronts in the run.</span>
+        </div>
+        ${renderDropdown('doorMaterial', 'ext', s.doorMaterial, rateBook.extMaterials.map(m => ({
+          id: m.id, name: m.name, meta: `$${m.sheetCost}/sht`,
+        })))}
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          Interior finish
+          <span class="hint">Usually prefinished — no finish labor.</span>
+        </div>
+        ${renderSimpleDropdown('interiorFinish', s.interiorFinish, rateBook.finishes.map(f => ({
+          id: f.id, name: f.name,
+        })))}
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          Exterior finish
+          <span class="hint">Applied to doors, drawer fronts, exposed ends.</span>
+        </div>
+        ${renderSimpleDropdown('exteriorFinish', s.exteriorFinish, rateBook.finishes.map(f => ({
+          id: f.id, name: f.name,
+        })))}
+      </div>
+
+      <div class="field">
+        <div class="field-label">End panels</div>
+        <div class="count-row">
+          <div class="stepper-mini">
+            <button onclick="stepCount('endPanels', -1)" type="button">−</button>
+            <input type="number" min="0" step="1" value="${s.endPanels}"
+                   oninput="setCount('endPanels', this.value)">
+            <button onclick="stepCount('endPanels', 1)" type="button">+</button>
+          </div>
+          <span class="input-unit">each</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Filler/scribes</div>
+        <div class="count-row">
+          <div class="stepper-mini">
+            <button onclick="stepCount('fillers', -1)" type="button">−</button>
+            <input type="number" min="0" step="1" value="${s.fillers}"
+                   oninput="setCount('fillers', this.value)">
+            <button onclick="stepCount('fillers', 1)" type="button">+</button>
+          </div>
+          <span class="input-unit">each</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Notes</div>
+        <input class="input" type="text" placeholder="Anything unusual about this run…"
+               value="${s.notes || ''}" oninput="setNotes(this.value)">
+      </div>
+
+    </div>
+  `;
+}
+
+// Simple dropdown (no add-new escape hatch) — used for interior/exterior finish
+function renderSimpleDropdown(slotKey, selectedId, options) {
+  const selected = options.find(o => o.id === selectedId);
+  const isOpen = state.openDropdown === slotKey;
+  return `
+    <div class="dropdown">
+      <button class="dropdown-btn ${isOpen ? 'open' : ''} ${!selected ? 'empty' : ''}"
+              onclick="toggleDropdown('${slotKey}')" type="button">
+        <span>${selected ? selected.name : 'Choose…'}</span>
+        <span class="caret">▼</span>
+      </button>
+      ${isOpen ? `
+        <div class="dropdown-list">
+          ${options.map(o => `
+            <div class="dropdown-item ${o.id === selectedId ? 'selected' : ''}"
+                 onclick="selectSlot('${slotKey}', '${o.id}')">
+              <span>${o.name}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+// Material dropdown with add-new escape hatch
+function renderDropdown(slotKey, category, selectedId, options) {
+  const selected = options.find(o => o.id === selectedId);
+  const isOpen = state.openDropdown === slotKey;
+
+  // If add-new card is showing for this slot, render it instead of the dropdown
+  if (state.addNewContext && state.addNewContext.slotKey === slotKey) {
+    return renderAddNewCard(slotKey, category);
+  }
+
+  return `
+    <div class="dropdown">
+      <button class="dropdown-btn ${isOpen ? 'open' : ''} ${!selected ? 'empty' : ''}"
+              onclick="toggleDropdown('${slotKey}')" type="button">
+        <span>${selected ? selected.name : 'Choose…'}</span>
+        <span class="caret">▼</span>
+      </button>
+      ${isOpen ? `
+        <div class="dropdown-list">
+          ${options.map(o => `
+            <div class="dropdown-item ${o.id === selectedId ? 'selected' : ''}"
+                 onclick="selectSlot('${slotKey}', '${o.id}')">
+              <span>${o.name}</span>
+              <span class="item-meta">${o.meta || ''}</span>
+            </div>
+          `).join('')}
+          <div class="dropdown-item add-new" onclick="openAddNew('${slotKey}', '${category}')">
+            <span>+ Add new material</span>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+// Door-style dropdown — similar shape but with calibration status + walkthrough hatch
+function renderDoorStyleDropdown(selectedId) {
+  const slotKey = 'doorStyle';
+  const isOpen = state.openDropdown === slotKey;
+  const selected = rateBook.doorStyles.find(d => d.id === selectedId);
+
+  return `
+    <div class="dropdown">
+      <button class="dropdown-btn ${isOpen ? 'open' : ''}"
+              onclick="toggleDropdown('${slotKey}')" type="button">
+        <span>${selected ? selected.name + (selected.calibrated ? '' : ' · not calibrated') : 'Choose…'}</span>
+        <span class="caret">▼</span>
+      </button>
+      ${isOpen ? `
+        <div class="dropdown-list">
+          ${rateBook.doorStyles.map(d => `
+            <div class="dropdown-item ${d.id === selectedId ? 'selected' : ''}"
+                 onclick="${d.calibrated ? `selectSlot('${slotKey}', '${d.id}')` : `openDoorWalkthrough('${d.id}')`}">
+              <span>${d.name}</span>
+              ${d.calibrated ? '' : '<span class="uncal-tag">Needs walkthrough</span>'}
+            </div>
+          `).join('')}
+          <div class="dropdown-item add-new" onclick="openDoorWalkthrough(null)">
+            <span>+ Add new door style</span>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+// Inline add-new card for materials. Face/exterior only needs name + $/sheet
+// (sheets/LF is derived from the product's PRODUCT_DIMS). Carcass still needs sheets/LF.
+function renderAddNewCard(slotKey, category) {
+  const ctx = state.addNewContext;
+  const categoryLabel = category === 'carcass' ? 'carcass material' : 'door/drawer material';
+  const askSheetsPerLf = category === 'carcass';
+  return `
+    <div class="add-new-card">
+      <div class="card-title">Add a ${categoryLabel}</div>
+      <div class="card-fields" ${askSheetsPerLf ? '' : 'style="grid-template-columns: 1fr 140px;"'}>
+        <div>
+          <label>Name</label>
+          <input class="input" type="text" placeholder="e.g., Walnut rift veneer"
+                 value="${ctx.draftName || ''}"
+                 oninput="setAddNewField('draftName', this.value)">
+        </div>
+        <div>
+          <label>$ per sheet</label>
+          <input class="input" type="number" step="1" min="0" placeholder="0"
+                 value="${ctx.draftSheetCost ?? ''}"
+                 oninput="setAddNewField('draftSheetCost', this.value)">
+        </div>
+        ${askSheetsPerLf ? `
+        <div>
+          <label>Sheets per LF</label>
+          <input class="input" type="number" step="0.1" min="0" placeholder="1.2"
+                 value="${ctx.draftSheetsPerLf ?? ''}"
+                 oninput="setAddNewField('draftSheetsPerLf', this.value)">
+        </div>` : ''}
+      </div>
+      ${askSheetsPerLf ? '' : `
+        <div style="font-size:11px;color:#666;margin-top:-8px;margin-bottom:12px;line-height:1.5;">
+          Sheets per LF is derived from the product — base uses 1 sheet per 12 LF, uppers 1 per 8, full height 1 per 4.
+        </div>
+      `}
+      <div class="card-actions">
+        <button class="btn btn-ghost" onclick="cancelAddNew()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveAddNew('${slotKey}', '${category}')">Save to rate book</button>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Breakdown (right rail)
+// ---------------------------------------------------------------------------
+function computeBreakdown(draft) {
+  const s = draft.slots;
+  const qty = parseFloat(draft.qty) || 0;
+  const prodId = draft.productId;
+  const dims = PRODUCT_DIMS[prodId] || PRODUCT_DIMS.base;
+
+  const r = rates;
+  const cl = rateBook.carcassLabor;
+
+  // Carcass labor — 4 departments (eng, cnc, assembly, finish).
+  // Wood machining hours from the walkthrough are captured inside the assembly bucket.
+  const carcassLaborPerLf =
+    (cl.eng || 0)      * r.eng +
+    (cl.cnc || 0)      * r.cnc +
+    (cl.assembly || 0) * r.assembly +
+    (cl.finish || 0)   * r.finish;
+
+  const cm = rateBook.carcassMaterials.find(m => m.id === s.carcassMaterial);
+  const em = rateBook.extMaterials.find(m => m.id === s.doorMaterial);
+  const ds = rateBook.doorStyles.find(x => x.id === s.doorStyle);
+  const ifn = rateBook.finishes.find(f => f.id === s.interiorFinish);
+  const efn = rateBook.finishes.find(f => f.id === s.exteriorFinish);
+
+  const carcassLabor    = qty * carcassLaborPerLf;
+  const carcassMaterial = cm ? qty * cm.sheetsPerLf * cm.sheetCost : 0;
+
+  // Door labor — per-door × doors/LF × product-size multiplier → per-LF, across 4 depts.
+  // Calibration is against 24"×30" base doors. Uppers and full-height get marked up to
+  // cover their larger face area. Machining-as-sub-step has been folded into assembly.
+  let doorLaborPerLfBase = 0;
+  if (ds && ds.calibrated && ds.labor) {
+    const dl = ds.labor;
+    doorLaborPerLfBase = dims.doorsPerLf * (
+      (dl.eng || 0)      * r.eng +
+      (dl.cnc || 0)      * r.cnc +
+      (dl.assembly || 0) * r.assembly +
+      (dl.finish || 0)   * r.finish
+    );
+  }
+  const doorLaborPerLf = doorLaborPerLfBase * dims.doorLaborMultiplier;
+  const doorLabor = qty * doorLaborPerLf;
+
+  // Door/drawer material — face sheets per LF comes from the product, not the template.
+  const faceSheetsPerLf = dims.sheetsPerLfFace;
+  const faceSheets      = qty * faceSheetsPerLf;
+  const doorMaterial    = em ? faceSheets * em.sheetCost : 0;
+
+  // Finishes — per-LF labor hours + per-LF material $, calibrated by product category.
+  // Prefinished zeroes everything. If a finish isn't calibrated against this product
+  // category, labor and material are zero (guard rail — no silent fallbacks).
+  const finishLabor = (f) => {
+    if (!f || !f.byProduct || !f.byProduct[prodId]) return 0;
+    return qty * (f.byProduct[prodId].laborHr || 0) * r.finish;
+  };
+  const finishMaterial = (f) => {
+    if (!f || !f.byProduct || !f.byProduct[prodId]) return 0;
+    return qty * (f.byProduct[prodId].material || 0);
+  };
+
+  const interiorFinishLabor    = finishLabor(ifn);
+  const interiorFinishMaterial = finishMaterial(ifn);
+  const exteriorFinishLabor    = finishLabor(efn);
+  const exteriorFinishMaterial = finishMaterial(efn);
+
+  // End panels + filler/scribes (flat per-unit approximations)
+  const endPanelsLabor    = (s.endPanels || 0) * 1.2 * r.finish;
+  const endPanelsMaterial = (s.endPanels || 0) * 140;
+  const fillersLabor      = (s.fillers   || 0) * 0.5 * r.assembly;
+  const fillersMaterial   = (s.fillers   || 0) * 18;
+
+  const totalLabor =
+    carcassLabor + doorLabor +
+    interiorFinishLabor + exteriorFinishLabor +
+    endPanelsLabor + fillersLabor;
+
+  // Raw material subtotal (before consumables + waste).
+  const materialSubtotal =
+    carcassMaterial + doorMaterial +
+    interiorFinishMaterial + exteriorFinishMaterial +
+    endPanelsMaterial + fillersMaterial;
+
+  // Consumables = markup on material. Covers hardware, glue, screws, sandpaper, standard hinges.
+  // Waste = buffer on material for offcuts and scrap.
+  const consumablesPct = state.defaults.consumablesPct;
+  const wastePct       = state.defaults.wastePct;
+  const consumables    = materialSubtotal * (consumablesPct / 100);
+  const waste          = materialSubtotal * (wastePct / 100);
+
+  const totalMaterial = materialSubtotal + consumables + waste;
+
+  const finishDetail = (f) => {
+    if (!f) return null;
+    if (f.id === 'prefinished') return 'prefinished, no labor';
+    const bp = f.byProduct && f.byProduct[prodId];
+    if (!bp) return 'not calibrated for this category';
+    const laborPerLf = (bp.laborHr || 0) * r.finish;
+    const totalPerLf = laborPerLf + (bp.material || 0);
+    return `${qty} LF × $${Math.round(totalPerLf)}/LF`;
+  };
+
+  return {
+    carcassLabor, carcassLaborPerLf,
+    carcassMaterial, carcassMaterialDetail: cm ? `${(qty * cm.sheetsPerLf).toFixed(1)} sht × $${cm.sheetCost}` : null,
+    doorLabor, doorLaborPerLf, doorLaborWarn: ds && !ds.calibrated,
+    doorMaterial,
+    doorMaterialDetail: em ? `${faceSheets.toFixed(2)} sht × $${em.sheetCost}` : null,
+    interiorFinishLabor, interiorFinishMaterial, interiorFinishDetail: finishDetail(ifn),
+    exteriorFinishLabor, exteriorFinishMaterial, exteriorFinishDetail: finishDetail(efn),
+    endPanelsLabor, endPanelsMaterial, endPanelsCount: s.endPanels || 0,
+    fillersLabor, fillersMaterial, fillersCount: s.fillers || 0,
+    materialSubtotal, consumables, consumablesPct, waste, wastePct,
+    lineTotals: {
+      labor: totalLabor,
+      material: totalMaterial,
+      total: totalLabor + totalMaterial,
+    },
+  };
+}
+
+function renderBreakdown(draft) {
+  const b = computeBreakdown(draft);
+  const qty = parseFloat(draft.qty) || 0;
+  const prod = PRODUCTS.find(p => p.id === draft.productId);
+
+  const row = (label, detail, value, extraCls = '') => {
+    const zero = (!value || Math.abs(value) < 0.01) ? 'zero' : '';
+    return `
+      <div class="b-row ${zero} ${extraCls}">
+        <div class="b-label">${label}${detail ? `<span class="b-detail">${detail}</span>` : ''}</div>
+        <div class="b-val">${money(value || 0)}</div>
+      </div>
+    `;
+  };
+
+  const pctRow = (label, pctKey, pctValue, amount) => `
+    <div class="b-row">
+      <div class="b-label">
+        ${label}
+        <span class="b-detail" style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;">
+          <input type="number" min="0" step="0.5" value="${pctValue}"
+                 onchange="setDefaultPct('${pctKey}', this.value)"
+                 style="width:52px;background:#111;border:1px solid #2a2a2a;border-radius:4px;color:#ddd;padding:2px 6px;font-family:inherit;font-size:11px;text-align:right;">
+          <span>% of material</span>
+        </span>
+      </div>
+      <div class="b-val">${money(amount)}</div>
+    </div>
+  `;
+
+  const warnDoorLabor = b.doorLaborWarn
+    ? `<div class="b-row warn">
+         <div class="b-label">⚠ Door style needs walkthrough</div>
+         <div class="b-val">—</div>
+       </div>`
+    : '';
+
+  return `
+    <div class="b-title">Line breakdown · ${qty} LF ${prod && prod.heightLabel ? `· ${prod.heightLabel}` : ''}</div>
+
+    ${row('Carcass labor',   `${qty} LF × $${Math.round(b.carcassLaborPerLf)}/LF`, b.carcassLabor)}
+    ${row('Carcass material', b.carcassMaterialDetail, b.carcassMaterial)}
+
+    ${warnDoorLabor || row('Door labor', `${qty} LF × $${Math.round(b.doorLaborPerLf)}/LF`, b.doorLabor)}
+    ${row('Door/drawer material', b.doorMaterialDetail, b.doorMaterial)}
+
+    ${row('Interior finish',  b.interiorFinishDetail, b.interiorFinishLabor + b.interiorFinishMaterial)}
+    ${row('Exterior finish',  b.exteriorFinishDetail, b.exteriorFinishLabor + b.exteriorFinishMaterial)}
+
+    ${row('End panels',       `${b.endPanelsCount} each`,   b.endPanelsLabor + b.endPanelsMaterial)}
+    ${row('Filler/scribes',   `${b.fillersCount} each`,     b.fillersLabor + b.fillersMaterial)}
+
+    ${pctRow('Consumables',    'consumablesPct', b.consumablesPct, b.consumables)}
+    ${pctRow('Waste',          'wastePct',       b.wastePct,       b.waste)}
+
+    <div class="b-totals">
+      <div class="t-row labor">
+        <span class="t-lbl">Labor</span>
+        <span class="t-val">${money(b.lineTotals.labor)}</span>
+      </div>
+      <div class="t-row material">
+        <span class="t-lbl">Material</span>
+        <span class="t-val">${money(b.lineTotals.material)}</span>
+      </div>
+      <div class="t-row total">
+        <span class="t-lbl">Line total</span>
+        <span class="t-val">${money(b.lineTotals.total)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function setDefaultPct(key, v) {
+  const n = parseFloat(v);
+  if (isNaN(n) || n < 0) return;
+  state.defaults[key] = n;
+  updateBreakdownOnly();
+}
+
+// ---------------------------------------------------------------------------
+// Composer actions
+// ---------------------------------------------------------------------------
+function setQty(v) {
+  const n = parseFloat(v);
+  if (!isNaN(n) && n >= 0) state.draft.qty = n;
+  else state.draft.qty = 0;
+  updateBreakdownOnly();
+}
+function stepQty(delta) {
+  const cur = parseFloat(state.draft.qty) || 0;
+  state.draft.qty = Math.max(0, cur + delta);
+  render();
+}
+function setCount(key, v) {
+  const n = parseInt(v, 10);
+  state.draft.slots[key] = isNaN(n) ? 0 : Math.max(0, n);
+  updateBreakdownOnly();
+}
+function stepCount(key, delta) {
+  const cur = state.draft.slots[key] || 0;
+  state.draft.slots[key] = Math.max(0, cur + delta);
+  render();
+}
+function setNotes(v) { state.draft.slots.notes = v; }
+
+function toggleDropdown(slotKey) {
+  if (state.addNewContext) return;  // ignore while add-new is active
+  state.openDropdown = state.openDropdown === slotKey ? null : slotKey;
+  render();
+}
+
+function selectSlot(slotKey, value) {
+  state.draft.slots[slotKey] = value;
+  state.openDropdown = null;
+  render();
+}
+
+function openAddNew(slotKey, category) {
+  state.addNewContext = {
+    slotKey, category,
+    draftName: '', draftSheetCost: '', draftSheetsPerLf: '',
+  };
+  state.openDropdown = null;
+  render();
+}
+function cancelAddNew() {
+  state.addNewContext = null;
+  render();
+}
+function setAddNewField(field, value) {
+  state.addNewContext[field] = value;
+  // No re-render needed for the card itself; we let the inputs hold their own state.
+}
+function saveAddNew(slotKey, category) {
+  const ctx = state.addNewContext;
+  const name = (ctx.draftName || '').trim();
+  const sheetCost = parseFloat(ctx.draftSheetCost);
+
+  if (!name) { toast('Give it a name.'); return; }
+  if (isNaN(sheetCost) || sheetCost <= 0) { toast('Sheet cost needs a number.'); return; }
+
+  let record;
+  if (category === 'carcass') {
+    const sheetsPerLf = parseFloat(ctx.draftSheetsPerLf);
+    if (isNaN(sheetsPerLf) || sheetsPerLf <= 0) { toast('Sheets per LF needs a number.'); return; }
+    record = { id: 'custom-' + Math.random().toString(36).slice(2, 9), name, sheetCost, sheetsPerLf, custom: true };
+    rateBook.carcassMaterials.push(record);
+  } else {
+    // Face/exterior: sheets/LF comes from the product dims, not the template.
+    record = { id: 'custom-' + Math.random().toString(36).slice(2, 9), name, sheetCost, custom: true };
+    rateBook.extMaterials.push(record);
+  }
+
+  state.draft.slots[slotKey] = record.id;
+  state.addNewContext = null;
+  render();
+  toast(`"${name}" saved to rate book.`);
+}
+
+function cancelComposer() {
+  state.draft = null;
+  state.view = 'subproject';
+  state.openDropdown = null;
+  state.addNewContext = null;
+  render();
+}
+
+function saveLine() {
+  const draft = state.draft;
+  if (!draft) return;
+  if (!draft.qty || draft.qty <= 0) { toast('Set a quantity first.'); return; }
+
+  // Check door style calibration
+  const ds = rateBook.doorStyles.find(x => x.id === draft.slots.doorStyle);
+  if (ds && !ds.calibrated) {
+    toast('Door style not calibrated yet — run the walkthrough first.');
+    return;
+  }
+
+  const breakdown = computeBreakdown(draft);
+  state.subprojectLines.push({
+    productId: draft.productId,
+    qty: draft.qty,
+    slots: { ...draft.slots },
+    breakdown,
+  });
+
+  // Per-subproject carry-over: remember the slot values for the next line of this product.
+  state.lastSlotsByProduct[draft.productId] = {
+    qty: draft.qty,
+    slots: { ...draft.slots },
+  };
+
+  state.draft = null;
+  state.view = 'subproject';
+  state.openDropdown = null;
+  state.addNewContext = null;
+  render();
+  toast('Line added.');
+}
+
+// Update just the right-rail breakdown without re-rendering the form (keeps input focus)
+function updateBreakdownOnly() {
+  const el = document.getElementById('breakdownPanel');
+  if (el) el.innerHTML = renderBreakdown(state.draft);
+}
+
+// ---------------------------------------------------------------------------
+// Stubbed door-style walkthrough modal
+// ---------------------------------------------------------------------------
+// Door walkthrough — calibration unit is 4 doors at 24" × 30" (one 8' run of base).
+// Consistent with the rest of the system: every walkthrough asks about an 8' run.
+// Any department can be zero. "Wood machining" is a guided sub-step that rolls into
+// the assembly bucket — broken out here to prompt people to think about that work
+// rather than lumping it all under "assembly."
+const DOOR_WT_STEPS = [
+  { dept: 'eng',       heading: 'Engineering',    prompt: 'CAD / layout time for 4 doors. Zero is normal.',                           default: 0.1 },
+  { dept: 'cnc',       heading: 'CNC',            prompt: 'CNC time for 4 doors. Zero if you cut them by hand.',                       default: 0.0 },
+  { dept: 'machining', heading: 'Wood machining', prompt: 'Rails & stiles, jointer, planer, shaper — for 4 doors. (Rolls into assembly.)', default: 1.0 },
+  { dept: 'assembly',  heading: 'Assembly',       prompt: 'Glue-up, square, sand — for 4 doors.',                                      default: 1.0 },
+  { dept: 'finish',    heading: 'Finish',         prompt: 'Spray and flip 4 doors.',                                                   default: 1.5 },
+];
+const DOOR_WT_UNIT_COUNT = 4;   // doors per calibration cycle (= one 8' base run)
+
+function openDoorWalkthrough(styleId) {
+  state.walkthrough = {
+    styleId: styleId || 'shaker',     // for the stub, only shaker
+    styleName: styleId === 'shaker' ? 'Shaker' : (styleId || 'Shaker'),
+    stepIdx: 0,
+    hours: DOOR_WT_STEPS.map(s => s.default),
+  };
+  state.modal = 'walkthrough';
+  state.openDropdown = null;
+  render();
+}
+
+function renderWalkthroughModal() {
+  const wt = state.walkthrough;
+  const step = DOOR_WT_STEPS[wt.stepIdx];
+  const isLast = wt.stepIdx === DOOR_WT_STEPS.length - 1;
+
+  modalRootEl.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal wt-modal" style="max-width: 620px;">
+        <div class="stub-banner">
+          <strong>Prototype stub.</strong> V1 is the full door walkthrough, calibrated against <strong>4 doors at 24"×30" (one 8' run of base)</strong>. Five guided questions (Eng, CNC, Wood machining, Assembly, Finish) — any can be zero. Machining rolls into the assembly bucket internally.
+        </div>
+
+        <div class="wt-progress">
+          ${DOOR_WT_STEPS.map((_, i) => `
+            <div class="wt-progress-dot ${i < wt.stepIdx ? 'done' : (i === wt.stepIdx ? 'current' : '')}"></div>
+          `).join('')}
+        </div>
+
+        <div class="wt-step-num">${wt.styleName} door · ${step.heading} · ${wt.stepIdx + 1} of ${DOOR_WT_STEPS.length}</div>
+        <h3>${step.heading} · hours for 4 doors (24" × 30")</h3>
+        <div class="wt-prompt">${step.prompt}</div>
+
+        <div class="wt-input-row">
+          <div class="count-row">
+            <div class="stepper-mini">
+              <button onclick="stepWtHours(-0.25)" type="button">−</button>
+              <input type="number" min="0" step="0.25" value="${wt.hours[wt.stepIdx]}"
+                     oninput="setWtHours(this.value)">
+              <button onclick="stepWtHours(0.25)" type="button">+</button>
+            </div>
+            <span class="input-unit">hours · 0 is fine</span>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          ${wt.stepIdx > 0 ? `<button class="btn" onclick="wtBack()">← Back</button>` : ''}
+          <button class="btn btn-primary" onclick="${isLast ? 'completeWalkthrough()' : 'wtNext()'}">
+            ${isLast ? 'Save to rate book →' : 'Next →'}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function setWtHours(v) {
+  const n = parseFloat(v);
+  state.walkthrough.hours[state.walkthrough.stepIdx] = isNaN(n) ? 0 : Math.max(0, n);
+}
+function stepWtHours(delta) {
+  const idx = state.walkthrough.stepIdx;
+  state.walkthrough.hours[idx] = Math.max(0, Math.round((state.walkthrough.hours[idx] + delta) * 4) / 4);
+  renderWalkthroughModal();
+}
+function wtNext() {
+  if (state.walkthrough.stepIdx < DOOR_WT_STEPS.length - 1) {
+    state.walkthrough.stepIdx += 1;
+    renderWalkthroughModal();
+  }
+}
+function wtBack() {
+  if (state.walkthrough.stepIdx > 0) {
+    state.walkthrough.stepIdx -= 1;
+    renderWalkthroughModal();
+  }
+}
+function completeWalkthrough() {
+  // Walkthrough asked for hours for 4 doors in 5 guided steps.
+  // Fold machining (step with dept='machining') into the assembly bucket.
+  // Divide by 4 to get per-door labor by the 4 real departments.
+  const h = state.walkthrough.hours;
+  const totalByDept = { eng: 0, cnc: 0, assembly: 0, finish: 0 };
+  DOOR_WT_STEPS.forEach((step, i) => {
+    const bucket = step.dept === 'machining' ? 'assembly' : step.dept;
+    totalByDept[bucket] += (h[i] || 0);
+  });
+  const perDoor = {
+    eng:      totalByDept.eng      / DOOR_WT_UNIT_COUNT,
+    cnc:      totalByDept.cnc      / DOOR_WT_UNIT_COUNT,
+    assembly: totalByDept.assembly / DOOR_WT_UNIT_COUNT,
+    finish:   totalByDept.finish   / DOOR_WT_UNIT_COUNT,
+  };
+
+  const existing = rateBook.doorStyles.find(d => d.id === state.walkthrough.styleId);
+  if (existing) {
+    existing.calibrated = true;
+    existing.labor = perDoor;
+  }
+  if (state.draft) {
+    state.draft.slots.doorStyle = state.walkthrough.styleId;
+  }
+  state.walkthrough = null;
+  state.modal = null;
+  render();
+  toast('Door style calibrated and saved to rate book.');
+}
+
+// ---------------------------------------------------------------------------
+// Misc
+// ---------------------------------------------------------------------------
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+// Click-outside to close dropdowns
+document.addEventListener('click', (e) => {
+  if (!state.openDropdown) return;
+  if (e.target.closest('.dropdown')) return;
+  state.openDropdown = null;
+  render();
+});
+
+// Initial render
+render();
+</script>
+</body>
+</html>

@@ -19,16 +19,16 @@ Everything downstream depends on the line items being right. The line items only
 
 ## The pieces, in the order a user touches them
 
-### 1. First-run state (onboarding deferred)
-Full-blown onboarding is pushed to a later pass. We'll do it right when we do it — parsing the user's business card for shop info, letting them drop in past estimates to back-calibrate rates, maybe even redacted bank statements for shop rate — TurboTax-grade, Apple-polish. Not now.
+### 1. First-run state (welcome overlay + starter rate book)
+**Amended 2026-04-24** — Phase 11's business-card/past-estimate/bank-statement onboarding was retired. The first-run experience is now the `WelcomeOverlay` (Phase 12 Item 5) sitting on top of the dashboard: welcome screen → first-principles shop-rate walkthrough (overhead + team comp / billable hours → derived `orgs.shop_rate`) → base-cabinet walkthrough (9 operations across an 8′ run, calibrated to Eng/CNC/Assembly/Finish per-LF hours). On completion the overlay stamps `users.onboarded_at` and never mounts again.
 
 For v1, the system ships **pre-populated**:
 - A **starter rate book** loaded out of the box (carcasses, doors, drawers, panels, trim, lighting, specialty hardware, install, engineering). Rates are shop-average defaults with gray "untested" confidence.
 - The user can **keep, edit, delete, or add** to anything. It's theirs from day one.
-- A **default shop rate** ($85/hr) with per-dept overrides (Engineering $95, Assembly $85, Finish $90, CNC $85, Install $80) that any user can reset in one place.
+- A **single blended shop rate** on `orgs.shop_rate`, derived by the first-principles walkthrough (per-dept hours are still captured on lines for scheduling/time-tracking, but dollars roll up at one blended rate — Phase 12 Item 12). The old per-department rate table (`shop_labor_rates`) is deprecated.
 - The user edits the shop name and a few basics in Settings whenever they get around to it.
 
-Effect: a user can drop in a drawing, create a project, and price it on their first session — no backstage setup required.
+Effect: a first-login user lands on the overlay, calibrates two things (shop rate + base cab), closes it, and can price a Base line immediately. The overlay is the **only dark-mode surface** in the app — everything else is light mode (white panels, `#E5E7EB` borders, `#111` text, `#2563EB` accents).
 
 ### 2. Sales dashboard (parser is the hero)
 Top nav: Sales | Projects | Schedule | Financials | Team.
@@ -296,7 +296,7 @@ Accept → rate book item updates, old value preserved in Changes tab.
 - `/settings/rate-book/items` has no explainer, isn't framed as back-end
 - Rate book is generic, non-branded, doesn't grow with use, no confidence / Changes tab / audit
 - Rate book is not **pre-populated** with a starter set → users see an empty library on first use
-- No shop-wide dept labor rates flowing into items
+- ~~No shop-wide dept labor rates flowing into items~~ _Resolved differently — Phase 12 Item 12 replaced per-dept rates with a single blended `orgs.shop_rate` derived from overhead + team comp / billable hours. Per-dept hours are still captured on lines (for scheduling/time tracking) but dollars use one rate._
 - No options layer (stackable modifiers)
 - No lump-sum material mode on freeform lines → can't price curved booths / back bars cleanly
 - No per-project milestone builder → hard-coded 30/40/20/10 doesn't fit real deals
@@ -334,7 +334,7 @@ So the build is top-down from the rate book shape and the line-item data model, 
 - Cash flow is **per-project variable** — 50/25/25, 30/40/20/10, 30/10/10/10/10, whatever the deal is. User builds the milestone list.
 - **QB is watched, not pushed to.** No auto-send of estimates or invoices. User creates QB records manually. MillSuite watches the QB API for deposits/payments.
 - Handoff is a **confirmation step**, not a commit — like the QB modal. Schedule is suggested (best-case), not locked. Manager can move the slot anytime.
-- **Onboarding is deferred.** Ship v1 with a pre-populated starter rate book. Come back later with a TurboTax/Apple-grade onboarding (business card parse, past estimate upload, redacted bank statement for shop rate).
+- ~~**Onboarding is deferred.** Ship v1 with a pre-populated starter rate book. Come back later with a TurboTax/Apple-grade onboarding (business card parse, past estimate upload, redacted bank statement for shop rate).~~ _Updated 2026-04-24: Phase 11's parsing-centric onboarding (business card OCR, past estimate, bank statement) was retired. The actual first-run experience is the `WelcomeOverlay` with the first-principles shop-rate walkthrough + base-cabinet walkthrough (Phase 12 Items 5 + 12). The starter rate book still ships pre-populated; the overlay calibrates the two things that must be calibrated before any line can be priced._
 - **Install pricing is flexible by line** — per-man-per-day, per-box, or flat rate depending on the shop.
 - **Freeform lines must handle weird custom work**: column wraps, curved booths, back bars, coffered ceilings, finish panels. Any unit, any hour breakdown, lump-sum material mode added.
 - **Qty vs. separate lines:** six identical booths = one line, qty 6. One large serpentine booth made up of six similar parts = one subproject with separate lines per part. Qty is for true repeats; components of a single custom piece get their own lines inside one subproject.

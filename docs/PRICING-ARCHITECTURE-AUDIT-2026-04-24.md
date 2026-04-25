@@ -253,6 +253,71 @@ If there's a width problem, drop the SUBTOTAL column (it's redundant with the le
 
 Anywhere else in the app that shows project bucket costs (sales/handoff/preprod/etc.), they should display COST consistently. If a downstream surface needs the marked-up price, it reads `proj.priceTotal` directly. Don't reconstruct marked-up bucket totals — the bucket display is at cost everywhere.
 
+### 9. Sold handoff page (`/projects/[id]/handoff`) — same fix
+
+**File:** `app/(app)/projects/[id]/handoff/page.tsx`.
+
+The sold-handoff page has the same three-way mess as the project page had, plus a fourth bug:
+
+- **Lines 203-211:** calls `computeSubprojectRollup` with `profitMarginPct: sub.profit_margin_pct ?? (org?.profit_margin_pct ?? 35)` — per-subproject markup baked into `r.total`.
+- **Lines 274-299:** sums `r.total` across subs (which already carries per-sub markup) for `acc.total`. No project-level markup applied — the markup is buried inside each subproject and uses sub/org default, not the project's `target_margin_pct`.
+- **No install prefill anywhere.** `installPrefillCost` is never computed or added to the rollup. The "Estimate snapshot" therefore shows project totals that exclude install entirely.
+
+Andrew's screenshot showed bidding-page `$50,710` (cost $45,639 + 10% project margin + $5,933 install) vs sold-handoff page `$44,118` (subproject costs × per-sub margin, install dropped). They should be the same number.
+
+**Fix.**
+
+1. **`perSubCtx.profitMarginPct = 0`** — same as the project page change. Subproject rollups are pure cost.
+2. **Compute install prefill per subproject** — same pattern as the project page's `cardData` build (`computeInstallCost(installPrefill, shopRate)` and `computeInstallHours(installPrefill)`). Carry these in a `installCostBySub` / `installHoursBySub` map keyed by subId.
+3. **Project totals reduce becomes:**
+
+```ts
+const acc = {
+  total: 0,            // project price (cost + margin)
+  costTotal: 0,        // pre-margin
+  marginAmount: 0,     // priceTotal - costTotal
+  marginPct: 0,        // = effective project target margin
+  hoursByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
+  totalHours: 0,
+  subCount: subs.length,
+  linearFeet: 0,
+}
+for (const sub of subs) {
+  const r = rollupBySub[sub.id]
+  const installCost  = installCostBySub[sub.id]  || 0
+  const installHours = installHoursBySub[sub.id] || 0
+  acc.linearFeet += Number(sub.linear_feet) || 0
+  if (!r) continue
+  acc.costTotal += r.subtotal + installCost
+  acc.hoursByDept.eng      += r.hoursByDept.eng
+  acc.hoursByDept.cnc      += r.hoursByDept.cnc
+  acc.hoursByDept.assembly += r.hoursByDept.assembly
+  acc.hoursByDept.finish   += r.hoursByDept.finish
+  acc.hoursByDept.install  += r.hoursByDept.install + installHours
+  acc.totalHours += r.totalHours
+}
+
+const marginTarget = project?.target_margin_pct ?? org?.profit_margin_pct ?? 35
+const marginFraction = Math.min(Math.max(marginTarget / 100, 0), 0.99)
+const markup = marginFraction > 0 ? 1 / (1 - marginFraction) : 1
+acc.total        = acc.costTotal * markup
+acc.marginAmount = acc.total - acc.costTotal
+acc.marginPct    = marginTarget
+```
+
+4. **Estimate-snapshot card per-subproject TOTAL column** — display `r.subtotal + installCostBySub[sub.id]` for each subproject (cost), NOT `r.total`. Same number that shows up on the bidding-page subproject card.
+
+5. **Project total row at the bottom of the snapshot** — display `acc.total` (price). The header callout "10% margin" reads `acc.marginPct`. The project header above the snapshot ("$44,118 · 2 subprojects · 239.9 hrs · 10% margin") should also read `acc.total` and `acc.marginPct`.
+
+### Verification (handoff page specific — add to verification block below)
+
+Same fixture as the main verification block, with two subs and a non-zero install prefill on one sub.
+
+1. Bidding-page `PROJECT PRICE` and handoff-page header total are the **same number**.
+2. Bidding-page subproject card numbers and handoff-page snapshot per-sub TOTAL column are **the same numbers** (cost, including install prefill where applicable).
+3. Sum of snapshot per-sub TOTALs equals `acc.costTotal`. `acc.costTotal × markup = acc.total`. Math closes.
+4. If a subproject has install prefill > 0, that install is INCLUDED in the snapshot's per-sub TOTAL and in `acc.costTotal`. Not silently dropped.
+
 ---
 
 ## Verification (Code must demonstrate ALL of these)
@@ -323,6 +388,7 @@ Files:
 - `db/migrations/030_drop_subproject_margin_overrides.sql` — new
 - `app/(app)/projects/[id]/page.tsx` — perSubCtx margin=0; rollup math; project total card UI; subproject card cleanup
 - `app/(app)/projects/[id]/subprojects/[subId]/page.tsx` — bottom bar columns; drop hint text
+- `app/(app)/projects/[id]/handoff/page.tsx` — perSubCtx margin=0; install prefill in rollup; per-sub snapshot TOTAL = cost; project total at price (section 9)
 - `lib/types.ts` — drop `Subproject.profit_margin_pct` (and `consumable_markup_pct` if confirmed unused)
 - Any other readers of `sub.profit_margin_pct` — find via grep and clean up
 - `lib/project-rollup.ts` — if it has its own ProjectRollup shape, update `costTotal` / `priceTotal` / `marginAmount` fields to match

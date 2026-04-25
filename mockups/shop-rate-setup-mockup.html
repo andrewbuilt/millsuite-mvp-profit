@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MillSuite · Onboarding — Step 1: Your Shop Rate</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #0a0a0a; color: #e5e5e5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* Top bar */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; background: #0d0d0d; border-bottom: 1px solid #1a1a1a;
+  }
+  .brand { font-size: 13px; color: #fff; font-weight: 600; letter-spacing: 0.3px; }
+  .brand .diamond { color: #3b82f6; margin-right: 6px; }
+  .topbar-right { display: flex; align-items: center; gap: 18px; }
+  .step-label { font-size: 11.5px; color: #777; }
+  .exit { font-size: 11.5px; color: #666; cursor: pointer; }
+  .exit:hover { color: #ccc; }
+
+  /* Progress */
+  .progress-bar { height: 2px; background: #1a1a1a; }
+  .progress-fill {
+    height: 100%; background: #3b82f6; transition: width 0.4s cubic-bezier(.4,0,.2,1);
+  }
+
+  /* Content */
+  .content {
+    flex: 1; display: flex; justify-content: center; align-items: flex-start;
+    padding: 44px 24px 100px; overflow-y: auto;
+  }
+  .screen {
+    width: 100%; max-width: 860px;
+    animation: fadeIn 0.3s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Headings */
+  h1.page-h1 {
+    font-size: 28px; color: #fff; font-weight: 600; letter-spacing: -0.4px;
+    margin-bottom: 10px; line-height: 1.25;
+  }
+  .page-lede {
+    font-size: 15px; color: #aaa; line-height: 1.6; margin-bottom: 28px;
+    max-width: 640px;
+  }
+  .eyebrow {
+    font-size: 11px; color: #3b82f6; text-transform: uppercase;
+    letter-spacing: 1.4px; font-weight: 600; margin-bottom: 10px;
+  }
+
+  /* Welcome / text screens */
+  .text-screen { max-width: 640px; }
+  .text-screen h1 {
+    font-size: 30px; color: #fff; font-weight: 600; letter-spacing: -0.5px;
+    margin-bottom: 18px; line-height: 1.2;
+  }
+  .text-screen p {
+    font-size: 15px; color: #bbb; line-height: 1.7; margin-bottom: 14px;
+  }
+  .welcome-map {
+    margin: 28px 0; padding: 20px 24px;
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+  }
+  .welcome-map .wm-label {
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 1.2px; margin-bottom: 14px; font-weight: 600;
+  }
+  .welcome-map .wm-row {
+    display: flex; gap: 14px; align-items: flex-start; padding: 8px 0;
+  }
+  .welcome-map .wm-num {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #1a2d4a; color: #93c5fd;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 12px; flex-shrink: 0; margin-top: 1px;
+  }
+  .welcome-map .wm-row.current .wm-num { background: #3b82f6; color: #fff; }
+  .welcome-map .wm-body .wm-title { font-size: 14px; color: #fff; font-weight: 600; margin-bottom: 2px; }
+  .welcome-map .wm-body .wm-desc { font-size: 12.5px; color: #888; line-height: 1.5; }
+
+  /* Path chooser */
+  .path-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px;
+  }
+  @media (max-width: 680px) { .path-grid { grid-template-columns: 1fr; } }
+  .path-tile {
+    padding: 24px; background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 14px;
+    cursor: pointer; transition: all 0.15s; text-align: left;
+    display: flex; flex-direction: column; min-height: 180px;
+    position: relative;
+  }
+  .path-tile:hover:not(.disabled) {
+    border-color: #3b82f6; background: #0f1a2a; transform: translateY(-1px);
+  }
+  .path-tile.disabled { opacity: 0.55; }
+  .path-tile .pt-icon {
+    width: 36px; height: 36px; border-radius: 10px; margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: center;
+    background: #1a2d4a; color: #93c5fd; font-size: 18px; font-weight: 700;
+  }
+  .path-tile.disabled .pt-icon { background: #1a1a1a; color: #666; }
+  .path-tile .pt-title { font-size: 16px; color: #fff; font-weight: 600; margin-bottom: 6px; }
+  .path-tile .pt-desc { font-size: 13px; color: #888; line-height: 1.55; flex: 1; }
+  .path-tile .pt-meta {
+    margin-top: 14px; font-size: 11.5px; color: #555; font-weight: 500;
+  }
+  .path-tile .soon-badge {
+    position: absolute; top: 16px; right: 16px;
+    padding: 3px 9px; border-radius: 10px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.7px;
+    background: #2a2015; color: #fbbf24; border: 1px solid #3a2a0d;
+  }
+
+  /* Form */
+  .field { margin-bottom: 18px; }
+  .field label {
+    display: block; font-size: 12px; color: #999;
+    margin-bottom: 7px; font-weight: 500;
+  }
+  .field input[type="text"], .field input[type="email"], .field input[type="tel"], .field input[type="number"], .field select {
+    width: 100%; padding: 11px 14px; font-size: 14px;
+    background: #111; border: 1px solid #2a2a2a; border-radius: 8px;
+    color: #fff; font-family: inherit;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .field input:focus, .field select:focus {
+    outline: none; border-color: #3b82f6; background: #141820;
+  }
+  .field .help {
+    font-size: 11.5px; color: #666; margin-top: 5px;
+  }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .field-row-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; }
+  @media (max-width: 600px) { .field-row, .field-row-3 { grid-template-columns: 1fr; } }
+
+  /* Team table */
+  .team-table { background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px; overflow: hidden; }
+  .team-head, .team-row {
+    display: grid; grid-template-columns: 1.7fr 1fr 1.5fr 0.8fr 36px;
+    padding: 10px 16px; align-items: center; gap: 10px;
+  }
+  .pay-cell { display: flex; gap: 6px; align-items: center; }
+  .pay-cell select { flex: 0 0 78px; }
+  .pay-cell input { flex: 1; }
+  .team-head {
+    background: #0f0f0f; border-bottom: 1px solid #1a1a1a;
+    font-size: 10.5px; color: #666; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
+  }
+  .team-row { border-bottom: 1px solid #141414; }
+  .team-row:last-child { border-bottom: none; }
+  .team-row input, .team-row select {
+    background: #111; border: 1px solid #2a2a2a; border-radius: 6px;
+    padding: 7px 10px; color: #fff; font-family: inherit; font-size: 13px;
+    width: 100%;
+  }
+  .team-row input:focus, .team-row select:focus {
+    outline: none; border-color: #3b82f6; background: #141820;
+  }
+  .team-row input.num {
+    font-family: "SF Mono", Menlo, monospace; text-align: right;
+  }
+  .team-row .rm {
+    color: #555; cursor: pointer; font-size: 16px; text-align: center;
+    background: transparent; border: none; padding: 4px;
+    border-radius: 4px; transition: all 0.15s;
+  }
+  .team-row .rm:hover { color: #f87171; background: #1a1010; }
+  .add-row {
+    padding: 12px 16px; font-size: 13px; color: #3b82f6; font-weight: 500;
+    cursor: pointer; background: transparent; border: none;
+    transition: color 0.15s;
+    font-family: inherit;
+  }
+  .add-row:hover { color: #60a5fa; }
+
+  /* Overhead list */
+  .oh-list {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px; overflow: hidden;
+  }
+  .oh-row {
+    display: grid; grid-template-columns: 1fr 140px 36px;
+    padding: 10px 16px; align-items: center; gap: 10px;
+    border-bottom: 1px solid #141414;
+  }
+  .oh-row:last-child { border-bottom: none; }
+  .oh-row .oh-label-wrap input {
+    background: transparent; border: none; color: #ddd;
+    font-family: inherit; font-size: 13.5px; width: 100%;
+    padding: 2px 0;
+  }
+  .oh-row .oh-label-wrap input:focus { outline: none; color: #fff; }
+  .oh-row .oh-amount-wrap {
+    display: flex; align-items: center; gap: 6px;
+    background: #111; border: 1px solid #2a2a2a; border-radius: 6px;
+    padding: 0 10px; transition: all 0.15s;
+  }
+  .oh-row .oh-amount-wrap:focus-within { border-color: #3b82f6; background: #141820; }
+  .oh-row .oh-amount-wrap .dollar { color: #666; font-size: 13px; font-family: "SF Mono", Menlo, monospace; }
+  .oh-row .oh-amount-wrap input {
+    background: transparent; border: none; color: #fff;
+    font-family: "SF Mono", Menlo, monospace; font-size: 13px;
+    padding: 7px 0; width: 100%; text-align: right;
+  }
+  .oh-row .oh-amount-wrap input:focus { outline: none; }
+  .oh-row .oh-amount-wrap .per { color: #555; font-size: 11px; }
+  .oh-totals {
+    display: flex; justify-content: flex-end; gap: 22px; padding: 14px 16px;
+    background: #0f0f0f; border-top: 1px solid #1a1a1a;
+    font-size: 13px;
+  }
+  .oh-totals .lbl { color: #777; margin-right: 8px; }
+  .oh-totals .val { color: #fff; font-weight: 600; font-family: "SF Mono", Menlo, monospace; }
+
+  /* Billable hours card */
+  .bill-card {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+    padding: 22px;
+  }
+  .bill-row {
+    display: grid; grid-template-columns: 1fr 110px;
+    gap: 14px; padding: 10px 0; align-items: center;
+    border-bottom: 1px solid #141414;
+  }
+  .bill-row:last-of-type { border-bottom: none; }
+  .bill-row .bl-label { color: #bbb; font-size: 13.5px; }
+  .bill-row .bl-label .bl-sub { color: #666; font-size: 11.5px; margin-top: 2px; }
+  .bill-row .bl-input {
+    background: #111; border: 1px solid #2a2a2a; border-radius: 6px;
+    padding: 7px 10px; color: #fff; font-family: "SF Mono", Menlo, monospace;
+    font-size: 13px; text-align: right; width: 100%;
+  }
+  .bill-row .bl-input:focus { outline: none; border-color: #3b82f6; background: #141820; }
+  .bill-total {
+    margin-top: 14px; padding-top: 16px; border-top: 1px solid #1f1f1f;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .bill-total .lbl {
+    font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
+  }
+  .bill-total .val {
+    font-size: 22px; color: #fff; font-weight: 600;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+
+  /* Result screen */
+  .rate-hero {
+    background: linear-gradient(180deg, #0f1a2a 0%, #0a1220 100%);
+    border: 1px solid #1e3a5c; border-radius: 14px;
+    padding: 36px 32px; text-align: center; margin-bottom: 22px;
+  }
+  .rate-hero .rh-eyebrow {
+    font-size: 11px; color: #7aa2e8; text-transform: uppercase; letter-spacing: 1.4px; font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .rate-hero .rh-number {
+    font-family: "SF Mono", Menlo, monospace; font-size: 60px;
+    color: #fff; font-weight: 600; letter-spacing: -1px; line-height: 1;
+    margin-bottom: 10px;
+  }
+  .rate-hero .rh-sub { font-size: 14px; color: #93c5fd; }
+
+  .markup-row {
+    display: flex; justify-content: center; align-items: center; gap: 14px;
+    margin: 18px 0 0;
+  }
+  .markup-row .mr-lbl { font-size: 13px; color: #999; }
+  .markup-row input {
+    background: #111; border: 1px solid #2a2a2a; border-radius: 6px;
+    color: #fff; font-family: "SF Mono", Menlo, monospace; font-size: 14px;
+    padding: 6px 10px; width: 70px; text-align: right;
+  }
+  .markup-row input:focus { outline: none; border-color: #3b82f6; background: #141820; }
+
+  .math-card {
+    background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .math-card .mc-title {
+    font-size: 11px; color: #777; text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 14px; font-weight: 600;
+  }
+  .math-row {
+    display: flex; justify-content: space-between; padding: 8px 0;
+    border-bottom: 1px solid #141414; font-size: 13px;
+  }
+  .math-row:last-child { border-bottom: none; }
+  .math-row .lbl { color: #aaa; }
+  .math-row .val { color: #e5e5e5; font-family: "SF Mono", Menlo, monospace; font-weight: 500; }
+  .math-row.total {
+    border-top: 2px solid #2a2a2a; border-bottom: none; margin-top: 8px; padding-top: 12px;
+  }
+  .math-row.total .lbl { color: #fff; font-weight: 600; }
+  .math-row.total .val { color: #93c5fd; font-size: 14px; font-weight: 700; }
+  .math-row.sub .lbl { color: #777; font-size: 12px; padding-left: 12px; }
+  .math-row.sub .val { color: #bbb; font-size: 12px; }
+
+  /* Drop zone (coming soon) */
+  .drop-zone {
+    border: 2px dashed #2a2a2a; border-radius: 14px;
+    padding: 44px 32px; text-align: center;
+    background: #0a0a0a;
+  }
+  .drop-zone .dz-icon { font-size: 40px; color: #3a3a3a; margin-bottom: 14px; }
+  .drop-zone .dz-title { font-size: 16px; color: #ccc; font-weight: 500; margin-bottom: 6px; }
+  .drop-zone .dz-sub { font-size: 13px; color: #666; margin-bottom: 20px; }
+  .drop-zone .dz-types {
+    display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+  }
+  .drop-zone .dz-type {
+    padding: 4px 10px; background: #141414; border: 1px solid #222;
+    border-radius: 12px; font-size: 11.5px; color: #777;
+  }
+
+  .soon-banner {
+    margin-top: 18px; padding: 14px 18px;
+    background: #1a1208; border: 1px solid #3a2a0d; border-radius: 10px;
+    font-size: 13.5px; color: #fbbf24; line-height: 1.5;
+  }
+  .soon-banner strong { color: #fde68a; }
+
+  /* Nav buttons */
+  .step-nav {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 36px; padding-top: 22px; border-top: 1px solid #1a1a1a;
+  }
+  .step-nav-right { display: flex; gap: 10px; }
+  .btn {
+    padding: 11px 22px; font-size: 13px; font-weight: 500;
+    border-radius: 8px; cursor: pointer; transition: all 0.15s;
+    background: #1e1e1e; border: 1px solid #2a2a2a; color: #ddd;
+    font-family: inherit;
+  }
+  .btn:hover:not(:disabled) { background: #252525; border-color: #333; color: #fff; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #2563eb; }
+  .btn-ghost { background: transparent; border-color: transparent; color: #888; }
+  .btn-ghost:hover:not(:disabled) { color: #ccc; background: #1a1a1a; }
+  .btn-big { padding: 14px 28px; font-size: 14px; font-weight: 600; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 12px);
+    padding: 10px 16px; background: #1a2d4a; border: 1px solid #2d5a8a;
+    color: #dbeafe; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all 0.25s;
+    z-index: 100; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><span class="diamond">◆</span> MillSuite</div>
+    <div class="topbar-right">
+      <span class="step-label" id="stepLabel"></span>
+      <span class="exit" onclick="toast('Saved. You can pick back up later.')">Save and exit</span>
+    </div>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div class="content">
+    <div class="screen" id="screen"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// State + flow
+// ---------------------------------------------------------------------------
+const SCREENS = [
+  'welcome',
+  'pathChooser',
+  'parseSoon',      // only visited if user picks the parsing path; jumps back to pathChooser
+  'identity',
+  'team',
+  'overhead',
+  'billable',
+  'result',
+];
+// Progress is derived from "manual path position" ignoring the parseSoon detour
+const PROGRESS_MAP = {
+  welcome: 0.05,
+  pathChooser: 0.15,
+  parseSoon: 0.15,
+  identity: 0.30,
+  team: 0.45,
+  overhead: 0.60,
+  billable: 0.75,
+  result: 0.95,
+};
+
+const state = {
+  screen: 'welcome',
+  shop: {
+    businessName: '',
+    ownerName: '',
+    address: '',
+    city: '', stateProv: '', zip: '',
+    phone: '', email: '',
+  },
+  team: [
+    { name: '', role: 'CNC', payType: 'hourly', rate: '', billable: true },
+  ],
+  overhead: [
+    { label: 'Rent / mortgage',        monthly: '' },
+    { label: 'Utilities',              monthly: '' },
+    { label: 'Insurance (biz + WC)',   monthly: '' },
+    { label: 'Equipment payments',     monthly: '' },
+    { label: 'Debt service',           monthly: '' },
+    { label: 'Software',               monthly: '' },
+    { label: 'Marketing',              monthly: '' },
+    { label: 'Vehicles / fuel',        monthly: '' },
+    { label: 'Office / admin',         monthly: '' },
+  ],
+  billable: {
+    hoursPerWeekPerPerson: 40,
+    workingWeeks: 50,
+    utilization: 80,
+    overrideAnnualHours: null, // null means auto-calc
+  },
+  markupPct: 30,
+};
+
+const ROLES = ['Engineering', 'CNC', 'Assembly', 'Finish', 'Install', 'Admin/Office'];
+
+// ---------------------------------------------------------------------------
+// DOM
+// ---------------------------------------------------------------------------
+const screenEl = document.getElementById('screen');
+const progressEl = document.getElementById('progressFill');
+const stepLabelEl = document.getElementById('stepLabel');
+
+function money(n, opts = {}) {
+  if (n == null || isNaN(n)) return '—';
+  const fmt = n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return '$' + fmt;
+}
+function money2(n) {
+  if (n == null || isNaN(n)) return '—';
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ---------------------------------------------------------------------------
+// Render router
+// ---------------------------------------------------------------------------
+function render() {
+  const s = state.screen;
+  progressEl.style.width = (PROGRESS_MAP[s] * 100) + '%';
+
+  const labels = {
+    welcome: '', pathChooser: 'Step 1 · Shop rate',
+    parseSoon: 'Step 1 · Shop rate',
+    identity: 'Step 1 · Shop rate',
+    team: 'Step 1 · Shop rate',
+    overhead: 'Step 1 · Shop rate',
+    billable: 'Step 1 · Shop rate',
+    result: 'Step 1 · Shop rate',
+  };
+  stepLabelEl.textContent = labels[s];
+
+  switch (s) {
+    case 'welcome':     renderWelcome(); break;
+    case 'pathChooser': renderPathChooser(); break;
+    case 'parseSoon':   renderParseSoon(); break;
+    case 'identity':    renderIdentity(); break;
+    case 'team':        renderTeam(); break;
+    case 'overhead':    renderOverhead(); break;
+    case 'billable':    renderBillable(); break;
+    case 'result':      renderResult(); break;
+  }
+  document.querySelector('.content').scrollTop = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Welcome
+// ---------------------------------------------------------------------------
+function renderWelcome() {
+  screenEl.innerHTML = `
+    <div class="text-screen">
+      <h1>Welcome to MillSuite.</h1>
+      <p>Let's personalize MillSuite to your shop. Two things to get through:</p>
+      <div class="welcome-map">
+        <div class="wm-label">Setup</div>
+        <div class="wm-row current">
+          <div class="wm-num">1</div>
+          <div class="wm-body">
+            <div class="wm-title">Your shop rate</div>
+            <div class="wm-desc">What an hour of shop time costs, overhead included.</div>
+          </div>
+        </div>
+        <div class="wm-row">
+          <div class="wm-num">2</div>
+          <div class="wm-body">
+            <div class="wm-title">Your shop's build numbers</div>
+            <div class="wm-desc">Short walkthroughs that calibrate how long things take in your shop — base cabinets, uppers, drawers, etc.</div>
+          </div>
+        </div>
+      </div>
+      <p>Takes about 10–15 minutes. Save and come back anytime.</p>
+      <div class="step-nav" style="border:none; margin-top:28px; padding-top:0; justify-content:flex-start; gap:10px;">
+        <button class="btn btn-primary btn-big" onclick="go('pathChooser')">Let's start →</button>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Path chooser
+// ---------------------------------------------------------------------------
+function renderPathChooser() {
+  screenEl.innerHTML = `
+    <div class="eyebrow">Step 1 of 2 · Your shop rate</div>
+    <h1 class="page-h1">Let's figure out your shop rate.</h1>
+    <div class="page-lede">What does it cost to have your team working for an hour, overhead included? Two ways to get there.</div>
+
+    <div class="path-grid">
+      <div class="path-tile" onclick="go('identity')">
+        <div class="pt-icon">✎</div>
+        <div class="pt-title">Enter the numbers manually</div>
+        <div class="pt-desc">Business info, team, overhead, billable hours. Rough numbers are fine — you can come back anytime.</div>
+        <div class="pt-meta">~10 minutes</div>
+      </div>
+
+      <div class="path-tile" onclick="go('parseSoon')">
+        <span class="soon-badge">Soon</span>
+        <div class="pt-icon">📄</div>
+        <div class="pt-title">Drop in documents</div>
+        <div class="pt-desc">Paystubs, bank statements, a business card. We pull out what we can and ask for the rest.</div>
+        <div class="pt-meta">Paystubs · bank statements · business card</div>
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn btn-ghost" onclick="go('welcome')">← Back</button>
+      <div></div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Parse path — coming soon
+// ---------------------------------------------------------------------------
+function renderParseSoon() {
+  screenEl.innerHTML = `
+    <div class="eyebrow">Step 1 · Drop in documents</div>
+    <h1 class="page-h1">Drop in anything you want us to read.</h1>
+    <div class="page-lede">We'll pull shop info, team details, and recurring overhead from the files below.</div>
+
+    <div class="drop-zone">
+      <div class="dz-icon">📄</div>
+      <div class="dz-title">Drag files here, or click to browse</div>
+      <div class="dz-sub">We'll detect and parse what we can.</div>
+      <div class="dz-types">
+        <span class="dz-type">Business card (jpg, png)</span>
+        <span class="dz-type">Paystubs (pdf)</span>
+        <span class="dz-type">Bank statements (pdf, csv)</span>
+      </div>
+    </div>
+
+    <div class="soon-banner">
+      <strong>This path is in development.</strong> For now, use the manual path — it takes about 10 minutes and gets you to the same place.
+    </div>
+
+    <div class="step-nav">
+      <button class="btn btn-ghost" onclick="go('pathChooser')">← Back</button>
+      <div class="step-nav-right">
+        <button class="btn btn-primary" onclick="go('identity')">Use manual instead →</button>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Manual — identity
+// ---------------------------------------------------------------------------
+function renderIdentity() {
+  const s = state.shop;
+  screenEl.innerHTML = `
+    <div class="eyebrow">Shop rate · 1 of 4</div>
+    <h1 class="page-h1">Your shop.</h1>
+    <div class="page-lede">The basics — so we know whose numbers we're running.</div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Business name</label>
+        <input type="text" id="fld-biz" value="${s.businessName}" placeholder="e.g. Northfield Millwork" oninput="state.shop.businessName = this.value">
+      </div>
+      <div class="field">
+        <label>Your name</label>
+        <input type="text" id="fld-own" value="${s.ownerName}" placeholder="e.g. Andrew Watson" oninput="state.shop.ownerName = this.value">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Address</label>
+      <input type="text" value="${s.address}" placeholder="Street address" oninput="state.shop.address = this.value">
+    </div>
+    <div class="field-row-3">
+      <div class="field">
+        <label>City</label>
+        <input type="text" value="${s.city}" oninput="state.shop.city = this.value">
+      </div>
+      <div class="field">
+        <label>State</label>
+        <input type="text" value="${s.stateProv}" oninput="state.shop.stateProv = this.value">
+      </div>
+      <div class="field">
+        <label>Zip</label>
+        <input type="text" value="${s.zip}" oninput="state.shop.zip = this.value">
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Phone</label>
+        <input type="tel" value="${s.phone}" oninput="state.shop.phone = this.value">
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" value="${s.email}" oninput="state.shop.email = this.value">
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn btn-ghost" onclick="go('pathChooser')">← Back</button>
+      <div class="step-nav-right">
+        <button class="btn btn-primary" onclick="go('team')">Next →</button>
+      </div>
+    </div>
+  `;
+  setTimeout(() => { const f = document.getElementById('fld-biz'); if (f && !f.value) f.focus(); }, 40);
+}
+
+// ---------------------------------------------------------------------------
+// Manual — team
+// ---------------------------------------------------------------------------
+function renderTeam() {
+  screenEl.innerHTML = `
+    <div class="eyebrow">Shop rate · 2 of 4</div>
+    <h1 class="page-h1">Your team.</h1>
+    <div class="page-lede">Who's on your crew, and what does each person cost you per hour — wages, payroll taxes, benefits, WC. Ballpark is fine.</div>
+
+    <div class="team-table" id="teamTable">
+      <div class="team-head">
+        <span>Name</span><span>Role</span><span>Burdened pay</span><span>Billable</span><span></span>
+      </div>
+      ${state.team.map((p, i) => teamRow(p, i)).join('')}
+      <button class="add-row" onclick="addTeam()">+ Add person</button>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn btn-ghost" onclick="go('identity')">← Back</button>
+      <div class="step-nav-right">
+        <button class="btn btn-primary" onclick="go('overhead')">Next →</button>
+      </div>
+    </div>
+  `;
+}
+function teamRow(p, i) {
+  const step = p.payType === 'salary' ? '1000' : '0.5';
+  const placeholder = p.payType === 'salary' ? '65000' : '0';
+  return `
+    <div class="team-row">
+      <input type="text" placeholder="Name" value="${p.name}" oninput="state.team[${i}].name = this.value">
+      <select onchange="state.team[${i}].role = this.value">
+        ${ROLES.map(r => `<option ${p.role === r ? 'selected' : ''}>${r}</option>`).join('')}
+      </select>
+      <div class="pay-cell">
+        <select onchange="state.team[${i}].payType = this.value; renderTeam();">
+          <option value="hourly" ${p.payType === 'hourly' ? 'selected' : ''}>$/hr</option>
+          <option value="salary" ${p.payType === 'salary' ? 'selected' : ''}>$/yr</option>
+        </select>
+        <input class="num" type="number" step="${step}" min="0" placeholder="${placeholder}" value="${p.rate}" oninput="state.team[${i}].rate = this.value">
+      </div>
+      <select onchange="state.team[${i}].billable = this.value === 'yes'">
+        <option value="yes" ${p.billable ? 'selected' : ''}>Yes</option>
+        <option value="no" ${!p.billable ? 'selected' : ''}>No</option>
+      </select>
+      <button class="rm" title="Remove" onclick="rmTeam(${i})">×</button>
+    </div>
+  `;
+}
+function addTeam() {
+  state.team.push({ name: '', role: 'CNC', payType: 'hourly', rate: '', billable: true });
+  renderTeam();
+}
+function rmTeam(i) {
+  state.team.splice(i, 1);
+  if (state.team.length === 0) state.team.push({ name: '', role: 'CNC', payType: 'hourly', rate: '', billable: true });
+  renderTeam();
+}
+
+// ---------------------------------------------------------------------------
+// Manual — overhead
+// ---------------------------------------------------------------------------
+function renderOverhead() {
+  const totalMonthly = ohTotalMonthly();
+  screenEl.innerHTML = `
+    <div class="eyebrow">Shop rate · 3 of 4</div>
+    <h1 class="page-h1">Your monthly fixed costs.</h1>
+    <div class="page-lede">Rent, insurance, utilities, equipment payments — the stuff that goes out every month whether you're busy or not. Rough numbers are fine.</div>
+
+    <div class="oh-list" id="ohList">
+      ${state.overhead.map((o, i) => ohRow(o, i)).join('')}
+      <button class="add-row" onclick="addOh()">+ Add category</button>
+      <div class="oh-totals">
+        <span><span class="lbl">Monthly</span> <span class="val" id="ohMonth">${money(totalMonthly)}</span></span>
+        <span><span class="lbl">Annual</span> <span class="val" id="ohYear">${money(totalMonthly * 12)}</span></span>
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn btn-ghost" onclick="go('team')">← Back</button>
+      <div class="step-nav-right">
+        <button class="btn btn-primary" onclick="go('billable')">Next →</button>
+      </div>
+    </div>
+  `;
+}
+function ohRow(o, i) {
+  return `
+    <div class="oh-row">
+      <div class="oh-label-wrap">
+        <input type="text" value="${o.label}" placeholder="Category" oninput="state.overhead[${i}].label = this.value">
+      </div>
+      <div class="oh-amount-wrap">
+        <span class="dollar">$</span>
+        <input type="number" step="50" min="0" placeholder="0" value="${o.monthly}" oninput="state.overhead[${i}].monthly = this.value; updateOhTotals()">
+        <span class="per">/mo</span>
+      </div>
+      <button class="rm" title="Remove" onclick="rmOh(${i})">×</button>
+    </div>
+  `;
+}
+function addOh() {
+  state.overhead.push({ label: '', monthly: '' });
+  renderOverhead();
+}
+function rmOh(i) {
+  state.overhead.splice(i, 1);
+  renderOverhead();
+}
+function ohTotalMonthly() {
+  return state.overhead.reduce((s, o) => s + (parseFloat(o.monthly) || 0), 0);
+}
+function updateOhTotals() {
+  const m = ohTotalMonthly();
+  document.getElementById('ohMonth').textContent = money(m);
+  document.getElementById('ohYear').textContent = money(m * 12);
+}
+
+// ---------------------------------------------------------------------------
+// Manual — billable hours
+// ---------------------------------------------------------------------------
+function billableEmployeeCount() {
+  return state.team.filter(p => p.billable && p.name.trim()).length
+    || state.team.filter(p => p.billable).length
+    || 1;
+}
+function autoBillableHours() {
+  const n = billableEmployeeCount();
+  const { hoursPerWeekPerPerson, workingWeeks, utilization } = state.billable;
+  return n * hoursPerWeekPerPerson * workingWeeks * (utilization / 100);
+}
+function effectiveBillableHours() {
+  return autoBillableHours();
+}
+function renderBillable() {
+  const n = billableEmployeeCount();
+  const effective = effectiveBillableHours();
+
+  screenEl.innerHTML = `
+    <div class="eyebrow">Shop rate · 4 of 4</div>
+    <h1 class="page-h1">Billable hours per year.</h1>
+    <div class="page-lede">How many productive shop hours does your crew actually put out? We've sketched out a starting number from your team — tune it if you know better.</div>
+
+    <div class="bill-card">
+      <div class="bill-row">
+        <div class="bl-label">Number of billable employees<div class="bl-sub">From your team list</div></div>
+        <input class="bl-input" type="number" value="${n}" disabled title="Derived from your team list">
+      </div>
+      <div class="bill-row">
+        <div class="bl-label">Hours per week per person</div>
+        <input class="bl-input" type="number" step="1" min="0" value="${state.billable.hoursPerWeekPerPerson}" oninput="state.billable.hoursPerWeekPerPerson = parseFloat(this.value) || 0; recalcBillable()">
+      </div>
+      <div class="bill-row">
+        <div class="bl-label">Working weeks per year<div class="bl-sub">52 minus vacation / shutdown</div></div>
+        <input class="bl-input" type="number" step="1" min="0" max="52" value="${state.billable.workingWeeks}" oninput="state.billable.workingWeeks = parseFloat(this.value) || 0; recalcBillable()">
+      </div>
+      <div class="bill-row">
+        <div class="bl-label">Utilization %<div class="bl-sub">Actual time working on billable hours. Rework, cleaning and watercooler sessions eat into output.</div></div>
+        <input class="bl-input" type="number" step="5" min="0" max="100" value="${state.billable.utilization}" oninput="state.billable.utilization = parseFloat(this.value) || 0; recalcBillable()">
+      </div>
+
+      <div class="bill-total">
+        <span class="lbl">Annual billable hours</span>
+        <span class="val" id="billTotal">${Math.round(effective).toLocaleString()}</span>
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn btn-ghost" onclick="go('overhead')">← Back</button>
+      <div class="step-nav-right">
+        <button class="btn btn-primary" onclick="go('result')">See shop rate →</button>
+      </div>
+    </div>
+  `;
+}
+function recalcBillable() {
+  const effective = effectiveBillableHours();
+  const el = document.getElementById('billTotal');
+  if (el) el.textContent = Math.round(effective).toLocaleString();
+}
+
+// ---------------------------------------------------------------------------
+// Shop rate result
+// ---------------------------------------------------------------------------
+function computeRates() {
+  // Annual labor cost = salary pay as-is + hourly pay × hrs/wk × wks.
+  // All employees count toward total business cost, billable or not.
+  const { hoursPerWeekPerPerson, workingWeeks } = state.billable;
+  let annualLabor = 0;
+  state.team.forEach(p => {
+    const amt = parseFloat(p.rate) || 0;
+    if (p.payType === 'salary') annualLabor += amt;
+    else annualLabor += amt * hoursPerWeekPerPerson * workingWeeks;
+  });
+  const monthlyOh = ohTotalMonthly();
+  const annualOh = monthlyOh * 12;
+  const totalCost = annualLabor + annualOh;
+  const billable = effectiveBillableHours();
+  const costPerHr = billable > 0 ? totalCost / billable : 0;
+  const markup = (parseFloat(state.markupPct) || 0) / 100;
+  const shopRate = costPerHr * (1 + markup);
+  return { annualLabor, annualOh, totalCost, billable, costPerHr, markup, shopRate };
+}
+
+function renderResult() {
+  const r = computeRates();
+  screenEl.innerHTML = `
+    <div class="eyebrow">Step 1 result</div>
+    <h1 class="page-h1">Your shop rate.</h1>
+    <div class="page-lede">Single blended rate. You can switch to per-department later if you want finer control. This calculation lives in the gear icon at the top right of the screen — update these numbers when you give raises, hire, fire, or take out loans for that new CNC.</div>
+
+    <div class="rate-hero">
+      <div class="rh-eyebrow">Shop rate</div>
+      <div class="rh-number" id="heroRate">${money2(r.shopRate)}<span style="color:#7aa2e8;font-size:22px">/hr</span></div>
+      <div class="rh-sub">Cost <span id="heroCost">${money2(r.costPerHr)}</span>/hr · <span id="heroMarkup">${Math.round(r.markup*100)}%</span> markup</div>
+      <div class="markup-row">
+        <span class="mr-lbl">Markup</span>
+        <input type="number" step="1" min="0" max="100" value="${state.markupPct}" oninput="state.markupPct = this.value; updateHero()">
+        <span class="mr-lbl">%</span>
+      </div>
+    </div>
+
+    <div class="math-card">
+      <div class="mc-title">How we got here</div>
+      <div class="math-row">
+        <span class="lbl">Annual labor cost</span>
+        <span class="val" id="mLabor">${money(r.annualLabor)}</span>
+      </div>
+      <div class="math-row sub">
+        <span class="lbl">${state.team.length} people · salaries + hourly wages</span>
+        <span class="val"></span>
+      </div>
+      <div class="math-row">
+        <span class="lbl">Annual overhead</span>
+        <span class="val" id="mOh">${money(r.annualOh)}</span>
+      </div>
+      <div class="math-row sub">
+        <span class="lbl">${money(ohTotalMonthly())} / month × 12</span>
+        <span class="val"></span>
+      </div>
+      <div class="math-row total">
+        <span class="lbl">Total annual cost</span>
+        <span class="val" id="mTotal">${money(r.totalCost)}</span>
+      </div>
+      <div class="math-row" style="margin-top: 6px;">
+        <span class="lbl">÷ Billable hours per year</span>
+        <span class="val" id="mBill">${Math.round(r.billable).toLocaleString()}</span>
+      </div>
+      <div class="math-row">
+        <span class="lbl">= Cost per shop hour</span>
+        <span class="val" id="mCost">${money2(r.costPerHr)}/hr</span>
+      </div>
+      <div class="math-row">
+        <span class="lbl">× (1 + <span id="mMarkPct">${state.markupPct}</span>% markup)</span>
+        <span class="val"></span>
+      </div>
+      <div class="math-row total">
+        <span class="lbl">Shop rate</span>
+        <span class="val" id="mRate">${money2(r.shopRate)}/hr</span>
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn btn-ghost" onclick="go('billable')">← Back</button>
+      <div class="step-nav-right">
+        <button class="btn" onclick="go('team')">Tune the numbers</button>
+        <button class="btn btn-primary btn-big" onclick="toast('Shop rate saved. Moving to step 2…')">Continue to step 2 →</button>
+      </div>
+    </div>
+  `;
+}
+
+function updateHero() {
+  const r = computeRates();
+  document.getElementById('heroRate').innerHTML = `${money2(r.shopRate)}<span style="color:#7aa2e8;font-size:22px">/hr</span>`;
+  document.getElementById('heroCost').textContent = money2(r.costPerHr);
+  document.getElementById('heroMarkup').textContent = Math.round(r.markup * 100) + '%';
+  document.getElementById('mRate').textContent = money2(r.shopRate) + '/hr';
+  document.getElementById('mMarkPct').textContent = state.markupPct;
+}
+
+// ---------------------------------------------------------------------------
+// Navigation helper
+// ---------------------------------------------------------------------------
+function go(screen) { state.screen = screen; render(); }
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+render();
+</script>
+</body>
+</html>
