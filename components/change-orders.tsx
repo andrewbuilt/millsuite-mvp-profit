@@ -46,6 +46,15 @@ import {
   sumApprovedNetChange,
   voidCo,
 } from '@/lib/change-orders'
+import {
+  computeBreakdown,
+  PREFINISHED_FINISH_ID,
+  type ComposerDefaults,
+  type ComposerDraft,
+  type ComposerRateBook,
+  type ComposerSlots,
+} from '@/lib/composer'
+import { type ProductKey } from '@/lib/products'
 
 interface Props {
   projectId: string
@@ -598,47 +607,126 @@ function fmtDate(iso: string): string {
 // ── Create CO modal ──
 
 /** Seed for "Create CO from a line" — opens the modal pre-populated
- *  with the line's identity + original-side values, locks the
- *  subproject to the line's parent, and autofocuses the proposed
- *  material input. When null/undefined, the modal opens in legacy
- *  mode with the title required + the subproject picker. */
+ *  with the source line's identity + product slots. Issue 21 reshapes
+ *  this from a flat material-swap form into a slot-aware editor: the
+ *  operator picks WHICH slot is changing (qty / carcass material /
+ *  door style / etc.) and only fills in the proposed value for that
+ *  slot. Net change is recomputed via composer math.
+ *  When null/undefined, the modal opens in legacy mode with the
+ *  title required + the subproject picker + free-form fields. */
 export interface CreateCoModalSeed {
   subprojectId: string
   subprojectName: string
-  originalLabel: string
-  originalMaterial: string
-  originalLinearFeet: number
-  originalMatCostPerLf: number | null
+  lineId: string
+  productKey: ProductKey
+  productSlots: ComposerSlots
+  qty: number
+  /** "Base cabinet" / "Upper cabinet" / "Full height" for the modal
+   *  header. */
+  productLabel: string
+  /** The line's display description, used in the modal header AND as
+   *  the snapshot label so the CO list reads cleanly. */
+  description: string
+}
+
+/** Slot keys an operator can target in a slot-aware CO. Mirrors
+ *  ComposerSlots minus `notes` (notes can't be a CO target). */
+type SlotKey =
+  | 'qty'
+  | 'carcassMaterial'
+  | 'doorStyle'
+  | 'doorMaterial'
+  | 'interiorFinish'
+  | 'exteriorFinish'
+  | 'endPanels'
+  | 'fillers'
+
+const SLOT_LABELS: Record<SlotKey, string> = {
+  qty: 'Quantity (LF)',
+  carcassMaterial: 'Carcass material',
+  doorStyle: 'Door style',
+  doorMaterial: 'Door/drawer material',
+  interiorFinish: 'Interior finish',
+  exteriorFinish: 'Exterior finish',
+  endPanels: 'End panels (count)',
+  fillers: 'Fillers (count)',
 }
 
 interface CreateCoModalProps {
   projectId: string
   pricing: PricingInputs
   subprojects: { id: string; name: string }[]
-  /** When provided, the modal opens in line-seeded mode. */
+  /** When provided, the modal opens in line-seeded slot-aware mode.
+   *  Requires composerRateBook + composerDefaults to be passed too —
+   *  the modal recomputes the net change via composer math. */
   seed?: CreateCoModalSeed | null
+  /** Required when seed is non-null. */
+  composerRateBook?: ComposerRateBook | null
+  composerDefaults?: ComposerDefaults | null
   onClose: () => void
   onCreated: () => Promise<void>
 }
 
-export function CreateCoModal({ projectId, pricing, subprojects, seed, onClose, onCreated }: CreateCoModalProps) {
+export function CreateCoModal({
+  projectId,
+  pricing,
+  subprojects,
+  seed,
+  composerRateBook,
+  composerDefaults,
+  onClose,
+  onCreated,
+}: CreateCoModalProps) {
+  const isSeeded = !!seed && !!composerRateBook && !!composerDefaults
+  if (isSeeded) {
+    return (
+      <SeededSlotCoEditor
+        projectId={projectId}
+        seed={seed!}
+        rateBook={composerRateBook!}
+        defaults={composerDefaults!}
+        onClose={onClose}
+        onCreated={onCreated}
+      />
+    )
+  }
+  return (
+    <LegacyCoEditor
+      projectId={projectId}
+      pricing={pricing}
+      subprojects={subprojects}
+      onClose={onClose}
+      onCreated={onCreated}
+    />
+  )
+}
+
+// ── Legacy free-form CO editor (top-level "+ New CO" button) ──
+
+function LegacyCoEditor({
+  projectId,
+  pricing,
+  subprojects,
+  onClose,
+  onCreated,
+}: {
+  projectId: string
+  pricing: PricingInputs
+  subprojects: { id: string; name: string }[]
+  onClose: () => void
+  onCreated: () => Promise<void>
+}) {
   const [title, setTitle] = useState('')
-  // When seeded, lock subproject to the line's parent. Otherwise default
-  // to the first available subproject (legacy behavior).
   const [subprojectId, setSubprojectId] = useState<string>(
-    seed?.subprojectId || subprojects[0]?.id || '',
+    subprojects[0]?.id || '',
   )
   const [noPriceChange, setNoPriceChange] = useState(false)
   const [manualNet, setManualNet] = useState<string>('')
 
-  const [origLabel, setOrigLabel] = useState(seed?.originalLabel || '')
-  const [origMaterial, setOrigMaterial] = useState(seed?.originalMaterial || '')
-  const [origLF, setOrigLF] = useState<string>(
-    seed?.originalLinearFeet ? String(seed.originalLinearFeet) : '',
-  )
-  const [origMatCostLF, setOrigMatCostLF] = useState<string>(
-    seed?.originalMatCostPerLf != null ? String(seed.originalMatCostPerLf) : '',
-  )
+  const [origLabel, setOrigLabel] = useState('')
+  const [origMaterial, setOrigMaterial] = useState('')
+  const [origLF, setOrigLF] = useState<string>('')
+  const [origMatCostLF, setOrigMatCostLF] = useState<string>('')
 
   const [propMaterial, setPropMaterial] = useState('')
   const [propLF, setPropLF] = useState<string>('')
@@ -646,18 +734,13 @@ export function CreateCoModal({ projectId, pricing, subprojects, seed, onClose, 
 
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
-  const isSeeded = !!seed
-  const derivedTitle = seed
-    ? `${seed.originalLabel} — material change`
-    : ''
 
   // V1 scope: simple material-swap CO. Labor hours come across at zero delta
   // by default; user can add them into manualNet if labor shifts materially.
   // This keeps the modal small. Estimate-line-integrated repricing comes
   // through the approval slot "material changed" flow (follow-up).
-  const effectiveTitle = title.trim() || derivedTitle
   const origSnap: LineSnapshot = {
-    label: origLabel || effectiveTitle,
+    label: origLabel || title,
     material: origMaterial,
     linear_feet: origLF ? Number(origLF) : null,
     material_cost_per_lf: origMatCostLF ? Number(origMatCostLF) : null,
@@ -668,7 +751,7 @@ export function CreateCoModal({ projectId, pricing, subprojects, seed, onClose, 
     labor_hours_install: 0,
   }
   const propSnap: LineSnapshot = {
-    label: origLabel || effectiveTitle,
+    label: origLabel || title,
     material: propMaterial,
     linear_feet: propLF ? Number(propLF) : origLF ? Number(origLF) : null,
     material_cost_per_lf: propMatCostLF ? Number(propMatCostLF) : null,
@@ -686,10 +769,7 @@ export function CreateCoModal({ projectId, pricing, subprojects, seed, onClose, 
     ? Number(manualNet)
     : computeNetChange(origSnap, propSnap, pricing)
 
-  // Seeded flow drops the title-required gate — the (label, original →
-  // proposed material) summary on the CO card is enough context.
-  const canSave =
-    (isSeeded || title.trim().length > 0) && computed !== null && !saving
+  const canSave = title.trim().length > 0 && computed !== null && !saving
 
   const save = async () => {
     if (!canSave || computed === null) return
@@ -698,7 +778,7 @@ export function CreateCoModal({ projectId, pricing, subprojects, seed, onClose, 
       const result = await createChangeOrder({
         project_id: projectId,
         subproject_id: subprojectId || null,
-        title: effectiveTitle,
+        title: title.trim(),
         original_line_snapshot: origSnap,
         proposed_line: propSnap,
         net_change: computed,
@@ -725,64 +805,35 @@ export function CreateCoModal({ projectId, pricing, subprojects, seed, onClose, 
         </div>
 
         <div className="p-4 space-y-4">
-          {/* Seeded flow: subproject is locked to the line's parent and
-              shown as a read-only label at the top. Legacy flow: title
-              first, then optional subproject picker. */}
-          {isSeeded ? (
-            <div className="text-xs text-neutral-700">
-              <span className="text-[10px] uppercase tracking-wider text-neutral-500 mr-2">
-                Subproject
-              </span>
-              <span className="font-medium text-neutral-900">{seed!.subprojectName}</span>
-            </div>
-          ) : (
-            <>
-              <div>
-                <label className="text-xs font-medium text-neutral-700 block mb-1">
-                  Title <span className="text-red-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Island cabinet material change, walnut to white oak"
-                  className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
-                  autoFocus
-                />
-              </div>
+          <div>
+            <label className="text-xs font-medium text-neutral-700 block mb-1">
+              Title <span className="text-red-600">*</span>
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Island cabinet material change, walnut to white oak"
+              className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+              autoFocus
+            />
+          </div>
 
-              {subprojects.length > 1 && (
-                <div>
-                  <label className="text-xs font-medium text-neutral-700 block mb-1">Subproject</label>
-                  <select
-                    value={subprojectId}
-                    onChange={(e) => setSubprojectId(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
-                  >
-                    <option value="">Project-level (no subproject)</option>
-                    {subprojects.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </>
-          )}
-
-          {isSeeded && (
+          {subprojects.length > 1 && (
             <div>
-              <label className="text-xs font-medium text-neutral-700 block mb-1">
-                Title <span className="text-neutral-400">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={derivedTitle || 'Override the auto-generated title'}
+              <label className="text-xs font-medium text-neutral-700 block mb-1">Subproject</label>
+              <select
+                value={subprojectId}
+                onChange={(e) => setSubprojectId(e.target.value)}
                 className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
-              />
+              >
+                <option value="">Project-level (no subproject)</option>
+                {subprojects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -845,7 +896,6 @@ export function CreateCoModal({ projectId, pricing, subprojects, seed, onClose, 
                     value={propMaterial}
                     onChange={(e) => setPropMaterial(e.target.value)}
                     placeholder="Material (e.g. White oak rift)"
-                    autoFocus={isSeeded}
                     className="w-full border border-blue-200 bg-blue-50 rounded px-2 py-1.5 text-xs"
                   />
                   <div className="flex gap-2">
@@ -946,5 +996,413 @@ export function CreateCoModal({ projectId, pricing, subprojects, seed, onClose, 
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Seeded slot-aware CO editor (line click → "Create CO") ──
+//
+// Operator picks ONE slot to change on the source line. The modal
+// recomputes the line's price via composer math (computeBreakdown) for
+// both the original and the proposed slot value, and the net change is
+// the delta of the two line totals. The change_orders schema doesn't
+// know about slots; we flatten the slot detail into the existing
+// LineSnapshot.material text field for display.
+
+function SeededSlotCoEditor({
+  projectId,
+  seed,
+  rateBook,
+  defaults,
+  onClose,
+  onCreated,
+}: {
+  projectId: string
+  seed: CreateCoModalSeed
+  rateBook: ComposerRateBook
+  defaults: ComposerDefaults
+  onClose: () => void
+  onCreated: () => Promise<void>
+}) {
+  const [slotKey, setSlotKey] = useState<SlotKey | ''>('')
+  // proposedValue holds whatever the right input is currently typing /
+  // selecting. For dropdown slots: the picked option's id (or
+  // PREFINISHED_FINISH_ID for the sentinel). For numeric slots: the
+  // raw string from the input.
+  const [proposedValue, setProposedValue] = useState<string>('')
+  const [title, setTitle] = useState('')
+  const [notes, setNotes] = useState('')
+  const [noPriceChange, setNoPriceChange] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Drafts.
+  const originalDraft: ComposerDraft = useMemo(
+    () => ({
+      productId: seed.productKey,
+      qty: seed.qty,
+      slots: seed.productSlots,
+    }),
+    [seed],
+  )
+  const proposedDraft: ComposerDraft | null = useMemo(() => {
+    if (!slotKey || proposedValue === '') return null
+    if (slotKey === 'qty') {
+      const n = Number(proposedValue)
+      if (!Number.isFinite(n) || n <= 0) return null
+      return { ...originalDraft, qty: n }
+    }
+    if (slotKey === 'endPanels' || slotKey === 'fillers') {
+      const n = Number(proposedValue)
+      if (!Number.isFinite(n) || n < 0) return null
+      return {
+        ...originalDraft,
+        slots: { ...originalDraft.slots, [slotKey]: Math.round(n) },
+      }
+    }
+    return {
+      ...originalDraft,
+      slots: { ...originalDraft.slots, [slotKey]: proposedValue },
+    }
+  }, [slotKey, proposedValue, originalDraft])
+
+  const originalBreakdown = useMemo(
+    () => computeBreakdown(originalDraft, rateBook, defaults),
+    [originalDraft, rateBook, defaults],
+  )
+  const proposedBreakdown = useMemo(
+    () =>
+      proposedDraft ? computeBreakdown(proposedDraft, rateBook, defaults) : null,
+    [proposedDraft, rateBook, defaults],
+  )
+  const netChange = noPriceChange
+    ? 0
+    : proposedBreakdown
+      ? proposedBreakdown.totals.total - originalBreakdown.totals.total
+      : null
+
+  // Display labels for the picked slot's original + proposed values.
+  const origValueLabel = slotKey ? slotValueLabel(slotKey, seed.productSlots, seed.qty, rateBook) : ''
+  const propValueLabel =
+    slotKey && proposedDraft
+      ? slotValueLabel(slotKey, proposedDraft.slots, proposedDraft.qty, rateBook)
+      : ''
+
+  const derivedTitle =
+    slotKey && propValueLabel
+      ? `${SLOT_LABELS[slotKey]}: ${origValueLabel} → ${propValueLabel}`
+      : ''
+  const effectiveTitle = title.trim() || derivedTitle
+
+  const canSave =
+    !!slotKey &&
+    !!proposedDraft &&
+    netChange !== null &&
+    !!effectiveTitle &&
+    !saving
+
+  const save = async () => {
+    if (!canSave || netChange === null || !proposedDraft || !slotKey) return
+    setSaving(true)
+    try {
+      const slotLabel = SLOT_LABELS[slotKey]
+      const origSnap: LineSnapshot = {
+        label: seed.description,
+        material: `${slotLabel}: ${origValueLabel}`,
+        linear_feet: seed.qty,
+        material_cost_per_lf: null,
+        labor_hours_eng: 0,
+        labor_hours_cnc: 0,
+        labor_hours_assembly: 0,
+        labor_hours_finish: 0,
+        labor_hours_install: 0,
+      }
+      const propSnap: LineSnapshot = {
+        label: seed.description,
+        material: `${slotLabel}: ${propValueLabel}`,
+        linear_feet: proposedDraft.qty,
+        material_cost_per_lf: null,
+        labor_hours_eng: 0,
+        labor_hours_cnc: 0,
+        labor_hours_assembly: 0,
+        labor_hours_finish: 0,
+        labor_hours_install: 0,
+        notes: notes || undefined,
+      }
+      const result = await createChangeOrder({
+        project_id: projectId,
+        subproject_id: seed.subprojectId,
+        title: effectiveTitle,
+        original_line_snapshot: origSnap,
+        proposed_line: propSnap,
+        net_change: netChange,
+        no_price_change: noPriceChange,
+      })
+      if (!result) {
+        alert('Failed to create CO. See console.')
+        return
+      }
+      await onCreated()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-200 sticky top-0 bg-white">
+          <div className="font-medium text-sm">New change order</div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Header — line context. */}
+          <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded px-3 py-2 text-xs">
+            <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-0.5">
+              Change order on
+            </div>
+            <div className="font-medium text-neutral-900">
+              {seed.productLabel} · {seed.qty} LF
+            </div>
+            <div className="text-neutral-600 mt-0.5">{seed.description}</div>
+            <div className="text-[10.5px] text-neutral-500 mt-1">
+              Subproject: {seed.subprojectName}
+            </div>
+          </div>
+
+          {/* Slot picker. */}
+          <div>
+            <label className="text-xs font-medium text-neutral-700 block mb-1">
+              What's changing? <span className="text-red-600">*</span>
+            </label>
+            <select
+              value={slotKey}
+              onChange={(e) => {
+                setSlotKey(e.target.value as SlotKey | '')
+                setProposedValue('')
+              }}
+              className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+              autoFocus
+            >
+              <option value="">Pick a slot…</option>
+              {(Object.keys(SLOT_LABELS) as SlotKey[]).map((k) => (
+                <option key={k} value={k}>
+                  {SLOT_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {slotKey && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <div className="text-[10px] uppercase tracking-wider text-neutral-500">
+                  Original
+                </div>
+                <div className="px-2 py-1.5 bg-neutral-50 border border-neutral-200 rounded text-xs text-neutral-900">
+                  {origValueLabel || '(none)'}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="text-[10px] uppercase tracking-wider text-blue-600">
+                  Proposed
+                </div>
+                <ProposedSlotInput
+                  slotKey={slotKey}
+                  value={proposedValue}
+                  rateBook={rateBook}
+                  onChange={setProposedValue}
+                />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-medium text-neutral-700 block mb-1">
+              Title <span className="text-neutral-400">(auto-generated)</span>
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={derivedTitle || 'Pick a slot first'}
+              className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 text-xs text-neutral-700">
+            <input
+              type="checkbox"
+              checked={noPriceChange}
+              onChange={(e) => setNoPriceChange(e.target.checked)}
+            />
+            No price change (documentation-only)
+          </label>
+
+          {!noPriceChange && (
+            <div>
+              <label className="text-xs font-medium text-neutral-700 block mb-1">
+                Notes (optional)
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                placeholder="Context for the client or future-you…"
+                className="w-full border border-neutral-300 rounded px-2 py-1.5 text-xs"
+              />
+            </div>
+          )}
+
+          {!noPriceChange && (
+            <div className="bg-neutral-50 border border-neutral-200 rounded px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1">
+                Net change
+              </div>
+              {netChange === null ? (
+                <div className="text-xs text-neutral-500 italic">
+                  Pick a proposed value to see the price delta.
+                </div>
+              ) : (
+                <div
+                  className={`text-sm font-mono tabular-nums font-semibold ${
+                    netChange > 0
+                      ? 'text-emerald-700'
+                      : netChange < 0
+                        ? 'text-rose-700'
+                        : 'text-neutral-700'
+                  }`}
+                >
+                  {netChange > 0 ? '+' : ''}
+                  {fmtMoney(netChange)}
+                  <span className="ml-2 text-[10px] text-neutral-500 font-normal">
+                    via composer math
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-neutral-200 sticky bottom-0 bg-white">
+          <button
+            onClick={onClose}
+            className="text-xs px-3 py-1.5 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={!canSave}
+            className="text-xs px-3 py-1.5 rounded bg-neutral-900 text-white hover:bg-neutral-700 disabled:opacity-50"
+          >
+            {saving ? 'Creating…' : 'Create as draft'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Resolve a slot's current value into a human-readable label for the
+// modal's "Original" panel + auto-title.
+function slotValueLabel(
+  slotKey: SlotKey,
+  slots: ComposerSlots,
+  qty: number,
+  rb: ComposerRateBook,
+): string {
+  switch (slotKey) {
+    case 'qty':
+      return `${qty} LF`
+    case 'carcassMaterial':
+      return rb.carcassMaterials.find((m) => m.id === slots.carcassMaterial)?.name || '(none)'
+    case 'doorStyle':
+      return rb.doorStyles.find((d) => d.id === slots.doorStyle)?.name || '(none)'
+    case 'doorMaterial':
+      return rb.extMaterials.find((m) => m.id === slots.doorMaterial)?.name || '(none)'
+    case 'interiorFinish':
+      if (slots.interiorFinish === PREFINISHED_FINISH_ID) return 'Prefinished'
+      return rb.finishes.find((f) => f.id === slots.interiorFinish)?.name || '(none)'
+    case 'exteriorFinish':
+      return rb.finishes.find((f) => f.id === slots.exteriorFinish)?.name || '(none)'
+    case 'endPanels':
+      return `${slots.endPanels} each`
+    case 'fillers':
+      return `${slots.fillers} each`
+  }
+}
+
+function ProposedSlotInput({
+  slotKey,
+  value,
+  rateBook,
+  onChange,
+}: {
+  slotKey: SlotKey
+  value: string
+  rateBook: ComposerRateBook
+  onChange: (v: string) => void
+}) {
+  if (slotKey === 'qty') {
+    return (
+      <input
+        type="number"
+        min="0"
+        step="0.5"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="LF"
+        className="w-full border border-blue-200 bg-blue-50 rounded px-2 py-1.5 text-xs"
+        autoFocus
+      />
+    )
+  }
+  if (slotKey === 'endPanels' || slotKey === 'fillers') {
+    return (
+      <input
+        type="number"
+        min="0"
+        step="1"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="each"
+        className="w-full border border-blue-200 bg-blue-50 rounded px-2 py-1.5 text-xs"
+        autoFocus
+      />
+    )
+  }
+  // Dropdown slots.
+  let options: Array<{ id: string; name: string }> = []
+  if (slotKey === 'carcassMaterial') {
+    options = rateBook.carcassMaterials.map((m) => ({ id: m.id, name: m.name }))
+  } else if (slotKey === 'doorStyle') {
+    options = rateBook.doorStyles.map((d) => ({ id: d.id, name: d.name }))
+  } else if (slotKey === 'doorMaterial') {
+    options = rateBook.extMaterials.map((m) => ({ id: m.id, name: m.name }))
+  } else if (slotKey === 'interiorFinish') {
+    options = rateBook.finishes
+      .filter((f) => f.application === 'interior')
+      .map((f) => ({ id: f.id, name: f.name }))
+  } else if (slotKey === 'exteriorFinish') {
+    options = rateBook.finishes
+      .filter((f) => f.application === 'exterior')
+      .map((f) => ({ id: f.id, name: f.name }))
+  }
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full border border-blue-200 bg-blue-50 rounded px-2 py-1.5 text-xs"
+      autoFocus
+    >
+      <option value="">Pick…</option>
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.name}
+        </option>
+      ))}
+    </select>
   )
 }
