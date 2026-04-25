@@ -60,8 +60,24 @@ import {
 import { PRODUCTS, type ProductKey } from './products'
 import { recomputeProjectBidTotalForLine } from './project-totals'
 
-const EPS_HR = 0.01
-const EPS_DOLLARS = 0.5
+// EPS thresholds for "stale" detection. Real walkthrough recalibrations
+// move per-dept hours by half-hours and material by tens of dollars, so
+// these can be loose enough to swallow rounding / floating-point noise
+// without missing genuine drift.
+//
+//   EPS_HR      — 0.05 hr/dept (3 minutes) per unit. A real recalibration
+//                 typically shifts a dept by 0.5-2.0 hr. Sub-3-minute
+//                 drift on per-unit values is float noise from
+//                 (whole-line / qty) divides + walkthrough rounding.
+//   EPS_DOLLARS — $1 per unit material total. Material recalibrations
+//                 move sheet costs by $5+; sub-dollar drift is rounding.
+//
+// Bumped from 0.01 / 0.5 in the post-sale dogfood pass after Andrew saw
+// the staleness banner fire on freshly-composed lines that hadn't been
+// touched. Pre-bump thresholds were tight enough to surface every
+// computed-vs-stored float wobble as fake staleness.
+const EPS_HR = 0.05
+const EPS_DOLLARS = 1.0
 
 export interface StaleLineInfo {
   lineId: string
@@ -124,6 +140,31 @@ export function checkLineStaleness(
   const matDrift = Math.abs(storedMat - freshStorage.lumpCostOverride) > EPS_DOLLARS
 
   if (!hoursDrift && !matDrift) return null
+
+  // Diagnostic: log whenever drift trips so we can tell genuine
+  // recalibration drift from float-noise false positives. Printed at
+  // debug level so it doesn't pollute regular logs unless the user
+  // opens the browser console with Verbose enabled. Includes the
+  // exact stored vs fresh values + which dept(s) tripped the threshold
+  // so a screenshot is enough to diagnose.
+  if (typeof console !== 'undefined') {
+    console.debug('staleness', line.id, {
+      stored,
+      freshHoursByDept,
+      hoursDeltas: {
+        eng: stored.eng - freshHoursByDept.eng,
+        cnc: stored.cnc - freshHoursByDept.cnc,
+        assembly: stored.assembly - freshHoursByDept.assembly,
+        finish: stored.finish - freshHoursByDept.finish,
+      },
+      storedMat,
+      freshMat: freshStorage.lumpCostOverride,
+      matDelta: storedMat - freshStorage.lumpCostOverride,
+      hoursDrift,
+      matDrift,
+      eps: { EPS_HR, EPS_DOLLARS },
+    })
+  }
 
   return {
     lineId: line.id,
