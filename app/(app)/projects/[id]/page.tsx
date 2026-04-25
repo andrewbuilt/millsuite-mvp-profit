@@ -36,7 +36,7 @@
 //     proposal engine lands
 // ============================================================================
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -77,6 +77,11 @@ import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
 import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
 import { countFinishSpecsFromSlots } from '@/lib/composer'
+import {
+  loadSubprojectStatusMap,
+  type SubprojectStatus,
+} from '@/lib/subproject-status'
+import ClientPicker from '@/components/project/ClientPicker'
 
 // ── Types ──
 
@@ -85,6 +90,7 @@ import { isPresold, type ProjectStage } from '@/lib/types'
 interface Project {
   id: string
   name: string
+  client_id: string | null
   client_name: string | null
   delivery_address: string | null
   stage: ProjectStage
@@ -242,6 +248,11 @@ export default function ProjectCoverPage() {
   const marginTarget =
     project?.target_margin_pct ?? org?.profit_margin_pct ?? 35
   const [cards, setCards] = useState<SubCardData[]>([])
+  // Item 1 of post-sale-2: per-sub readiness map from
+  // subproject_approval_status. Drives the AttentionStrip banner +
+  // the subproject card badge so they don't lie about "approvals
+  // pending" once the pre-prod page already says "ready".
+  const [subStatusMap, setSubStatusMap] = useState<Record<string, SubprojectStatus>>({})
   // Phase 8: actuals come from time_entries and are surfaced next to every
   // estimated-hours number on this page.
   const [subActuals, setSubActuals] = useState<SubActualsMap>({})
@@ -268,162 +279,189 @@ export default function ProjectCoverPage() {
 
   // ── Load ──
 
-  useEffect(() => {
+  // Refactored to a useCallback so the page can reload itself on focus
+  // change. Pre-prod approve clicks happen on a different page; without a
+  // refresh hook the project page banner / subproject card would still
+  // read stale subproject_approval_status data when the user navigates
+  // back here. (Item 1 of the post-sale-2 cleanup.)
+  const reload = useCallback(async () => {
     if (!projectId || !org?.id) return
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      const [projRes, subsRes, rateBook, deptRes] = await Promise.all([
-        supabase.from('projects').select('*').eq('id', projectId).single(),
-        supabase
-          .from('subprojects')
-          .select('*')
-          .eq('project_id', projectId)
-          .order('sort_order'),
-        loadRateBook(org!.id),
-        supabase
-          .from('departments')
-          .select('id, name')
-          .eq('org_id', org!.id),
-      ])
-      if (cancelled) return
-      const subs = (subsRes.data || []) as Subproject[]
+    setLoading(true)
+    const [projRes, subsRes, rateBook, deptRes] = await Promise.all([
+      supabase.from('projects').select('*').eq('id', projectId).single(),
+      supabase
+        .from('subprojects')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('sort_order'),
+      loadRateBook(org!.id),
+      supabase
+        .from('departments')
+        .select('id, name')
+        .eq('org_id', org!.id),
+    ])
+    const subs = (subsRes.data || []) as Subproject[]
 
-      // Load estimate lines for every subproject in parallel, then roll each up.
-      const linesBySub = await Promise.all(
-        subs.map(async (sub) => {
-          const lines = await loadEstimateLines(sub.id)
-          return { subId: sub.id, lines }
-        })
+    // Load estimate lines for every subproject in parallel, then roll each up.
+    const linesBySub = await Promise.all(
+      subs.map(async (sub) => {
+        const lines = await loadEstimateLines(sub.id)
+        return { subId: sub.id, lines }
+      })
+    )
+
+    const cardData: SubCardData[] = subs.map((sub) => {
+      const subLines =
+        linesBySub.find((x) => x.subId === sub.id)?.lines || ([] as EstimateLine[])
+      const perSubCtx: PricingContext = {
+        shopRate,
+        consumableMarkupPct:
+          sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
+        // Subproject rollups always run at COST. Margin is applied
+        // exactly once at the project total below.
+        profitMarginPct: 0,
+      }
+      const rollup = computeSubprojectRollup(subLines, rateBook.itemsById, new Map(), perSubCtx)
+      // Finish-spec count comes from composer slots, not the legacy
+      // line.finish_specs column. Each composer line contributes:
+      //   +1 carcassMaterial set, +1 doorMaterial set, +1 exteriorFinish
+      //   set (excluding the Prefinished sentinel). Freeform / rate-book
+      //   lines contribute 0 — they're outside the composer spec model.
+      const finishSpecCount = subLines.reduce(
+        (s, l) => s + countFinishSpecsFromSlots(l.product_slots as any),
+        0
       )
-      if (cancelled) return
+      const installPrefill = {
+        guys: sub.install_guys,
+        days: sub.install_days,
+        complexityPct: sub.install_complexity_pct,
+      }
+      const installPrefillCost = computeInstallCost(installPrefill, shopRate)
+      const installPrefillHours = computeInstallHours(installPrefill)
+      return {
+        sub,
+        rollup,
+        lineCount: subLines.length,
+        finishSpecCount,
+        installPrefillCost,
+        installPrefillHours,
+      }
+    })
 
-      const cardData: SubCardData[] = subs.map((sub) => {
-        const subLines =
-          linesBySub.find((x) => x.subId === sub.id)?.lines || ([] as EstimateLine[])
-        const perSubCtx: PricingContext = {
-          shopRate,
-          consumableMarkupPct:
-            sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
-          // Subproject rollups always run at COST. Margin is applied
-          // exactly once at the project total below.
-          profitMarginPct: 0,
-        }
-        const rollup = computeSubprojectRollup(subLines, rateBook.itemsById, new Map(), perSubCtx)
-        // Finish-spec count comes from composer slots, not the legacy
-        // line.finish_specs column. Each composer line contributes:
-        //   +1 carcassMaterial set, +1 doorMaterial set, +1 exteriorFinish
-        //   set (excluding the Prefinished sentinel). Freeform / rate-book
-        //   lines contribute 0 — they're outside the composer spec model.
-        const finishSpecCount = subLines.reduce(
-          (s, l) => s + countFinishSpecsFromSlots(l.product_slots as any),
-          0
-        )
-        const installPrefill = {
-          guys: sub.install_guys,
-          days: sub.install_days,
-          complexityPct: sub.install_complexity_pct,
-        }
-        const installPrefillCost = computeInstallCost(installPrefill, shopRate)
-        const installPrefillHours = computeInstallHours(installPrefill)
+    // Phase 8 actuals: load time_entries totals per subproject + build a
+    // deptId → LaborDept key map so the per-dept drawer can show actuals
+    // alongside estimates. Matches by departments.name (case-insensitive)
+    // against the canonical LaborDept labels; custom depts stay unmapped.
+    const subIds = subs.map((s) => s.id)
+    const actuals = subIds.length > 0
+      ? await loadSubprojectActualHours(subIds)
+      : ({} as SubActualsMap)
+    const deptKeyMap: Record<string, LaborDept> = {}
+    for (const d of (deptRes.data || []) as Array<{ id: string; name: string }>) {
+      const n = (d.name || '').toLowerCase()
+      if (n.includes('eng')) deptKeyMap[d.id] = 'eng'
+      else if (n.includes('cnc')) deptKeyMap[d.id] = 'cnc'
+      else if (n.includes('assembly') || n.includes('bench')) deptKeyMap[d.id] = 'assembly'
+      else if (n.includes('finish') || n.includes('paint') || n.includes('sand')) deptKeyMap[d.id] = 'finish'
+      else if (n.includes('install')) deptKeyMap[d.id] = 'install'
+    }
+
+    // Item 1: subproject_approval_status for the live banner + card badges.
+    // Only matters post-sold (the view returns rows for every sub regardless,
+    // but pre-sold UI doesn't read it). Always loaded so the focus refresh
+    // path doesn't need to branch on stage.
+    const statuses = subIds.length > 0
+      ? await loadSubprojectStatusMap(subIds)
+      : ({} as Record<string, SubprojectStatus>)
+
+    // Historical: three most-recently-sold projects by the same org, other
+    // than this one. Good enough for "similar past projects" MVP.
+    const { data: histData } = await supabase
+      .from('projects')
+      .select('id, name, client_name, bid_total, updated_at, stage')
+      .eq('org_id', org!.id)
+      .eq('stage', 'sold')
+      .neq('id', projectId)
+      .order('updated_at', { ascending: false })
+      .limit(3)
+
+    // Milestones.
+    const ms = await loadMilestones(projectId)
+
+    setProject(projRes.data as Project)
+    setCards(cardData)
+    setSubActuals(actuals)
+    setDeptKeyById(deptKeyMap)
+    setSubStatusMap(statuses)
+    setMilestones(ms)
+    setMilestonesDirty(false)
+    setHistorical(
+      (histData || []).map((h: any) => ({
+        id: h.id,
+        name: h.name,
+        client: h.client_name,
+        meta: new Date(h.updated_at).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+        total: Number(h.bid_total) || 0,
+      }))
+    )
+
+    // Seed QB lines from the computed per-subproject totals. Descriptions
+    // start as "<Name> — custom millwork" (the mockup convention) but the
+    // user is expected to edit each one before sending.
+    // Pricing-architecture cleanup: subproject rollups are at COST now, so
+    // we apply the project-level markup here to surface customer-facing
+    // prices on each QB line. Install prefill cost gets marked up too.
+    const qbMarginPct =
+      (projRes.data as Project | null)?.target_margin_pct ??
+      org?.profit_margin_pct ??
+      35
+    const qbMarginFrac = Math.min(Math.max(qbMarginPct / 100, 0), 0.99)
+    const qbMarkup = qbMarginFrac > 0 ? 1 / (1 - qbMarginFrac) : 1
+    setQbLines(
+      cardData.map(({ sub, rollup, installPrefillCost }) => {
+        const price = Math.round((rollup.subtotal + installPrefillCost) * qbMarkup)
         return {
-          sub,
-          rollup,
-          lineCount: subLines.length,
-          finishSpecCount,
-          installPrefillCost,
-          installPrefillHours,
+          subId: sub.id,
+          desc: isInstallSub(sub)
+            ? 'Installation'
+            : `${sub.name} — custom millwork`,
+          spec: buildDefaultSpec(sub),
+          qty: '1',
+          rate: price,
+          amount: price,
         }
       })
+    )
 
-      // Phase 8 actuals: load time_entries totals per subproject + build a
-      // deptId → LaborDept key map so the per-dept drawer can show actuals
-      // alongside estimates. Matches by departments.name (case-insensitive)
-      // against the canonical LaborDept labels; custom depts stay unmapped.
-      const subIds = subs.map((s) => s.id)
-      const actuals = subIds.length > 0
-        ? await loadSubprojectActualHours(subIds)
-        : ({} as SubActualsMap)
-      const deptKeyMap: Record<string, LaborDept> = {}
-      for (const d of (deptRes.data || []) as Array<{ id: string; name: string }>) {
-        const n = (d.name || '').toLowerCase()
-        if (n.includes('eng')) deptKeyMap[d.id] = 'eng'
-        else if (n.includes('cnc')) deptKeyMap[d.id] = 'cnc'
-        else if (n.includes('assembly') || n.includes('bench')) deptKeyMap[d.id] = 'assembly'
-        else if (n.includes('finish') || n.includes('paint') || n.includes('sand')) deptKeyMap[d.id] = 'finish'
-        else if (n.includes('install')) deptKeyMap[d.id] = 'install'
-      }
+    setLoading(false)
+  }, [projectId, org?.id, org?.consumable_markup_pct, org?.profit_margin_pct, shopRate])
 
-      // Historical: three most-recently-sold projects by the same org, other
-      // than this one. Good enough for "similar past projects" MVP.
-      const { data: histData } = await supabase
-        .from('projects')
-        .select('id, name, client_name, bid_total, updated_at, stage')
-        .eq('org_id', org!.id)
-        .eq('stage', 'sold')
-        .neq('id', projectId)
-        .order('updated_at', { ascending: false })
-        .limit(3)
+  useEffect(() => {
+    reload()
+  }, [reload])
 
-      // Milestones.
-      const ms = await loadMilestones(projectId)
-
-      if (cancelled) return
-      setProject(projRes.data as Project)
-      setCards(cardData)
-      setSubActuals(actuals)
-      setDeptKeyById(deptKeyMap)
-      setMilestones(ms)
-      setMilestonesDirty(false)
-      setHistorical(
-        (histData || []).map((h: any) => ({
-          id: h.id,
-          name: h.name,
-          client: h.client_name,
-          meta: new Date(h.updated_at).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-          }),
-          total: Number(h.bid_total) || 0,
-        }))
-      )
-
-      // Seed QB lines from the computed per-subproject totals. Descriptions
-      // start as "<Name> — custom millwork" (the mockup convention) but the
-      // user is expected to edit each one before sending.
-      // Pricing-architecture cleanup: subproject rollups are at COST now, so
-      // we apply the project-level markup here to surface customer-facing
-      // prices on each QB line. Install prefill cost gets marked up too.
-      const qbMarginPct =
-        (projRes.data as Project | null)?.target_margin_pct ??
-        org?.profit_margin_pct ??
-        35
-      const qbMarginFrac = Math.min(Math.max(qbMarginPct / 100, 0), 0.99)
-      const qbMarkup = qbMarginFrac > 0 ? 1 / (1 - qbMarginFrac) : 1
-      setQbLines(
-        cardData.map(({ sub, rollup, installPrefillCost }) => {
-          const price = Math.round((rollup.subtotal + installPrefillCost) * qbMarkup)
-          return {
-            subId: sub.id,
-            desc: isInstallSub(sub)
-              ? 'Installation'
-              : `${sub.name} — custom millwork`,
-            spec: buildDefaultSpec(sub),
-            qty: '1',
-            rate: price,
-            amount: price,
-          }
-        })
-      )
-
-      setLoading(false)
+  // Item 1: refresh on tab focus / page-show. Pre-prod approve clicks
+  // happen on a different page; without this hook the banner + status
+  // pills would show stale "approvals pending" until a hard reload.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    function onFocus() {
+      reload()
     }
-    load()
+    function onVisibility() {
+      if (document.visibilityState === 'visible') reload()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
-      cancelled = true
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [projectId, org?.id, org?.consumable_markup_pct, org?.profit_margin_pct])
+  }, [reload])
 
   // ── Project-level rollup (summed across subs) ──
 
@@ -518,6 +556,31 @@ export default function ProjectCoverPage() {
     return acc
   }, [cards, subActuals, deptKeyById, marginTarget])
 
+  // Item 6 + dashboard fix: keep projects.bid_total in sync with the live
+  // priceTotal so every list surface that reads it (sales card, kanban,
+  // /projects card, dashboard report, pre-prod header) stays current. We
+  // only write when the diff is > $1 to avoid a churning update loop on
+  // floating-point rounding noise. Best-effort — failures here log and
+  // don't block render.
+  useEffect(() => {
+    if (!project) return
+    if (proj.priceTotal <= 0) return
+    const stored = Number(project.bid_total) || 0
+    if (Math.abs(stored - proj.priceTotal) <= 1) return
+    const next = Math.round(proj.priceTotal)
+    ;(async () => {
+      const { error } = await supabase
+        .from('projects')
+        .update({ bid_total: next, updated_at: new Date().toISOString() })
+        .eq('id', project.id)
+      if (error) {
+        console.error('bid_total writeback', error)
+        return
+      }
+      setProject((prev) => (prev ? { ...prev, bid_total: next } : prev))
+    })()
+  }, [project?.id, project?.bid_total, proj.priceTotal])
+
   // ── Actions ──
 
   // The actual sold commit lives on /projects/[id]/handoff, which walks the
@@ -611,7 +674,12 @@ export default function ProjectCoverPage() {
 
       {/* Stage-aware layer: 5-node stage strip + attention strip */}
       <StageStrip stage={project.stage} />
-      <AttentionStrip stage={project.stage} cards={cards} milestones={milestones} />
+      <AttentionStrip
+        stage={project.stage}
+        cards={cards}
+        milestones={milestones}
+        subStatusMap={subStatusMap}
+      />
 
       {!isPresold(project.stage) && <SoldLockBanner projectId={projectId} />}
       {org && org.shop_rate == null && <ShopRateNotConfiguredBanner />}
@@ -632,8 +700,18 @@ export default function ProjectCoverPage() {
               )}
               {cards.map(({ sub, rollup, lineCount, finishSpecCount, installPrefillCost }) => {
                 const install = isInstallSub(sub)
-                const statusReady = !!sub.ready_for_production
                 const subTotalWithInstall = rollup.total + installPrefillCost
+                // Item 3 of post-sale-2: badge depends on stage + live
+                // approval-status readiness, not the legacy
+                // subprojects.ready_for_production column.
+                //   pre-sold      → "DRAFT"
+                //   post-sold     → "X / Y approved" (or "READY" when both
+                //                   slots and drawings are 100%)
+                const status = subStatusMap[sub.id]
+                const presold = isPresold(project.stage)
+                const slotsApproved = status?.slots_approved ?? 0
+                const slotsTotal = status?.slots_total ?? 0
+                const allReady = !!status?.ready_for_scheduling
                 // Phase 8 actuals for this sub (may be undefined briefly on first paint).
                 const actual = subActuals[sub.id]
                 const actualHrs = (actual?.totalMinutes || 0) / 60
@@ -670,7 +748,13 @@ export default function ProjectCoverPage() {
                             sub.dimensions,
                           ]
                             .filter(Boolean)
-                            .join(' · ') || (
+                            .join(' · ') ||
+                          /* Item 2 of post-sale-2: only show the empty-state
+                              prompt when the sub genuinely has nothing — if
+                              there's at least one line, the scope row
+                              suppresses entirely so the dept-hour strip and
+                              line count carry the message. */
+                          lineCount > 0 ? null : (
                             <span className="italic text-[#9CA3AF]">
                               No scope yet — click to add lines
                             </span>
@@ -755,17 +839,25 @@ export default function ProjectCoverPage() {
                         )}
                         <div
                           className={`text-[10px] mt-1.5 uppercase tracking-wider font-medium flex items-center gap-1 justify-end ${
-                            statusReady ? 'text-[#059669]' : 'text-[#D97706]'
+                            presold
+                              ? 'text-[#9CA3AF]'
+                              : allReady
+                              ? 'text-[#059669]'
+                              : 'text-[#D97706]'
                           }`}
                         >
-                          {statusReady ? (
-                            <>
-                              <CheckCircle2 className="w-2.5 h-2.5" /> Complete
-                            </>
-                          ) : (
+                          {presold ? (
                             <>
                               <Circle className="w-2.5 h-2.5" /> Draft
                             </>
+                          ) : allReady ? (
+                            <>
+                              <CheckCircle2 className="w-2.5 h-2.5" /> Ready
+                            </>
+                          ) : (
+                            <span className="font-mono tabular-nums">
+                              {slotsApproved} / {slotsTotal} approved
+                            </span>
                           )}
                         </div>
                       </div>
@@ -916,6 +1008,32 @@ export default function ProjectCoverPage() {
                 dirty={milestonesDirty}
                 saving={milestonesSaving}
               />
+
+              {/* Item 4 of post-sale-2: Client picker. Pre-sold = full
+                  picker + add. Post-sold = read-only display so the
+                  estimate's client locks alongside everything else. */}
+              {org?.id && (
+                <div className="mt-4">
+                  <ClientPicker
+                    projectId={projectId}
+                    orgId={org.id}
+                    clientId={project.client_id}
+                    clientName={project.client_name}
+                    readOnly={!isPresold(project.stage)}
+                    onChange={(next) =>
+                      setProject((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              client_id: next?.id ?? null,
+                              client_name: next?.name ?? null,
+                            }
+                          : prev,
+                      )
+                    }
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1915,10 +2033,16 @@ function AttentionStrip({
   stage,
   cards,
   milestones,
+  subStatusMap,
 }: {
   stage: ProjectStage
   cards: SubCardData[]
   milestones: ProjectMilestone[]
+  /** subproject_approval_status rows keyed by subproject_id — the
+   *  authoritative readiness signal for the post-sold banner. Empty
+   *  when not yet loaded; the banner falls back to a pending message
+   *  until the first load completes. */
+  subStatusMap: Record<string, SubprojectStatus>
 }) {
   // Per-stage issues that need attention. Short, actionable strings.
   const items: string[] = []
@@ -1938,7 +2062,24 @@ function AttentionStrip({
       items.push(`Milestones total ${pct.toFixed(0)}% — should sum to 100% before sold`)
     }
   } else if (cover === 'sold') {
-    items.push('Pre-production approvals pending — finish drawings + selections to advance to Production')
+    // Item 1: read live readiness from subproject_approval_status. Banner
+    // shows "approvals pending" only when at least one sub isn't ready;
+    // suppresses entirely when every sub reads ready_for_scheduling.
+    const subIds = cards.map((c) => c.sub.id)
+    const statuses = subIds.map((id) => subStatusMap[id]).filter(Boolean)
+    const ready = statuses.filter((s) => s.ready_for_scheduling).length
+    const total = subIds.length
+    if (total > 0 && statuses.length === total && ready === total) {
+      // All ready — no banner. The next stage transition (Mark in
+      // production) lives in the StageActionBar.
+    } else {
+      const remaining = Math.max(0, total - ready)
+      items.push(
+        `Pre-production approvals pending · ${ready} of ${total} subproject${
+          total === 1 ? '' : 's'
+        } ready · ${remaining} blocked on specs or drawings`,
+      )
+    }
   } else if (cover === 'production') {
     items.push('Log time against this project from /time — shop hours feed the actual vs. estimate rollup')
   } else if (cover === 'installed') {
