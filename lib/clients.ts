@@ -51,6 +51,115 @@ export async function loadClients(orgId: string): Promise<Client[]> {
   return (data || []) as Client[]
 }
 
+// ── Built-os-style aliases ──
+// Andrew's CRM brief asks for the same call surface the built-os
+// codebase exposes (getClients / getClient / createNewClient /
+// getContacts / createNewContact). Existing names (loadClients /
+// createClient / loadClientDetail / …) stay too — they're already
+// referenced by the project-detail Client picker (#48) and by
+// loadClientsWithMeta. The two surfaces share storage, just differ in
+// how they shape the read.
+
+/** Built-os parity. Same behavior as loadClients(orgId). */
+export async function getClients(orgId: string): Promise<Client[]> {
+  return loadClients(orgId)
+}
+
+/** Single-client read by id. Throws when the row doesn't exist so the
+ *  detail page can surface a not-found state from the catch path. */
+export async function getClient(id: string): Promise<Client> {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (error) throw error
+  if (!data) throw new Error('Client not found')
+  return data as Client
+}
+
+/** Built-os style: insert a partial row. Returns the inserted Client. */
+export async function createNewClient(input: {
+  org_id: string
+  name: string
+  type?: 'B2B' | 'D2C'
+  phone?: string
+  email?: string
+  address?: string
+  notes?: string
+}): Promise<Client> {
+  const cleaned = {
+    org_id: input.org_id,
+    name: input.name.trim(),
+    type: input.type ?? 'D2C',
+    phone: (input.phone || '').trim() || null,
+    email: (input.email || '').trim() || null,
+    address: (input.address || '').trim() || null,
+    notes: (input.notes || '').trim() || null,
+  }
+  if (!cleaned.name) throw new Error('Client name is required')
+  const { data, error } = await supabase
+    .from('clients')
+    .insert(cleaned)
+    .select()
+    .single()
+  if (error) throw error
+  if (!data) throw new Error('Failed to create client')
+  return data as Client
+}
+
+/** Built-os parity: list contacts, optionally filtered by client. */
+export async function getContacts(clientId?: string): Promise<Contact[]> {
+  let query = supabase.from('contacts').select('*')
+  if (clientId) query = query.eq('client_id', clientId)
+  const { data, error } = await query.order('name', { ascending: true })
+  if (error) {
+    console.error('getContacts', error)
+    return []
+  }
+  return (data || []) as Contact[]
+}
+
+/** Built-os parity: insert a contact. Required: client_id, org_id, name.
+ *  Promotes is_primary exclusively (demotes peers first) since
+ *  migration 001 doesn't constrain it server-side. */
+export async function createNewContact(input: {
+  client_id: string
+  org_id: string
+  name: string
+  email?: string
+  phone?: string
+  role?: string
+  is_primary?: boolean
+}): Promise<Contact> {
+  const cleaned = {
+    client_id: input.client_id,
+    org_id: input.org_id,
+    name: input.name.trim(),
+    email: (input.email || '').trim() || null,
+    phone: (input.phone || '').trim() || null,
+    role: (input.role || '').trim() || null,
+    is_primary: !!input.is_primary,
+  }
+  if (!cleaned.name) throw new Error('Contact name is required')
+
+  if (cleaned.is_primary) {
+    await supabase
+      .from('contacts')
+      .update({ is_primary: false })
+      .eq('client_id', cleaned.client_id)
+  }
+
+  const { data, error } = await supabase
+    .from('contacts')
+    .insert([cleaned])
+    .select()
+    .single()
+  if (error) throw error
+  if (!data) throw new Error('Failed to create contact')
+  return data as Contact
+}
+
 /**
  * Insert a new client and return the row. Required: name. Everything else
  * is optional. Trims string fields and converts empty strings to null so
