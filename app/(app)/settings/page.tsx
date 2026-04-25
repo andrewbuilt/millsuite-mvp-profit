@@ -1,59 +1,94 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Nav from '@/components/nav'
-import { computeShopRate } from '@/lib/pricing'
-import { Copy, Check, ArrowRight, Sparkles } from 'lucide-react'
+import { Copy, Check, Sparkles, Trash2, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { PLAN_LABELS, PLAN_SEAT_PRICE, PLAN_SEAT_MINIMUM, type Plan } from '@/lib/feature-flags'
+import {
+  computeBillableHoursYear,
+  computeDerivedShopRate,
+  countBillable,
+  defaultBillableHoursInputs,
+  emptyOverheadInputs,
+  loadShopRateSetup,
+  makeTeamMember,
+  saveShopRate,
+  saveShopRateInputs,
+  sumOverheadAnnual,
+  sumTeamAnnualComp,
+  type BillableHoursInputs,
+  type OverheadInput,
+  type OverheadInputs,
+  type Period,
+  type TeamMember,
+} from '@/lib/shop-rate-setup'
 
-// ── Field config for overhead inputs ──
+const inputClass =
+  'w-32 text-right px-3 py-2 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors'
 
-const OVERHEAD_FIELDS: { key: string; label: string }[] = [
-  { key: 'monthly_rent', label: 'Rent / Mortgage' },
-  { key: 'monthly_utilities', label: 'Utilities' },
-  { key: 'monthly_insurance', label: 'Insurance' },
-  { key: 'monthly_equipment', label: 'Equipment / Leases' },
-  { key: 'monthly_misc_overhead', label: 'Other Overhead' },
-]
+// Maps the legacy shop_rate_settings row (if present and the org's
+// overhead_inputs is still null) into the new jsonb shape so users who
+// configured the old way don't lose their numbers.
+function backfillFromLegacy(legacy: any): {
+  overhead: OverheadInputs
+  team: TeamMember[]
+  billable: BillableHoursInputs
+} {
+  const overhead: OverheadInputs = {}
+  const fields: Array<[string, string]> = [
+    ['monthly_rent', 'Rent'],
+    ['monthly_utilities', 'Utilities'],
+    ['monthly_insurance', 'Insurance'],
+    ['monthly_equipment', 'Equipment / Leases'],
+    ['monthly_misc_overhead', 'Other'],
+  ]
+  for (const [col, label] of fields) {
+    const v = Number(legacy?.[col]) || 0
+    if (v > 0) overhead[label] = { amount: v, period: 'monthly' }
+  }
 
-const inputClass = "w-32 text-right px-3 py-2 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors"
+  const team: TeamMember[] = []
+  const ownerSalary = Number(legacy?.owner_salary) || 0
+  if (ownerSalary > 0) {
+    team.push(
+      makeTeamMember('Owner', ownerSalary, legacy?.owner_billable !== false),
+    )
+  }
 
-// ── Team member type (from users table) ──
+  // Best-effort billable hours mapping. Legacy stored
+  // working_days_per_month + hours_per_day; new model is per-week + weeks/yr.
+  // Assume a 5-day week and 48 working weeks unless legacy says otherwise.
+  const hoursPerDay = Number(legacy?.hours_per_day) || 8
+  const daysPerMonth = Number(legacy?.working_days_per_month) || 21
+  const weeksPerYear = Math.max(1, Math.round((daysPerMonth * 12) / 5))
+  const utilization = legacy?.target_profit_pct
+    ? Math.max(0, 100 - Number(legacy.target_profit_pct))
+    : 70
+  const billable: BillableHoursInputs = {
+    hrs_per_week: hoursPerDay * 5,
+    weeks_per_year: weeksPerYear,
+    utilization_pct: utilization,
+  }
 
-interface TeamMember {
-  id: string
-  name: string
-  hourly_cost: number | null
-  is_billable: boolean
+  return { overhead, team, billable }
 }
-
-// ── Page ──
 
 export default function SettingsPage() {
   const { org, refreshOrg } = useAuth()
 
-  const [rawValues, setRawValues] = useState<Record<string, string>>({
-    monthly_rent: '',
-    monthly_utilities: '',
-    monthly_insurance: '',
-    monthly_equipment: '',
-    monthly_misc_overhead: '',
-    owner_salary: '',
-    target_profit_pct: '0',
-    working_days_per_month: '21',
-    hours_per_day: '8',
-  })
+  const [overhead, setOverhead] = useState<OverheadInputs>(emptyOverheadInputs())
+  const [team, setTeam] = useState<TeamMember[]>([])
+  const [billable, setBillable] = useState<BillableHoursInputs>(
+    defaultBillableHoursInputs(),
+  )
 
-  const [ownerBillable, setOwnerBillable] = useState(true)
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [seatCount, setSeatCount] = useState(1)
   const [consumableMarkup, setConsumableMarkup] = useState('15')
   const [profitMargin, setProfitMargin] = useState('35')
 
-  // Business Info fields
   const [businessName, setBusinessName] = useState('')
   const [businessAddress, setBusinessAddress] = useState('')
   const [businessCity, setBusinessCity] = useState('')
@@ -63,170 +98,226 @@ export default function SettingsPage() {
   const [businessEmail, setBusinessEmail] = useState('')
 
   const [copied, setCopied] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [savingRate, setSavingRate] = useState(false)
+  const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
   const [loaded, setLoaded] = useState(false)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // ── Load from Supabase on mount ──
-
+  // ── Load ──
   useEffect(() => {
     if (!org?.id) return
-    async function load() {
-      // Load settings and team separately to avoid .single() killing both
-      const { data } = await supabase
-        .from('shop_rate_settings')
-        .select('*')
-        .eq('org_id', org!.id)
-        .maybeSingle()
+    let cancelled = false
+    ;(async () => {
+      const setup = await loadShopRateSetup(org.id)
+      if (cancelled) return
 
-      const { data: users, error: usersError } = await supabase
-        .from('users')
-        .select('id, name, role, hourly_cost, is_billable')
-        .eq('org_id', org!.id)
-        .order('name')
-
-      if (usersError) console.warn('Users query error:', usersError.message)
-
-      if (data) {
-        setRawValues({
-          monthly_rent: data.monthly_rent?.toString() || '',
-          monthly_utilities: data.monthly_utilities?.toString() || '',
-          monthly_insurance: data.monthly_insurance?.toString() || '',
-          monthly_equipment: data.monthly_equipment?.toString() || '',
-          monthly_misc_overhead: data.monthly_misc_overhead?.toString() || '',
-          owner_salary: data.owner_salary?.toString() || '',
-          target_profit_pct: data.target_profit_pct?.toString() || '0',
-          working_days_per_month: data.working_days_per_month?.toString() || '21',
-          hours_per_day: data.hours_per_day?.toString() || '8',
-        })
-        if (data.owner_billable !== undefined) setOwnerBillable(data.owner_billable)
+      // If the walkthrough has never run AND a legacy shop_rate_settings
+      // row exists, backfill once into the new jsonb columns so the
+      // user's existing numbers carry over.
+      const isFresh =
+        Object.keys(setup.overhead || {}).length === 0 &&
+        (setup.team || []).length === 0
+      if (isFresh) {
+        const { data: legacy } = await supabase
+          .from('shop_rate_settings')
+          .select('*')
+          .eq('org_id', org.id)
+          .maybeSingle()
+        if (!cancelled && legacy) {
+          const backfilled = backfillFromLegacy(legacy)
+          setOverhead(backfilled.overhead)
+          setTeam(backfilled.team)
+          setBillable(backfilled.billable)
+          // Persist the backfill so the next load reads from jsonb only.
+          await saveShopRateInputs(org.id, backfilled)
+        } else {
+          setOverhead(setup.overhead)
+          setTeam(setup.team)
+          setBillable(setup.billable)
+        }
+      } else {
+        setOverhead(setup.overhead)
+        setTeam(setup.team)
+        setBillable(setup.billable)
       }
 
-      // Filter out the owner (they have their own salary field)
-      const teamOnly = (users || []).filter((u: any) => u.role !== 'owner')
-      setTeamMembers(teamOnly)
+      // Plan / business / project defaults are still on orgs columns.
+      const { count: userCount } = await supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', org.id)
+      if (!cancelled) setSeatCount(userCount || 1)
 
-      // Total seat count = all users (owner + team). Every user is a seat.
-      setSeatCount((users || []).length || 1)
-
-      // Load org defaults for consumable markup & profit margin
-      setConsumableMarkup(org!.consumable_markup_pct?.toString() || '15')
-      setProfitMargin(org!.profit_margin_pct?.toString() || '35')
-
-      // Load business info from org
-      setBusinessName(org!.name || '')
-      setBusinessAddress((org as any).business_address || '')
-      setBusinessCity((org as any).business_city || '')
-      setBusinessState((org as any).business_state || '')
-      setBusinessZip((org as any).business_zip || '')
-      setBusinessPhone((org as any).business_phone || '')
-      setBusinessEmail((org as any).business_email || '')
-
-      setLoaded(true)
+      if (!cancelled) {
+        setConsumableMarkup(org.consumable_markup_pct?.toString() || '15')
+        setProfitMargin(org.profit_margin_pct?.toString() || '35')
+        setBusinessName(org.name || '')
+        setBusinessAddress((org as any).business_address || '')
+        setBusinessCity((org as any).business_city || '')
+        setBusinessState((org as any).business_state || '')
+        setBusinessZip((org as any).business_zip || '')
+        setBusinessPhone((org as any).business_phone || '')
+        setBusinessEmail((org as any).business_email || '')
+        setLoaded(true)
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-    load()
   }, [org?.id])
 
-  function getNum(key: string): number {
-    return parseFloat(rawValues[key]) || 0
-  }
+  // ── Derived shop rate ──
+  const derivedRate = useMemo(
+    () => computeDerivedShopRate(overhead, team, billable),
+    [overhead, team, billable],
+  )
+  const annualOverhead = useMemo(() => sumOverheadAnnual(overhead), [overhead])
+  const annualTeam = useMemo(() => sumTeamAnnualComp(team), [team])
+  const billablePeople = useMemo(() => countBillable(team), [team])
+  const billableHoursYear = useMemo(
+    () => computeBillableHoursYear(billable, billablePeople),
+    [billable, billablePeople],
+  )
 
-  function handleChange(key: string, value: string) {
-    setRawValues(prev => ({ ...prev, [key]: value.replace(/[^0-9.]/g, '') }))
-  }
-
-  // ── Computed from team members (users table) ──
-
-  const totalAnnualPayroll = teamMembers.reduce((sum, m) => sum + (m.hourly_cost || 0), 0)
-  const totalMonthlyPayroll = totalAnnualPayroll / 12
-  const billableMembers = teamMembers.filter(m => m.is_billable !== false)
-  const nonBillableMembers = teamMembers.filter(m => m.is_billable === false)
-  const billableCount = billableMembers.length + (ownerBillable ? 1 : 0)
-
-  const result = computeShopRate({
-    monthlyRent: getNum('monthly_rent'),
-    monthlyUtilities: getNum('monthly_utilities'),
-    monthlyInsurance: getNum('monthly_insurance'),
-    monthlyEquipment: getNum('monthly_equipment'),
-    monthlyMisc: getNum('monthly_misc_overhead'),
-    ownerSalary: getNum('owner_salary'),
-    totalPayroll: totalMonthlyPayroll,
-    targetProfitPct: getNum('target_profit_pct'),
-    workingDaysPerMonth: getNum('working_days_per_month'),
-    hoursPerDay: getNum('hours_per_day'),
-  })
-
-  // Override production hours to account for billable headcount
-  const hoursPerMonth = getNum('working_days_per_month') * getNum('hours_per_day')
-  const billableHoursPerMonth = hoursPerMonth * billableCount
-  const totalMonthlyCost = result.monthlyOverhead + getNum('owner_salary') + totalMonthlyPayroll
-  const costPerHour = billableHoursPerMonth > 0 ? totalMonthlyCost / billableHoursPerMonth : 0
-  const bufferPct = getNum('target_profit_pct')
-  const shopRate = costPerHour * (1 + bufferPct / 100)
-
-  // ── Auto-save with debounce ──
-
-  const doSave = useCallback(async () => {
+  // ── Persist on change ──
+  // Each input edit syncs the in-memory shape to its jsonb column with a
+  // small debounce. Keeps the walkthrough's data and the Settings page
+  // perfectly aligned.
+  useEffect(() => {
     if (!org?.id || !loaded) return
-
-    const settingsRow = {
-      org_id: org.id,
-      monthly_rent: parseFloat(rawValues.monthly_rent) || 0,
-      monthly_utilities: parseFloat(rawValues.monthly_utilities) || 0,
-      monthly_insurance: parseFloat(rawValues.monthly_insurance) || 0,
-      monthly_equipment: parseFloat(rawValues.monthly_equipment) || 0,
-      monthly_misc_overhead: parseFloat(rawValues.monthly_misc_overhead) || 0,
-      owner_salary: parseFloat(rawValues.owner_salary) || 0,
-      total_payroll: totalMonthlyPayroll * 12,
-      target_profit_pct: parseFloat(rawValues.target_profit_pct) || 0,
-      working_days_per_month: parseFloat(rawValues.working_days_per_month) || 21,
-      hours_per_day: parseFloat(rawValues.hours_per_day) || 8,
-      computed_shop_rate: shopRate,
-      owner_billable: ownerBillable,
-      employees_json: JSON.stringify([]), // deprecated: team managed via users table
-    }
-
-    const { error: settingsError } = await supabase
-      .from('shop_rate_settings')
-      .upsert(settingsRow, { onConflict: 'org_id' })
-
-    if (settingsError) {
-      console.error('Settings save error:', settingsError)
-      // Fallback: try insert if upsert fails
-      if (settingsError.code === '23505' || settingsError.message?.includes('duplicate')) {
-        await supabase.from('shop_rate_settings').update(settingsRow).eq('org_id', org.id)
-      }
-    }
-
-    const { error: orgError } = await supabase
-      .from('orgs')
-      .update({
-        shop_rate: Math.round(shopRate * 100) / 100,
-        consumable_markup_pct: parseFloat(consumableMarkup) || 0,
-        profit_margin_pct: parseFloat(profitMargin) || 0,
-        name: businessName.trim() || undefined,
-        business_address: businessAddress.trim(),
-        business_city: businessCity.trim(),
-        business_state: businessState.trim(),
-        business_zip: businessZip.trim(),
-        business_phone: businessPhone.trim(),
-        business_email: businessEmail.trim(),
-      })
-      .eq('id', org.id)
-
-    if (orgError) console.error('Org save error:', orgError)
-
-    await refreshOrg()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }, [org?.id, loaded, rawValues, shopRate, ownerBillable, teamMembers, consumableMarkup, profitMargin, businessName, businessAddress, businessCity, businessState, businessZip, businessPhone, businessEmail])
+    const t = setTimeout(() => {
+      saveShopRateInputs(org.id, { overhead }).catch((e) =>
+        console.warn('overhead save', e),
+      )
+    }, 600)
+    return () => clearTimeout(t)
+  }, [overhead, org?.id, loaded])
 
   useEffect(() => {
-    if (!loaded) return
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => { doSave() }, 1000)
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [doSave])
+    if (!org?.id || !loaded) return
+    const t = setTimeout(() => {
+      saveShopRateInputs(org.id, { team }).catch((e) =>
+        console.warn('team save', e),
+      )
+    }, 600)
+    return () => clearTimeout(t)
+  }, [team, org?.id, loaded])
+
+  useEffect(() => {
+    if (!org?.id || !loaded) return
+    const t = setTimeout(() => {
+      saveShopRateInputs(org.id, { billable }).catch((e) =>
+        console.warn('billable save', e),
+      )
+    }, 600)
+    return () => clearTimeout(t)
+  }, [billable, org?.id, loaded])
+
+  // Project defaults + business info + plan markup pcts go on orgs cols.
+  useEffect(() => {
+    if (!org?.id || !loaded) return
+    const t = setTimeout(async () => {
+      const { error } = await supabase
+        .from('orgs')
+        .update({
+          consumable_markup_pct: parseFloat(consumableMarkup) || 0,
+          profit_margin_pct: parseFloat(profitMargin) || 0,
+          name: businessName.trim() || undefined,
+          business_address: businessAddress.trim(),
+          business_city: businessCity.trim(),
+          business_state: businessState.trim(),
+          business_zip: businessZip.trim(),
+          business_phone: businessPhone.trim(),
+          business_email: businessEmail.trim(),
+        })
+        .eq('id', org.id)
+      if (error) console.warn('org save', error)
+      else await refreshOrg()
+    }, 800)
+    return () => clearTimeout(t)
+  }, [
+    consumableMarkup,
+    profitMargin,
+    businessName,
+    businessAddress,
+    businessCity,
+    businessState,
+    businessZip,
+    businessPhone,
+    businessEmail,
+    org?.id,
+    loaded,
+    refreshOrg,
+  ])
+
+  // ── Mutators for the lists ──
+  function updateOverheadRow(category: string, patch: Partial<OverheadInput>) {
+    setOverhead((prev) => ({
+      ...prev,
+      [category]: { ...prev[category], ...patch },
+    }))
+  }
+  function renameOverheadRow(oldCat: string, newCat: string) {
+    if (!newCat || newCat === oldCat || overhead[newCat]) return
+    setOverhead((prev) => {
+      const next: OverheadInputs = {}
+      for (const [k, v] of Object.entries(prev)) {
+        next[k === oldCat ? newCat : k] = v
+      }
+      return next
+    })
+  }
+  function removeOverheadRow(category: string) {
+    setOverhead((prev) => {
+      const next = { ...prev }
+      delete next[category]
+      return next
+    })
+  }
+  function addOverheadRow() {
+    let label = 'New category'
+    let i = 1
+    while (overhead[label]) {
+      label = `New category ${++i}`
+    }
+    setOverhead((prev) => ({
+      ...prev,
+      [label]: { amount: 0, period: 'monthly' },
+    }))
+  }
+
+  function addTeamMember() {
+    setTeam((prev) => [...prev, makeTeamMember('', 0, true)])
+  }
+  function updateTeamMember(id: string, patch: Partial<TeamMember>) {
+    setTeam((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)))
+  }
+  function removeTeamMember(id: string) {
+    setTeam((prev) => prev.filter((m) => m.id !== id))
+  }
+
+  // ── Save derived rate to orgs.shop_rate ──
+  async function saveDerivedRate() {
+    if (!org?.id) return
+    setSavingRate(true)
+    try {
+      await saveShopRate(org.id, Math.round(derivedRate * 100) / 100)
+      await refreshOrg()
+      setRateSavedAt(Date.now())
+    } catch (e: any) {
+      console.error('saveShopRate', e)
+    } finally {
+      setSavingRate(false)
+    }
+  }
+
+  // ── Render ──
+  const fmtMoney = (n: number) =>
+    Number.isFinite(n) && n !== 0 ? '$' + Math.round(n).toLocaleString() : '$0'
+  const fmtRate = (n: number) =>
+    Number.isFinite(n) && n > 0 ? '$' + n.toFixed(2) + '/hr' : '$0/hr'
+  const currentRate = Number(org?.shop_rate) || 0
+  const rateDelta = Math.abs(derivedRate - currentRate)
+  const rateOutOfSync = currentRate > 0 && rateDelta > 0.005
 
   return (
     <>
@@ -234,7 +325,6 @@ export default function SettingsPage() {
       <div className="max-w-3xl mx-auto px-6 py-8">
         <div className="flex items-center gap-3 mb-8">
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          {saved && <span className="text-xs text-[#059669] font-medium animate-pulse">Saved</span>}
         </div>
 
         {/* Plan & Billing */}
@@ -295,7 +385,6 @@ export default function SettingsPage() {
                 </a>
               </div>
 
-              {/* Current plan hero */}
               <div className="px-6 py-5 bg-[#F9FAFB] border-b border-[#E5E7EB] flex items-center justify-between">
                 <div>
                   <div className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider mb-1">Current Plan</div>
@@ -316,7 +405,6 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Tier comparison */}
               <div className="px-6 py-4">
                 <div className="grid grid-cols-3 gap-3">
                   {tiers.map((t, i) => {
@@ -386,181 +474,280 @@ export default function SettingsPage() {
           )
         })()}
 
-        {/* Shop Rate Calculator */}
-        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
+        {/* Shop rate setup — same model as the welcome walkthrough. */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-[#E5E7EB]">
-            <h2 className="text-base font-semibold">Shop Rate Calculator</h2>
-            <p className="text-xs text-[#9CA3AF] mt-0.5">Your cost per production hour — this drives all project pricing</p>
+            <h2 className="text-base font-semibold">Shop rate setup</h2>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">
+              Overhead, team comp, and billable hours. Edits autosave; click
+              the save button when the derived rate looks right.
+            </p>
           </div>
 
-          {/* Result Hero */}
-          <div className="px-6 py-8 bg-[#F9FAFB] border-b border-[#E5E7EB] text-center">
-            <div className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider mb-2">Your Shop Rate</div>
-            <div className="text-5xl font-mono tabular-nums font-semibold text-[#111]">
-              ${shopRate.toFixed(2)}
-              <span className="text-lg text-[#9CA3AF] font-normal">/hr</span>
-            </div>
-            <div className="flex items-center justify-center gap-6 mt-4 text-xs text-[#6B7280]">
-              <span>Cost: ${costPerHour.toFixed(2)}/hr</span>
-              {bufferPct > 0 && <><span>·</span><span>Buffer: ${(shopRate - costPerHour).toFixed(2)}/hr</span></>}
-              <span>·</span>
-              <span>{billableCount} billable × {hoursPerMonth} hrs = {billableHoursPerMonth} hrs/mo</span>
-            </div>
-          </div>
-
-          <div className="px-6 py-4">
-            {/* Fixed Costs */}
-            <div className="mb-6">
-              <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Monthly Fixed Costs</h3>
-              {OVERHEAD_FIELDS.map(f => (
-                <div key={f.key} className="flex items-center justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
-                  <label className="text-sm text-[#6B7280]">{f.label}</label>
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm text-[#9CA3AF]">$</span>
-                    <input type="text" inputMode="decimal" value={rawValues[f.key]} onChange={e => handleChange(f.key, e.target.value)} className={inputClass} placeholder="0" />
-                  </div>
+          {/* Result hero */}
+          <div className="px-6 py-6 bg-[#F9FAFB] border-b border-[#E5E7EB]">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <div className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider mb-1">
+                  Derived shop rate
                 </div>
+                <div className="text-4xl font-mono tabular-nums font-semibold text-[#111] leading-none">
+                  {fmtRate(derivedRate)}
+                </div>
+                <div className="text-[11.5px] text-[#6B7280] font-mono mt-2">
+                  ({fmtMoney(annualTeam)} payroll + {fmtMoney(annualOverhead)} overhead)
+                  <br />÷ {Math.round(billableHoursYear).toLocaleString()} billable hr / yr
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider mb-1">
+                  Saved as your shop rate
+                </div>
+                <div className="text-2xl font-mono tabular-nums font-semibold text-[#374151] leading-none">
+                  {currentRate > 0 ? fmtRate(currentRate) : '—'}
+                </div>
+                <button
+                  type="button"
+                  onClick={saveDerivedRate}
+                  disabled={savingRate || derivedRate <= 0}
+                  className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-[#2563EB] text-white text-xs font-semibold rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 transition-colors"
+                >
+                  {savingRate
+                    ? 'Saving…'
+                    : rateOutOfSync
+                      ? `Update to ${fmtRate(derivedRate)}`
+                      : 'Save as my shop rate'}
+                </button>
+                {rateSavedAt && Date.now() - rateSavedAt < 4000 && (
+                  <div className="text-[10.5px] text-[#059669] font-medium mt-1.5">Saved.</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Overhead */}
+          <div className="px-6 py-4 border-b border-[#F3F4F6]">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">
+                Overhead
+              </h3>
+              <button
+                type="button"
+                onClick={addOverheadRow}
+                className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium inline-flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> Add category
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              {Object.entries(overhead).map(([cat, input]) => (
+                <OverheadRow
+                  key={cat}
+                  category={cat}
+                  input={input}
+                  onAmount={(amt) => updateOverheadRow(cat, { amount: amt })}
+                  onPeriod={(p) => updateOverheadRow(cat, { period: p })}
+                  onRename={(next) => renameOverheadRow(cat, next)}
+                  onRemove={() => removeOverheadRow(cat)}
+                />
               ))}
-              <div className="flex items-center justify-between py-3 border-t border-[#E5E7EB] mt-2">
-                <span className="text-sm font-medium text-[#111]">Total Overhead</span>
-                <span className="text-sm font-mono tabular-nums font-semibold">${result.monthlyOverhead.toLocaleString()}/mo</span>
-              </div>
-            </div>
-
-            {/* Owner */}
-            <div className="mb-6">
-              <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Owner</h3>
-              <div className="flex items-center justify-between py-3">
-                <label className="text-sm text-[#6B7280]">Owner Annual Salary</label>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm text-[#9CA3AF]">$</span>
-                    <input type="text" inputMode="decimal" value={rawValues.owner_salary} onChange={e => handleChange('owner_salary', e.target.value)} className={inputClass} placeholder="0" />
-                    <span className="text-xs text-[#9CA3AF]">/yr</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setOwnerBillable(!ownerBillable)}
-                      className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                        ownerBillable ? 'bg-[#2563EB] border-[#2563EB]' : 'border-[#D1D5DB] hover:border-[#9CA3AF]'
-                      }`}
-                    >
-                      {ownerBillable && (
-                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                      )}
-                    </button>
-                    <span className="text-xs text-[#9CA3AF]">Billable</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Team Rollup (managed on Team page) */}
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">Team</h3>
-                <Link href="/team" className="flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors">
-                  Manage Team <ArrowRight className="w-3 h-3" />
-                </Link>
-              </div>
-
-              {teamMembers.length === 0 ? (
-                <div className="text-xs text-[#9CA3AF] italic py-4 text-center border border-dashed border-[#E5E7EB] rounded-xl">
-                  No team members yet — <Link href="/team" className="text-[#2563EB] hover:underline">add them on the Team page</Link>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {billableMembers.length > 0 && (
-                    <div className="flex items-center justify-between bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl px-4 py-3">
-                      <div>
-                        <span className="text-sm font-medium text-[#059669]">{billableMembers.length} billable</span>
-                        {ownerBillable && <span className="text-xs text-[#059669] ml-1">+ owner</span>}
-                      </div>
-                      <span className="text-sm font-mono tabular-nums font-medium text-[#059669]">
-                        ${Math.round(billableMembers.reduce((s, m) => s + (m.hourly_cost || 0), 0) / 12).toLocaleString()}/mo
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl px-4 py-3">
-                    <span className="text-sm font-medium text-[#6B7280]">{nonBillableMembers.length} non-billable</span>
-                    <span className="text-sm font-mono tabular-nums text-[#6B7280]">
-                      ${Math.round(nonBillableMembers.reduce((s, m) => s + (m.hourly_cost || 0), 0) / 12).toLocaleString()}/mo
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-xs text-[#9CA3AF]">Total payroll</span>
-                    <span className="text-xs font-mono tabular-nums text-[#6B7280]">${Math.round(totalMonthlyPayroll).toLocaleString()}/mo</span>
-                  </div>
+              {Object.keys(overhead).length === 0 && (
+                <div className="text-xs text-[#9CA3AF] italic py-3 text-center">
+                  No overhead categories yet. Add one above.
                 </div>
               )}
             </div>
-
-            {/* Production */}
-            <div className="mb-6">
-              <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Production Capacity</h3>
-              <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6]">
-                <label className="text-sm text-[#6B7280]">Working Days / Month</label>
-                <input type="text" inputMode="decimal" value={rawValues.working_days_per_month} onChange={e => handleChange('working_days_per_month', e.target.value)} className={inputClass} placeholder="21" />
-              </div>
-              <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6]">
-                <label className="text-sm text-[#6B7280]">Hours / Day</label>
-                <input type="text" inputMode="decimal" value={rawValues.hours_per_day} onChange={e => handleChange('hours_per_day', e.target.value)} className={inputClass} placeholder="8" />
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <label className="text-sm text-[#6B7280]">Overhead Buffer</label>
-                <div className="flex items-center gap-1">
-                  <input type="text" inputMode="decimal" value={rawValues.target_profit_pct} onChange={e => handleChange('target_profit_pct', e.target.value)} className={inputClass} placeholder="0" />
-                  <span className="text-sm text-[#9CA3AF]">%</span>
-                </div>
-              </div>
-              <p className="text-[10px] text-[#9CA3AF] mt-1 ml-1">Covers downtime, unbillable hours, etc. Set to 0 to disable.</p>
+            <div className="flex items-center justify-between pt-3 mt-2 border-t border-[#F3F4F6] text-sm">
+              <span className="text-[#6B7280]">Annual overhead</span>
+              <span className="font-mono tabular-nums font-semibold">
+                {fmtMoney(annualOverhead)}
+              </span>
             </div>
+          </div>
 
-            {/* Breakdown */}
-            <div className="bg-[#F9FAFB] rounded-xl p-4 mb-4">
-              <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-3">Breakdown</h3>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#6B7280]">Monthly overhead</span>
-                  <span className="font-mono tabular-nums">${result.monthlyOverhead.toLocaleString()}</span>
+          {/* Team & comp */}
+          <div className="px-6 py-4 border-b border-[#F3F4F6]">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">
+                Team &amp; comp
+              </h3>
+              <button
+                type="button"
+                onClick={addTeamMember}
+                className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium inline-flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> Add team member
+              </button>
+            </div>
+            <p className="text-[11px] text-[#9CA3AF] leading-snug mb-2">
+              Owner counts here too. Billable = Yes for production roles
+              (CNC, assembly, finish, install). Office staff and pure-admin
+              owner time = No.
+            </p>
+            <div className="space-y-1.5">
+              {team.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex items-center gap-2 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg"
+                >
+                  <input
+                    type="text"
+                    value={m.name}
+                    onChange={(e) => updateTeamMember(m.id, { name: e.target.value })}
+                    placeholder="Name"
+                    className="flex-1 min-w-0 text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+                  />
+                  <span className="text-sm text-[#6B7280]">$</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="1000"
+                    value={m.annual_comp || ''}
+                    placeholder="0"
+                    onChange={(e) =>
+                      updateTeamMember(m.id, {
+                        annual_comp:
+                          e.target.value === '' ? 0 : Number(e.target.value),
+                      })
+                    }
+                    className="w-28 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+                  />
+                  <span className="text-sm text-[#9CA3AF]">/ yr</span>
+                  <label className="flex items-center gap-1 text-[11px] text-[#6B7280]">
+                    <span className="hidden sm:inline">Billable</span>
+                    <select
+                      value={m.billable ? 'yes' : 'no'}
+                      onChange={(e) =>
+                        updateTeamMember(m.id, {
+                          billable: e.target.value === 'yes',
+                        })
+                      }
+                      className="text-sm px-1.5 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeTeamMember(m.id)}
+                    aria-label={`Remove ${m.name || 'team member'}`}
+                    className="text-[#9CA3AF] hover:text-[#991B1B]"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#6B7280]">Owner salary</span>
-                  <span className="font-mono tabular-nums">${Math.round(getNum('owner_salary') / 12).toLocaleString()}/mo</span>
+              ))}
+              {team.length === 0 && (
+                <div className="text-xs text-[#9CA3AF] italic py-3 text-center">
+                  No team yet. Add yourself as the first member.
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#6B7280]">Team payroll</span>
-                  <span className="font-mono tabular-nums">${Math.round(totalMonthlyPayroll).toLocaleString()}/mo</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between pt-3 mt-2 border-t border-[#F3F4F6] text-sm">
+              <div>
+                <div className="text-[#6B7280]">Annual team comp</div>
+                <div className="text-[10.5px] text-[#9CA3AF]">
+                  {team.filter((m) => m.billable).length} billable ·{' '}
+                  {team.filter((m) => !m.billable).length} non-billable
                 </div>
-                <div className="flex justify-between text-sm border-t border-[#E5E7EB] pt-2">
-                  <span className="text-[#6B7280]">Total monthly cost</span>
-                  <span className="font-mono tabular-nums font-medium">${Math.round(totalMonthlyCost).toLocaleString()}</span>
+              </div>
+              <span className="font-mono tabular-nums font-semibold">
+                {fmtMoney(annualTeam)}
+              </span>
+            </div>
+          </div>
+
+          {/* Billable hours */}
+          <div className="px-6 py-4">
+            <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
+              Billable hours
+            </h3>
+            <BillableInput
+              label="Hours per week"
+              hint="per person"
+              value={billable.hrs_per_week}
+              step={1}
+              onChange={(n) => setBillable((p) => ({ ...p, hrs_per_week: n }))}
+              unit="hr"
+            />
+            <BillableInput
+              label="Working weeks per year"
+              hint="52 minus holidays, PTO, shutdowns"
+              value={billable.weeks_per_year}
+              step={1}
+              onChange={(n) => setBillable((p) => ({ ...p, weeks_per_year: n }))}
+              unit="wk"
+            />
+            <BillableInput
+              label="Utilization"
+              hint="% of hours actually billable"
+              value={billable.utilization_pct}
+              step={5}
+              onChange={(n) => setBillable((p) => ({ ...p, utilization_pct: n }))}
+              unit="%"
+            />
+            <div className="flex items-center justify-between pt-3 mt-2 border-t border-[#F3F4F6] text-sm">
+              <div>
+                <div className="text-[#6B7280]">Billable hours / year</div>
+                <div className="text-[10.5px] text-[#9CA3AF] font-mono">
+                  {billablePeople} × {billable.hrs_per_week || 0} hr ×{' '}
+                  {billable.weeks_per_year || 0} wk ×{' '}
+                  {billable.utilization_pct || 0}%
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#6B7280]">Billable production hours</span>
-                  <span className="font-mono tabular-nums">{billableCount} people × {hoursPerMonth} = {billableHoursPerMonth} hrs/mo</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#6B7280]">Cost per hour</span>
-                  <span className="font-mono tabular-nums">${costPerHour.toFixed(2)}</span>
-                </div>
-                {bufferPct > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-[#6B7280]">+ {bufferPct}% buffer</span>
-                    <span className="font-mono tabular-nums">${(shopRate - costPerHour).toFixed(2)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm border-t border-[#E5E7EB] pt-2">
-                  <span className="font-medium text-[#111]">Shop Rate</span>
-                  <span className="font-mono tabular-nums font-semibold text-[#2563EB]">${shopRate.toFixed(2)}/hr</span>
-                </div>
+              </div>
+              <span className="font-mono tabular-nums font-semibold">
+                {Math.round(billableHoursYear).toLocaleString()} hr
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Project defaults */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-[#E5E7EB]">
+            <h2 className="text-base font-semibold">Project defaults</h2>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">
+              Applied to new projects. Each project can override its target margin.
+            </p>
+          </div>
+          <div className="px-6 py-4">
+            <div className="flex items-center justify-between py-3">
+              <label className="text-sm text-[#6B7280]">Default profit margin</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={profitMargin}
+                  onChange={(e) =>
+                    setProfitMargin(e.target.value.replace(/[^0-9.]/g, ''))
+                  }
+                  className={inputClass}
+                />
+                <span className="text-sm text-[#9CA3AF]">%</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-3 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">Consumable markup</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={consumableMarkup}
+                  onChange={(e) =>
+                    setConsumableMarkup(e.target.value.replace(/[^0-9.]/g, ''))
+                  }
+                  className={inputClass}
+                />
+                <span className="text-sm text-[#9CA3AF]">%</span>
               </div>
             </div>
           </div>
         </div>
 
         {/* Business Info */}
-        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mt-6">
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-[#E5E7EB]">
             <h2 className="text-base font-semibold">Business Info</h2>
             <p className="text-xs text-[#9CA3AF] mt-0.5">Your business details for estimates and invoices</p>
@@ -594,7 +781,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Team Invite Link */}
-        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mt-6">
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-[#E5E7EB]">
             <h2 className="text-base font-semibold">Team Invite Link</h2>
             <p className="text-xs text-[#9CA3AF] mt-0.5">Share this link with your team so they can create accounts and start tracking time</p>
@@ -630,42 +817,120 @@ export default function SettingsPage() {
 
         {/* QuickBooks (Phase 9) */}
         <QuickBooksPanel orgId={org?.id || null} />
-
-        {/* Defaults */}
-        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mt-6">
-          <div className="px-6 py-4 border-b border-[#E5E7EB]">
-            <h2 className="text-base font-semibold">Project Defaults</h2>
-            <p className="text-xs text-[#9CA3AF] mt-0.5">Applied to all new subprojects — adjustable per project</p>
-          </div>
-          <div className="px-6 py-4">
-            <div className="flex items-center justify-between py-3">
-              <label className="text-sm text-[#6B7280]">Consumable Markup</label>
-              <div className="flex items-center gap-1">
-                <input type="text" inputMode="decimal" value={consumableMarkup} onChange={e => setConsumableMarkup(e.target.value.replace(/[^0-9.]/g, ''))} className={inputClass} />
-                <span className="text-sm text-[#9CA3AF]">%</span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between py-3 border-t border-[#F3F4F6]">
-              <label className="text-sm text-[#6B7280]">Default Profit Margin</label>
-              <div className="flex items-center gap-1">
-                <input type="text" inputMode="decimal" value={profitMargin} onChange={e => setProfitMargin(e.target.value.replace(/[^0-9.]/g, ''))} className={inputClass} />
-                <span className="text-sm text-[#9CA3AF]">%</span>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </>
   )
 }
 
+// ── Overhead row ──
+
+function OverheadRow({
+  category,
+  input,
+  onAmount,
+  onPeriod,
+  onRename,
+  onRemove,
+}: {
+  category: string
+  input: OverheadInput
+  onAmount: (n: number) => void
+  onPeriod: (p: Period) => void
+  onRename: (next: string) => void
+  onRemove: () => void
+}) {
+  const [name, setName] = useState(category)
+  useEffect(() => {
+    setName(category)
+  }, [category])
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={() => {
+          const trimmed = name.trim()
+          if (trimmed && trimmed !== category) onRename(trimmed)
+          else setName(category)
+        }}
+        className="flex-1 min-w-0 text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+      />
+      <span className="text-sm text-[#6B7280]">$</span>
+      <input
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step="1"
+        value={input.amount || ''}
+        placeholder="0"
+        onChange={(e) =>
+          onAmount(e.target.value === '' ? 0 : Number(e.target.value))
+        }
+        className="w-24 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+      />
+      <select
+        value={input.period}
+        onChange={(e) => onPeriod(e.target.value as Period)}
+        className="text-sm px-1.5 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+      >
+        <option value="monthly">/ mo</option>
+        <option value="annual">/ yr</option>
+      </select>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove ${category}`}
+        className="text-[#9CA3AF] hover:text-[#991B1B]"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  )
+}
+
+// ── Billable hours input ──
+
+function BillableInput({
+  label,
+  hint,
+  value,
+  step,
+  unit,
+  onChange,
+}: {
+  label: string
+  hint: string
+  value: number
+  step: number
+  unit: string
+  onChange: (n: number) => void
+}) {
+  return (
+    <label className="flex items-center gap-3 px-3 py-2.5 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg mb-2">
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-[#111]">{label}</div>
+        <div className="text-[11px] text-[#9CA3AF]">{hint}</div>
+      </div>
+      <input
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step={step}
+        value={value || ''}
+        placeholder="0"
+        onChange={(e) =>
+          onChange(e.target.value === '' ? 0 : Number(e.target.value))
+        }
+        className="w-24 text-right font-mono tabular-nums text-sm px-2 py-1.5 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+      />
+      <span className="text-sm text-[#9CA3AF] w-6">{unit}</span>
+    </label>
+  )
+}
+
 // ── QuickBooks connection panel (Phase 9) ──
-//
-// Real Intuit OAuth lives in a follow-up. For MVP we stash a synthetic
-// qb_connections row so the reconciliation pipeline (lib/qb-events.ts) can
-// operate end-to-end: an org with a connected QB is expected to have a row
-// here, the reconciliation page reads the row and surfaces the connected
-// realm id. "Connect" stubs a row, "Disconnect" removes it.
 
 interface QbConnection {
   id: string
@@ -736,12 +1001,12 @@ function QuickBooksPanel({ orgId }: { orgId: string | null }) {
   }
 
   return (
-    <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mt-6">
+    <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
       <div className="px-6 py-4 border-b border-[#E5E7EB] flex items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold">QuickBooks</h2>
           <p className="text-xs text-[#9CA3AF] mt-0.5 max-w-md">
-            MillSuite never sends to QuickBooks — it only watches.
+            MillSuite never sends to QuickBooks. It only watches.
             Connect your Intuit realm and we'll match deposits and invoice
             payments back to the milestones you already set on each project.
             Review unmatched events on the{' '}
@@ -779,7 +1044,7 @@ function QuickBooksPanel({ orgId }: { orgId: string | null }) {
           <div className="flex items-center gap-2">
             <input
               type="text"
-              placeholder="Realm ID (optional — leave blank to simulate)"
+              placeholder="Realm ID (optional, leave blank to simulate)"
               value={realmInput}
               onChange={(e) => setRealmInput(e.target.value)}
               className="flex-1 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
