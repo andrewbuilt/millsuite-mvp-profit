@@ -235,6 +235,32 @@ function NavGroup({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [mounted, setMounted] = useState(false)
+  // Close-delay timer. The portal places the menu OUTSIDE the wrap, so
+  // moving from the parent label to a menu item briefly leaves both
+  // hover regions during the gap. Without a delay, mouseleave on the
+  // wrap fires before mouseenter on the menu, slamming the menu shut
+  // before the cursor reaches it. 200 ms is short enough that intent
+  // ("I left the area") still registers and long enough to absorb
+  // diagonal mouse motion across the gap.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function scheduleClose() {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+    closeTimer.current = setTimeout(() => {
+      setOpen(false)
+      closeTimer.current = null
+    }, 200)
+  }
+  function cancelClose() {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current)
+    }
+  }, [])
 
   useEffect(() => {
     setMounted(true)
@@ -298,11 +324,12 @@ function NavGroup({
         <div
           data-nav-menu="true"
           role="menu"
-          // pointer-events: auto so hovering the menu (which sits
-          // outside the wrap) keeps it open; the portal-host body
-          // doesn't have onMouseLeave wired for it.
-          onMouseEnter={() => setOpen(true)}
-          onMouseLeave={() => setOpen(false)}
+          // Cancel the close timer when entering the menu, schedule it
+          // again when leaving. Same handler pair the wrap uses, so a
+          // cursor moving wrap → menu (or vice versa) never sees a
+          // moment where neither is hovered AND the timer has fired.
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
           style={{
             position: 'fixed',
             top: menuPos.top,
@@ -339,8 +366,11 @@ function NavGroup({
       <div
         ref={wrapRef}
         className="relative flex items-stretch flex-shrink-0"
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
+        onMouseEnter={() => {
+          cancelClose()
+          setOpen(true)
+        }}
+        onMouseLeave={scheduleClose}
       >
         <Link
           href={item.href}
