@@ -83,6 +83,12 @@ export interface EstimateLine {
   // AddLineComposer; null on freeform / legacy lines.
   product_key: string | null
   product_slots: Record<string, unknown> | null
+  // Migration 034 — opt-in approval label for freeform lines. When
+  // non-empty the line emits one approval_items row on handoff
+  // (label = spec_label, material = description). NULL on composer
+  // lines (their slots already drive the approval cards) and on
+  // freeform lines without a client-facing spec.
+  spec_label: string | null
 }
 
 export interface EstimateLineOptionRow {
@@ -151,7 +157,7 @@ export async function loadEstimateLines(subprojectId: string): Promise<EstimateL
        quantity, unit, material_mode_override, linear_cost_override,
        lump_cost_override, dept_hour_overrides, material_description,
        install_mode, install_params, finish_specs, callouts,
-       unit_price_override, notes, product_key, product_slots`
+       unit_price_override, notes, product_key, product_slots, spec_label`
     )
     .eq('subproject_id', subprojectId)
     .order('sort_order', { ascending: true })
@@ -188,6 +194,7 @@ function normalizeLine(row: any): EstimateLine {
     notes: row.notes ?? null,
     product_key: row.product_key ?? null,
     product_slots: row.product_slots ?? null,
+    spec_label: row.spec_label ?? null,
   }
 }
 

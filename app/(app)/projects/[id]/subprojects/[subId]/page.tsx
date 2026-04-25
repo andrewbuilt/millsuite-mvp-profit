@@ -664,7 +664,7 @@ export default function SubprojectEditorPage() {
                     setEditingLineId(null)
                     setComposerOpen(true)
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-[#2563EB] border border-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-dashed border-[#D1D5DB] rounded-lg hover:bg-[#EFF6FF] hover:text-[#2563EB] hover:border-[#2563EB] transition-colors"
                 >
                   + Compose line
                 </button>
@@ -695,18 +695,10 @@ export default function SubprojectEditorPage() {
             </div>
           )}
 
-          {/* Keyboard hint strip — pre-sold only; the shortcuts target
-              add/duplicate/delete affordances that lock post-sold. */}
-          {project && isPresold(project.stage) && (
-            <div className="flex items-center gap-3 px-3 py-2 bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg text-[11px] text-[#1D4ED8] mb-3 flex-wrap">
-              <span className="font-semibold uppercase tracking-wider">Shortcuts</span>
-              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">/</kbd> add</span>
-              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">↑↓</kbd> navigate</span>
-              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⏎</kbd> commit</span>
-              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⌫</kbd> delete</span>
-              <span><kbd className="px-1.5 py-0.5 bg-white border border-[#BFDBFE] rounded font-mono text-[10px]">⌘D</kbd> duplicate</span>
-            </div>
-          )}
+          {/* Keyboard shortcut legend removed (post-sale dogfood pass).
+              Shortcuts (/ ↑↓ ⏎ ⌫ ⌘D) remain functional via onAddKeyDown
+              + the document-level "/" focus listener — power users keep
+              them; the visible legend was clutter for everyone else. */}
 
           {/* Line table */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-3">
@@ -827,7 +819,18 @@ export default function SubprojectEditorPage() {
                       {fmtHours(b.totalHours)}
                     </div>
                     <div className="text-right text-sm font-mono tabular-nums text-[#6B7280]">
-                      {fmtMoney(b.materialCost + b.consumablesCost + (b.hardwareCost || 0))}
+                      {/* Freeform lines (unit_price_override set) skip the
+                          bucket math entirely — show the per-unit cost in
+                          the Material column so the row reads as
+                          "1 × $300" not "$0 / $300". Composer + rate-book
+                          lines show the real material rollup. */}
+                      {line.unit_price_override != null
+                        ? fmtMoney(line.unit_price_override)
+                        : fmtMoney(
+                            b.materialCost +
+                              b.consumablesCost +
+                              (b.hardwareCost || 0),
+                          )}
                     </div>
                     <div className="text-right text-sm font-mono tabular-nums font-semibold text-[#111]">
                       {fmtMoney(b.lineTotal)}

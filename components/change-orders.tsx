@@ -313,26 +313,61 @@ function SnapshotBlock({
   snap: LineSnapshot
   highlight?: boolean
 }) {
+  // Composer-seeded COs (Issue 21) save snap.label as the full slot
+  // rollup ("Base cabinet · Black liner · Slab door · Walnut · …"). That
+  // line is too noisy for a CO summary card. Strip to the product label
+  // (first " · " segment) on top, then show the slot delta below in
+  // muted gray. Legacy/free-form COs whose snap.label is just a short
+  // title fall through unchanged — the split returns the whole string.
+  const labelParts = (snap.label || '').split(' · ')
+  const productLabel = labelParts[0] || ''
+  const summary = labelParts.slice(1).join(' · ')
+  const headline =
+    snap.linear_feet != null && productLabel
+      ? `${productLabel} · ${snap.linear_feet} LF`
+      : productLabel || (snap.linear_feet != null ? `${snap.linear_feet} LF` : '')
+  // snap.material on seeded COs encodes "{slotLabel}: {value}" — that's
+  // the slot delta and the row's reason for existing. Show it on the
+  // muted second line. On legacy COs snap.material is just a free
+  // string; same render works.
+  const slotDelta = [snap.material, snap.finish].filter(Boolean).join(' · ')
+
   return (
     <div
       className={`rounded border px-3 py-2 ${
         highlight ? 'bg-blue-50 border-blue-200' : 'bg-neutral-50 border-neutral-200'
       }`}
     >
-      <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1">{title}</div>
-      {snap.label && <div className="text-xs font-medium">{snap.label}</div>}
-      {(snap.material || snap.finish) && (
-        <div className="text-xs text-neutral-700 mt-0.5">
-          {[snap.material, snap.finish].filter(Boolean).join(' · ')}
+      <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1">
+        {title}
+      </div>
+      {headline && (
+        <div className="text-xs font-medium text-neutral-900 truncate">
+          {headline}
         </div>
       )}
-      <div className="text-[11px] text-neutral-600 mt-1 space-y-0.5">
-        {snap.linear_feet != null && <div>{snap.linear_feet} LF</div>}
-        {snap.material_cost_per_lf != null && (
-          <div>${Number(snap.material_cost_per_lf).toFixed(2)}/LF material</div>
-        )}
-        {snap.is_custom && <div className="text-amber-700">Custom slot</div>}
-      </div>
+      {slotDelta && (
+        <div className="text-[11px] text-neutral-500 mt-0.5 truncate">
+          {slotDelta}
+        </div>
+      )}
+      {/* Surface the older long summary only when it adds info beyond
+          the product label and the slot delta — i.e. legacy COs where
+          the label wasn't a slot rollup. Skip when summary is empty
+          (no " · " to split) or already contained in slotDelta. */}
+      {summary && !slotDelta.includes(summary) && (
+        <div className="text-[11px] text-neutral-500 mt-0.5 truncate italic">
+          {summary}
+        </div>
+      )}
+      {snap.material_cost_per_lf != null && (
+        <div className="text-[11px] text-neutral-600 mt-1">
+          ${Number(snap.material_cost_per_lf).toFixed(2)}/LF material
+        </div>
+      )}
+      {snap.is_custom && (
+        <div className="text-[11px] text-amber-700 mt-1">Custom slot</div>
+      )}
       {snap.notes && <div className="text-[11px] text-neutral-600 mt-1 italic">{snap.notes}</div>}
     </div>
   )
