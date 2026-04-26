@@ -728,18 +728,6 @@ function Composer(p: {
                 onToggle={() => p.toggleDropdown('carcassMaterial')}
                 onPick={(id) => {
                   p.setSlot('carcassMaterial', id)
-                  // Mirror carcass pick into the back panel slot when not
-                  // already chosen. Back panels are typically the same
-                  // stock as the carcass, just thinner — defaulting to
-                  // the same id keeps the line reading sensibly until the
-                  // operator picks something thinner. Manual back-panel
-                  // pick is locked in: this branch only runs when the
-                  // back panel is currently null. (Carcass IDs are stored
-                  // in the ext-material slot here; the breakdown lookup
-                  // checks both pools so the cost calc still resolves.)
-                  if (!draft.slots.backPanelMaterial) {
-                    p.setSlot('backPanelMaterial', id)
-                  }
                   p.toggleDropdown('carcassMaterial')
                 }}
                 onAddNew={() => p.openAddNew('carcassMaterial', 'carcass')}
@@ -761,26 +749,11 @@ function Composer(p: {
               <Dropdown
                 open={p.openDropdown === 'backPanelMaterial'}
                 value={draft.slots.backPanelMaterial}
-                // Merge ext + carcass pools so the auto-mirrored carcass
-                // id renders as a recognized selection in the dropdown
-                // and the operator can also pick a thinner ext-stock
-                // back panel without leaving the slot.
-                options={[
-                  ...rateBook.extMaterials.map((m) => ({
-                    id: m.id,
-                    name: m.name,
-                    meta: `$${m.sheet_cost}/sht`,
-                  })),
-                  ...rateBook.carcassMaterials
-                    .filter(
-                      (cm) => !rateBook.extMaterials.some((em) => em.id === cm.id),
-                    )
-                    .map((m) => ({
-                      id: m.id,
-                      name: `${m.name} (carcass stock)`,
-                      meta: `$${m.sheet_cost}/sht`,
-                    })),
-                ]}
+                options={rateBook.extMaterials.map((m) => ({
+                  id: m.id,
+                  name: m.name,
+                  meta: `$${m.sheet_cost}/sht`,
+                }))}
                 onToggle={() => p.toggleDropdown('backPanelMaterial')}
                 onPick={(id) => {
                   p.setSlot('backPanelMaterial', id)

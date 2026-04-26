@@ -301,15 +301,7 @@ export function computeBreakdown(
   }
 
   const cm = rb.carcassMaterials.find((m) => m.id === s.carcassMaterial) || null
-  // Back panel can carry an id from EITHER pool — the composer mirrors
-  // the carcass pick by default (same stock, just thinner) and falls
-  // back to letting the operator pick from extMaterials. Both rows
-  // expose {id, name, sheet_cost}, which is everything the back-panel
-  // breakdown needs.
-  const bm =
-    rb.extMaterials.find((m) => m.id === s.backPanelMaterial) ||
-    rb.carcassMaterials.find((m) => m.id === s.backPanelMaterial) ||
-    null
+  const bm = rb.extMaterials.find((m) => m.id === s.backPanelMaterial) || null
   const em = rb.extMaterials.find((m) => m.id === s.doorMaterial) || null
   const ds = rb.doorStyles.find((d) => d.id === s.doorStyle) || null
   const ifn = rb.finishes.find((f) => f.id === s.interiorFinish) || null
@@ -595,12 +587,8 @@ export function summarizeSlots(
   const bits: string[] = []
   const cm = rb.carcassMaterials.find((m) => m.id === draft.slots.carcassMaterial)
   if (cm) bits.push(cm.name)
-  const bm =
-    rb.extMaterials.find((m) => m.id === draft.slots.backPanelMaterial) ||
-    rb.carcassMaterials.find((m) => m.id === draft.slots.backPanelMaterial)
-  // Skip the "back" segment when it duplicates the carcass name — the
-  // common case (back mirrors carcass) reads as redundant otherwise.
-  if (bm && bm.id !== draft.slots.carcassMaterial) bits.push(`${bm.name} back`)
+  const bm = rb.extMaterials.find((m) => m.id === draft.slots.backPanelMaterial)
+  if (bm) bits.push(`${bm.name} back`)
   const ds = rb.doorStyles.find((d) => d.id === draft.slots.doorStyle)
   if (ds) bits.push(`${ds.name} door`)
   const em = rb.extMaterials.find((m) => m.id === draft.slots.doorMaterial)

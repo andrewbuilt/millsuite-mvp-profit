@@ -68,13 +68,13 @@ export interface Product {
    */
   sheetsPerLfCarcass: number
   /**
-   * Back panel sheet stock (1/4" ply) consumed per LF. Same shape numbers
-   * as the legacy face-sheet ratio because back panel area scales with
-   * cabinet face area.
+   * Back panel sheet stock (1/4" ply typical) consumed per LF.
+   * Calibrated against real cab heights + waste — the original face-area
+   * ratios underpriced this row by half on bases and full-height runs.
    *
-   *   Base   1/12 (0.0833…) sheets per LF
-   *   Upper  1/8  (0.125)   sheets per LF
-   *   Full   1/4  (0.25)    sheets per LF
+   *   Base   1/6  (0.1667) sheets per LF
+   *   Upper  1/12 (0.0833) sheets per LF
+   *   Full   1/2  (0.5)    sheets per LF
    */
   sheetsPerLfBack: number
   /** Doors per unit of qty. 0.5 across Base/Upper/Full — an 8' run averages
@@ -121,7 +121,7 @@ export const PRODUCT_BASE: Product = make({
   unit: 'lf',
   sheetsPerLfFace: 1 / 12,
   sheetsPerLfCarcass: 0.4,
-  sheetsPerLfBack: 1 / 12,
+  sheetsPerLfBack: 1 / 6,
   doorsPerLf: 0.5,
   doorLaborMultiplier: 1.0,
   active: true,
@@ -134,7 +134,7 @@ export const PRODUCT_UPPER: Product = make({
   unit: 'lf',
   sheetsPerLfFace: 1 / 8,
   sheetsPerLfCarcass: 0.3,
-  sheetsPerLfBack: 1 / 8,
+  sheetsPerLfBack: 1 / 12,
   doorsPerLf: 0.5,
   doorLaborMultiplier: 1.3,
   active: true,
@@ -147,7 +147,7 @@ export const PRODUCT_FULL: Product = make({
   unit: 'lf',
   sheetsPerLfFace: 1 / 4,
   sheetsPerLfCarcass: 1.25,
-  sheetsPerLfBack: 1 / 4,
+  sheetsPerLfBack: 1 / 2,
   doorsPerLf: 0.5,
   doorLaborMultiplier: 2.5,
   active: true,
