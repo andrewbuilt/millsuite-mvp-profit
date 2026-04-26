@@ -83,8 +83,10 @@ import {
   type SubprojectStatus,
 } from '@/lib/subproject-status'
 import ClientPicker from '@/components/project/ClientPicker'
+import NewSubprojectModal from '@/components/project/NewSubprojectModal'
 import { useConfirm } from '@/components/confirm-dialog'
 import { maybeAdvanceToProduction } from '@/lib/project-stage'
+import Nav from '@/components/nav'
 
 // ── Types ──
 
@@ -279,6 +281,7 @@ export default function ProjectCoverPage() {
   const [milestones, setMilestones] = useState<ProjectMilestone[]>([])
   const [milestonesDirty, setMilestonesDirty] = useState(false)
   const [milestonesSaving, setMilestonesSaving] = useState(false)
+  const [newSubOpen, setNewSubOpen] = useState(false)
 
   // ── Load ──
 
@@ -660,25 +663,31 @@ export default function ProjectCoverPage() {
 
   if (loading || !project) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-[#9CA3AF]">
-        Loading rollup…
-      </div>
+      <>
+        <Nav />
+        <div className="min-h-[60vh] flex items-center justify-center text-sm text-[#9CA3AF]">
+          Loading rollup…
+        </div>
+      </>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB]">
-      {/* Top bar */}
-      <div className="sticky top-0 z-10 bg-white border-b border-[#E5E7EB] px-6 py-3 flex items-center justify-between">
-        <button
-          onClick={() => router.push(`/projects`)}
-          className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111] transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to projects
-        </button>
-        <StagePill stage={project.stage} />
-      </div>
+    <>
+      <Nav />
+      <div className="min-h-screen bg-[#F9FAFB]">
+        {/* Project sub-bar — sticks below the global Nav (Nav is sticky
+            top-0 z-50). top-14 = 56px = the Nav's natural height. */}
+        <div className="sticky top-14 z-30 bg-white border-b border-[#E5E7EB] px-6 py-3 flex items-center justify-between">
+          <button
+            onClick={() => router.push(`/projects`)}
+            className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111] transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to projects
+          </button>
+          <StagePill stage={project.stage} />
+        </div>
 
       {/* Project header */}
       <div className="px-8 py-6 bg-white border-b border-[#E5E7EB]">
@@ -922,13 +931,13 @@ export default function ProjectCoverPage() {
                   persists and routes to the editor on save. Hidden post-sold
                   (stage strip locks the estimate; CO is the only edit path). */}
               {isPresold(project.stage) && (
-                <Link
-                  href={`/projects/${projectId}/subprojects/new`}
-                  className="block border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+                <button
+                  onClick={() => setNewSubOpen(true)}
+                  className="block w-full border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5 inline mr-1" />
                   Add subproject
-                </Link>
+                </button>
               )}
             </div>
           </div>
@@ -1217,7 +1226,17 @@ export default function ProjectCoverPage() {
           {toast}
         </div>
       )}
-    </div>
+
+      {newSubOpen && org?.id && (
+        <NewSubprojectModal
+          projectId={projectId}
+          orgId={org.id}
+          orgConsumablePct={org.consumable_markup_pct ?? null}
+          onClose={() => setNewSubOpen(false)}
+        />
+      )}
+      </div>
+    </>
   )
 }
 
