@@ -73,6 +73,13 @@ import {
   createCarcassMaterial,
   createExtMaterial,
 } from '@/lib/rate-book-materials'
+import {
+  createDoorTypeMaterial,
+  createDoorTypeMaterialFinish,
+  indexDoorTypeMaterials,
+  indexDoorTypeMaterialFinishes,
+  type DoorMaterialCostUnit,
+} from '@/lib/door-types'
 import DoorStyleWalkthrough, {
   type DoorStyleWalkthroughExistingStyle,
 } from '@/components/walkthroughs/DoorStyleWalkthrough'
@@ -216,6 +223,11 @@ export default function AddLineComposer({
     | { style: DrawerStyleWalkthroughExistingStyle | null }
     | null
   >(null)
+  // Door v2 inline modals — "+ Add material" / "+ Add finish" scoped to a
+  // door type / door material respectively. State is { parentId, draft }
+  // when open; null when closed.
+  const [addMaterialFor, setAddMaterialFor] = useState<string | null>(null)
+  const [addFinishFor, setAddFinishFor] = useState<string | null>(null)
   // Finish walkthrough overlay — null when closed, otherwise carries
   // the application the user was calibrating for (drives the row-type
   // the walkthrough writes).
@@ -230,6 +242,8 @@ export default function AddLineComposer({
     setDoorWt(null)
     setDrawerWt(null)
     setFinishWtApp(null)
+    setAddMaterialFor(null)
+    setAddFinishFor(null)
   }
 
   async function refreshRateBook() {
@@ -241,13 +255,22 @@ export default function AddLineComposer({
     }
   }
 
-  function openDoorWalkthroughForPick(styleId: string) {
+  function openDoorWalkthroughForPick(typeId: string) {
     if (!rateBook) return
-    const ds = rateBook.doorStyles.find((d) => d.id === styleId)
-    if (!ds) return
+    const dt = rateBook.doorTypes.find((t) => t.id === typeId)
+    if (!dt) return
     setOpenDropdown(null)
     setDoorWt({
-      style: { id: ds.id, name: ds.name, labor: ds.labor },
+      style: {
+        id: dt.id,
+        name: dt.name,
+        labor: {
+          eng: dt.labor_hours_eng,
+          cnc: dt.labor_hours_cnc,
+          assembly: dt.labor_hours_assembly,
+          finish: dt.labor_hours_finish,
+        },
+      },
     })
   }
 
@@ -256,12 +279,23 @@ export default function AddLineComposer({
     setDoorWt({ style: null })
   }
 
-  async function handleDoorWalkthroughComplete(styleId: string) {
+  async function handleDoorWalkthroughComplete(typeId: string) {
     setDoorWt(null)
     await refreshRateBook()
-    // Select the calibrated (or newly-created) style on the draft.
+    // Select the calibrated (or newly-created) door type on the draft.
+    // Picking a new type clears the cascading children.
     setDraft((prev) =>
-      prev ? { ...prev, slots: { ...prev.slots, doorStyle: styleId } } : prev
+      prev
+        ? {
+            ...prev,
+            slots: {
+              ...prev.slots,
+              doorTypeId: typeId,
+              doorMaterialId: null,
+              doorFinishId: null,
+            },
+          }
+        : prev,
     )
   }
 
@@ -323,22 +357,28 @@ export default function AddLineComposer({
       let qty: number
 
       if (carry) {
+        // Door pricing v2: only seed door fields if the legacy carry-over
+        // payload happens to carry the new keys. Composer-saved lines
+        // before this PR carry the OLD keys (doorStyle / doorMaterial /
+        // exteriorFinish) which are gone — operator re-picks under the
+        // cascading dropdowns. We don't surface a hard fallback for the
+        // door trio because doorMaterial depends on doorType.
         const firstCarcass = rateBook.carcassMaterials[0]?.id ?? null
-        const firstExt = rateBook.extMaterials[0]?.id ?? null
-        const firstDoor = rateBook.doorStyles[0]?.id ?? null
-        const firstExteriorFinish =
-          rateBook.finishes.find((f) => f.application === 'exterior')?.id ?? null
         const hardFallback = {
           carcassMaterial: firstCarcass,
-          doorStyle: firstDoor,
-          doorMaterial: firstExt,
           interiorFinish: PREFINISHED_FINISH_ID,
-          exteriorFinish: firstExteriorFinish,
           endPanels: 0,
           fillers: 0,
           notes: '',
         }
-        slots = { ...emptySlots(), ...hardFallback, ...carry.slots, endPanels: 0, fillers: 0, notes: '' }
+        slots = {
+          ...emptySlots(),
+          ...hardFallback,
+          ...carry.slots,
+          endPanels: 0,
+          fillers: 0,
+          notes: '',
+        }
         qty = carry.qty || 8
       } else {
         slots = { ...emptySlots(), interiorFinish: PREFINISHED_FINISH_ID }
@@ -519,7 +559,10 @@ export default function AddLineComposer({
               },
             ],
           })
-          setSlot(slotKey as 'doorMaterial', created.id)
+          // Legacy "ext" Add-new path — only door material used to land
+          // here pre-v2; nothing routes through this branch under v2.
+          // No-op cast: slotKey is a string from older callers.
+          setSlot(slotKey as 'carcassMaterial', created.id)
         }
       }
       setAddNew(null)
@@ -598,6 +641,8 @@ export default function AddLineComposer({
                 saveAddNew={saveAddNew}
                 onDoorUncalibratedPick={openDoorWalkthroughForPick}
                 onAddNewDoorStyle={openDoorWalkthroughForNew}
+                onAddDoorMaterial={(typeId) => setAddMaterialFor(typeId)}
+                onAddDoorFinish={(matId) => setAddFinishFor(matId)}
                 onDrawerUncalibratedPick={openDrawerWalkthroughForPick}
                 onAddNewDrawerStyle={openDrawerWalkthroughForNew}
                 onOpenFinishWalkthrough={openFinishWalkthrough}
@@ -624,6 +669,47 @@ export default function AddLineComposer({
           existingStyle={drawerWt.style}
           onCancel={() => setDrawerWt(null)}
           onComplete={handleDrawerWalkthroughComplete}
+        />
+      )}
+
+      {/* Door pricing v2: inline "+ Add material" modal. Scoped to the
+          parent door type. On save, refreshes the rate book in place + sets
+          the slot. */}
+      {addMaterialFor && rateBook && (
+        <AddDoorMaterialModal
+          orgId={orgId}
+          doorTypeId={addMaterialFor}
+          onCancel={() => setAddMaterialFor(null)}
+          onCreated={(created) => {
+            const nextMaterials = [...rateBook.doorTypeMaterials, created]
+            setRateBook({
+              ...rateBook,
+              doorTypeMaterials: nextMaterials,
+              doorTypeMaterialsByTypeId: indexDoorTypeMaterials(nextMaterials),
+            })
+            setSlot('doorMaterialId', created.id)
+            setSlot('doorFinishId', null)
+            setAddMaterialFor(null)
+          }}
+        />
+      )}
+
+      {/* "+ Add finish" — scoped to the parent door material. */}
+      {addFinishFor && rateBook && (
+        <AddDoorFinishModal
+          orgId={orgId}
+          doorMaterialId={addFinishFor}
+          onCancel={() => setAddFinishFor(null)}
+          onCreated={(created) => {
+            const nextFinishes = [...rateBook.doorTypeMaterialFinishes, created]
+            setRateBook({
+              ...rateBook,
+              doorTypeMaterialFinishes: nextFinishes,
+              doorFinishesByMaterialId: indexDoorTypeMaterialFinishes(nextFinishes),
+            })
+            setSlot('doorFinishId', created.id)
+            setAddFinishFor(null)
+          }}
         />
       )}
 
@@ -750,6 +836,12 @@ function Composer(p: {
   saveAddNew: () => void
   onDoorUncalibratedPick: (styleId: string) => void
   onAddNewDoorStyle: () => void
+  /** Door v2: open the inline "+ Add material" form scoped to the
+   *  selected door type. Adds a row to door_type_materials. */
+  onAddDoorMaterial: (doorTypeId: string) => void
+  /** Door v2: open the inline "+ Add finish" form scoped to the
+   *  selected door material. Adds a row to door_type_material_finishes. */
+  onAddDoorFinish: (doorMaterialId: string) => void
   onDrawerUncalibratedPick: (styleId: string) => void
   onAddNewDrawerStyle: () => void
   onOpenFinishWalkthrough: (app: 'interior' | 'exterior') => void
@@ -864,98 +956,118 @@ function Composer(p: {
           <section className="space-y-4">
             <SectionHeader>Exterior</SectionHeader>
 
-            <Field label="Door style" hint="Doors only — drawer style is its own slot below.">
+            <Field label="Door type" hint="Labor + hardware live on the door type.">
               <Dropdown
-                open={p.openDropdown === 'doorStyle'}
-                value={draft.slots.doorStyle}
-                options={rateBook.doorStyles.map((d) => ({
-                  id: d.id,
-                  name: d.name + (d.calibrated ? '' : ' · not calibrated'),
+                open={p.openDropdown === 'doorTypeId'}
+                value={draft.slots.doorTypeId}
+                options={rateBook.doorTypes.map((t) => ({
+                  id: t.id,
+                  name: t.name + (t.calibrated ? '' : ' · not calibrated'),
                 }))}
-                onToggle={() => p.toggleDropdown('doorStyle')}
+                onToggle={() => p.toggleDropdown('doorTypeId')}
                 onPick={(id) => {
-                  p.toggleDropdown('doorStyle')
-                  const ds = rateBook.doorStyles.find((d) => d.id === id)
-                  if (ds && !ds.calibrated) {
+                  p.toggleDropdown('doorTypeId')
+                  const dt = rateBook.doorTypes.find((t) => t.id === id)
+                  // Picking a new door type clears the cascading children.
+                  if (dt && !dt.calibrated) {
                     p.onDoorUncalibratedPick(id)
                   } else {
-                    p.setSlot('doorStyle', id)
+                    p.setSlot('doorTypeId', id)
+                    p.setSlot('doorMaterialId', null)
+                    p.setSlot('doorFinishId', null)
                   }
                 }}
                 onAddNew={() => p.onAddNewDoorStyle()}
-                addNewLabel="+ Add new door style"
+                addNewLabel="+ Add new door type"
                 placeholder="Choose…"
               />
-              {rateBook.doorStyles.length === 0 && (
+              {rateBook.doorTypes.length === 0 && (
                 <button
                   type="button"
                   onClick={p.onAddNewDoorStyle}
                   className="mt-2 w-full px-3 py-2.5 bg-[#EFF6FF] border border-dashed border-[#2563EB]/60 rounded-md text-[12px] text-[#1E40AF] hover:bg-[#DBEAFE] hover:border-[#2563EB] transition-colors"
                 >
-                  + Calibrate your first door style
+                  + Calibrate your first door type
                 </button>
               )}
             </Field>
 
-            <Field label="Door material" hint="Face material for all doors + drawer fronts.">
-              {p.addNew?.slotKey === 'doorMaterial' && p.addNew?.ctx.category === 'ext' ? (
-                <AddNewCard
-                  ctx={p.addNew.ctx}
-                  onCancel={p.cancelAddNew}
-                  onSave={p.saveAddNew}
-                  onField={p.setAddNewField}
-                />
-              ) : (
-                <Dropdown
-                  open={p.openDropdown === 'doorMaterial'}
-                  value={draft.slots.doorMaterial}
-                  options={rateBook.extMaterials.map((m) => ({
-                    id: m.id,
-                    name: m.name,
-                    meta: `$${m.sheet_cost}/sht`,
-                  }))}
-                  onToggle={() => p.toggleDropdown('doorMaterial')}
-                  onPick={(id) => {
-                    p.setSlot('doorMaterial', id)
-                    p.toggleDropdown('doorMaterial')
-                  }}
-                  onAddNew={() => p.openAddNew('doorMaterial', 'ext')}
-                  addNewLabel="+ Add new material"
-                  placeholder="Choose…"
-                />
-              )}
+            <Field label="Door material" hint="Picks scoped to the chosen door type.">
+              {(() => {
+                const dtId = draft.slots.doorTypeId
+                const materials = dtId
+                  ? rateBook.doorTypeMaterialsByTypeId.get(dtId) ?? []
+                  : []
+                if (!dtId) {
+                  return (
+                    <div className="px-3 py-2 text-[12px] text-[#9CA3AF] italic border border-dashed border-[#E5E7EB] rounded-md">
+                      Pick a door type first.
+                    </div>
+                  )
+                }
+                return (
+                  <Dropdown
+                    open={p.openDropdown === 'doorMaterialId'}
+                    value={draft.slots.doorMaterialId}
+                    options={materials.map((m) => ({
+                      id: m.id,
+                      name: m.material_name,
+                      meta: `$${m.cost_value}/${m.cost_unit}`,
+                    }))}
+                    onToggle={() => p.toggleDropdown('doorMaterialId')}
+                    onPick={(id) => {
+                      p.setSlot('doorMaterialId', id)
+                      // Picking a different material clears the finish.
+                      p.setSlot('doorFinishId', null)
+                      p.toggleDropdown('doorMaterialId')
+                    }}
+                    onAddNew={() => p.onAddDoorMaterial(dtId)}
+                    addNewLabel="+ Add material"
+                    placeholder={
+                      materials.length === 0
+                        ? 'No materials yet — + Add material'
+                        : 'Choose…'
+                    }
+                  />
+                )
+              })()}
             </Field>
 
-            <Field label="Exterior finish" hint="Applied to doors, drawer fronts, exposed ends.">
+            <Field label="Door finish" hint="Picks scoped to the chosen door material.">
               {(() => {
-                const extFinishes = rateBook.finishes
-                  .filter((f) => f.application === 'exterior')
-                  .filter(isFinishUsed)
+                const dmId = draft.slots.doorMaterialId
+                const finishes = dmId
+                  ? rateBook.doorFinishesByMaterialId.get(dmId) ?? []
+                  : []
+                if (!dmId) {
+                  return (
+                    <div className="px-3 py-2 text-[12px] text-[#9CA3AF] italic border border-dashed border-[#E5E7EB] rounded-md">
+                      Pick a door material first.
+                    </div>
+                  )
+                }
                 return (
-                  <>
-                    <Dropdown
-                      open={p.openDropdown === 'exteriorFinish'}
-                      value={draft.slots.exteriorFinish}
-                      options={extFinishes.map((f) => ({ id: f.id, name: f.name }))}
-                      onToggle={() => p.toggleDropdown('exteriorFinish')}
-                      onPick={(id) => {
-                        p.setSlot('exteriorFinish', id)
-                        p.toggleDropdown('exteriorFinish')
-                      }}
-                      onAddNew={() => p.onOpenFinishWalkthrough('exterior')}
-                      addNewLabel="+ Calibrate exterior finish"
-                      placeholder="Choose…"
-                    />
-                    {extFinishes.length === 0 && (
-                      <button
-                        type="button"
-                        onClick={() => p.onOpenFinishWalkthrough('exterior')}
-                        className="mt-2 w-full px-3 py-2.5 bg-[#EFF6FF] border border-dashed border-[#2563EB]/60 rounded-md text-[12px] text-[#1E40AF] hover:bg-[#DBEAFE] hover:border-[#2563EB] transition-colors"
-                      >
-                        + Calibrate your first exterior finish
-                      </button>
-                    )}
-                  </>
+                  <Dropdown
+                    open={p.openDropdown === 'doorFinishId'}
+                    value={draft.slots.doorFinishId}
+                    options={finishes.map((f) => ({
+                      id: f.id,
+                      name: f.finish_name,
+                      meta: `${f.labor_hours_per_door}h + $${f.material_per_door}/door`,
+                    }))}
+                    onToggle={() => p.toggleDropdown('doorFinishId')}
+                    onPick={(id) => {
+                      p.setSlot('doorFinishId', id)
+                      p.toggleDropdown('doorFinishId')
+                    }}
+                    onAddNew={() => p.onAddDoorFinish(dmId)}
+                    addNewLabel="+ Add finish"
+                    placeholder={
+                      finishes.length === 0
+                        ? 'No finishes yet — + Add finish'
+                        : 'Choose…'
+                    }
+                  />
                 )
               })()}
             </Field>
@@ -1075,7 +1187,7 @@ function Composer(p: {
       {/* Breakdown — placeholder when no pricing slot is picked yet,
           live panel once any of carcass / door style / door material /
           exterior finish is chosen. */}
-      {breakdown && hasAnyPricingSlot(draft.slots) ? (
+      {breakdown && hasAnyPricingSlotV2(draft.slots) ? (
         <BreakdownPanel
           breakdown={breakdown}
           defaults={defaults}
@@ -1091,9 +1203,10 @@ function Composer(p: {
   )
 }
 
-function hasAnyPricingSlot(s: ComposerDraft['slots']): boolean {
-  return !!(s.carcassMaterial || s.doorStyle || s.doorMaterial || s.exteriorFinish)
+function hasAnyPricingSlotV2(s: ComposerDraft['slots']): boolean {
+  return !!(s.carcassMaterial || s.doorTypeId || s.doorMaterialId || s.doorFinishId)
 }
+
 
 function BreakdownPlaceholder() {
   return (
@@ -1522,6 +1635,254 @@ function PctRow({
       </div>
       <div className="text-[12px] font-mono tabular-nums text-[#111] whitespace-nowrap">
         ${Math.round(amount).toLocaleString()}
+      </div>
+    </div>
+  )
+}
+
+// ── Door pricing v2 — inline add modals ──────────────────────────────────
+
+function AddDoorMaterialModal(p: {
+  orgId: string
+  doorTypeId: string
+  onCancel: () => void
+  onCreated: (
+    row: import('@/lib/door-types').DoorTypeMaterial,
+  ) => void
+}) {
+  const [name, setName] = useState('')
+  const [costValue, setCostValue] = useState('')
+  const [costUnit, setCostUnit] = useState<DoorMaterialCostUnit>('sheet')
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setError(null)
+    if (!name.trim()) {
+      setError('Give the material a name.')
+      return
+    }
+    const cv = parseFloat(costValue)
+    if (!Number.isFinite(cv) || cv < 0) {
+      setError('Cost needs a non-negative number.')
+      return
+    }
+    setSaving(true)
+    try {
+      const created = await createDoorTypeMaterial({
+        org_id: p.orgId,
+        door_type_id: p.doorTypeId,
+        material_name: name.trim(),
+        cost_value: cv,
+        cost_unit: costUnit,
+        notes: notes.trim() || null,
+      })
+      if (created) p.onCreated(created)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save material')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={p.onCancel}
+      className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-[480px] bg-white border border-[#E5E7EB] rounded-2xl shadow-xl overflow-hidden"
+      >
+        <div className="px-5 py-3.5 border-b border-[#E5E7EB] text-[13px] font-semibold text-[#111]">
+          Add door material
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Material name</span>
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Walnut veneer"
+              className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+            />
+          </label>
+          <div className="grid grid-cols-[1fr_120px] gap-2">
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Cost</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={costValue}
+                onChange={(e) => setCostValue(e.target.value)}
+                placeholder="0"
+                className="mt-1 w-full px-3 py-2 text-sm font-mono tabular-nums border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Per</span>
+              <select
+                value={costUnit}
+                onChange={(e) => setCostUnit(e.target.value as DoorMaterialCostUnit)}
+                className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+              >
+                <option value="sheet">sheet</option>
+                <option value="lf">lf</option>
+                <option value="bf">bf</option>
+                <option value="ea">each</option>
+                <option value="lump">lump</option>
+              </select>
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Notes (optional)</span>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Anything the next operator should know…"
+              className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+            />
+          </label>
+          {error && (
+            <div className="px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded text-xs text-[#991B1B]">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 bg-[#F9FAFB] border-t border-[#E5E7EB]">
+          <button onClick={p.onCancel} disabled={saving} className="px-3 py-2 text-sm text-[#6B7280] hover:text-[#111]">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="px-4 py-2 bg-[#2563EB] text-white text-sm font-semibold rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save material'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AddDoorFinishModal(p: {
+  orgId: string
+  doorMaterialId: string
+  onCancel: () => void
+  onCreated: (
+    row: import('@/lib/door-types').DoorTypeMaterialFinish,
+  ) => void
+}) {
+  const [name, setName] = useState('')
+  const [hours, setHours] = useState('')
+  const [matCost, setMatCost] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setError(null)
+    if (!name.trim()) {
+      setError('Give the finish a name.')
+      return
+    }
+    const h = parseFloat(hours) || 0
+    const m = parseFloat(matCost) || 0
+    if (h < 0 || m < 0) {
+      setError('Hours and material need to be non-negative.')
+      return
+    }
+    setSaving(true)
+    try {
+      const created = await createDoorTypeMaterialFinish({
+        org_id: p.orgId,
+        door_type_material_id: p.doorMaterialId,
+        finish_name: name.trim(),
+        labor_hours_per_door: h,
+        material_per_door: m,
+      })
+      if (created) p.onCreated(created)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save finish')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={p.onCancel}
+      className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-[480px] bg-white border border-[#E5E7EB] rounded-2xl shadow-xl overflow-hidden"
+      >
+        <div className="px-5 py-3.5 border-b border-[#E5E7EB] text-[13px] font-semibold text-[#111]">
+          Add door finish
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Finish name</span>
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Matte clear"
+              className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Hours / door</span>
+              <input
+                type="number"
+                min="0"
+                step="0.05"
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+                placeholder="0"
+                className="mt-1 w-full px-3 py-2 text-sm font-mono tabular-nums border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">$ / door</span>
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value={matCost}
+                onChange={(e) => setMatCost(e.target.value)}
+                placeholder="0"
+                className="mt-1 w-full px-3 py-2 text-sm font-mono tabular-nums border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+              />
+            </label>
+          </div>
+          {error && (
+            <div className="px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded text-xs text-[#991B1B]">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 bg-[#F9FAFB] border-t border-[#E5E7EB]">
+          <button onClick={p.onCancel} disabled={saving} className="px-3 py-2 text-sm text-[#6B7280] hover:text-[#111]">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="px-4 py-2 bg-[#2563EB] text-white text-sm font-semibold rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save finish'}
+          </button>
+        </div>
       </div>
     </div>
   )

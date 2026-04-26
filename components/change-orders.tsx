@@ -707,20 +707,20 @@ export interface CreateCoModalSeed {
 type SlotKey =
   | 'qty'
   | 'carcassMaterial'
-  | 'doorStyle'
-  | 'doorMaterial'
+  | 'doorTypeId'
+  | 'doorMaterialId'
   | 'interiorFinish'
-  | 'exteriorFinish'
+  | 'doorFinishId'
   | 'endPanels'
   | 'fillers'
 
 const SLOT_LABELS: Record<SlotKey, string> = {
   qty: 'Quantity (LF)',
   carcassMaterial: 'Carcass material',
-  doorStyle: 'Door style',
-  doorMaterial: 'Door/drawer material',
+  doorTypeId: 'Door type',
+  doorMaterialId: 'Door material',
   interiorFinish: 'Interior finish',
-  exteriorFinish: 'Exterior finish',
+  doorFinishId: 'Door finish',
   endPanels: 'End panels (count)',
   fillers: 'Fillers (count)',
 }
@@ -1427,15 +1427,15 @@ function slotValueLabel(
       return `${qty} LF`
     case 'carcassMaterial':
       return rb.carcassMaterials.find((m) => m.id === slots.carcassMaterial)?.name || '(none)'
-    case 'doorStyle':
-      return rb.doorStyles.find((d) => d.id === slots.doorStyle)?.name || '(none)'
-    case 'doorMaterial':
-      return rb.extMaterials.find((m) => m.id === slots.doorMaterial)?.name || '(none)'
+    case 'doorTypeId':
+      return rb.doorTypes.find((t) => t.id === slots.doorTypeId)?.name || '(none)'
+    case 'doorMaterialId':
+      return rb.doorTypeMaterials.find((m) => m.id === slots.doorMaterialId)?.material_name || '(none)'
     case 'interiorFinish':
       if (slots.interiorFinish === PREFINISHED_FINISH_ID) return 'Prefinished'
       return rb.finishes.find((f) => f.id === slots.interiorFinish)?.name || '(none)'
-    case 'exteriorFinish':
-      return rb.finishes.find((f) => f.id === slots.exteriorFinish)?.name || '(none)'
+    case 'doorFinishId':
+      return rb.doorTypeMaterialFinishes.find((f) => f.id === slots.doorFinishId)?.finish_name || '(none)'
     case 'endPanels':
       return `${slots.endPanels} each`
     case 'fillers':
@@ -1486,18 +1486,16 @@ function ProposedSlotInput({
   let options: Array<{ id: string; name: string }> = []
   if (slotKey === 'carcassMaterial') {
     options = rateBook.carcassMaterials.map((m) => ({ id: m.id, name: m.name }))
-  } else if (slotKey === 'doorStyle') {
-    options = rateBook.doorStyles.map((d) => ({ id: d.id, name: d.name }))
-  } else if (slotKey === 'doorMaterial') {
-    options = rateBook.extMaterials.map((m) => ({ id: m.id, name: m.name }))
+  } else if (slotKey === 'doorTypeId') {
+    options = rateBook.doorTypes.map((d) => ({ id: d.id, name: d.name }))
+  } else if (slotKey === 'doorMaterialId') {
+    options = rateBook.doorTypeMaterials.map((m) => ({ id: m.id, name: m.material_name }))
   } else if (slotKey === 'interiorFinish') {
     options = rateBook.finishes
       .filter((f) => f.application === 'interior')
       .map((f) => ({ id: f.id, name: f.name }))
-  } else if (slotKey === 'exteriorFinish') {
-    options = rateBook.finishes
-      .filter((f) => f.application === 'exterior')
-      .map((f) => ({ id: f.id, name: f.name }))
+  } else if (slotKey === 'doorFinishId') {
+    options = rateBook.doorTypeMaterialFinishes.map((f) => ({ id: f.id, name: f.finish_name }))
   }
   return (
     <select

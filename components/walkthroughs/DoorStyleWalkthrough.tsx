@@ -36,8 +36,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
-import { ensureRateBookCategoryId, upsertRateBookItem } from '@/lib/rate-book'
+import { saveDoorTypeCalibration } from '@/lib/door-types'
 
 type Dept = 'eng' | 'cnc' | 'machining' | 'assembly' | 'finish'
 
@@ -195,13 +194,17 @@ export default function DoorStyleWalkthrough({
         assembly: foldedAssembly / DIVIDE_BY,
         finish: (hours.finish || 0) / DIVIDE_BY,
       }
-      const styleId = await saveDoorStyleCalibration({
+      // Door pricing v2: writes to door_types (not rate_book_items).
+      // Hardware $ stays at 0 from this walkthrough — it's edited in the
+      // rate-book detail view alongside the materials/finishes.
+      const typeId = await saveDoorTypeCalibration({
         orgId,
-        existingStyleId: existingStyle?.id ?? null,
-        name: name.trim() || 'Door style',
+        existingId: existingStyle?.id ?? null,
+        name: name.trim() || 'Door type',
         perDoor,
+        hardwareCost: 0,
       })
-      onComplete(styleId)
+      onComplete(typeId)
     } catch (err: any) {
       setError(err?.message || 'Failed to save door style')
     } finally {
@@ -567,66 +570,3 @@ function MiniCard(p: {
   )
 }
 
-// ── Storage ──
-
-const DOORS_CATEGORY_NAME = 'Doors'
-
-/**
- * Find-or-create the org's door_style category, then insert or update
- * the named rate_book_item and its per-door labor. Returns the item's
- * id so the composer can select it. Category + by-name find-or-create
- * use the shared helpers in lib/rate-book.ts so this walkthrough stays
- * in lock-step with BaseCabinetWalkthrough's Slab seeding.
- */
-async function saveDoorStyleCalibration(input: {
-  orgId: string
-  existingStyleId: string | null
-  name: string
-  perDoor: { eng: number; cnc: number; assembly: number; finish: number }
-}): Promise<string> {
-  const { orgId, existingStyleId, name, perDoor } = input
-
-  const patch = {
-    door_labor_hours_eng: perDoor.eng,
-    door_labor_hours_cnc: perDoor.cnc,
-    door_labor_hours_assembly: perDoor.assembly,
-    door_labor_hours_finish: perDoor.finish,
-    updated_at: new Date().toISOString(),
-  }
-
-  // Re-calibrating an existing style by id: update in place (keeps the
-  // row id stable so composer selections / saved estimate_lines still
-  // resolve). Also applies a rename if the user edited the name.
-  if (existingStyleId) {
-    const { error } = await supabase
-      .from('rate_book_items')
-      .update({ ...patch, name })
-      .eq('id', existingStyleId)
-    if (error) throw error
-    return existingStyleId
-  }
-
-  // New style: ensure the category, then upsert by name.
-  const categoryId = await ensureRateBookCategoryId(
-    orgId,
-    DOORS_CATEGORY_NAME,
-    'door_style',
-  )
-  return await upsertRateBookItem({
-    orgId,
-    categoryId,
-    name,
-    patch,
-    insertDefaults: {
-      unit: 'each',
-      material_mode: 'none',
-      sheets_per_unit: 0,
-      sheet_cost: 0,
-      linear_cost: 0,
-      lump_cost: 0,
-      hardware_cost: 0,
-      confidence: 'untested',
-      active: true,
-    },
-  })
-}

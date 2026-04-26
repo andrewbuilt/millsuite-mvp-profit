@@ -167,10 +167,13 @@ export default function PreProductionPage() {
 
   // Map an approval-item label to a composer slot key. Mirrors the
   // built-in mapping in lib/approvals.proposeSlotsFromComposerLine.
+  // Door pricing v2: door material now lives on doorMaterialId; the
+  // exterior-finish slot is now doorFinishId. The approval-card labels
+  // didn't change — only the lookup target moved.
   function slotKeyForLabel(label: string): string | null {
     if (label === 'Carcass material') return 'carcassMaterial'
-    if (label === 'Door/drawer material') return 'doorMaterial'
-    if (label === 'Exterior finish') return 'exteriorFinish'
+    if (label === 'Door/drawer material') return 'doorMaterialId'
+    if (label === 'Exterior finish') return 'doorFinishId'
     return null
   }
 
@@ -242,8 +245,8 @@ export default function PreProductionPage() {
         approvalItemId,
         preSelectedSlot: slotKey as
           | 'carcassMaterial'
-          | 'doorMaterial'
-          | 'exteriorFinish',
+          | 'doorMaterialId'
+          | 'doorFinishId',
       })
     } catch (err) {
       console.error('openSpecCo', err)
