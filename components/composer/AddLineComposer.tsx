@@ -728,6 +728,24 @@ function Composer(p: {
                 onToggle={() => p.toggleDropdown('carcassMaterial')}
                 onPick={(id) => {
                   p.setSlot('carcassMaterial', id)
+                  // Auto-suggest back panel from carcass when not already
+                  // picked — back panels are typically the same stock as
+                  // the carcass, just thinner. Match on the first token of
+                  // the carcass material name (e.g. "White oak" carcass →
+                  // "White oak ply 1/4" back). Operator can override; we
+                  // never overwrite an existing pick.
+                  if (!draft.slots.backPanelMaterial) {
+                    const carcass = rateBook.carcassMaterials.find((m) => m.id === id)
+                    if (carcass) {
+                      const firstToken = (carcass.name || '').trim().toLowerCase().split(/\s+/)[0]
+                      if (firstToken) {
+                        const match = rateBook.extMaterials.find((m) =>
+                          (m.name || '').toLowerCase().includes(firstToken),
+                        )
+                        if (match) p.setSlot('backPanelMaterial', match.id)
+                      }
+                    }
+                  }
                   p.toggleDropdown('carcassMaterial')
                 }}
                 onAddNew={() => p.openAddNew('carcassMaterial', 'carcass')}

@@ -35,6 +35,13 @@ export interface TeamMember {
    *  billable_hours_year's people multiplier. Non-billable still counts
    *  toward total payroll cost (the numerator). */
   billable: boolean
+  /** Optional FK to users.id. The walkthrough doesn't set it; the Team
+   *  page does, on first dept-assignment toggle, by auto-creating a users
+   *  row whose name matches. Lets one TeamMember row carry both the
+   *  shop-rate inputs (here) and the dept assignments (department_members
+   *  via users.id). NULL when this team member isn't being used for
+   *  scheduling — they're a payroll-only line item. */
+  user_id?: string | null
 }
 
 export interface BillableHoursInputs {
@@ -159,6 +166,7 @@ export async function loadShopRateSetup(orgId: string): Promise<ShopRateSetup> {
     name: String(m.name ?? ''),
     annual_comp: Number(m.annual_comp) || 0,
     billable: m.billable === false ? false : true,
+    user_id: m.user_id ? String(m.user_id) : null,
   }))
   return {
     shopRate: Number(row.shop_rate) || 0,
