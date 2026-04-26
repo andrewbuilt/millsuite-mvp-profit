@@ -640,7 +640,8 @@ export default function SubprojectEditorPage() {
           </div>
         )}
 
-        <div>
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+          <div className="min-w-0">
           <div className="flex items-baseline justify-between mb-4">
             <div>
               <h1 className="text-xl font-semibold tracking-tight text-[#111]">{subproject.name}</h1>
@@ -989,51 +990,11 @@ export default function SubprojectEditorPage() {
             </div>
           )}
 
-          {/* Bottom rollup — at COST. Margin lives on the project page. */}
-          <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
-            <div className="grid grid-cols-6 gap-5">
-              <RollupCell
-                label={`${subproject.name} · ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`}
-                value={fmtMoney(subprojectTotalWithInstall)}
-                sub={fmtHours(rollup.totalHours) + ' est'}
-                subTone="ok"
-                bold
-              />
-              <RollupCell label="Labor" value={fmtMoney(rollup.laborCost)} sub={fmtHours(rollup.totalHours)} />
-              <RollupCell
-                label="Material"
-                value={fmtMoney(rollup.materialCost)}
-                sub={`+ ${fmtMoney(rollup.consumablesCost)} consumables`}
-              />
-              <RollupCell
-                label="Hardware"
-                value={fmtMoney(rollup.hardwareCost)}
-                sub={
-                  rollup.hardwareCost > 0
-                    ? `${lines.filter((l) => { const it = l.rate_book_item_id ? itemsById.get(l.rate_book_item_id) : null; return it && it.hardware_cost > 0 }).length} lines`
-                    : '—'
-                }
-              />
-              <RollupCell
-                label="Install"
-                value={fmtMoney(rollup.installCost + installPrefillCost)}
-                sub={
-                  installPrefillCost > 0
-                    ? `${fmtMoney(installPrefillCost)} prefill`
-                    : rollup.installCost > 0
-                    ? 'line-driven'
-                    : '—'
-                }
-              />
-              <RollupCell
-                label="Subtotal"
-                value={fmtMoney(subprojectTotalWithInstall)}
-                sub={fmtHours(rollup.totalHours) + ' est'}
-                divider
-              />
-            </div>
-
-            {(rollup.totalHours > 0 || (actuals && actuals.totalMinutes > 0)) && (() => {
+          {/* Labor by department + actuals — moved out of the bottom
+              rollup bar (which now lives in the right pricing pane).
+              Left here as a standalone block so the sub-level operator
+              still sees the per-dept hour spread + clocked actuals. */}
+          {(rollup.totalHours > 0 || (actuals && actuals.totalMinutes > 0)) && (() => {
               // Phase 8: split actuals.byDeptMinutes into the canonical
               // LaborDept keys. Clock-ins against departments that don't map
               // to a canonical bucket land in `unmappedActualMinutes` and are
@@ -1116,6 +1077,70 @@ export default function SubprojectEditorPage() {
               )
             })()}
           </div>
+
+          {/* RIGHT — sticky pricing pane. Mirrors the project page's
+              right-column structure but at COST only (margin is applied
+              once at the project total, not per subproject). */}
+          <div>
+            <div className="sticky top-[6.5rem] bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm">
+              <div className="pb-4 border-b border-[#F3F4F6]">
+                <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1.5">
+                  Subproject total
+                </div>
+                <div className="text-[28px] font-semibold text-[#111] font-mono tabular-nums tracking-tight leading-none">
+                  {fmtMoney(subprojectTotalWithInstall)}
+                </div>
+                <div className="text-[11px] text-[#6B7280] mt-1.5">
+                  Cost — margin applied at project
+                </div>
+              </div>
+
+              <div className="pt-4">
+                <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
+                  Cost breakdown
+                </div>
+
+                <SubFinRow
+                  label="Labor"
+                  hours={rollup.totalHours}
+                  value={fmtMoney(rollup.laborCost)}
+                />
+                <SubFinRow label="Material" value={fmtMoney(rollup.materialCost)} />
+                <SubFinRow
+                  label={
+                    <>
+                      Consumables
+                      <span className="text-[10px] text-[#9CA3AF] ml-1">
+                        ({pricingCtx.consumableMarkupPct.toFixed(0)}% of material)
+                      </span>
+                    </>
+                  }
+                  value={fmtMoney(rollup.consumablesCost)}
+                />
+                <SubFinRow
+                  label="Specialty hardware"
+                  value={fmtMoney(rollup.hardwareCost)}
+                />
+                <SubFinRow label="Options" value={fmtMoney(rollup.optionsCost)} />
+                <SubFinRow
+                  label="Install"
+                  hours={rollup.hoursByDept.install}
+                  value={fmtMoney(rollup.installCost + installPrefillCost)}
+                />
+
+                <div className="mt-3 pt-3 border-t border-[#E5E7EB]">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[#374151] font-semibold">
+                      Subproject cost
+                    </span>
+                    <span className="font-mono text-[#111] tabular-nums font-semibold">
+                      {fmtMoney(subprojectTotalWithInstall)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -1190,26 +1215,28 @@ function resolveCategoryName(id: string, items: RateBookItemRow[]): string | nul
 
 // ── Sub-components ──
 
-function RollupCell({
-  label, value, sub, subTone, bold, divider,
+/** Cost-breakdown row in the right pricing pane. Mirrors the project page's
+ *  FinRow shape so the two surfaces read identically. */
+function SubFinRow({
+  label,
+  value,
+  hours,
 }: {
-  label: string
+  label: React.ReactNode
   value: string
-  sub?: string
-  subTone?: 'ok' | 'warn' | 'bad'
-  bold?: boolean
-  divider?: boolean
+  hours?: number
 }) {
-  const tone =
-    subTone === 'ok' ? 'text-[#059669]' :
-    subTone === 'warn' ? 'text-[#D97706]' :
-    subTone === 'bad' ? 'text-[#DC2626]' :
-    'text-[#6B7280]'
   return (
-    <div className={divider ? 'pl-5 border-l border-[#F3F4F6]' : ''}>
-      <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1">{label}</div>
-      <div className={`font-mono tabular-nums ${bold ? 'text-xl font-semibold text-[#111]' : 'text-lg font-semibold text-[#111]'}`}>{value}</div>
-      {sub && <div className={`text-[11px] mt-1 font-medium ${tone}`}>{sub}</div>}
+    <div className="flex items-center justify-between py-1.5 text-sm">
+      <span className="text-[#374151]">{label}</span>
+      <span className="font-mono text-[#111] tabular-nums">
+        {hours != null && hours > 0 && (
+          <span className="text-[#9CA3AF] mr-1.5">
+            {fmtHours(hours)} est ·
+          </span>
+        )}
+        {value}
+      </span>
     </div>
   )
 }
