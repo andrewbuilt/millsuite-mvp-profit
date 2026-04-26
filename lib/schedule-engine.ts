@@ -624,7 +624,16 @@ export function autoPlace(
     return (a.schedule_order ?? 0) - (b.schedule_order ?? 0)
   })
 
-  // Index allocations by sub+dept for fast lookup
+  // Index allocations by sub+dept for fast lookup. ASSUMPTION: at most one
+  // row per (sub, dept). The seed (lib/schedule-seed) currently fans out
+  // exactly one row per pair, so the assumption holds at first placement.
+  // After the divide-block modal splits a row, the same (sub, dept) can
+  // carry multiple rows — those rows have explicit scheduled_date set, so
+  // they never re-enter autoPlace (the operator chose placement). If a
+  // future path re-runs autoPlace on already-split data, this lookup
+  // collapses duplicates and silently drops all but the last sibling.
+  // Fix shape: change to Map<string, Allocation[]> + iterate inside the
+  // dept loop. Not done here because no live path exercises it.
   const allocLookup = new Map<string, Allocation>()
   for (const a of allocations) {
     allocLookup.set(`${a.subproject_id}::${a.dept_key}`, a)

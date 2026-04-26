@@ -8,6 +8,7 @@ import GateChip from '@/components/gate-chip'
 import { supabase } from '@/lib/supabase'
 import { loadSubprojectStatusMap, SubprojectStatus } from '@/lib/subproject-status'
 import { seedAllocationsForProduction } from '@/lib/schedule-seed'
+import DivideBlockModal from '@/components/schedule/DivideBlockModal'
 
 // =====================================================
 // TYPES
@@ -245,7 +246,7 @@ function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCa
 // =====================================================
 // FLOW VIEW (departments as rows)
 // =====================================================
-function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
+function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
@@ -263,6 +264,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
   onHover: (block: Block) => void
   onLeave: () => void
   onSelect: (sk: string) => void
+  onDivide: (block: Block) => void
   simMode: boolean
   adjustCapacity: (deptId: string, delta: number) => void
   capacityOverrides: Record<string, number>
@@ -329,7 +331,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
                     const isNew = diffInfo != null
                     const diffBorder = isNew ? (diffInfo.direction === 'earlier' ? '#059669' : '#D97706') : null
                     return (
-                      <div key={block.id} onPointerDown={e => onPointerDown(e, block)} onMouseEnter={() => onHover(block)} onMouseLeave={onLeave}
+                      <div key={block.id} className="sched-block" onPointerDown={e => onPointerDown(e, block)} onMouseEnter={() => onHover(block)} onMouseLeave={onLeave}
                         onClick={e => { e.stopPropagation(); onSelect(sk) }}
                         style={{
                           height: n > 6 ? 18 : n > 4 ? 20 : n > 2 ? 22 : 26, width: 'calc(100% - 4px)', borderRadius: 5,
@@ -346,6 +348,15 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
                         <span style={{ fontSize: n > 6 ? 8 : n > 4 ? 9 : 10, fontWeight: 600, lineHeight: 1, color: hl ? '#FFF' : oc ? '#991B1B' : c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>{block.sub}</span>
                         <span style={{ fontSize: n > 4 ? 7 : 8, fontWeight: 600, marginLeft: 'auto', paddingLeft: 3, fontFamily: "'SF Mono', monospace", flexShrink: 0, color: hl ? 'rgba(255,255,255,0.7)' : oc ? '#DC2626' : '#B0B0B0' }}>{block.hours}h</span>
                         {isNew && <span style={{ fontSize: 7, marginLeft: 3, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
+                        <button
+                          className="sched-divide-btn"
+                          onClick={(e) => { e.stopPropagation(); onDivide(block) }}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          title="Divide block"
+                          style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', width: 12, height: 14, padding: 0, border: 'none', background: 'rgba(255,255,255,0.85)', borderRadius: 2, cursor: 'pointer', color: '#374151', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          ⋮
+                        </button>
                       </div>
                     )
                   })}
@@ -363,7 +374,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
 // =====================================================
 // SWIMLANE VIEW (projects as rows, expand to subprojects)
 // =====================================================
-function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, priorities, onWeekClick }: {
+function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, priorities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
@@ -387,6 +398,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
   onHover: (block: Block) => void
   onLeave: () => void
   onSelect: (sk: string) => void
+  onDivide: (block: Block) => void
   priorities: Record<string, number>
   onWeekClick: (weekIndex: number) => void
 }) {
@@ -512,6 +524,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
                           const isDragging = dragState?.blockId === block.id
                           return (
                             <div key={block.id}
+                              className="sched-block"
                               onPointerDown={e => onPointerDown(e, block)}
                               style={{
                                 flex: 1, height: 24, borderRadius: 4,
@@ -529,6 +542,15 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
                               <span style={{ fontSize: 8, fontWeight: 700, color: hl ? '#FFF' : dc.text, letterSpacing: '0.02em' }}>{deptShortMap[block.dept] || 'DEPT'}</span>
                               <span style={{ fontSize: 8, fontWeight: 600, color: hl ? 'rgba(255,255,255,0.7)' : `${dc.text}90`, fontFamily: "'SF Mono', monospace" }}>{block.hours}h</span>
                               {isNew && <span style={{ fontSize: 6, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
+                              <button
+                                className="sched-divide-btn"
+                                onClick={(e) => { e.stopPropagation(); onDivide(block) }}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                title="Divide block"
+                                style={{ position: 'absolute', right: 1, top: '50%', transform: 'translateY(-50%)', width: 12, height: 14, padding: 0, border: 'none', background: 'rgba(255,255,255,0.85)', borderRadius: 2, cursor: 'pointer', color: '#374151', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              >
+                                ⋮
+                              </button>
                             </div>
                           )
                         })}
@@ -702,6 +724,13 @@ export default function SchedulePage() {
 
   const [priorities, setPriorities] = useState<Record<string, number>>({})
   const [showPriorityPanel, setShowPriorityPanel] = useState(false)
+
+  // Divide-block modal — null = closed; otherwise carries the block being
+  // split. The block carries id (= allocation_id), dept_id, sub_id, etc.
+  // so the save handler has everything it needs to wipe the source row +
+  // insert N new ones with explicit dates.
+  const [divideBlock, setDivideBlock] = useState<Block | null>(null)
+  const [dividing, setDividing] = useState(false)
   const [capacityOverrides, setCapacityOverrides] = useState<Record<string, number>>({})
   const [simMode, setSimMode] = useState(false)
 
@@ -1028,6 +1057,65 @@ export default function SchedulePage() {
       .eq('id', blockId)
   }, [weekIndexToDate])
 
+  // Divide-block save: wipe the source allocation, insert N new rows with
+  // explicit scheduled_date + estimated_hours (operator picked the
+  // placement, so autoPlace is intentionally NOT called). All other fields
+  // (org_id, subproject_id, department_id, crew_size) are copied off the
+  // source row so future drags / displays read the same as the original.
+  const handleDivideSave = useCallback(
+    async (splits: Array<{ scheduledDate: string; hours: number }>) => {
+      if (!divideBlock) return
+      setDividing(true)
+      try {
+        // Pull the source row so we can copy crew_size + org_id forward
+        // without trusting in-memory state. Single round-trip; trivial.
+        const { data: source } = await supabase
+          .from('department_allocations')
+          .select('id, org_id, subproject_id, department_id, crew_size')
+          .eq('id', divideBlock.id)
+          .single()
+        if (!source) return
+
+        const inserts = splits.map((s) => ({
+          org_id: source.org_id,
+          subproject_id: source.subproject_id,
+          department_id: source.department_id,
+          estimated_hours: s.hours,
+          scheduled_date: s.scheduledDate,
+          crew_size: source.crew_size,
+          completed: false,
+        }))
+
+        const { error: insErr } = await supabase
+          .from('department_allocations')
+          .insert(inserts)
+        if (insErr) {
+          console.error('handleDivideSave insert', insErr)
+          return
+        }
+
+        const { error: delErr } = await supabase
+          .from('department_allocations')
+          .delete()
+          .eq('id', source.id)
+        if (delErr) {
+          console.error('handleDivideSave delete', delErr)
+          return
+        }
+
+        setDivideBlock(null)
+        await loadData()
+      } finally {
+        setDividing(false)
+      }
+    },
+    // loadData is a stable function defined below — declaring it as a
+    // dep would close over a stale reference. Tracking divideBlock + org
+    // is sufficient.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [divideBlock, org?.id],
+  )
+
   // --- FLOW VIEW DRAG ---
   const handlePointerDown = useCallback((e: React.PointerEvent, block: Block) => {
     if (whatIfBlocks) return
@@ -1059,10 +1147,27 @@ export default function SchedulePage() {
           return b
         })
       } else {
-        // Default: move this dept and all downstream depts together
+        // Default: move this dept's dragged block + STRICTLY-downstream
+        // depts together. When a sub has multiple blocks of the same dept
+        // (a divided allocation), the un-dragged siblings stay put — the
+        // operator picked their dates explicitly via the divide modal.
+        // Downstream cascade tracks the dept's max-end across all splits:
+        // the new max-end may be smaller, equal, or greater than the old
+        // max depending on which split was dragged where.
+        const sameDept = prev.filter(b => getSubKey(b) === sk && (deptIndex[b.dept] ?? 0) === di)
+        const oldMaxWeek = sameDept.length > 0 ? Math.max(...sameDept.map(b => b.week)) : db.week
+        const newMaxWeek = sameDept.length > 0
+          ? Math.max(...sameDept.map(b => b.id === dragState.blockId ? nw : b.week))
+          : nw
+        const downstreamShift = newMaxWeek - oldMaxWeek
+
         updated = prev.map(b => {
           if (getSubKey(b) !== sk) return b
-          if ((deptIndex[b.dept] ?? 0) >= di) return { ...b, week: Math.max(0, Math.min(numWeeks - 1, b.week + shift)) }
+          if (b.id === dragState.blockId) return { ...b, week: Math.max(0, Math.min(numWeeks - 1, nw)) }
+          const bdi = deptIndex[b.dept] ?? 0
+          if (bdi > di && downstreamShift !== 0) {
+            return { ...b, week: Math.max(0, Math.min(numWeeks - 1, b.week + downstreamShift)) }
+          }
           return b
         })
       }
@@ -1086,16 +1191,21 @@ export default function SchedulePage() {
 
         if (didChange) {
           setHistory(prev => [...prev, preBlocks])
-          // Persist moved blocks
+          // Persist moved blocks — only the rows that actually changed.
+          // Cheaper than re-writing every same-sub row, and matters once
+          // multi-split subs exist (un-dragged same-dept siblings stay put
+          // and shouldn't trigger a no-op UPDATE).
           const movedBlock = currentBlocks.find(b => b.id === dragState.blockId)
           if (movedBlock) {
             if (dragState.independent) {
               persistBlockMove(movedBlock.id, movedBlock.week)
             } else {
               const sk = getSubKey(movedBlock)
-              currentBlocks.filter(b => getSubKey(b) === sk).forEach(b => {
-                persistBlockMove(b.id, b.week)
-              })
+              currentBlocks
+                .filter(b => getSubKey(b) === sk && preMap.get(b.id) !== b.week)
+                .forEach(b => {
+                  persistBlockMove(b.id, b.week)
+                })
             }
           }
         }
@@ -1565,6 +1675,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   filter={filter} highlightKey={highlightKey} dragState={dragState}
                   whatIfDiff={whatIfDiff} whatIfActive={!!whatIfBlocks}
                   onPointerDown={handlePointerDown} onHover={handleHover} onLeave={handleLeave} onSelect={handleSelect}
+                  onDivide={(b) => setDivideBlock(b)}
                   simMode={simMode} adjustCapacity={adjustCapacity} capacityOverrides={capacityOverrides}
                   deptCapacities={deptCapacities}
                   onWeekClick={(wi: number) => setSelectedWeek(sw => sw === wi ? null : wi)}
@@ -1580,6 +1691,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   filter={filter} highlightKey={highlightKey} dragState={dragState}
                   whatIfDiff={whatIfDiff} whatIfActive={!!whatIfBlocks}
                   onPointerDown={handlePointerDown} onHover={handleHover} onLeave={handleLeave} onSelect={handleSelect}
+                  onDivide={(b) => setDivideBlock(b)}
                   priorities={priorities}
                   onWeekClick={(wi: number) => setSelectedWeek(sw => sw === wi ? null : wi)}
                 />
@@ -1664,6 +1776,20 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
             />
           )}
         </div>
+      )}
+
+      {divideBlock && (
+        <DivideBlockModal
+          blockId={divideBlock.id}
+          deptName={departments.find((d) => d.id === divideBlock.dept)?.name || 'Dept'}
+          projectName={divideBlock.projectName}
+          subprojectName={divideBlock.sub}
+          totalHours={divideBlock.hours}
+          initialWeekStartIso={weekIndexToDate(divideBlock.week)}
+          saving={dividing}
+          onCancel={() => setDivideBlock(null)}
+          onSave={handleDivideSave}
+        />
       )}
       </div>
     </PlanGate>
