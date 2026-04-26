@@ -8,6 +8,7 @@ import GateChip from '@/components/gate-chip'
 import { supabase } from '@/lib/supabase'
 import { loadSubprojectStatusMap, SubprojectStatus } from '@/lib/subproject-status'
 import { loadSubprojectActualHours, SubActualsMap } from '@/lib/actual-hours'
+import { seedAllocationsForProduction } from '@/lib/schedule-seed'
 
 // =====================================================
 // TYPES
@@ -938,6 +939,19 @@ export default function SchedulePage() {
 
     const projs: Project[] = projData || []
     setProjects(projs)
+
+    // Self-heal: any production project that advanced under the PR1 stub
+    // (or before PR2 shipped, or via a path that skipped maybeAdvance) is
+    // missing its department_allocations seed. Fire seedAllocationsForProduction
+    // on each production-stage project before allocations load — the helper
+    // is idempotent (bails if any allocations exist on the project's subs)
+    // so projects already seeded are no-ops. Installed projects skipped
+    // entirely (they shipped; nothing to schedule).
+    await Promise.all(
+      projs
+        .filter(p => p.stage === 'production')
+        .map(p => seedAllocationsForProduction(p.id)),
+    )
 
     // Set default priorities
     const defaultPri: Record<string, number> = {}
