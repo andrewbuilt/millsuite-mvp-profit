@@ -38,7 +38,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { saveDoorTypeCalibration } from '@/lib/door-types'
 
-type Dept = 'eng' | 'cnc' | 'machining' | 'assembly' | 'finish'
+// Door pricing v2 (PR #74 + cleanup): finish labor + material live on
+// door_type_material_finishes (per-finish), not on the door type itself.
+// The walkthrough captures only construction labor — Finish step is gone.
+type Dept = 'eng' | 'cnc' | 'machining' | 'assembly'
 
 interface StepConfig {
   key: Dept
@@ -72,12 +75,6 @@ const STEPS: StepConfig[] = [
     bucketLabel: 'Assembly',
     prompt: 'Glue-up, square, sand. For 4 doors.',
   },
-  {
-    key: 'finish',
-    heading: 'Finish',
-    bucketLabel: 'Finish',
-    prompt: 'Spray and flip 4 doors.',
-  },
 ]
 
 const DIVIDE_BY = 4 // calibration unit size
@@ -88,12 +85,14 @@ export interface DoorStyleWalkthroughExistingStyle {
   id: string
   name: string
   /** Per-door labor currently in the DB. Used to populate mini-card inputs
-   *  and to decide full-modal-vs-mini-card via the gap count. */
+   *  and to decide full-modal-vs-mini-card via the gap count. The legacy
+   *  finish field is preserved on the type for back-compat but ignored
+   *  by the walkthrough — finish labor lives on the per-finish row now. */
   labor: {
     eng: number
     cnc: number
     assembly: number
-    finish: number
+    finish?: number
   }
 }
 
@@ -124,28 +123,26 @@ export default function DoorStyleWalkthrough({
 
   const initialHours: HoursByStep = useMemo(() => {
     if (!existingStyle) {
-      return { eng: 0, cnc: 0, machining: 0, assembly: 0, finish: 0 }
+      return { eng: 0, cnc: 0, machining: 0, assembly: 0 }
     }
-    // For mini-card mode, pre-fill the per-door existing values back up to
-    // "hours for 4 doors" so the user edits in the same unit the
-    // walkthrough asks in.
     return {
       eng: existingStyle.labor.eng * DIVIDE_BY,
       cnc: existingStyle.labor.cnc * DIVIDE_BY,
       machining: 0, // machining always starts at 0 — there's no stored
                     // machining value (it was already folded in on last save)
       assembly: existingStyle.labor.assembly * DIVIDE_BY,
-      finish: existingStyle.labor.finish * DIVIDE_BY,
     }
   }, [existingStyle])
 
   const isNewStyle = !existingStyle
   const gapCount = useMemo(() => {
-    if (!existingStyle) return 4 // new style = all zeros
+    // Three calibratable depts now (eng / cnc / assembly). All-zero =
+    // full-modal step-through; any non-zero entry = mini-card gap-fill.
+    if (!existingStyle) return 3
     const l = existingStyle.labor
-    return [l.eng, l.cnc, l.assembly, l.finish].filter((v) => !v || v <= 0).length
+    return [l.eng, l.cnc, l.assembly].filter((v) => !v || v <= 0).length
   }, [existingStyle])
-  const mode: 'modal' | 'card' = gapCount === 4 ? 'modal' : 'card'
+  const mode: 'modal' | 'card' = gapCount === 3 ? 'modal' : 'card'
 
   // ── State ──
 
@@ -187,12 +184,17 @@ export default function DoorStyleWalkthrough({
     setSaving(true)
     try {
       // Fold machining into assembly, divide everything by 4 → per-door.
+      // Finish step is gone (door pricing v2): finish labor lives on the
+      // per-finish row, not the door type. perDoor.finish stays 0 in the
+      // payload so saveDoorTypeCalibration's NOT NULL DEFAULT 0 column
+      // takes the value cleanly. Existing rows that had a non-zero
+      // labor_hours_finish are ignored on read by composer-loader.
       const foldedAssembly = (hours.assembly || 0) + (hours.machining || 0)
       const perDoor = {
         eng: (hours.eng || 0) / DIVIDE_BY,
         cnc: (hours.cnc || 0) / DIVIDE_BY,
         assembly: foldedAssembly / DIVIDE_BY,
-        finish: (hours.finish || 0) / DIVIDE_BY,
+        finish: 0,
       }
       // Door pricing v2: writes to door_types (not rate_book_items).
       // Hardware $ stays at 0 from this walkthrough — it's edited in the
@@ -461,7 +463,7 @@ function MiniCard(p: {
   hours: HoursByStep
   saving: boolean
   error: string | null
-  existingLabor: { eng: number; cnc: number; assembly: number; finish: number }
+  existingLabor: { eng: number; cnc: number; assembly: number; finish?: number }
   onHour: (key: Dept, v: string) => void
   onStep: (key: Dept, delta: number) => void
   onCancel: () => void

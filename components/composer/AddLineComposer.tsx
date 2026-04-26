@@ -264,11 +264,12 @@ export default function AddLineComposer({
       style: {
         id: dt.id,
         name: dt.name,
+        // Door v2: finish lives on per-finish rows, not the door type.
+        // Walkthrough only edits eng/cnc/assembly now.
         labor: {
           eng: dt.labor_hours_eng,
           cnc: dt.labor_hours_cnc,
           assembly: dt.labor_hours_assembly,
-          finish: dt.labor_hours_finish,
         },
       },
     })
@@ -1440,6 +1441,16 @@ function WarnStrip({ children }: { children: React.ReactNode }) {
   )
 }
 
+/** Append a "$X/door" annotation to a Row detail string. Used by the
+ *  door-section rows so the operator can sanity-check the per-door cost
+ *  at a glance without doing the divide in their head. Returns the
+ *  original detail unchanged when perDoor is 0 / the detail is null. */
+function appendPerDoor(detail: string | null, perDoor: number): string | null {
+  if (!detail) return detail
+  if (!perDoor || Math.abs(perDoor) < 0.01) return detail
+  return `${detail} · $${Math.round(perDoor)}/door`
+}
+
 function BreakdownPanel({
   breakdown,
   defaults,
@@ -1513,20 +1524,33 @@ function BreakdownPanel({
 
       {breakdown.doorLaborWarn ? (
         <div className="py-2 border-b border-[#F3F4F6]">
-          <div className="text-[12px] text-[#78350F]">⚠ Door style needs walkthrough</div>
+          <div className="text-[12px] text-[#78350F]">⚠ Door type needs calibration</div>
         </div>
       ) : (
         <Row
           label="Door labor"
-          detail={`${qty} LF × $${Math.round(breakdown.doorLaborPerLf)}/LF`}
+          detail={appendPerDoor(
+            `${qty} LF × $${Math.round(breakdown.doorLaborPerLf)}/LF`,
+            breakdown.doorLaborPerDoor,
+          )}
           value={breakdown.doorLabor}
         />
       )}
       <Row
         label="Door material"
-        detail={breakdown.doorMaterialDetail}
+        detail={appendPerDoor(breakdown.doorMaterialDetail, breakdown.doorMaterialPerDoor)}
         value={breakdown.doorMaterial}
       />
+      {breakdown.doorHardware > 0 && (
+        <Row
+          label="Door hardware"
+          detail={appendPerDoor(
+            `${breakdown.doorsPerLine.toFixed(2)} doors × $${breakdown.doorHardwarePerDoor}/door`,
+            breakdown.doorHardwarePerDoor,
+          )}
+          value={breakdown.doorHardware}
+        />
+      )}
 
       {breakdown.drawerLaborWarn ? (
         <div className="py-2 border-b border-[#F3F4F6]">
@@ -1551,9 +1575,24 @@ function BreakdownPanel({
       />
       <Row
         label="Exterior finish"
-        detail={breakdown.exteriorFinishDetail}
+        detail={appendPerDoor(
+          breakdown.exteriorFinishDetail,
+          breakdown.doorFinishLaborPerDoor + breakdown.doorFinishMaterialPerDoor,
+        )}
         value={breakdown.exteriorFinishLabor + breakdown.exteriorFinishMaterial}
       />
+
+      {/* Door section roll-up — labor + material + finish + hardware
+          summarized as a per-door average. Useful for quick comparisons
+          across door type / material combos. Hidden when no door slot
+          contributes (avgPerDoor === 0). */}
+      {breakdown.avgPerDoor > 0 && (
+        <Row
+          label="Avg per door"
+          detail={'labor + material + finish + hardware'}
+          value={breakdown.avgPerDoor}
+        />
+      )}
 
       <Row
         label="End panels"

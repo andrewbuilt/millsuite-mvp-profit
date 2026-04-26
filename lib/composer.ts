@@ -286,6 +286,17 @@ export interface ComposerBreakdown {
   /** Door type hardware × door count. Per door pricing v2 — dt.hardware_cost
    *  applied at doorsPerLine. */
   doorHardware: number
+  /** Per-door numerics for the breakdown panel's ($X/door) annotations.
+   *  All zero when the underlying slot isn't picked. avgPerDoor sums
+   *  labor + material + finish + hardware so the breakdown can render a
+   *  single roll-up at the bottom of the door section. */
+  doorsPerLine: number
+  doorLaborPerDoor: number
+  doorMaterialPerDoor: number
+  doorFinishLaborPerDoor: number
+  doorFinishMaterialPerDoor: number
+  doorHardwarePerDoor: number
+  avgPerDoor: number
 
   /** Drawer-slot rollup. drawerLaborWarn fires when drawerCount>0 but the
    *  drawer style isn't calibrated; the breakdown panel shows a hint and
@@ -442,6 +453,14 @@ export function computeBreakdown(
   // hardware on file.
   const doorHardware = dt ? doorsPerLine * (dt.hardware_cost || 0) : 0
 
+  // Per-door rolls for the breakdown panel's ($X/door) annotations.
+  // safeDoors guards the divides — when doorsPerLine rounds to 0 (qty 0
+  // or a product with doorsPerLf=0), every per-door reads 0.
+  const safeDoors = doorsPerLine > 0 ? doorsPerLine : 0
+  const doorLaborPerDoor = safeDoors > 0 ? doorLabor / safeDoors : 0
+  const doorMaterialPerDoor = safeDoors > 0 ? doorMaterial / safeDoors : 0
+  const doorHardwarePerDoor = dt ? dt.hardware_cost || 0 : 0
+
   // Drawers — Base only. drawerCount × per-drawer hours by dept.
   // Drawer fronts pull from the doorMaterial slot (faces are the same
   // stock); sheetsPerDrawerFront is a small constant per product (0 on
@@ -527,6 +546,14 @@ export function computeBreakdown(
   const doorFinishDetail = df
     ? `${doorsPerLine.toFixed(2)} doors × ${df.labor_hours_per_door}h/door + $${df.material_per_door}/door`
     : null
+  const doorFinishLaborPerDoor = df ? df.labor_hours_per_door * rate : 0
+  const doorFinishMaterialPerDoor = df ? df.material_per_door : 0
+  const avgPerDoor =
+    doorLaborPerDoor +
+    doorMaterialPerDoor +
+    doorFinishLaborPerDoor +
+    doorFinishMaterialPerDoor +
+    doorHardwarePerDoor
   const finishHoursTotal = finishLaborHours(ifn) + doorFinishHours
 
   // End panels — under door pricing v2 each panel rolls up as one full
@@ -622,6 +649,13 @@ export function computeBreakdown(
     doorMaterial,
     doorMaterialDetail,
     doorHardware,
+    doorsPerLine,
+    doorLaborPerDoor,
+    doorMaterialPerDoor,
+    doorFinishLaborPerDoor,
+    doorFinishMaterialPerDoor,
+    doorHardwarePerDoor,
+    avgPerDoor,
 
     drawerLabor,
     drawerLaborWarn,
