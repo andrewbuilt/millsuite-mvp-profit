@@ -38,18 +38,26 @@ import {
 } from '@/lib/drawings'
 import type { ApprovalState } from '@/lib/approvals'
 import { useConfirm } from '@/components/confirm-dialog'
+import { maybeAdvanceToProduction } from '@/lib/project-stage'
 
 interface Props {
   subprojectId: string
+  /** Drives the auto-advance check after approve / mark-approved-manually.
+   *  Required because drawings approval is one of the gates that can close
+   *  the sold → production transition. */
+  projectId: string
   /** Optional, set as uploaded_by_user_id on new revision rows. */
   actorUserId?: string
   /** Called after every successful state mutation (upload / submit /
    *  approve / reopen / manual-approve). Lets the parent refetch the
    *  scheduling-gate view so the project header updates immediately. */
   onChange?: () => void
+  /** Fired after a drawings approval lands the project at the production
+   *  gate and stage auto-advances. Parent shows the toast + refetches. */
+  onAdvancedToProduction?: () => void
 }
 
-export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: Props) {
+export default function DrawingsTrack({ subprojectId, projectId, actorUserId, onChange, onAdvancedToProduction }: Props) {
   const { confirm, alert } = useConfirm()
   const [revs, setRevs] = useState<DrawingRevision[]>([])
   const [loading, setLoading] = useState(true)
@@ -77,6 +85,12 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
       await fn(revId)
       await reload()
       onChange?.()
+      // Approve is the gate-closing transition; submit / reopen don't
+      // change ready_for_scheduling so we skip the round-trip there.
+      if (fn === approveRevision) {
+        const advanced = await maybeAdvanceToProduction(projectId)
+        if (advanced) onAdvancedToProduction?.()
+      }
     } catch (err) {
       console.error(err)
       await alert({
@@ -147,6 +161,8 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
                 }
                 await reload()
                 onChange?.()
+                const advanced = await maybeAdvanceToProduction(projectId)
+                if (advanced) onAdvancedToProduction?.()
               } finally {
                 setMarkingManual(false)
               }

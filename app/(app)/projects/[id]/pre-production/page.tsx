@@ -93,6 +93,7 @@ export default function PreProductionPage() {
 
   const [project, setProject] = useState<Project | null>(null)
   const [subs, setSubs] = useState<Subproject[]>([])
+  const [toast, setToast] = useState<string | null>(null)
   const [statusMap, setStatusMap] = useState<Record<string, SubprojectStatus>>({})
   // Project-wide counts are cheap enough to fetch all items for — most
   // projects have well under 100 slots across every sub.
@@ -153,6 +154,16 @@ export default function PreProductionPage() {
   useEffect(() => {
     reload()
   }, [reload])
+
+  function showToast(msg: string) {
+    setToast(msg)
+    setTimeout(() => setToast(null), 2600)
+  }
+
+  function handleAdvancedToProduction() {
+    showToast('Project advanced to production. Schedule allocations seeded.')
+    void reload()
+  }
 
   // Map an approval-item label to a composer slot key. Mirrors the
   // built-in mapping in lib/approvals.proposeSlotsFromComposerLine.
@@ -419,6 +430,7 @@ export default function PreProductionPage() {
                     onCreateSpecCo={(approvalItemId) =>
                       void openSpecCo(approvalItemId, sub.id, sub.name)
                     }
+                    onAdvancedToProduction={handleAdvancedToProduction}
                   />
                 </div>
                 <div>
@@ -427,8 +439,10 @@ export default function PreProductionPage() {
                   </div>
                   <DrawingsTrack
                     subprojectId={sub.id}
+                    projectId={projectId}
                     actorUserId={user?.id}
                     onChange={reload}
+                    onAdvancedToProduction={handleAdvancedToProduction}
                   />
                 </div>
               </div>
@@ -477,6 +491,12 @@ export default function PreProductionPage() {
           </p>
         </div>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-[#111] text-white text-sm rounded-lg shadow-lg">
+          {toast}
+        </div>
+      )}
 
       {/* Spec-CO modal — single mount, opens whenever coSeed is set
           via openSpecCo from a SlotCard's "+ CO" click. */}

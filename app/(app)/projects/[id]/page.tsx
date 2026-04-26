@@ -84,6 +84,7 @@ import {
 } from '@/lib/subproject-status'
 import ClientPicker from '@/components/project/ClientPicker'
 import { useConfirm } from '@/components/confirm-dialog'
+import { maybeAdvanceToProduction } from '@/lib/project-stage'
 
 // ── Types ──
 
@@ -452,6 +453,27 @@ export default function ProjectCoverPage() {
   useEffect(() => {
     reload()
   }, [reload])
+
+  // Auto-advance check on every reload. Cheap (3 small queries) and
+  // idempotent — bails immediately when stage isn't 'sold'. Catches the
+  // case where a deposit landed via QB watcher / outside the page since
+  // the gate was last evaluated. On success, refetches local state +
+  // shows the toast. The handler hoisted into a stable ref so the effect
+  // doesn't re-fire on every render.
+  useEffect(() => {
+    if (!project || project.stage !== 'sold') return
+    let cancelled = false
+    ;(async () => {
+      const advanced = await maybeAdvanceToProduction(projectId)
+      if (cancelled || !advanced) return
+      showToast('Project advanced to production. Schedule allocations seeded.')
+      reload()
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, project?.stage])
 
   // Item 1: refresh on tab focus / page-show. Pre-prod approve clicks
   // happen on a different page; without this hook the banner + status
@@ -1050,6 +1072,11 @@ export default function ProjectCoverPage() {
                     ),
                   )
                   showToast('Milestone marked received.')
+                  const advanced = await maybeAdvanceToProduction(projectId)
+                  if (advanced) {
+                    showToast('Project advanced to production. Schedule allocations seeded.')
+                    reload()
+                  }
                 }}
                 dirty={milestonesDirty}
                 saving={milestonesSaving}
