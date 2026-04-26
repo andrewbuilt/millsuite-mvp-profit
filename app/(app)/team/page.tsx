@@ -26,6 +26,7 @@ import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { useConfirm } from '@/components/confirm-dialog'
 import { Trash2, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import {
@@ -47,13 +48,6 @@ interface Department {
   hours_per_day: number
 }
 
-interface DeptMember {
-  id: string
-  department_id: string
-  user_id: string
-  is_primary: boolean
-}
-
 const DEPT_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#6B7280']
 
 export default function TeamPage() {
@@ -69,6 +63,7 @@ export default function TeamPage() {
 
 function TeamContent() {
   const { org } = useAuth()
+  const { confirm } = useConfirm()
   const [departments, setDepartments] = useState<Department[]>([])
   const [team, setTeam] = useState<TeamMember[]>([])
   const [overhead, setOverhead] = useState<OverheadInputs>({})
@@ -78,7 +73,6 @@ function TeamContent() {
     utilization_pct: 70,
   })
   const [shopRate, setShopRate] = useState(0)
-  const [deptMembers, setDeptMembers] = useState<DeptMember[]>([])
   const [loaded, setLoaded] = useState(false)
   const [savingRate, setSavingRate] = useState(false)
   const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
@@ -94,21 +88,17 @@ function TeamContent() {
     let cancelled = false
     ;(async () => {
       const setup = await loadShopRateSetup(org.id)
-      const [{ data: depts }, { data: dm }] = await Promise.all([
-        supabase
-          .from('departments')
-          .select('*')
-          .eq('org_id', org.id)
-          .order('display_order'),
-        supabase.from('department_members').select('*').eq('org_id', org.id),
-      ])
+      const { data: depts } = await supabase
+        .from('departments')
+        .select('*')
+        .eq('org_id', org.id)
+        .order('display_order')
       if (cancelled) return
       setTeam(setup.team)
       setOverhead(setup.overhead)
       setBillable(setup.billable)
       setShopRate(setup.shopRate)
       setDepartments(depts || [])
-      setDeptMembers(dm || [])
       setLoaded(true)
     })()
     return () => {
@@ -154,10 +144,24 @@ function TeamContent() {
   }
 
   async function deleteDepartment(id: string) {
-    if (!confirm('Delete this department?')) return
+    const dept = departments.find((d) => d.id === id)
+    const ok = await confirm({
+      title: 'Delete department?',
+      message: `${dept?.name ?? 'This department'} will be removed. Members assigned to it stay on the team but lose this dept tag.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })
+    if (!ok) return
     await supabase.from('departments').delete().eq('id', id)
     setDepartments((prev) => prev.filter((d) => d.id !== id))
-    setDeptMembers((prev) => prev.filter((m) => m.department_id !== id))
+    // Drop this dept from any team member's assignments so the schedule
+    // capacity calc + UI stay consistent with the deleted dept.
+    setTeam((prev) =>
+      prev.map((m) => ({
+        ...m,
+        dept_assignments: (m.dept_assignments || []).filter((d) => d !== id),
+      })),
+    )
   }
 
   // ── Team CRUD (orgs.team_members jsonb) ──
@@ -179,66 +183,41 @@ function TeamContent() {
   }
 
   async function deleteMember(id: string) {
-    if (!confirm('Remove this team member?')) return
     const member = team.find((m) => m.id === id)
+    if (!member) return
+    const ok = await confirm({
+      title: 'Remove team member?',
+      message: `${member.name || 'This team member'} will be removed from this team. Their dept assignments and time entries stay intact.`,
+      confirmLabel: 'Remove',
+      variant: 'danger',
+    })
+    if (!ok) return
     setTeam((prev) => prev.filter((m) => m.id !== id))
-    if (member?.user_id) {
-      // Cascade: drop scheduling identity + dept assignments. No need to
-      // wait — the local state update has already removed the row.
+    if (member.user_id) {
+      // Cascade: drop scheduling identity rows associated with this team
+      // member. The dept_assignments live on team_members so the local
+      // state update above already cleared them.
       void supabase.from('department_members').delete().eq('user_id', member.user_id)
       void supabase.from('users').delete().eq('id', member.user_id)
-      setDeptMembers((prev) => prev.filter((dm) => dm.user_id !== member.user_id))
     }
   }
 
-  // ── Department toggle (department_members) ──
-  // First toggle on a team member that has no user_id auto-creates a
-  // users row + assigns user_id back so subsequent toggles + the
-  // scheduling side share the same identity.
-  async function toggleDeptMember(member: TeamMember, deptId: string) {
-    if (!org?.id) return
-    let userId = member.user_id ?? null
-    if (!userId) {
-      const placeholderEmail = `${member.name.trim().toLowerCase().replace(/\s+/g, '.')}@placeholder.com`
-      const { data: created } = await supabase
-        .from('users')
-        .insert({
-          org_id: org.id,
-          name: member.name,
-          email: placeholderEmail,
-          role: 'member',
-        })
-        .select('id')
-        .single()
-      if (!created) return
-      userId = created.id
-      patchMember(member.id, { user_id: userId })
-    }
-    const existing = deptMembers.find(
-      (dm) => dm.department_id === deptId && dm.user_id === userId,
-    )
-    if (existing) {
-      await supabase.from('department_members').delete().eq('id', existing.id)
-      setDeptMembers((prev) => prev.filter((dm) => dm.id !== existing.id))
-    } else {
-      const { data } = await supabase
-        .from('department_members')
-        .insert({
-          org_id: org.id,
-          department_id: deptId,
-          user_id: userId,
-        })
-        .select('*')
-        .single()
-      if (data) setDeptMembers((prev) => [...prev, data as DeptMember])
-    }
+  // Department toggle now writes to team_members.dept_assignments (jsonb).
+  // Single source of truth: the schedule's capacity calc reads from the
+  // same jsonb column, so a toggle here changes both the dept chip on
+  // /team and the dept's hours/wk on /schedule. department_members rows
+  // aren't touched by this toggle — that table stays for time-tracking
+  // surfaces that key off users.id.
+  function toggleDeptMember(member: TeamMember, deptId: string) {
+    const has = (member.dept_assignments || []).includes(deptId)
+    const next = has
+      ? (member.dept_assignments || []).filter((d) => d !== deptId)
+      : [...(member.dept_assignments || []), deptId]
+    patchMember(member.id, { dept_assignments: next })
   }
 
   function getMembersForDept(deptId: string): TeamMember[] {
-    const userIds = new Set(
-      deptMembers.filter((dm) => dm.department_id === deptId).map((dm) => dm.user_id),
-    )
-    return team.filter((m) => m.user_id && userIds.has(m.user_id))
+    return team.filter((m) => (m.dept_assignments || []).includes(deptId))
   }
 
   // ── Save derived rate as the org's shop rate ──
@@ -506,13 +485,7 @@ function TeamContent() {
                 {departments.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {departments.map((dept) => {
-                      const isIn =
-                        !!member.user_id &&
-                        deptMembers.some(
-                          (dm) =>
-                            dm.department_id === dept.id &&
-                            dm.user_id === member.user_id,
-                        )
+                      const isIn = (member.dept_assignments || []).includes(dept.id)
                       return (
                         <button
                           key={dept.id}

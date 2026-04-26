@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { loadSubprojectStatusMap, SubprojectStatus } from '@/lib/subproject-status'
 import { seedAllocationsForProduction } from '@/lib/schedule-seed'
 import DivideBlockModal from '@/components/schedule/DivideBlockModal'
+import { loadShopRateSetup } from '@/lib/shop-rate-setup'
 
 // =====================================================
 // TYPES
@@ -819,7 +820,11 @@ export default function SchedulePage() {
   const deptCapacities = useMemo(() => {
     const m: Record<string, number> = {}
     for (const d of departments) {
-      const headcount = headcountByDept[d.id] || 1
+      // Strict 0 when no billable team_members are assigned to the dept.
+      // The legacy `|| 1` fallback inflated capacity to a phantom 40h/wk
+      // for unassigned depts, which made the schedule lie about how
+      // much work the shop could actually take on.
+      const headcount = headcountByDept[d.id] || 0
       m[d.id] = d.hours_per_day * headcount * 5
     }
     return m
@@ -982,15 +987,18 @@ export default function SchedulePage() {
       setSubStatusMap(statusMap)
     }
 
-    // Load department members for headcount
-    const { data: members } = await supabase
-      .from('department_members')
-      .select('user_id, department_id')
-      .eq('org_id', org.id)
-
+    // Load headcount per dept from orgs.team_members (the single source
+    // shared with /team + /settings + the welcome walkthrough). Each
+    // billable member contributes 1 to every dept their dept_assignments
+    // includes. Non-billable members don't count toward capacity (they
+    // still count toward shop-rate numerator via /settings).
+    const setup = await loadShopRateSetup(org.id)
     const hcMap: Record<string, number> = {}
-    for (const m of (members || [])) {
-      hcMap[m.department_id] = (hcMap[m.department_id] || 0) + 1
+    for (const m of setup.team) {
+      if (!m.billable) continue
+      for (const deptId of m.dept_assignments || []) {
+        hcMap[deptId] = (hcMap[deptId] || 0) + 1
+      }
     }
     setHeadcountByDept(hcMap)
 

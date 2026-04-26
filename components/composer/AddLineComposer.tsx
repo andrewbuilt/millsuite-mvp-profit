@@ -728,23 +728,17 @@ function Composer(p: {
                 onToggle={() => p.toggleDropdown('carcassMaterial')}
                 onPick={(id) => {
                   p.setSlot('carcassMaterial', id)
-                  // Auto-suggest back panel from carcass when not already
-                  // picked — back panels are typically the same stock as
-                  // the carcass, just thinner. Match on the first token of
-                  // the carcass material name (e.g. "White oak" carcass →
-                  // "White oak ply 1/4" back). Operator can override; we
-                  // never overwrite an existing pick.
+                  // Mirror carcass pick into the back panel slot when not
+                  // already chosen. Back panels are typically the same
+                  // stock as the carcass, just thinner — defaulting to
+                  // the same id keeps the line reading sensibly until the
+                  // operator picks something thinner. Manual back-panel
+                  // pick is locked in: this branch only runs when the
+                  // back panel is currently null. (Carcass IDs are stored
+                  // in the ext-material slot here; the breakdown lookup
+                  // checks both pools so the cost calc still resolves.)
                   if (!draft.slots.backPanelMaterial) {
-                    const carcass = rateBook.carcassMaterials.find((m) => m.id === id)
-                    if (carcass) {
-                      const firstToken = (carcass.name || '').trim().toLowerCase().split(/\s+/)[0]
-                      if (firstToken) {
-                        const match = rateBook.extMaterials.find((m) =>
-                          (m.name || '').toLowerCase().includes(firstToken),
-                        )
-                        if (match) p.setSlot('backPanelMaterial', match.id)
-                      }
-                    }
+                    p.setSlot('backPanelMaterial', id)
                   }
                   p.toggleDropdown('carcassMaterial')
                 }}
@@ -767,11 +761,26 @@ function Composer(p: {
               <Dropdown
                 open={p.openDropdown === 'backPanelMaterial'}
                 value={draft.slots.backPanelMaterial}
-                options={rateBook.extMaterials.map((m) => ({
-                  id: m.id,
-                  name: m.name,
-                  meta: `$${m.sheet_cost}/sht`,
-                }))}
+                // Merge ext + carcass pools so the auto-mirrored carcass
+                // id renders as a recognized selection in the dropdown
+                // and the operator can also pick a thinner ext-stock
+                // back panel without leaving the slot.
+                options={[
+                  ...rateBook.extMaterials.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    meta: `$${m.sheet_cost}/sht`,
+                  })),
+                  ...rateBook.carcassMaterials
+                    .filter(
+                      (cm) => !rateBook.extMaterials.some((em) => em.id === cm.id),
+                    )
+                    .map((m) => ({
+                      id: m.id,
+                      name: `${m.name} (carcass stock)`,
+                      meta: `$${m.sheet_cost}/sht`,
+                    })),
+                ]}
                 onToggle={() => p.toggleDropdown('backPanelMaterial')}
                 onPick={(id) => {
                   p.setSlot('backPanelMaterial', id)

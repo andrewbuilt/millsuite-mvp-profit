@@ -27,6 +27,7 @@ import {
 } from './estimate-lines'
 import type { LaborDept } from './rate-book-seed'
 import { computeInstallHours } from './install-prefill'
+import { loadShopRateSetup } from './shop-rate-setup'
 import {
   autoPlace,
   buildDeptConfig,
@@ -127,13 +128,19 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
   }
   if (deptKeyToId.size === 0) return
 
-  const { data: members } = await supabase
-    .from('department_members')
-    .select('user_id, department_id')
-    .eq('org_id', orgId)
+  // Headcount per dept from orgs.team_members.dept_assignments — the
+  // single source shared with /team + /schedule. Each billable member
+  // contributes 1 to every dept their dept_assignments includes. Falls
+  // back to a min of 1 here so an org that hasn't wired team assignments
+  // yet still gets allocations placed (the schedule page renders 0h/wk
+  // capacity in that state, and the engine treats min crew = 1).
+  const setup = await loadShopRateSetup(orgId)
   const headcountById: Record<string, number> = {}
-  for (const m of (members || []) as Array<{ department_id: string }>) {
-    headcountById[m.department_id] = (headcountById[m.department_id] || 0) + 1
+  for (const m of setup.team) {
+    if (!m.billable) continue
+    for (const did of m.dept_assignments || []) {
+      headcountById[did] = (headcountById[did] || 0) + 1
+    }
   }
 
   const config: DeptConfig = buildDeptConfig(
