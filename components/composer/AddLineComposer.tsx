@@ -1451,6 +1451,17 @@ function appendPerDoor(detail: string | null, perDoor: number): string | null {
   return `${detail} · $${Math.round(perDoor)}/door`
 }
 
+/** Section header inside the breakdown panel — mirrors the form-side
+ *  SectionHeader styling so the right-rail rolls up the same groups the
+ *  modal renders. */
+function BreakdownSection({ label }: { label: string }) {
+  return (
+    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#374151] pt-3 pb-1.5 border-b border-[#E5E7EB]">
+      {label}
+    </div>
+  )
+}
+
 function BreakdownPanel({
   breakdown,
   defaults,
@@ -1506,6 +1517,7 @@ function BreakdownPanel({
         Line breakdown · {qty} LF · {label}
       </div>
 
+      <BreakdownSection label="Carcass" />
       <Row
         label="Carcass labor"
         detail={`${qty} LF × $${Math.round(breakdown.carcassLaborPerLf)}/LF`}
@@ -1521,7 +1533,13 @@ function BreakdownPanel({
         detail={breakdown.backPanelMaterialDetail}
         value={breakdown.backPanelMaterial}
       />
+      <Row
+        label="Interior finish"
+        detail={breakdown.interiorFinishDetail}
+        value={breakdown.interiorFinishLabor + breakdown.interiorFinishMaterial}
+      />
 
+      <BreakdownSection label="Exterior" />
       {breakdown.doorLaborWarn ? (
         <div className="py-2 border-b border-[#F3F4F6]">
           <div className="text-[12px] text-[#78350F]">⚠ Door type needs calibration</div>
@@ -1541,6 +1559,14 @@ function BreakdownPanel({
         detail={appendPerDoor(breakdown.doorMaterialDetail, breakdown.doorMaterialPerDoor)}
         value={breakdown.doorMaterial}
       />
+      <Row
+        label="Exterior finish"
+        detail={appendPerDoor(
+          breakdown.exteriorFinishDetail,
+          breakdown.doorFinishLaborPerDoor + breakdown.doorFinishMaterialPerDoor,
+        )}
+        value={breakdown.exteriorFinishLabor + breakdown.exteriorFinishMaterial}
+      />
       {breakdown.doorHardware > 0 && (
         <Row
           label="Door hardware"
@@ -1551,40 +1577,8 @@ function BreakdownPanel({
           value={breakdown.doorHardware}
         />
       )}
-
-      {breakdown.drawerLaborWarn ? (
-        <div className="py-2 border-b border-[#F3F4F6]">
-          <div className="text-[12px] text-[#78350F]">
-            ⚠ {breakdown.drawerLaborDetail || 'Pick a calibrated drawer style'}
-          </div>
-        </div>
-      ) : (
-        (breakdown.drawerLabor > 0 || breakdown.drawerMaterial > 0 || breakdown.drawerHardware > 0) && (
-          <Row
-            label="Drawers"
-            detail={breakdown.drawerLaborDetail}
-            value={breakdown.drawerLabor + breakdown.drawerMaterial + breakdown.drawerHardware}
-          />
-        )
-      )}
-
-      <Row
-        label="Interior finish"
-        detail={breakdown.interiorFinishDetail}
-        value={breakdown.interiorFinishLabor + breakdown.interiorFinishMaterial}
-      />
-      <Row
-        label="Exterior finish"
-        detail={appendPerDoor(
-          breakdown.exteriorFinishDetail,
-          breakdown.doorFinishLaborPerDoor + breakdown.doorFinishMaterialPerDoor,
-        )}
-        value={breakdown.exteriorFinishLabor + breakdown.exteriorFinishMaterial}
-      />
-
       {/* Door section roll-up — labor + material + finish + hardware
-          summarized as a per-door average. Useful for quick comparisons
-          across door type / material combos. Hidden when no door slot
+          summarized as a per-door average. Hidden when no door slot
           contributes (avgPerDoor === 0). */}
       {breakdown.avgPerDoor > 0 && (
         <Row
@@ -1593,7 +1587,6 @@ function BreakdownPanel({
           value={breakdown.avgPerDoor}
         />
       )}
-
       <Row
         label="End panels"
         detail={`${breakdown.endPanelsCount} each`}
@@ -1604,6 +1597,32 @@ function BreakdownPanel({
         detail={`${breakdown.fillersCount} each`}
         value={breakdown.fillersLabor + breakdown.fillersMaterial}
       />
+
+      {/* Drawers — Base only. Mirrors the modal section that's only
+          rendered for Base on the form side. */}
+      {productKey === 'base' && (
+        <>
+          <BreakdownSection label="Drawers" />
+          {breakdown.drawerLaborWarn ? (
+            <div className="py-2 border-b border-[#F3F4F6]">
+              <div className="text-[12px] text-[#78350F]">
+                ⚠ {breakdown.drawerLaborDetail || 'Pick a calibrated drawer style'}
+              </div>
+            </div>
+          ) : (
+            <Row
+              label="Drawers"
+              detail={breakdown.drawerLaborDetail}
+              value={
+                breakdown.drawerLabor + breakdown.drawerMaterial + breakdown.drawerHardware
+              }
+              zero={
+                breakdown.drawerLabor + breakdown.drawerMaterial + breakdown.drawerHardware === 0
+              }
+            />
+          )}
+        </>
+      )}
 
       <PctRow
         label="Consumables"
