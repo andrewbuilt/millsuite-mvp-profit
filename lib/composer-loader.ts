@@ -27,7 +27,11 @@ import type {
   ComposerFinish,
   ComposerFinishProductRow,
 } from './composer'
-import { listCarcassMaterials, listExtMaterials } from './rate-book-materials'
+import {
+  listCarcassMaterials,
+  listExtMaterials,
+  listBackPanelMaterials,
+} from './rate-book-materials'
 
 /** Load + shape the composer's rate-book payload for an org. */
 export async function loadComposerRateBook(orgId: string): Promise<ComposerRateBook> {
@@ -36,6 +40,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     carcassLabor,
     carcassMats,
     extMats,
+    backPanelMats,
     doorStyles,
     finishes,
   ] = await Promise.all([
@@ -43,6 +48,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     loadCarcassLaborFromBaseCab(orgId),
     listCarcassMaterials(orgId),
     listExtMaterials(orgId),
+    listBackPanelMaterials(orgId),
     loadDoorStyles(orgId),
     loadFinishes(orgId),
   ])
@@ -61,6 +67,11 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
       sheets_per_lf: Number(m.sheets_per_lf) || 0,
     })),
     extMaterials: extMats.map((m) => ({
+      id: m.id,
+      name: m.name,
+      sheet_cost: Number(m.sheet_cost) || 0,
+    })),
+    backPanelMaterials: backPanelMats.map((m) => ({
       id: m.id,
       name: m.name,
       sheet_cost: Number(m.sheet_cost) || 0,

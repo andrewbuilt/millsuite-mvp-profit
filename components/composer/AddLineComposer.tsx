@@ -69,6 +69,7 @@ import {
   type LastUsedPerProduct,
 } from '@/lib/composer-persist'
 import {
+  createBackPanelMaterial,
   createCarcassMaterial,
   createExtMaterial,
 } from '@/lib/rate-book-materials'
@@ -109,7 +110,7 @@ function withPrefinishedSentinel(rb: ComposerRateBook): ComposerRateBook {
 
 type View = 'picker' | 'composer'
 
-type AddNewMaterialCategory = 'carcass' | 'ext'
+type AddNewMaterialCategory = 'carcass' | 'ext' | 'back_panel'
 
 interface AddNewContext {
   category: AddNewMaterialCategory
@@ -443,6 +444,26 @@ export default function AddLineComposer({
           })
           setSlot('carcassMaterial', created.id)
         }
+      } else if (ctx.category === 'back_panel') {
+        const created = await createBackPanelMaterial({
+          org_id: orgId,
+          name,
+          sheet_cost: sheetCost,
+        })
+        if (created) {
+          setRateBook({
+            ...rateBook,
+            backPanelMaterials: [
+              ...rateBook.backPanelMaterials,
+              {
+                id: created.id,
+                name: created.name,
+                sheet_cost: Number(created.sheet_cost),
+              },
+            ],
+          })
+          setSlot('backPanelMaterial', created.id)
+        }
       } else {
         const created = await createExtMaterial({
           org_id: orgId,
@@ -737,8 +758,8 @@ function Composer(p: {
             )}
           </Field>
 
-          <Field label="Back panel material" hint="Cabinet backs (1/4&quot; ply typical). Different stock from carcass.">
-            {p.addNew?.slotKey === 'backPanelMaterial' && p.addNew?.ctx.category === 'ext' ? (
+          <Field label="Back panel material" hint="Cabinet backs (1/4&quot; ply typical). Independent list from face stock.">
+            {p.addNew?.slotKey === 'backPanelMaterial' && p.addNew?.ctx.category === 'back_panel' ? (
               <AddNewCard
                 ctx={p.addNew.ctx}
                 onCancel={p.cancelAddNew}
@@ -749,7 +770,7 @@ function Composer(p: {
               <Dropdown
                 open={p.openDropdown === 'backPanelMaterial'}
                 value={draft.slots.backPanelMaterial}
-                options={rateBook.extMaterials.map((m) => ({
+                options={rateBook.backPanelMaterials.map((m) => ({
                   id: m.id,
                   name: m.name,
                   meta: `$${m.sheet_cost}/sht`,
@@ -759,7 +780,7 @@ function Composer(p: {
                   p.setSlot('backPanelMaterial', id)
                   p.toggleDropdown('backPanelMaterial')
                 }}
-                onAddNew={() => p.openAddNew('backPanelMaterial', 'ext')}
+                onAddNew={() => p.openAddNew('backPanelMaterial', 'back_panel')}
                 addNewLabel="+ Add new material"
                 placeholder="Choose…"
               />
@@ -1129,7 +1150,12 @@ function AddNewCard({
   onSave: () => void
   onField: <K extends keyof AddNewContext>(field: K, value: AddNewContext[K]) => void
 }) {
-  const label = ctx.category === 'carcass' ? 'carcass material' : 'door/drawer material'
+  const label =
+    ctx.category === 'carcass'
+      ? 'carcass material'
+      : ctx.category === 'back_panel'
+        ? 'back panel material'
+        : 'door/drawer material'
   return (
     <div className="p-4 bg-[#F9FAFB] border border-[#E5E7EB] rounded-md space-y-3">
       <div className="text-[13px] font-semibold text-[#111]">Add a {label}</div>

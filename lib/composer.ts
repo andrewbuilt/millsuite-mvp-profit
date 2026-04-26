@@ -127,6 +127,11 @@ export interface ComposerRateBook {
   carcassCalibrated: boolean
   carcassMaterials: ComposerCarcassMaterial[]
   extMaterials: ComposerExtMaterial[]
+  /** Back-panel sheet stock, kept in its own pool so face stock (Walnut,
+   *  White oak, etc.) doesn't appear as a back-panel option. Same flat
+   *  shape as ext: just name + sheet_cost. Sourced from rate_book_items
+   *  under a category whose item_type='back_panel_material'. */
+  backPanelMaterials: ComposerExtMaterial[]
   doorStyles: ComposerDoorStyle[]
   finishes: ComposerFinish[]
 }
@@ -301,7 +306,7 @@ export function computeBreakdown(
   }
 
   const cm = rb.carcassMaterials.find((m) => m.id === s.carcassMaterial) || null
-  const bm = rb.extMaterials.find((m) => m.id === s.backPanelMaterial) || null
+  const bm = rb.backPanelMaterials.find((m) => m.id === s.backPanelMaterial) || null
   const em = rb.extMaterials.find((m) => m.id === s.doorMaterial) || null
   const ds = rb.doorStyles.find((d) => d.id === s.doorStyle) || null
   const ifn = rb.finishes.find((f) => f.id === s.interiorFinish) || null
@@ -587,7 +592,7 @@ export function summarizeSlots(
   const bits: string[] = []
   const cm = rb.carcassMaterials.find((m) => m.id === draft.slots.carcassMaterial)
   if (cm) bits.push(cm.name)
-  const bm = rb.extMaterials.find((m) => m.id === draft.slots.backPanelMaterial)
+  const bm = rb.backPanelMaterials.find((m) => m.id === draft.slots.backPanelMaterial)
   if (bm) bits.push(`${bm.name} back`)
   const ds = rb.doorStyles.find((d) => d.id === draft.slots.doorStyle)
   if (ds) bits.push(`${ds.name} door`)
