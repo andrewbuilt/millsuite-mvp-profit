@@ -76,6 +76,9 @@ import {
 import DoorStyleWalkthrough, {
   type DoorStyleWalkthroughExistingStyle,
 } from '@/components/walkthroughs/DoorStyleWalkthrough'
+import DrawerStyleWalkthrough, {
+  type DrawerStyleWalkthroughExistingStyle,
+} from '@/components/walkthroughs/DrawerStyleWalkthrough'
 import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 
 interface Props {
@@ -208,6 +211,11 @@ export default function AddLineComposer({
     | { style: DoorStyleWalkthroughExistingStyle | null }
     | null
   >(null)
+  // Drawer walkthrough overlay — same pattern as the door overlay.
+  const [drawerWt, setDrawerWt] = useState<
+    | { style: DrawerStyleWalkthroughExistingStyle | null }
+    | null
+  >(null)
   // Finish walkthrough overlay — null when closed, otherwise carries
   // the application the user was calibrating for (drives the row-type
   // the walkthrough writes).
@@ -220,6 +228,7 @@ export default function AddLineComposer({
     setAddNew(null)
     setSaveError(null)
     setDoorWt(null)
+    setDrawerWt(null)
     setFinishWtApp(null)
   }
 
@@ -253,6 +262,29 @@ export default function AddLineComposer({
     // Select the calibrated (or newly-created) style on the draft.
     setDraft((prev) =>
       prev ? { ...prev, slots: { ...prev.slots, doorStyle: styleId } } : prev
+    )
+  }
+
+  function openDrawerWalkthroughForPick(styleId: string) {
+    if (!rateBook) return
+    const drs = rateBook.drawerStyles.find((d) => d.id === styleId)
+    if (!drs) return
+    setOpenDropdown(null)
+    setDrawerWt({
+      style: { id: drs.id, name: drs.name, labor: drs.labor },
+    })
+  }
+
+  function openDrawerWalkthroughForNew() {
+    setOpenDropdown(null)
+    setDrawerWt({ style: null })
+  }
+
+  async function handleDrawerWalkthroughComplete(styleId: string) {
+    setDrawerWt(null)
+    await refreshRateBook()
+    setDraft((prev) =>
+      prev ? { ...prev, slots: { ...prev.slots, drawerStyle: styleId } } : prev,
     )
   }
 
@@ -561,6 +593,8 @@ export default function AddLineComposer({
                 saveAddNew={saveAddNew}
                 onDoorUncalibratedPick={openDoorWalkthroughForPick}
                 onAddNewDoorStyle={openDoorWalkthroughForNew}
+                onDrawerUncalibratedPick={openDrawerWalkthroughForPick}
+                onAddNewDrawerStyle={openDrawerWalkthroughForNew}
                 onOpenFinishWalkthrough={openFinishWalkthrough}
               />
             ) : null}
@@ -575,6 +609,16 @@ export default function AddLineComposer({
           existingStyle={doorWt.style}
           onCancel={() => setDoorWt(null)}
           onComplete={handleDoorWalkthroughComplete}
+        />
+      )}
+
+      {/* Drawer walkthrough — same layering / pattern as the door one. */}
+      {drawerWt && (
+        <DrawerStyleWalkthrough
+          orgId={orgId}
+          existingStyle={drawerWt.style}
+          onCancel={() => setDrawerWt(null)}
+          onComplete={handleDrawerWalkthroughComplete}
         />
       )}
 
@@ -701,6 +745,8 @@ function Composer(p: {
   saveAddNew: () => void
   onDoorUncalibratedPick: (styleId: string) => void
   onAddNewDoorStyle: () => void
+  onDrawerUncalibratedPick: (styleId: string) => void
+  onAddNewDrawerStyle: () => void
   onOpenFinishWalkthrough: (app: 'interior' | 'exterior') => void
 }) {
   const { draft, rateBook, breakdown, defaults } = p
@@ -719,7 +765,7 @@ function Composer(p: {
           </button>
         )}
 
-        <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-4">
+        <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
           <Field label="Quantity">
             <Stepper
               value={draft.qty}
@@ -729,202 +775,257 @@ function Composer(p: {
             />
           </Field>
 
-          <Field label="Carcass material" hint="Interior box: sheet stock you cut parts from.">
-            {p.addNew?.ctx.category === 'carcass' ? (
-              <AddNewCard
-                ctx={p.addNew.ctx}
-                onCancel={p.cancelAddNew}
-                onSave={p.saveAddNew}
-                onField={p.setAddNewField}
-              />
-            ) : (
+          <section className="space-y-4">
+            <SectionHeader>Carcass</SectionHeader>
+
+            <Field label="Carcass material" hint="Interior box: sheet stock you cut parts from.">
+              {p.addNew?.ctx.category === 'carcass' ? (
+                <AddNewCard
+                  ctx={p.addNew.ctx}
+                  onCancel={p.cancelAddNew}
+                  onSave={p.saveAddNew}
+                  onField={p.setAddNewField}
+                />
+              ) : (
+                <Dropdown
+                  open={p.openDropdown === 'carcassMaterial'}
+                  value={draft.slots.carcassMaterial}
+                  options={rateBook.carcassMaterials.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    meta: `$${m.sheet_cost}/sht`,
+                  }))}
+                  onToggle={() => p.toggleDropdown('carcassMaterial')}
+                  onPick={(id) => {
+                    p.setSlot('carcassMaterial', id)
+                    p.toggleDropdown('carcassMaterial')
+                  }}
+                  onAddNew={() => p.openAddNew('carcassMaterial', 'carcass')}
+                  addNewLabel="+ Add new material"
+                  placeholder="Choose…"
+                />
+              )}
+            </Field>
+
+            <Field label="Back panel material" hint="Cabinet backs (1/4&quot; ply typical). Independent list from face stock.">
+              {p.addNew?.slotKey === 'backPanelMaterial' && p.addNew?.ctx.category === 'back_panel' ? (
+                <AddNewCard
+                  ctx={p.addNew.ctx}
+                  onCancel={p.cancelAddNew}
+                  onSave={p.saveAddNew}
+                  onField={p.setAddNewField}
+                />
+              ) : (
+                <Dropdown
+                  open={p.openDropdown === 'backPanelMaterial'}
+                  value={draft.slots.backPanelMaterial}
+                  options={rateBook.backPanelMaterials.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    meta: `$${m.sheet_cost}/sht`,
+                  }))}
+                  onToggle={() => p.toggleDropdown('backPanelMaterial')}
+                  onPick={(id) => {
+                    p.setSlot('backPanelMaterial', id)
+                    p.toggleDropdown('backPanelMaterial')
+                  }}
+                  onAddNew={() => p.openAddNew('backPanelMaterial', 'back_panel')}
+                  addNewLabel="+ Add new material"
+                  placeholder="Choose…"
+                />
+              )}
+            </Field>
+
+            <Field label="Interior finish" hint="Usually prefinished, so no finish labor.">
               <Dropdown
-                open={p.openDropdown === 'carcassMaterial'}
-                value={draft.slots.carcassMaterial}
-                options={rateBook.carcassMaterials.map((m) => ({
-                  id: m.id,
-                  name: m.name,
-                  meta: `$${m.sheet_cost}/sht`,
-                }))}
-                onToggle={() => p.toggleDropdown('carcassMaterial')}
+                open={p.openDropdown === 'interiorFinish'}
+                value={draft.slots.interiorFinish}
+                options={rateBook.finishes
+                  .filter((f) => f.application === 'interior')
+                  .filter(isFinishUsed)
+                  .map((f) => ({ id: f.id, name: f.name }))}
+                onToggle={() => p.toggleDropdown('interiorFinish')}
                 onPick={(id) => {
-                  p.setSlot('carcassMaterial', id)
-                  p.toggleDropdown('carcassMaterial')
+                  p.setSlot('interiorFinish', id)
+                  p.toggleDropdown('interiorFinish')
                 }}
-                onAddNew={() => p.openAddNew('carcassMaterial', 'carcass')}
-                addNewLabel="+ Add new material"
+                onAddNew={() => p.onOpenFinishWalkthrough('interior')}
+                addNewLabel="+ Calibrate interior finish"
                 placeholder="Choose…"
               />
-            )}
-          </Field>
+            </Field>
+          </section>
 
-          <Field label="Back panel material" hint="Cabinet backs (1/4&quot; ply typical). Independent list from face stock.">
-            {p.addNew?.slotKey === 'backPanelMaterial' && p.addNew?.ctx.category === 'back_panel' ? (
-              <AddNewCard
-                ctx={p.addNew.ctx}
-                onCancel={p.cancelAddNew}
-                onSave={p.saveAddNew}
-                onField={p.setAddNewField}
-              />
-            ) : (
+          <section className="space-y-4">
+            <SectionHeader>Exterior</SectionHeader>
+
+            <Field label="Door style" hint="Doors only — drawer style is its own slot below.">
               <Dropdown
-                open={p.openDropdown === 'backPanelMaterial'}
-                value={draft.slots.backPanelMaterial}
-                options={rateBook.backPanelMaterials.map((m) => ({
-                  id: m.id,
-                  name: m.name,
-                  meta: `$${m.sheet_cost}/sht`,
+                open={p.openDropdown === 'doorStyle'}
+                value={draft.slots.doorStyle}
+                options={rateBook.doorStyles.map((d) => ({
+                  id: d.id,
+                  name: d.name + (d.calibrated ? '' : ' · not calibrated'),
                 }))}
-                onToggle={() => p.toggleDropdown('backPanelMaterial')}
+                onToggle={() => p.toggleDropdown('doorStyle')}
                 onPick={(id) => {
-                  p.setSlot('backPanelMaterial', id)
-                  p.toggleDropdown('backPanelMaterial')
+                  p.toggleDropdown('doorStyle')
+                  const ds = rateBook.doorStyles.find((d) => d.id === id)
+                  if (ds && !ds.calibrated) {
+                    p.onDoorUncalibratedPick(id)
+                  } else {
+                    p.setSlot('doorStyle', id)
+                  }
                 }}
-                onAddNew={() => p.openAddNew('backPanelMaterial', 'back_panel')}
-                addNewLabel="+ Add new material"
+                onAddNew={() => p.onAddNewDoorStyle()}
+                addNewLabel="+ Add new door style"
                 placeholder="Choose…"
               />
-            )}
-          </Field>
+              {rateBook.doorStyles.length === 0 && (
+                <button
+                  type="button"
+                  onClick={p.onAddNewDoorStyle}
+                  className="mt-2 w-full px-3 py-2.5 bg-[#EFF6FF] border border-dashed border-[#2563EB]/60 rounded-md text-[12px] text-[#1E40AF] hover:bg-[#DBEAFE] hover:border-[#2563EB] transition-colors"
+                >
+                  + Calibrate your first door style
+                </button>
+              )}
+            </Field>
 
-          <Field label="Door style" hint="Also applies to drawer fronts.">
-            <Dropdown
-              open={p.openDropdown === 'doorStyle'}
-              value={draft.slots.doorStyle}
-              options={rateBook.doorStyles.map((d) => ({
-                id: d.id,
-                name: d.name + (d.calibrated ? '' : ' · not calibrated'),
-              }))}
-              onToggle={() => p.toggleDropdown('doorStyle')}
-              onPick={(id) => {
-                p.toggleDropdown('doorStyle')
-                const ds = rateBook.doorStyles.find((d) => d.id === id)
-                if (ds && !ds.calibrated) {
-                  // Uncalibrated pick — open walkthrough so the user fills
-                  // the labor in. Pre-selecting would leave the draft stuck
-                  // behind the save gate until calibration completes.
-                  p.onDoorUncalibratedPick(id)
-                } else {
-                  p.setSlot('doorStyle', id)
-                }
-              }}
-              onAddNew={() => p.onAddNewDoorStyle()}
-              addNewLabel="+ Add new door style"
-              placeholder="Choose…"
-            />
-            {rateBook.doorStyles.length === 0 && (
-              <button
-                type="button"
-                onClick={p.onAddNewDoorStyle}
-                className="mt-2 w-full px-3 py-2.5 bg-[#EFF6FF] border border-dashed border-[#2563EB]/60 rounded-md text-[12px] text-[#1E40AF] hover:bg-[#DBEAFE] hover:border-[#2563EB] transition-colors"
-              >
-                + Calibrate your first door style
-              </button>
-            )}
-          </Field>
+            <Field label="Door material" hint="Face material for all doors + drawer fronts.">
+              {p.addNew?.slotKey === 'doorMaterial' && p.addNew?.ctx.category === 'ext' ? (
+                <AddNewCard
+                  ctx={p.addNew.ctx}
+                  onCancel={p.cancelAddNew}
+                  onSave={p.saveAddNew}
+                  onField={p.setAddNewField}
+                />
+              ) : (
+                <Dropdown
+                  open={p.openDropdown === 'doorMaterial'}
+                  value={draft.slots.doorMaterial}
+                  options={rateBook.extMaterials.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    meta: `$${m.sheet_cost}/sht`,
+                  }))}
+                  onToggle={() => p.toggleDropdown('doorMaterial')}
+                  onPick={(id) => {
+                    p.setSlot('doorMaterial', id)
+                    p.toggleDropdown('doorMaterial')
+                  }}
+                  onAddNew={() => p.openAddNew('doorMaterial', 'ext')}
+                  addNewLabel="+ Add new material"
+                  placeholder="Choose…"
+                />
+              )}
+            </Field>
 
-          <Field label="Door/drawer material" hint="Face material for all doors + drawer fronts.">
-            {p.addNew?.slotKey === 'doorMaterial' && p.addNew?.ctx.category === 'ext' ? (
-              <AddNewCard
-                ctx={p.addNew.ctx}
-                onCancel={p.cancelAddNew}
-                onSave={p.saveAddNew}
-                onField={p.setAddNewField}
+            <Field label="Exterior finish" hint="Applied to doors, drawer fronts, exposed ends.">
+              {(() => {
+                const extFinishes = rateBook.finishes
+                  .filter((f) => f.application === 'exterior')
+                  .filter(isFinishUsed)
+                return (
+                  <>
+                    <Dropdown
+                      open={p.openDropdown === 'exteriorFinish'}
+                      value={draft.slots.exteriorFinish}
+                      options={extFinishes.map((f) => ({ id: f.id, name: f.name }))}
+                      onToggle={() => p.toggleDropdown('exteriorFinish')}
+                      onPick={(id) => {
+                        p.setSlot('exteriorFinish', id)
+                        p.toggleDropdown('exteriorFinish')
+                      }}
+                      onAddNew={() => p.onOpenFinishWalkthrough('exterior')}
+                      addNewLabel="+ Calibrate exterior finish"
+                      placeholder="Choose…"
+                    />
+                    {extFinishes.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => p.onOpenFinishWalkthrough('exterior')}
+                        className="mt-2 w-full px-3 py-2.5 bg-[#EFF6FF] border border-dashed border-[#2563EB]/60 rounded-md text-[12px] text-[#1E40AF] hover:bg-[#DBEAFE] hover:border-[#2563EB] transition-colors"
+                      >
+                        + Calibrate your first exterior finish
+                      </button>
+                    )}
+                  </>
+                )
+              })()}
+            </Field>
+
+            <Field label="End panels">
+              <Stepper
+                value={draft.slots.endPanels}
+                step={1}
+                onChange={(v) => p.setSlot('endPanels', Math.max(0, Math.round(v)))}
+                unit="each"
               />
-            ) : (
-              <Dropdown
-                open={p.openDropdown === 'doorMaterial'}
-                value={draft.slots.doorMaterial}
-                options={rateBook.extMaterials.map((m) => ({
-                  id: m.id,
-                  name: m.name,
-                  meta: `$${m.sheet_cost}/sht`,
-                }))}
-                onToggle={() => p.toggleDropdown('doorMaterial')}
-                onPick={(id) => {
-                  p.setSlot('doorMaterial', id)
-                  p.toggleDropdown('doorMaterial')
-                }}
-                onAddNew={() => p.openAddNew('doorMaterial', 'ext')}
-                addNewLabel="+ Add new material"
-                placeholder="Choose…"
+              <p className="text-[11px] text-[#9CA3AF] mt-1.5">
+                Assumes 24" deep. Price multiple panels if oversized.
+              </p>
+            </Field>
+
+            <Field label="Filler/scribes">
+              <Stepper
+                value={draft.slots.fillers}
+                step={1}
+                onChange={(v) => p.setSlot('fillers', Math.max(0, Math.round(v)))}
+                unit="each"
               />
-            )}
-          </Field>
+            </Field>
+          </section>
 
-          <Field label="Interior finish" hint="Usually prefinished, so no finish labor.">
-            <Dropdown
-              open={p.openDropdown === 'interiorFinish'}
-              value={draft.slots.interiorFinish}
-              options={rateBook.finishes
-                .filter((f) => f.application === 'interior')
-                .filter(isFinishUsed)
-                .map((f) => ({ id: f.id, name: f.name }))}
-              onToggle={() => p.toggleDropdown('interiorFinish')}
-              onPick={(id) => {
-                p.setSlot('interiorFinish', id)
-                p.toggleDropdown('interiorFinish')
-              }}
-              onAddNew={() => p.onOpenFinishWalkthrough('interior')}
-              addNewLabel="+ Calibrate interior finish"
-              placeholder="Choose…"
-            />
-          </Field>
+          {/* Drawers — Base only. Upper / Full leave drawerCount=0 +
+              drawerStyle=null and the section stays hidden. */}
+          {draft.productId === 'base' && (
+            <section className="space-y-4">
+              <SectionHeader>Drawers</SectionHeader>
 
-          <Field label="Exterior finish" hint="Applied to doors, drawer fronts, exposed ends.">
-            {(() => {
-              const extFinishes = rateBook.finishes
-                .filter((f) => f.application === 'exterior')
-                .filter(isFinishUsed)
-              return (
-                <>
-                  <Dropdown
-                    open={p.openDropdown === 'exteriorFinish'}
-                    value={draft.slots.exteriorFinish}
-                    options={extFinishes.map((f) => ({ id: f.id, name: f.name }))}
-                    onToggle={() => p.toggleDropdown('exteriorFinish')}
-                    onPick={(id) => {
-                      p.setSlot('exteriorFinish', id)
-                      p.toggleDropdown('exteriorFinish')
-                    }}
-                    onAddNew={() => p.onOpenFinishWalkthrough('exterior')}
-                    addNewLabel="+ Calibrate exterior finish"
-                    placeholder="Choose…"
-                  />
-                  {extFinishes.length === 0 && (
-                    <button
-                      type="button"
-                      onClick={() => p.onOpenFinishWalkthrough('exterior')}
-                      className="mt-2 w-full px-3 py-2.5 bg-[#EFF6FF] border border-dashed border-[#2563EB]/60 rounded-md text-[12px] text-[#1E40AF] hover:bg-[#DBEAFE] hover:border-[#2563EB] transition-colors"
-                    >
-                      + Calibrate your first exterior finish
-                    </button>
-                  )}
-                </>
-              )
-            })()}
-          </Field>
+              <Field label="Quantity">
+                <Stepper
+                  value={draft.slots.drawerCount}
+                  step={1}
+                  onChange={(v) => p.setSlot('drawerCount', Math.max(0, Math.round(v)))}
+                  unit="each"
+                />
+              </Field>
 
-          <Field label="End panels">
-            <Stepper
-              value={draft.slots.endPanels}
-              step={1}
-              onChange={(v) => p.setSlot('endPanels', Math.max(0, Math.round(v)))}
-              unit="each"
-            />
-            <p className="text-[11px] text-[#9CA3AF] mt-1.5">
-              Assumes 24" deep. Price multiple panels if oversized.
-            </p>
-          </Field>
-
-          <Field label="Filler/scribes">
-            <Stepper
-              value={draft.slots.fillers}
-              step={1}
-              onChange={(v) => p.setSlot('fillers', Math.max(0, Math.round(v)))}
-              unit="each"
-            />
-          </Field>
+              <Field label="Type" hint="Drawer style — calibrated separately from doors.">
+                <Dropdown
+                  open={p.openDropdown === 'drawerStyle'}
+                  value={draft.slots.drawerStyle}
+                  options={rateBook.drawerStyles.map((d) => ({
+                    id: d.id,
+                    name: d.name + (d.calibrated ? '' : ' · not calibrated'),
+                  }))}
+                  onToggle={() => p.toggleDropdown('drawerStyle')}
+                  onPick={(id) => {
+                    p.toggleDropdown('drawerStyle')
+                    const drs = rateBook.drawerStyles.find((d) => d.id === id)
+                    if (drs && !drs.calibrated) {
+                      p.onDrawerUncalibratedPick(id)
+                    } else {
+                      p.setSlot('drawerStyle', id)
+                    }
+                  }}
+                  onAddNew={() => p.onAddNewDrawerStyle()}
+                  addNewLabel="+ Add new drawer style"
+                  placeholder="Choose…"
+                />
+                {rateBook.drawerStyles.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={p.onAddNewDrawerStyle}
+                    className="mt-2 w-full px-3 py-2.5 bg-[#EFF6FF] border border-dashed border-[#2563EB]/60 rounded-md text-[12px] text-[#1E40AF] hover:bg-[#DBEAFE] hover:border-[#2563EB] transition-colors"
+                  >
+                    + Calibrate your first drawer style
+                  </button>
+                )}
+              </Field>
+            </section>
+          )}
 
           <Field label="Notes">
             <input
@@ -1003,6 +1104,14 @@ function BreakdownPlaceholder() {
 }
 
 // ── Shared building blocks ──
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#374151] pb-2 border-b border-[#E5E7EB]">
+      {children}
+    </div>
+  )
+}
 
 function Field({
   label,
@@ -1296,10 +1405,26 @@ function BreakdownPanel({
         />
       )}
       <Row
-        label="Door/drawer material"
+        label="Door material"
         detail={breakdown.doorMaterialDetail}
         value={breakdown.doorMaterial}
       />
+
+      {breakdown.drawerLaborWarn ? (
+        <div className="py-2 border-b border-[#F3F4F6]">
+          <div className="text-[12px] text-[#78350F]">
+            ⚠ {breakdown.drawerLaborDetail || 'Pick a calibrated drawer style'}
+          </div>
+        </div>
+      ) : (
+        breakdown.drawerLabor > 0 && (
+          <Row
+            label="Drawers"
+            detail={breakdown.drawerLaborDetail}
+            value={breakdown.drawerLabor + breakdown.drawerMaterial}
+          />
+        )
+      )}
 
       <Row
         label="Interior finish"

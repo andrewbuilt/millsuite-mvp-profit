@@ -133,6 +133,10 @@ export interface ComposerRateBook {
    *  under a category whose item_type='back_panel_material'. */
   backPanelMaterials: ComposerExtMaterial[]
   doorStyles: ComposerDoorStyle[]
+  /** Drawer styles — same shape as door styles. Per-drawer labor stored
+   *  on rate_book_items.drawer_labor_hours_*. Sourced from
+   *  item_type='drawer_style'. Base-only product slot. */
+  drawerStyles: ComposerDoorStyle[]
   finishes: ComposerFinish[]
 }
 
@@ -147,8 +151,8 @@ export interface ComposerDefaults {
 
 export interface ComposerSlots {
   carcassMaterial: string | null
-  /** Back-panel sheet stock (1/4" ply typical). Picked from extMaterials —
-   *  the same sheet-stock pool as door/drawer faces. Null = no back panel
+  /** Back-panel sheet stock (1/4" ply typical). Picked from a dedicated
+   *  back-panel pool — separate from face stock. Null = no back panel
    *  material priced (rare but valid for open-back specials). */
   backPanelMaterial: string | null
   doorStyle: string | null
@@ -157,6 +161,10 @@ export interface ComposerSlots {
   exteriorFinish: string | null
   endPanels: number
   fillers: number
+  /** Drawer count and style. Base-only product slots; Upper / Full leave
+   *  drawerCount=0 + drawerStyle=null and the composer hides the section. */
+  drawerCount: number
+  drawerStyle: string | null
   notes: string
 }
 
@@ -176,6 +184,8 @@ export function emptySlots(): ComposerSlots {
     exteriorFinish: null,
     endPanels: 0,
     fillers: 0,
+    drawerCount: 0,
+    drawerStyle: null,
     notes: '',
   }
 }
@@ -227,6 +237,15 @@ export interface ComposerBreakdown {
   doorLaborWarn: boolean
   doorMaterial: number
   doorMaterialDetail: string | null
+
+  /** Drawer-slot rollup. drawerLaborWarn fires when drawerCount>0 but the
+   *  drawer style isn't calibrated; the breakdown panel shows a hint and
+   *  drawer labor contributes 0 until the operator calibrates. */
+  drawerLabor: number
+  drawerLaborWarn: boolean
+  drawerLaborDetail: string | null
+  drawerMaterial: number
+  drawerMaterialDetail: string | null
 
   interiorFinishLabor: number
   interiorFinishMaterial: number
@@ -309,6 +328,7 @@ export function computeBreakdown(
   const bm = rb.backPanelMaterials.find((m) => m.id === s.backPanelMaterial) || null
   const em = rb.extMaterials.find((m) => m.id === s.doorMaterial) || null
   const ds = rb.doorStyles.find((d) => d.id === s.doorStyle) || null
+  const drs = rb.drawerStyles.find((d) => d.id === s.drawerStyle) || null
   const ifn = rb.finishes.find((f) => f.id === s.interiorFinish) || null
   const efn = rb.finishes.find((f) => f.id === s.exteriorFinish) || null
 
@@ -357,6 +377,40 @@ export function computeBreakdown(
   const doorMaterialDetail = em
     ? `${faceSheets.toFixed(2)} sht × $${em.sheet_cost}`
     : null
+
+  // Drawers — Base only. drawerCount × per-drawer hours by dept.
+  // Drawer fronts pull from the doorMaterial slot (faces are the same
+  // stock); sheetsPerDrawerFront is a small constant per product (0 on
+  // products that don't carry drawers, so the math zeroes itself).
+  const drawerCount = Math.max(0, Math.round(s.drawerCount || 0))
+  let drawerHoursByDept = { eng: 0, cnc: 0, assembly: 0, finish: 0 }
+  let drawerLabor = 0
+  let drawerLaborDetail: string | null = null
+  if (drawerCount > 0 && drs && drs.calibrated) {
+    drawerHoursByDept = {
+      eng: drawerCount * drs.labor.eng,
+      cnc: drawerCount * drs.labor.cnc,
+      assembly: drawerCount * drs.labor.assembly,
+      finish: drawerCount * drs.labor.finish,
+    }
+    const totalHours =
+      drawerHoursByDept.eng + drawerHoursByDept.cnc +
+      drawerHoursByDept.assembly + drawerHoursByDept.finish
+    drawerLabor = totalHours * rate
+    drawerLaborDetail = `${drawerCount} × ${drs.name}`
+  } else if (drawerCount > 0 && drs) {
+    drawerLaborDetail = `${drawerCount} × ${drs.name} (uncalibrated)`
+  } else if (drawerCount > 0) {
+    drawerLaborDetail = `${drawerCount} drawer${drawerCount === 1 ? '' : 's'} — pick a style to price`
+  }
+  const drawerLaborWarn = drawerCount > 0 && (!drs || !drs.calibrated)
+
+  const drawerSheets = drawerCount * prod.sheetsPerDrawerFront
+  const drawerMaterial = drawerCount > 0 && em ? drawerSheets * em.sheet_cost : 0
+  const drawerMaterialDetail =
+    drawerCount > 0 && em
+      ? `${drawerSheets.toFixed(2)} sht × $${em.sheet_cost}`
+      : null
 
   // Finishes — per-LF labor hours + per-LF material, per product
   // category. Prefinished or missing byProduct row → zero, no error.
@@ -442,16 +496,18 @@ export function computeBreakdown(
   const doorShareFin  = endPanelDoorHoursPerLf > 0 ? ds!.labor.finish   * prod.doorsPerLf * prod.doorLaborMultiplier : 0
   const endPanelLfTotal = endPanelsCount * END_PANEL_LF_PER_PANEL
   const hoursByDept = {
-    eng: carcassHoursByDept.eng + doorHoursByDept.eng + endPanelLfTotal * doorShareEng,
-    cnc: carcassHoursByDept.cnc + doorHoursByDept.cnc + endPanelLfTotal * doorShareCnc,
+    eng: carcassHoursByDept.eng + doorHoursByDept.eng + drawerHoursByDept.eng + endPanelLfTotal * doorShareEng,
+    cnc: carcassHoursByDept.cnc + doorHoursByDept.cnc + drawerHoursByDept.cnc + endPanelLfTotal * doorShareCnc,
     assembly:
       carcassHoursByDept.assembly +
       doorHoursByDept.assembly +
+      drawerHoursByDept.assembly +
       endPanelLfTotal * doorShareAsm +
       (s.fillers || 0) * FILLER_LABOR_HR,
     finish:
       carcassHoursByDept.finish +
       doorHoursByDept.finish +
+      drawerHoursByDept.finish +
       finishHoursTotal +
       endPanelLfTotal * doorShareFin +
       endPanelLfTotal * endPanelFinishHoursPerLf,
@@ -460,6 +516,7 @@ export function computeBreakdown(
   const totalLabor =
     carcassLabor +
     doorLabor +
+    drawerLabor +
     interiorFinishLabor +
     exteriorFinishLabor +
     endPanelsLabor +
@@ -469,6 +526,7 @@ export function computeBreakdown(
     carcassMaterial +
     backPanelMaterial +
     doorMaterial +
+    drawerMaterial +
     interiorFinishMaterial +
     exteriorFinishMaterial +
     endPanelsMaterial +
@@ -493,6 +551,12 @@ export function computeBreakdown(
     doorLaborWarn,
     doorMaterial,
     doorMaterialDetail,
+
+    drawerLabor,
+    drawerLaborWarn,
+    drawerLaborDetail,
+    drawerMaterial,
+    drawerMaterialDetail,
 
     interiorFinishLabor,
     interiorFinishMaterial,
@@ -600,6 +664,13 @@ export function summarizeSlots(
   if (em) bits.push(em.name)
   const efn = rb.finishes.find((f) => f.id === draft.slots.exteriorFinish)
   if (efn && !efn.isPrefinished) bits.push(efn.name)
+  if (draft.slots.drawerCount > 0) {
+    const drs = rb.drawerStyles.find((d) => d.id === draft.slots.drawerStyle)
+    const drawerLabel = drs ? `${drs.name} drawer` : 'drawer'
+    bits.push(
+      `${draft.slots.drawerCount} ${drawerLabel}${draft.slots.drawerCount === 1 ? '' : 's'}`,
+    )
+  }
   if (draft.slots.endPanels > 0) {
     bits.push(
       `${draft.slots.endPanels} end panel${draft.slots.endPanels === 1 ? '' : 's'}`

@@ -42,6 +42,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     extMats,
     backPanelMats,
     doorStyles,
+    drawerStyles,
     finishes,
   ] = await Promise.all([
     loadShopRate(orgId),
@@ -50,6 +51,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     listExtMaterials(orgId),
     listBackPanelMaterials(orgId),
     loadDoorStyles(orgId),
+    loadDrawerStyles(orgId),
     loadFinishes(orgId),
   ])
 
@@ -77,6 +79,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
       sheet_cost: Number(m.sheet_cost) || 0,
     })),
     doorStyles,
+    drawerStyles,
     finishes,
   }
 }
@@ -157,6 +160,47 @@ async function loadDoorStyles(orgId: string): Promise<ComposerDoorStyle[]> {
       cnc: Number(row.door_labor_hours_cnc ?? 0),
       assembly: Number(row.door_labor_hours_assembly ?? 0),
       finish: Number(row.door_labor_hours_finish ?? 0),
+    }
+    const calibrated = labor.eng + labor.cnc + labor.assembly + labor.finish > 0
+    return { id: row.id, name: row.name, labor, calibrated }
+  })
+}
+
+// ── Drawer styles ──
+
+async function loadDrawerStyles(orgId: string): Promise<ComposerDoorStyle[]> {
+  const { data: cats } = await supabase
+    .from('rate_book_categories')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('item_type', 'drawer_style')
+    .eq('active', true)
+  const catIds = ((cats || []) as Array<{ id: string }>).map((c) => c.id)
+  if (catIds.length === 0) return []
+
+  const { data: items } = await supabase
+    .from('rate_book_items')
+    .select(
+      'id, name, drawer_labor_hours_eng, drawer_labor_hours_cnc, drawer_labor_hours_assembly, drawer_labor_hours_finish',
+    )
+    .eq('org_id', orgId)
+    .in('category_id', catIds)
+    .eq('active', true)
+    .order('name')
+
+  return ((items || []) as Array<{
+    id: string
+    name: string
+    drawer_labor_hours_eng: number | null
+    drawer_labor_hours_cnc: number | null
+    drawer_labor_hours_assembly: number | null
+    drawer_labor_hours_finish: number | null
+  }>).map((row) => {
+    const labor = {
+      eng: Number(row.drawer_labor_hours_eng ?? 0),
+      cnc: Number(row.drawer_labor_hours_cnc ?? 0),
+      assembly: Number(row.drawer_labor_hours_assembly ?? 0),
+      finish: Number(row.drawer_labor_hours_finish ?? 0),
     }
     const calibrated = labor.eng + labor.cnc + labor.assembly + labor.finish > 0
     return { id: row.id, name: row.name, labor, calibrated }
