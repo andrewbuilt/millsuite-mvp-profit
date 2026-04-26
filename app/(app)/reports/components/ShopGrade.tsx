@@ -4,6 +4,30 @@ import type { ShopGradeResult } from '@/lib/reports/gradeCalculations'
 
 export default function ShopGrade({ grade }: { grade: ShopGradeResult }) {
   const { estimating, utilization } = grade
+  // Need at least 3 completed projects before a grade is meaningful.
+  // Below the floor we render the placeholder card so the section still
+  // anchors the page but doesn't lie about a non-existent shop grade.
+  if (estimating.totalCount < 3) {
+    return (
+      <div className="bg-white border border-[#E5E7EB] rounded-xl p-6">
+        <div className="text-xs font-medium text-[#6B7280] uppercase tracking-wide mb-4">
+          Shop grade
+        </div>
+        <div className="flex items-start gap-6">
+          <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
+            <div className="w-20 h-20 rounded-xl flex items-center justify-center text-4xl font-medium bg-[#F3F4F6] text-[#9CA3AF]">
+              —
+            </div>
+            <span className="text-xs text-[#9CA3AF]">Overall</span>
+          </div>
+          <div className="flex-1 text-sm text-[#374151] leading-relaxed">
+            Need at least 3 completed projects to grade your shop.
+            You have <span className="font-semibold text-[#111]">{estimating.totalCount}</span>.
+          </div>
+        </div>
+      </div>
+    )
+  }
   const estBarWidth = estimating.score
   const utilBarWidth = utilization.isCapped ? estimating.score : utilization.rawScore
 
