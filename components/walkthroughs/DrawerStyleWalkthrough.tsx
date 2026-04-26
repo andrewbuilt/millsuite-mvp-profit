@@ -73,6 +73,7 @@ export interface DrawerStyleWalkthroughExistingStyle {
     assembly: number
     finish: number
   }
+  hardwareCost?: number
 }
 
 interface Props {
@@ -115,6 +116,7 @@ export default function DrawerStyleWalkthrough({
 
   const [name, setName] = useState(existingStyle?.name || defaultName || '')
   const [hours, setHours] = useState<HoursByStep>(initialHours)
+  const [hardware, setHardware] = useState<number>(existingStyle?.hardwareCost ?? 0)
   const [stepIdx, setStepIdx] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -122,6 +124,7 @@ export default function DrawerStyleWalkthrough({
   useEffect(() => {
     setName(existingStyle?.name || defaultName || '')
     setHours(initialHours)
+    setHardware(existingStyle?.hardwareCost ?? 0)
     setStepIdx(0)
     setError(null)
   }, [existingStyle, defaultName, initialHours])
@@ -157,6 +160,7 @@ export default function DrawerStyleWalkthrough({
         existingStyleId: existingStyle?.id ?? null,
         name: name.trim() || 'Drawer style',
         perDrawer,
+        hardwareCost: Number(hardware) || 0,
       })
       onComplete(styleId)
     } catch (err: any) {
@@ -178,12 +182,14 @@ export default function DrawerStyleWalkthrough({
             name={name}
             isNewStyle={isNewStyle}
             hours={hours}
+            hardware={hardware}
             stepIdx={stepIdx}
             saving={saving}
             error={error}
             onName={setName}
             onHour={setHour}
             onStep={stepHour}
+            onHardware={setHardware}
             onBack={() => setStepIdx((i) => Math.max(0, i - 1))}
             onNext={() =>
               setStepIdx((i) =>
@@ -197,11 +203,13 @@ export default function DrawerStyleWalkthrough({
           <MiniCard
             name={name}
             hours={hours}
+            hardware={hardware}
             saving={saving}
             error={error}
             existingLabor={existingStyle!.labor}
             onHour={setHour}
             onStep={stepHour}
+            onHardware={setHardware}
             onCancel={onCancel}
             onSave={save}
           />
@@ -215,12 +223,14 @@ function FullModal(p: {
   name: string
   isNewStyle: boolean
   hours: HoursByStep
+  hardware: number
   stepIdx: number
   saving: boolean
   error: string | null
   onName: (v: string) => void
   onHour: (key: Dept, v: string) => void
   onStep: (key: Dept, delta: number) => void
+  onHardware: (v: number) => void
   onBack: () => void
   onNext: () => void
   onCancel: () => void
@@ -284,14 +294,46 @@ function FullModal(p: {
             />
           </div>
         ) : (
-          <StepContent
-            step={STEPS[displayStepIdx]}
-            stepNum={p.isNewStyle ? displayStepIdx + 2 : displayStepIdx + 1}
-            totalSteps={totalSteps}
-            value={p.hours[STEPS[displayStepIdx].key]}
-            onChange={(v) => p.onHour(STEPS[displayStepIdx].key, v)}
-            onStep={(d) => p.onStep(STEPS[displayStepIdx].key, d)}
-          />
+          <>
+            <StepContent
+              step={STEPS[displayStepIdx]}
+              stepNum={p.isNewStyle ? displayStepIdx + 2 : displayStepIdx + 1}
+              totalSteps={totalSteps}
+              value={p.hours[STEPS[displayStepIdx].key]}
+              onChange={(v) => p.onHour(STEPS[displayStepIdx].key, v)}
+              onStep={(d) => p.onStep(STEPS[displayStepIdx].key, d)}
+            />
+            {/* Hardware $ field rides on the Finish step rather than its
+                own step — keeps the walkthrough at the same step count
+                as DoorStyleWalkthrough. Slides + pulls + anything that
+                ships per drawer. */}
+            {STEPS[displayStepIdx].key === 'finish' && (
+              <div className="mt-6 pt-5 border-t border-[#F3F4F6]">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#2563EB] mb-1">
+                  Hardware
+                </div>
+                <h3 className="text-[15px] font-semibold text-[#111] mb-1">
+                  Hardware cost per drawer
+                </h3>
+                <p className="text-sm text-[#6B7280] leading-relaxed mb-3">
+                  Slides, pulls, anything that ships with each drawer.
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#9CA3AF] text-sm">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={p.hardware === 0 ? '' : p.hardware}
+                    placeholder="0"
+                    onChange={(e) => p.onHardware(parseFloat(e.target.value) || 0)}
+                    className="w-32 text-center font-mono text-base px-3 py-2 bg-white border border-[#E5E7EB] rounded-md text-[#111] outline-none focus:border-[#2563EB]"
+                  />
+                  <span className="text-sm text-[#9CA3AF] ml-2">per drawer</span>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {p.error && (
@@ -403,11 +445,13 @@ function StepContent({
 function MiniCard(p: {
   name: string
   hours: HoursByStep
+  hardware: number
   saving: boolean
   error: string | null
   existingLabor: { eng: number; cnc: number; assembly: number; finish: number }
   onHour: (key: Dept, v: string) => void
   onStep: (key: Dept, delta: number) => void
+  onHardware: (v: number) => void
   onCancel: () => void
   onSave: () => void
 }) {
@@ -489,6 +533,30 @@ function MiniCard(p: {
           })}
         </div>
 
+        <div className="mt-4 p-3 border border-[#E5E7EB] rounded-lg">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-[#111]">Hardware</div>
+              <div className="text-[11.5px] text-[#6B7280] leading-snug">
+                Slides + pulls + anything per drawer.
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[#9CA3AF] text-xs">$</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={p.hardware === 0 ? '' : p.hardware}
+                placeholder="0"
+                onChange={(e) => p.onHardware(parseFloat(e.target.value) || 0)}
+                className="w-24 text-right font-mono text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md text-[#111] outline-none focus:border-[#2563EB]"
+              />
+              <span className="text-[11px] text-[#9CA3AF] ml-1">per drawer</span>
+            </div>
+          </div>
+        </div>
+
         {p.error && (
           <div className="mt-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
             {p.error}
@@ -523,14 +591,16 @@ async function saveDrawerStyleCalibration(input: {
   existingStyleId: string | null
   name: string
   perDrawer: { eng: number; cnc: number; assembly: number; finish: number }
+  hardwareCost: number
 }): Promise<string> {
-  const { orgId, existingStyleId, name, perDrawer } = input
+  const { orgId, existingStyleId, name, perDrawer, hardwareCost } = input
 
   const patch = {
     drawer_labor_hours_eng: perDrawer.eng,
     drawer_labor_hours_cnc: perDrawer.cnc,
     drawer_labor_hours_assembly: perDrawer.assembly,
     drawer_labor_hours_finish: perDrawer.finish,
+    drawer_hardware_cost: hardwareCost,
     updated_at: new Date().toISOString(),
   }
 

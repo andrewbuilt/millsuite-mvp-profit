@@ -162,7 +162,9 @@ async function loadDoorStyles(orgId: string): Promise<ComposerDoorStyle[]> {
       finish: Number(row.door_labor_hours_finish ?? 0),
     }
     const calibrated = labor.eng + labor.cnc + labor.assembly + labor.finish > 0
-    return { id: row.id, name: row.name, labor, calibrated }
+    // Door styles don't carry per-door hardware in V1 — hardwareCost stays
+    // 0 for them. The field exists on the type so drawer styles can use it.
+    return { id: row.id, name: row.name, labor, calibrated, hardwareCost: 0 }
   })
 }
 
@@ -181,7 +183,7 @@ async function loadDrawerStyles(orgId: string): Promise<ComposerDoorStyle[]> {
   const { data: items } = await supabase
     .from('rate_book_items')
     .select(
-      'id, name, drawer_labor_hours_eng, drawer_labor_hours_cnc, drawer_labor_hours_assembly, drawer_labor_hours_finish',
+      'id, name, drawer_labor_hours_eng, drawer_labor_hours_cnc, drawer_labor_hours_assembly, drawer_labor_hours_finish, drawer_hardware_cost',
     )
     .eq('org_id', orgId)
     .in('category_id', catIds)
@@ -195,6 +197,7 @@ async function loadDrawerStyles(orgId: string): Promise<ComposerDoorStyle[]> {
     drawer_labor_hours_cnc: number | null
     drawer_labor_hours_assembly: number | null
     drawer_labor_hours_finish: number | null
+    drawer_hardware_cost: number | null
   }>).map((row) => {
     const labor = {
       eng: Number(row.drawer_labor_hours_eng ?? 0),
@@ -203,7 +206,13 @@ async function loadDrawerStyles(orgId: string): Promise<ComposerDoorStyle[]> {
       finish: Number(row.drawer_labor_hours_finish ?? 0),
     }
     const calibrated = labor.eng + labor.cnc + labor.assembly + labor.finish > 0
-    return { id: row.id, name: row.name, labor, calibrated }
+    return {
+      id: row.id,
+      name: row.name,
+      labor,
+      calibrated,
+      hardwareCost: Number(row.drawer_hardware_cost ?? 0),
+    }
   })
 }
 

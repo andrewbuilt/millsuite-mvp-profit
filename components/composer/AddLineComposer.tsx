@@ -271,7 +271,12 @@ export default function AddLineComposer({
     if (!drs) return
     setOpenDropdown(null)
     setDrawerWt({
-      style: { id: drs.id, name: drs.name, labor: drs.labor },
+      style: {
+        id: drs.id,
+        name: drs.name,
+        labor: drs.labor,
+        hardwareCost: drs.hardwareCost,
+      },
     })
   }
 
@@ -1417,11 +1422,11 @@ function BreakdownPanel({
           </div>
         </div>
       ) : (
-        breakdown.drawerLabor > 0 && (
+        (breakdown.drawerLabor > 0 || breakdown.drawerMaterial > 0 || breakdown.drawerHardware > 0) && (
           <Row
             label="Drawers"
             detail={breakdown.drawerLaborDetail}
-            value={breakdown.drawerLabor + breakdown.drawerMaterial}
+            value={breakdown.drawerLabor + breakdown.drawerMaterial + breakdown.drawerHardware}
           />
         )
       )}

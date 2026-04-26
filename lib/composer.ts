@@ -52,6 +52,11 @@ export interface ComposerDoorStyle {
   /** true iff any dept has non-zero per-door labor. V1 treats "all zero"
    *  as "not calibrated"; item 7 walkthrough populates the values. */
   calibrated: boolean
+  /** Per-unit hardware cost ($). Drawer styles use this for slides + pulls
+   *  + anything that ships per-drawer (drawer_hardware_cost on
+   *  rate_book_items). Door styles leave this 0 — they don't ship with
+   *  per-door hardware in V1. */
+  hardwareCost: number
 }
 
 /** A finish item plus its per-product calibration rows. Missing product
@@ -240,12 +245,14 @@ export interface ComposerBreakdown {
 
   /** Drawer-slot rollup. drawerLaborWarn fires when drawerCount>0 but the
    *  drawer style isn't calibrated; the breakdown panel shows a hint and
-   *  drawer labor contributes 0 until the operator calibrates. */
+   *  drawer labor contributes 0 until the operator calibrates. drawerHardware
+   *  is per-drawer hardware $ × count (slides + pulls). */
   drawerLabor: number
   drawerLaborWarn: boolean
   drawerLaborDetail: string | null
   drawerMaterial: number
   drawerMaterialDetail: string | null
+  drawerHardware: number
 
   interiorFinishLabor: number
   interiorFinishMaterial: number
@@ -411,6 +418,7 @@ export function computeBreakdown(
     drawerCount > 0 && em
       ? `${drawerSheets.toFixed(2)} sht × $${em.sheet_cost}`
       : null
+  const drawerHardware = drawerCount > 0 && drs ? drawerCount * (drs.hardwareCost || 0) : 0
 
   // Finishes — per-LF labor hours + per-LF material, per product
   // category. Prefinished or missing byProduct row → zero, no error.
@@ -527,6 +535,7 @@ export function computeBreakdown(
     backPanelMaterial +
     doorMaterial +
     drawerMaterial +
+    drawerHardware +
     interiorFinishMaterial +
     exteriorFinishMaterial +
     endPanelsMaterial +
@@ -557,6 +566,7 @@ export function computeBreakdown(
     drawerLaborDetail,
     drawerMaterial,
     drawerMaterialDetail,
+    drawerHardware,
 
     interiorFinishLabor,
     interiorFinishMaterial,
