@@ -28,14 +28,25 @@
 // own unauth redirect.
 // ============================================================================
 
+import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus'
 import ShopRateWalkthrough from '@/components/walkthroughs/ShopRateWalkthrough'
 import BaseCabinetWalkthrough from '@/components/walkthroughs/BaseCabinetWalkthrough'
 
+const DASHBOARD_TOAST_KEY = 'millsuite.welcomeJustCompleted'
+
 export default function WelcomeOverlay() {
   const { user, org } = useAuth()
   const { loading, onboardedAt, step, advance, complete } = useOnboardingStatus()
+  // Brief save-confirmation toast that appears between walkthroughs.
+  // Doesn't block — auto-dismisses after 3s.
+  const [toast, setToast] = useState<string | null>(null)
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(t)
+  }, [toast])
 
   // Gate: need an authenticated user + org row before we know whether to
   // show anything. And don't flash the overlay before the initial users
@@ -65,18 +76,36 @@ export default function WelcomeOverlay() {
         {current === 'shop_rate' && (
           <ShopRateWalkthrough
             orgId={org.id}
-            onComplete={() => advance('base_cabinet')}
+            onComplete={(rate) => {
+              setToast(`Shop rate saved: $${(rate || 0).toFixed(2)}/hr`)
+              advance('base_cabinet')
+            }}
             onCancel={() => advance('welcome')}
           />
         )}
         {current === 'base_cabinet' && (
           <BaseCabinetWalkthrough
             orgId={org.id}
-            onComplete={() => complete()}
+            onComplete={() => {
+              setToast('Base cabinet calibrated. Slab door style ready to use.')
+              // Stash a one-shot flag the dashboard reads on its next mount
+              // so the user gets a final completion toast there. Cleared
+              // by the dashboard after rendering.
+              if (typeof window !== 'undefined') {
+                window.localStorage.setItem(DASHBOARD_TOAST_KEY, '1')
+              }
+              complete()
+            }}
             onCancel={() => advance('shop_rate')}
           />
         )}
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] px-4 py-2.5 bg-[#111] text-white text-sm rounded-lg shadow-lg max-w-md text-center">
+          {toast}
+        </div>
+      )}
     </div>
   )
 }
@@ -92,15 +121,24 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
       <h1 className="text-[26px] font-semibold text-[#111] tracking-tight leading-tight mb-4">
         You already know your craft.
       </h1>
-      <p className="text-sm text-[#374151] leading-relaxed mb-2">
-        We’re going to capture what you know, once, so your estimates match
-        your shop.
+      <p className="text-sm text-[#374151] leading-relaxed mb-3">
+        Quick setup so MillSuite prices jobs at YOUR rates, not generic ones.
       </p>
-      <p className="text-sm text-[#6B7280] leading-relaxed mb-6">
-        Two steps. First, a first-principles shop rate: overhead, team
-        comp, and the hours you actually bill. Then how long one
-        8-foot run of base cabinets takes your shop. Both are editable
-        anytime from Settings after setup.
+      <p className="text-sm text-[#374151] leading-relaxed mb-2">
+        Two steps, about 5 minutes total:
+      </p>
+      <ol className="list-decimal list-inside text-sm text-[#374151] leading-relaxed mb-3 space-y-1 pl-1">
+        <li>
+          <span className="font-semibold text-[#111]">Your shop rate</span> —
+          what an hour of your shop's time actually costs.
+        </li>
+        <li>
+          <span className="font-semibold text-[#111]">Your base cabinet labor</span> —
+          how long an 8-foot run takes you.
+        </li>
+      </ol>
+      <p className="text-[12.5px] text-[#6B7280] leading-relaxed mb-6">
+        Edit either one anytime from Settings.
       </p>
       <div className="flex justify-end">
         <button

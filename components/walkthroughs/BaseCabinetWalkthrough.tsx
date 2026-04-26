@@ -110,7 +110,9 @@ const OPERATIONS: Operation[] = [
 const BASE_CABINET_ITEM_NAME = 'Base cabinet'
 const CABINETS_CATEGORY_NAME = 'Cabinets'
 
-type Step = 'opener' | 'how' | number | 'summary'
+// Single opener screen now (the previous HowScreen is folded in) → 9
+// operation screens → summary. The 'how' step is gone.
+type Step = 'opener' | number | 'summary'
 
 type Answers = Record<OpKey, number | null>
 
@@ -217,15 +219,8 @@ export default function BaseCabinetWalkthrough({ orgId, onComplete, onCancel }: 
     <div className="max-w-[680px] w-full mx-auto bg-white border border-[#E5E7EB] rounded-2xl p-7 shadow-sm">
       {step === 'opener' && (
         <OpenerScreen
-          onContinue={() => goto('how')}
-          onBack={onCancel}
-        />
-      )}
-
-      {step === 'how' && (
-        <HowScreen
           onContinue={() => goto(0)}
-          onBack={() => goto('opener')}
+          onBack={onCancel}
         />
       )}
 
@@ -235,7 +230,7 @@ export default function BaseCabinetWalkthrough({ orgId, onComplete, onCancel }: 
           answer={answers[OPERATIONS[step].key]}
           onAnswer={(v) => setAnswer(OPERATIONS[step].key, v)}
           onContinue={() => goto(step === OPERATIONS.length - 1 ? 'summary' : step + 1)}
-          onBack={() => goto(step === 0 ? 'how' : step - 1)}
+          onBack={() => goto(step === 0 ? 'opener' : step - 1)}
           onSkip={() => {
             setAnswer(OPERATIONS[step].key, null)
             goto(step === OPERATIONS.length - 1 ? 'summary' : step + 1)
@@ -273,12 +268,13 @@ function OpenerScreen({
         Step 2 · Base cabinets
       </div>
       <h1 className="text-[22px] font-semibold text-[#111] tracking-tight mb-3">
-        Let's run numbers on your base cabinets.
+        Let's calibrate your base cabinet labor.
       </h1>
       <p className="text-sm text-[#374151] leading-relaxed mb-6">
-        Every shop is different. Some have CNCs, some tracksaws. Some have
-        edgebanders and some are ironing on banding. Let's dial in your
-        specific labor hours.
+        We'll walk through nine operations on a single 8' base run with
+        veneered slab doors and a matte clear finish. By the end, you'll
+        have your real per-LF labor hours dialed in. Other configurations
+        (different door styles, finishes) calibrate later as you use them.
       </p>
       <div className="flex items-center gap-3">
         {onBack && (
@@ -290,48 +286,6 @@ function OpenerScreen({
             ← Back
           </button>
         )}
-        <div className="flex-1" />
-        <button
-          type="button"
-          onClick={onContinue}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-lg hover:bg-[#1D4ED8] transition-colors"
-        >
-          Continue →
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function HowScreen({
-  onContinue,
-  onBack,
-}: {
-  onContinue: () => void
-  onBack: () => void
-}) {
-  return (
-    <div>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#2563EB] mb-2">
-        Step 2 · Base cabinets
-      </div>
-      <h1 className="text-[22px] font-semibold text-[#111] tracking-tight mb-3">
-        How this works.
-      </h1>
-      <p className="text-sm text-[#374151] leading-relaxed mb-6">
-        We're going to think through building an 8' cabinet with veneered
-        doors and a matte clear finish. We'll walk you through each step
-        and at the end we'll have some good baseline numbers to start
-        cranking out estimates.
-      </p>
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm text-[#6B7280] hover:text-[#111]"
-        >
-          ← Back
-        </button>
         <div className="flex-1" />
         <button
           type="button"
