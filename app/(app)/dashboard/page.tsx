@@ -84,6 +84,19 @@ function DashboardContent() {
   const [report, setReport] = useState('')
   const [reportLoading, setReportLoading] = useState(false)
   const [welcomeDismissed, setWelcomeDismissed] = useState(false)
+  // One-shot completion toast — set by WelcomeOverlay on the final
+  // walkthrough save. Cleared after it renders so a subsequent dashboard
+  // visit doesn't re-show it.
+  const [welcomeToastVisible, setWelcomeToastVisible] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.localStorage.getItem('millsuite.welcomeJustCompleted') === '1') {
+      window.localStorage.removeItem('millsuite.welcomeJustCompleted')
+      setWelcomeToastVisible(true)
+      const t = setTimeout(() => setWelcomeToastVisible(false), 6000)
+      return () => clearTimeout(t)
+    }
+  }, [])
 
   useEffect(() => {
     loadData()
@@ -224,6 +237,20 @@ function DashboardContent() {
       <Nav />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-4 sm:mb-6">Dashboard</h1>
+
+        {welcomeToastVisible && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-[#111] text-white text-sm rounded-lg shadow-lg max-w-md text-center inline-flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-[#10B981]" />
+            Setup complete. You're ready to estimate your first job.{' '}
+            <Link
+              href="/sales"
+              className="underline font-semibold hover:text-[#10B981]"
+              onClick={() => setWelcomeToastVisible(false)}
+            >
+              → Try it
+            </Link>
+          </div>
+        )}
 
         {/* ── Onboarding checklist (post-signup) ── */}
         {(() => {

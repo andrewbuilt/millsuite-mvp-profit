@@ -1,7 +1,7 @@
 'use client'
 
 // components/walkthroughs/ShopRateWalkthrough.tsx
-// Four-screen first-principles shop rate setup.
+// Four-screen shop rate setup.
 // Spec: mockups/shop-rate-setup-mockup.html (canonical). BUILD-ORDER Phase 12 item 12.
 //
 // Screens:
@@ -42,7 +42,10 @@ import {
 
 interface Props {
   orgId: string
-  onComplete: () => void
+  /** Fires after the Result screen writes orgs.shop_rate. Carries the
+   *  saved rate so the parent can surface a confirmation toast without
+   *  refetching the org row. */
+  onComplete: (rate: number) => void
   onCancel?: () => void
 }
 
@@ -175,7 +178,7 @@ export default function ShopRateWalkthrough({ orgId, onComplete, onCancel }: Pro
             setSaving(true)
             try {
               await saveShopRate(orgId, rate)
-              onComplete()
+              onComplete(rate)
             } catch (err: any) {
               setError(err?.message || 'Save failed')
               setSaving(false)
@@ -257,7 +260,8 @@ function OverheadScreen({
       </h2>
       <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
         Every cost not tied to a specific job. Enter each one monthly or
-        annual. The math works either way. Skip what doesn't apply.
+        annual. The math works either way. Leave categories empty if they
+        don't apply to your shop.
       </p>
 
       <div className="space-y-2 mb-4">
@@ -711,8 +715,10 @@ function ResultScreen({
   const overrideNum = Number(override)
   const overrideValid = override !== '' && Number.isFinite(overrideNum) && overrideNum > 0
 
-  const delta = Math.abs(derived - currentShopRate)
-  const showBothOnReentry = currentShopRate > 0 && delta > 0.005
+  // Show the current rate alongside the derived rate whenever the org
+  // already has one on file — no jitter threshold. Cleaner mental model
+  // for the operator: always see "current vs derived" on re-entry.
+  const showBothOnReentry = currentShopRate > 0
 
   return (
     <div>
@@ -746,16 +752,16 @@ function ResultScreen({
       </p>
 
       {showBothOnReentry && (
-        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-lg p-4 mb-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#92400E] mb-1.5">
+        <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-4 mb-4">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] mb-1.5">
             Your current shop rate
           </div>
           <div className="text-[20px] font-semibold font-mono tabular-nums text-[#111] mb-1">
             {fmtRate(currentShopRate)}
           </div>
-          <div className="text-[12px] text-[#78350F]">
-            The derived rate is different from what you're using today. Update
-            to the derived rate, or keep what you have.
+          <div className="text-[12px] text-[#6B7280]">
+            What you're using today. Update to the derived rate, override
+            below, or keep this value.
           </div>
         </div>
       )}
