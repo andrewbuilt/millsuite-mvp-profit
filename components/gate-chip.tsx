@@ -9,17 +9,29 @@
 'use client'
 
 import { CheckCircle2, Circle, AlertCircle } from 'lucide-react'
-import { SubprojectStatus, gateSummary, gateTone } from '@/lib/subproject-status'
+import {
+  SubprojectStatus,
+  gateSummary,
+  gateSummaryShort,
+  gateTone,
+} from '@/lib/subproject-status'
 
 interface Props {
   status: SubprojectStatus | null | undefined
-  /** Compact variant for dense lists. */
+  /** Compact variant for dense lists — uses gateSummaryShort so the chip
+   *  fits next to a sub name + hours figure inside the schedule
+   *  swimlane's label column. The full sentence still lands in the
+   *  hover title. */
   small?: boolean
 }
 
 export default function GateChip({ status, small = false }: Props) {
   const tone = gateTone(status)
-  const summary = status ? gateSummary(status) : '—'
+  const summary = status
+    ? small
+      ? gateSummaryShort(status)
+      : gateSummary(status)
+    : '—'
 
   const palette =
     tone === 'green'

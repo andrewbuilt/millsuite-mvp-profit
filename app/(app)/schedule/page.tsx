@@ -89,7 +89,10 @@ interface DragStateType {
 const WEEK_WIDTH = 164
 const ROW_HEIGHT = 140
 const SWIM_ROW = 36
-const SWIM_LABEL_WIDTH = 200
+// Bumped 200 → 280 so a sub-row label fits its name, the "best case" pill,
+// the gate chip (short form), and the trailing hours figure without
+// truncating the sub name or wrapping the row.
+const SWIM_LABEL_WIDTH = 280
 const DEPT_LABEL_WIDTH = 150
 
 const COLOR_PALETTE = [

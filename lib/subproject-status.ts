@@ -95,6 +95,40 @@ export function gateSummary(status: SubprojectStatus): string {
 }
 
 /**
+ * Compact variant for dense lists (the schedule swimlane label column).
+ * Drops the "of"/"yet"/"pending" prose so the cell fits next to a sub name +
+ * a "best case" pill + an hours figure inside SWIM_LABEL_WIDTH. The verbose
+ * form still goes into the chip's title attribute via gateSummary.
+ *
+ *   ready                            → "Ready"
+ *   slots open + drawings missing    → "0/5 · drw"
+ *   slots open only                  → "0/5"
+ *   no slots yet                     → "no specs"
+ *   drawings missing only            → "drw"
+ *   drawings pending only            → "drw 0/2"
+ */
+export function gateSummaryShort(status: SubprojectStatus): string {
+  if (status.ready_for_scheduling) return 'Ready'
+
+  const parts: string[] = []
+  if (status.slots_total > 0 && status.slots_approved < status.slots_total) {
+    parts.push(`${status.slots_approved}/${status.slots_total}`)
+  } else if (status.slots_total === 0) {
+    parts.push('no specs')
+  }
+
+  if (status.latest_drawing_revisions === 0) {
+    parts.push('drw')
+  } else if (status.latest_drawings_approved < status.latest_drawing_revisions) {
+    parts.push(
+      `drw ${status.latest_drawings_approved}/${status.latest_drawing_revisions}`,
+    )
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : 'gated'
+}
+
+/**
  * Tone for the chip: green when ready, amber otherwise. Aligns with
  * approval-slots.tsx chip palette.
  */
