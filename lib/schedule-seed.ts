@@ -117,7 +117,9 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
 
   const deptIdToKey = new Map<string, DeptKey>()
   const deptKeyToId = new Map<DeptKey, string>()
+  const deptNameById = new Map<string, string>()
   for (const d of deptRows) {
+    deptNameById.set(d.id, d.name)
     const k = canonicalDeptKey(d.name)
     if (!k) continue
     deptIdToKey.set(d.id, k)
@@ -150,9 +152,17 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
   const rateBook = await loadRateBook(orgId)
   const ctx = { shopRate: 0, consumableMarkupPct: 0, profitMarginPct: 0 }
 
+  // department_allocations.name and .org_id are NOT NULL with no defaults
+  // (migration 001 + the prod-side org_id NOT NULL). Both are derived from
+  // already-loaded data here — dept name from the matching department row,
+  // org_id from the project. Audit pass: every other column on the table
+  // is either nullable or has a default, so this payload is the full set
+  // of columns that must be present.
   const inserts: Array<{
+    org_id: string
     subproject_id: string
     department_id: string
+    name: string
     estimated_hours: number
     scheduled_date: null
     crew_size: null
@@ -194,9 +204,12 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
       const dk = LABOR_TO_SCHEDULE_DEPT[ld]
       const deptId = deptKeyToId.get(dk)
       if (!deptId) continue
+      const deptName = deptNameById.get(deptId) || dk
       inserts.push({
+        org_id: orgId,
         subproject_id: sub.id,
         department_id: deptId,
+        name: `${deptName} – ${sub.name}`,
         estimated_hours: hrs,
         scheduled_date: null,
         crew_size: null,
