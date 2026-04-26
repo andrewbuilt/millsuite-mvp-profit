@@ -10,3 +10,11 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Schedule block divide affordance — ⋮ button revealed on block hover.
+   Lives in globals.css because the schedule page is otherwise inline-style
+   only and a hover-only reveal can't be expressed inline without
+   per-block state churn. */
+.sched-block { position: relative; }
+.sched-block .sched-divide-btn { opacity: 0; transition: opacity 0.12s; }
+.sched-block:hover .sched-divide-btn { opacity: 1; }
