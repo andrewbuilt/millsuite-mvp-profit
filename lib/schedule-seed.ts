@@ -54,7 +54,7 @@ const LABOR_TO_SCHEDULE_DEPT: Record<LaborDept, DeptKey> = {
  *  small enough that abstraction would obscure more than it helps. */
 function canonicalDeptKey(name: string): DeptKey | null {
   const n = (name || '').toLowerCase()
-  if (n.includes('management')) return null
+  if (n.includes('management') || n.includes('mgmt')) return null
   if (n.includes('eng')) return 'engineering'
   if (n.includes('cnc')) return 'cnc'
   if (n.includes('assembly') || n.includes('bench')) return 'assembly'

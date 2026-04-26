@@ -1,13 +1,11 @@
 // ============================================================================
 // actual-hours.ts — read actuals from time_entries (Phase 8)
 // ============================================================================
-// Three consumers read this file:
+// Two consumers read this file:
 //
-//   1. /schedule  — to decide whether a subproject is "unstarted" (no time
-//      entries yet) and should be labeled as a best-case slot.
-//   2. /projects/[id]/rollup — to show actual vs. estimated hours on each
+//   1. /projects/[id]/rollup — to show actual vs. estimated hours on each
 //      sub card + on the project financial panel.
-//   3. /projects/[id]/subprojects/[subId] — to show actual vs. estimated
+//   2. /projects/[id]/subprojects/[subId] — to show actual vs. estimated
 //      hours on the Labor-by-department strip.
 //
 // All functions batch-fetch by subproject_id so the callers don't N+1.
@@ -21,7 +19,6 @@ export interface SubActuals {
   subprojectId: string
   totalMinutes: number
   byDeptMinutes: Record<string, number> // departmentId → minutes
-  started: boolean // totalMinutes > 0 OR at least one time_entries row exists
   entryCount: number
 }
 
@@ -30,8 +27,7 @@ export type SubActualsMap = Record<string, SubActuals>
 /**
  * Load per-subproject actual hours for a batch of subproject ids. Missing
  * subs (no rows in time_entries) are still present in the returned map with
- * zeros + started=false — that's the signal used by /schedule to label slots
- * as "best case".
+ * zeros so callers can rely on every id having a bucket.
  *
  * Supabase's `in(...)` has a practical limit around 1000 values; we chunk in
  * 500s to be safe. The query is read-only and safe from the browser.
@@ -47,7 +43,6 @@ export async function loadSubprojectActualHours(
       subprojectId: id,
       totalMinutes: 0,
       byDeptMinutes: {},
-      started: false,
       entryCount: 0,
     }
   }
@@ -74,7 +69,6 @@ export async function loadSubprojectActualHours(
       const mins = Number(row.duration_minutes) || 0
       bucket.totalMinutes += mins
       bucket.entryCount += 1
-      bucket.started = true
       if (row.department_id) {
         bucket.byDeptMinutes[row.department_id] =
           (bucket.byDeptMinutes[row.department_id] || 0) + mins

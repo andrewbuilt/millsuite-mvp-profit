@@ -7,7 +7,6 @@ import Nav from '@/components/nav'
 import GateChip from '@/components/gate-chip'
 import { supabase } from '@/lib/supabase'
 import { loadSubprojectStatusMap, SubprojectStatus } from '@/lib/subproject-status'
-import { loadSubprojectActualHours, SubActualsMap } from '@/lib/actual-hours'
 import { seedAllocationsForProduction } from '@/lib/schedule-seed'
 
 // =====================================================
@@ -246,7 +245,7 @@ function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCa
 // =====================================================
 // FLOW VIEW (departments as rows)
 // =====================================================
-function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick, subStartedBySubId }: {
+function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
@@ -269,7 +268,6 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
   capacityOverrides: Record<string, number>
   deptCapacities: Record<string, number>
   onWeekClick: (weekIndex: number) => void
-  subStartedBySubId: Record<string, boolean>
 }) {
   const visibleCellMap = useMemo(() => {
     const m: Record<string, Block[]> = {}
@@ -330,21 +328,15 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
                     const diffInfo = whatIfDiff?.get(block.id)
                     const isNew = diffInfo != null
                     const diffBorder = isNew ? (diffInfo.direction === 'earlier' ? '#059669' : '#D97706') : null
-                    // Phase 8: best-case = sub has no time entries yet. Dashed
-                    // border conveys "this is a plan, not a commitment".
-                    const bestCase = !subStartedBySubId[block.subId]
                     return (
                       <div key={block.id} onPointerDown={e => onPointerDown(e, block)} onMouseEnter={() => onHover(block)} onMouseLeave={onLeave}
                         onClick={e => { e.stopPropagation(); onSelect(sk) }}
-                        title={bestCase ? 'Best-case slot — no time clocked yet' : 'Actuals logged against this sub'}
                         style={{
                           height: n > 6 ? 18 : n > 4 ? 20 : n > 2 ? 22 : 26, width: 'calc(100% - 4px)', borderRadius: 5,
                           background: isNew ? `${diffBorder}18` : oc && !hl ? `linear-gradient(135deg, ${c.bg}20, #DC262618)` : hl ? c.bg : `${c.bg}14`,
                           border: isNew
                             ? `2px dashed ${diffBorder}`
-                            : bestCase && !hl
-                              ? `1.5px dashed ${oc ? '#FCA5A5' : `${c.border}B0`}`
-                              : `1.5px solid ${oc && !hl ? '#FCA5A5' : hl ? c.bg : `${c.border}80`}`,
+                            : `1.5px solid ${oc && !hl ? '#FCA5A5' : hl ? c.bg : `${c.border}80`}`,
                           cursor: whatIfActive ? 'default' : drag ? 'grabbing' : 'grab',
                           display: 'flex', alignItems: 'center', padding: '0 6px',
                           opacity: dim ? 0.15 : 1, transition: drag ? 'none' : 'all 0.12s',
@@ -371,7 +363,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
 // =====================================================
 // SWIMLANE VIEW (projects as rows, expand to subprojects)
 // =====================================================
-function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, subStartedBySubId, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, priorities, onWeekClick }: {
+function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, priorities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
@@ -382,7 +374,6 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
   projectSubs: Record<string, string[]>
   subIdByKey: Record<string, string>
   subStatusMap: Record<string, SubprojectStatus>
-  subStartedBySubId: Record<string, boolean>
   deptIndex: Record<string, number>
   deptShortMap: Record<string, string>
   capacityMap: Record<string, number>
@@ -484,10 +475,6 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
               const dim = highlightKey && !hl
               const subId = subIdByKey[sk]
               const gateStatus = subId ? subStatusMap[subId] : null
-              // Phase 8: "best case" = sub has no clocked time yet. Show a
-              // small pill in the label row so the whole row reads clearly
-              // as unstarted / still-movable.
-              const subBestCase = subId ? !subStartedBySubId[subId] : true
 
               return (
                 <div key={sk} style={{ display: 'flex', borderBottom: '1px solid #F3F4F6', opacity: dim ? 0.3 : 1, transition: 'opacity 0.12s' }}>
@@ -498,17 +485,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
                     borderRight: '1px solid #E5E7EB', position: 'sticky', left: 0, zIndex: 15,
                     background: hl ? c.light : '#FFF',
                   }}>
-                    <div style={{ fontSize: 11, fontWeight: 500, color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{sub}</div>
-                    {subBestCase && (
-                      <span title="No time clocked yet — these slots are a best-case plan"
-                        style={{
-                          fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 3,
-                          background: '#FEF3C7', color: '#92400E', letterSpacing: '0.04em',
-                          flexShrink: 0, textTransform: 'uppercase',
-                        }}>
-                        best case
-                      </span>
-                    )}
+                    <div style={{ fontSize: 11, fontWeight: 500, color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>{sub}</div>
                     {gateStatus && <GateChip status={gateStatus} small />}
                     <span style={{ fontSize: 8, color: '#B0B0B0', fontFamily: "'SF Mono', monospace", flexShrink: 0 }}>{subBlocks.reduce((s, b) => s + b.hours, 0)}h</span>
                   </div>
@@ -533,10 +510,6 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
                           const isNew = diffInfo != null
                           const diffBorder = isNew ? (diffInfo.direction === 'earlier' ? '#059669' : '#D97706') : null
                           const isDragging = dragState?.blockId === block.id
-                          // Phase 8: dashed border when this sub has never
-                          // been clocked in — makes the whole row visually
-                          // read as "plan, not commitment".
-                          const bestCase = !subStartedBySubId[block.subId]
                           return (
                             <div key={block.id}
                               onPointerDown={e => onPointerDown(e, block)}
@@ -545,9 +518,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
                                 background: isNew ? `${diffBorder}18` : hl ? dc.bg : `${dc.bg}20`,
                                 border: isNew
                                   ? `2px dashed ${diffBorder}`
-                                  : bestCase && !hl
-                                    ? `1.5px dashed ${dc.bg}70`
-                                    : `1.5px solid ${hl ? dc.bg : `${dc.bg}50`}`,
+                                  : `1.5px solid ${hl ? dc.bg : `${dc.bg}50`}`,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
                                 padding: '0 4px', cursor: whatIfActive ? 'default' : isDragging ? 'grabbing' : 'grab',
                                 boxShadow: isNew ? `0 0 6px ${diffBorder}40` : isDragging ? `0 4px 8px ${dc.bg}40` : hl ? `0 1px 3px ${dc.bg}30` : 'none',
@@ -607,7 +578,7 @@ function ChatPanel({ messages, isThinking, chatInput, setChatInput, sendMessage,
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, isThinking])
 
   return (
-    <div style={{ width: 400, flexShrink: 0, borderLeft: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', background: '#FAFBFC', height: '100%' }}>
+    <div style={{ width: 360, flexShrink: 0, borderLeft: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', background: '#FAFBFC', height: '100%' }}>
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #E5E7EB', background: '#FFF', flexShrink: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -717,9 +688,6 @@ export default function SchedulePage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [subprojectsByProject, setSubprojectsByProject] = useState<Record<string, Subproject[]>>({})
   const [subStatusMap, setSubStatusMap] = useState<Record<string, SubprojectStatus>>({})
-  // Phase 8: per-sub actuals, used to distinguish "best-case" (unstarted) slots
-  // from slots that have real time clocked against them. Keyed by subproject id.
-  const [subActuals, setSubActuals] = useState<SubActualsMap>({})
   const [blocks, setBlocks] = useState<Block[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
   const [headcountByDept, setHeadcountByDept] = useState<Record<string, number>>({})
@@ -741,7 +709,21 @@ export default function SchedulePage() {
   const [whatIfDiff, setWhatIfDiff] = useState<Map<string, DiffInfo> | null>(null)
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null)
 
-  const [chatOpen, setChatOpen] = useState(true)
+  // Schedule AI pane defaults to closed so the timeline gets full width on
+  // first load. User toggle is sticky via localStorage — if they leave it
+  // open, next visit honors that. Hydration-safe: useState seeds false,
+  // useEffect upgrades from localStorage on mount so SSR + first paint
+  // don't flicker.
+  const [chatOpen, setChatOpen] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = window.localStorage.getItem('schedule.chatOpen')
+    if (saved === '1') setChatOpen(true)
+  }, [])
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('schedule.chatOpen', chatOpen ? '1' : '0')
+  }, [chatOpen])
   const [chatInput, setChatInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', text: "What's on your mind? Tell me what's going on with the schedule and I'll figure out the moves.", type: 'greeting' }
@@ -804,17 +786,6 @@ export default function SchedulePage() {
     }
     return m
   }, [projects, subprojectsByProject])
-
-  // Phase 8: did a sub ever get clocked-in time? Used to label unstarted
-  // allocations as "best case". Individual Block objects carry b.subId, so
-  // both views can read this directly without a key conversion.
-  const subStartedBySubId = useMemo(() => {
-    const m: Record<string, boolean> = {}
-    for (const [subId, actuals] of Object.entries(subActuals)) {
-      m[subId] = actuals.started
-    }
-    return m
-  }, [subActuals])
 
   const deptCapacities = useMemo(() => {
     const m: Record<string, number> = {}
@@ -910,10 +881,11 @@ export default function SchedulePage() {
       .eq('active', true)
       .order('display_order')
 
-    // Filter out management and enforce production order
+    // Filter out management (and the MGMT short-form variant the org may
+    // use) and enforce production order
     const PROD_ORDER = ['engineering', 'cnc', 'cnc / mill', 'cnc/mill', 'assembly', 'case assembly', 'finishing', 'finish', 'install', 'installation']
     const depts: Department[] = (deptData || [])
-      .filter(d => !d.name.toLowerCase().includes('management'))
+      .filter(d => !/management|mgmt/i.test(d.name))
       .sort((a, b) => {
         const ai = PROD_ORDER.findIndex(p => a.name.toLowerCase().includes(p))
         const bi = PROD_ORDER.findIndex(p => b.name.toLowerCase().includes(p))
@@ -979,12 +951,6 @@ export default function SchedulePage() {
     if (allSubIds.length > 0) {
       const statusMap = await loadSubprojectStatusMap(allSubIds)
       setSubStatusMap(statusMap)
-    }
-
-    // Load actuals (Phase 8: "best case" detection for unstarted subs)
-    if (allSubIds.length > 0) {
-      const actuals = await loadSubprojectActualHours(allSubIds)
-      setSubActuals(actuals)
     }
 
     // Load department members for headcount
@@ -1602,7 +1568,6 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   simMode={simMode} adjustCapacity={adjustCapacity} capacityOverrides={capacityOverrides}
                   deptCapacities={deptCapacities}
                   onWeekClick={(wi: number) => setSelectedWeek(sw => sw === wi ? null : wi)}
-                  subStartedBySubId={subStartedBySubId}
                 />
               ) : (
                 <SwimlaneView
@@ -1610,7 +1575,6 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   departments={departments} deptColors={deptColors} projectColors={projectColors}
                   projectNames={projectNames} projectSubs={projectSubs}
                   subIdByKey={subIdByKey} subStatusMap={subStatusMap}
-                  subStartedBySubId={subStartedBySubId}
                   deptIndex={deptIndex} deptShortMap={deptShortMap}
                   capacityMap={capacityMap} effectiveCapacity={effectiveCapacity}
                   filter={filter} highlightKey={highlightKey} dragState={dragState}
