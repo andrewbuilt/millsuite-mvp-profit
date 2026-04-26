@@ -1,47 +1,26 @@
 'use client'
 
 // ============================================================================
-// DoorStyleWalkthrough — per-door labor calibration for one door style.
+// DrawerStyleWalkthrough — per-drawer labor calibration for one drawer style.
 // ============================================================================
-// Per BUILD-ORDER Phase 12 item 7 + specs/add-line-composer/README.md.
-//
-// Calibration unit: 4 doors at 24" × 30" (one 8' run of base cabinets).
-// Answers divide by 4 on save to yield per-door hours by dept. Wood
-// machining is a guided sub-step that folds into Assembly before the
-// divide — same contract as BaseCabinetWalkthrough.
-//
-// Two modes per spec, decided by how many door_labor_hours_* fields are
-// empty on the target style:
-//
-//   - Full modal (5 steps, step-through progress dots) — new style,
-//     or an existing style whose labor is ALL zero (gap = 4).
-//   - Mini-card (compact all-fields form)              — existing style
-//     with 1–3 zeros (a partial gap the user is filling in).
+// Mirror of DoorStyleWalkthrough: 4-drawer calibration unit (one Base run)
+// with hours divided by 4 on save. Wood machining folds into Assembly
+// before the divide. Storage matches doors but writes to
+// drawer_labor_hours_* columns under a category whose
+// item_type='drawer_style'.
 //
 // Fires from the composer in three places:
-//   (a) Dropdown: user picks an uncalibrated style.
-//   (b) Dropdown: user clicks "+ Add new door style" → name + full modal.
-//   (c) Empty-state hatch when the org has zero door styles yet.
-//
-// On complete:
-//   - Find-or-create a rate_book_categories row with item_type='door_style'
-//     for this org (create "Doors" on first run; otherwise reuse the first
-//     door_style category).
-//   - For "new style" flow: insert a rate_book_items row under that
-//     category, return its id. For existing flow: update in place.
-//   - Write door_labor_hours_{eng,cnc,assembly,finish} — per-door
-//     (post-fold, post-divide).
-//   - Call onComplete(styleId).
+//   (a) Dropdown: user picks an uncalibrated drawer style.
+//   (b) Dropdown: user clicks "+ Add new drawer style" → name + full modal.
+//   (c) Empty-state hatch when the org has zero drawer styles yet.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
-import { saveDoorTypeCalibration } from '@/lib/door-types'
+import { supabase } from '@/lib/supabase'
+import { ensureRateBookCategoryId, upsertRateBookItem } from '@/lib/rate-book'
 
-// Door pricing v2 (PR #74 + cleanup): finish labor + material live on
-// door_type_material_finishes (per-finish), not on the door type itself.
-// The walkthrough captures only construction labor — Finish step is gone.
-type Dept = 'eng' | 'cnc' | 'machining' | 'assembly'
+type Dept = 'eng' | 'cnc' | 'machining' | 'assembly' | 'finish'
 
 interface StepConfig {
   key: Dept
@@ -55,13 +34,13 @@ const STEPS: StepConfig[] = [
     key: 'eng',
     heading: 'Engineering',
     bucketLabel: 'Engineering',
-    prompt: 'CAD / layout time for 4 doors. Zero is normal.',
+    prompt: 'CAD / layout time for 4 drawers. Zero is normal.',
   },
   {
     key: 'cnc',
     heading: 'CNC',
     bucketLabel: 'CNC',
-    prompt: 'CNC time for 4 doors. Zero if you cut them by hand.',
+    prompt: 'CNC time for 4 drawers. Zero if you cut them by hand.',
   },
   {
     key: 'machining',
@@ -73,94 +52,82 @@ const STEPS: StepConfig[] = [
     key: 'assembly',
     heading: 'Assembly',
     bucketLabel: 'Assembly',
-    prompt: 'Glue-up, square, sand. For 4 doors.',
+    prompt: 'Box build, slide install, drawer-front attach. For 4 drawers.',
+  },
+  {
+    key: 'finish',
+    heading: 'Finish',
+    bucketLabel: 'Finish',
+    prompt: 'Spray and flip 4 drawer fronts.',
   },
 ]
 
-const DIVIDE_BY = 4 // calibration unit size
+const DIVIDE_BY = 4
 
-// ── Props ──
-
-export interface DoorStyleWalkthroughExistingStyle {
+export interface DrawerStyleWalkthroughExistingStyle {
   id: string
   name: string
-  /** Per-door labor currently in the DB. Used to populate mini-card inputs
-   *  and to decide full-modal-vs-mini-card via the gap count. The legacy
-   *  finish field is preserved on the type for back-compat but ignored
-   *  by the walkthrough — finish labor lives on the per-finish row now. */
   labor: {
     eng: number
     cnc: number
     assembly: number
-    finish?: number
+    finish: number
   }
+  hardwareCost?: number
 }
 
 interface Props {
   orgId: string
-  /** Existing style — mini-card mode if labor has any non-zero dept,
-   *  full-modal if all zero. Absent = new-style full-modal flow. */
-  existingStyle?: DoorStyleWalkthroughExistingStyle | null
-  /** Prefill the name input on new-style flow (e.g. user typed it before
-   *  clicking "+ Add new door style"). */
+  existingStyle?: DrawerStyleWalkthroughExistingStyle | null
   defaultName?: string
   onComplete: (styleId: string) => void
   onCancel: () => void
 }
 
-// Internal state: hours entered by step. Machining is a separate bucket
-// in the walkthrough; folded into Assembly on save.
 type HoursByStep = Record<Dept, number>
 
-export default function DoorStyleWalkthrough({
+export default function DrawerStyleWalkthrough({
   orgId,
   existingStyle,
   defaultName,
   onComplete,
   onCancel,
 }: Props) {
-  // ── Initial hours + mode ──
-
   const initialHours: HoursByStep = useMemo(() => {
     if (!existingStyle) {
-      return { eng: 0, cnc: 0, machining: 0, assembly: 0 }
+      return { eng: 0, cnc: 0, machining: 0, assembly: 0, finish: 0 }
     }
     return {
       eng: existingStyle.labor.eng * DIVIDE_BY,
       cnc: existingStyle.labor.cnc * DIVIDE_BY,
-      machining: 0, // machining always starts at 0 — there's no stored
-                    // machining value (it was already folded in on last save)
+      machining: 0,
       assembly: existingStyle.labor.assembly * DIVIDE_BY,
+      finish: existingStyle.labor.finish * DIVIDE_BY,
     }
   }, [existingStyle])
 
   const isNewStyle = !existingStyle
   const gapCount = useMemo(() => {
-    // Three calibratable depts now (eng / cnc / assembly). All-zero =
-    // full-modal step-through; any non-zero entry = mini-card gap-fill.
-    if (!existingStyle) return 3
+    if (!existingStyle) return 4
     const l = existingStyle.labor
-    return [l.eng, l.cnc, l.assembly].filter((v) => !v || v <= 0).length
+    return [l.eng, l.cnc, l.assembly, l.finish].filter((v) => !v || v <= 0).length
   }, [existingStyle])
-  const mode: 'modal' | 'card' = gapCount === 3 ? 'modal' : 'card'
-
-  // ── State ──
+  const mode: 'modal' | 'card' = gapCount === 4 ? 'modal' : 'card'
 
   const [name, setName] = useState(existingStyle?.name || defaultName || '')
   const [hours, setHours] = useState<HoursByStep>(initialHours)
+  const [hardware, setHardware] = useState<number>(existingStyle?.hardwareCost ?? 0)
   const [stepIdx, setStepIdx] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Reset when props change (different style picked).
   useEffect(() => {
     setName(existingStyle?.name || defaultName || '')
     setHours(initialHours)
+    setHardware(existingStyle?.hardwareCost ?? 0)
     setStepIdx(0)
     setError(null)
   }, [existingStyle, defaultName, initialHours])
-
-  // ── Input helpers ──
 
   function setHour(key: Dept, value: string) {
     const v = value === '' ? 0 : Number(value)
@@ -173,48 +140,35 @@ export default function DoorStyleWalkthrough({
     })
   }
 
-  // ── Save ──
-
   async function save() {
     setError(null)
     if (isNewStyle && !name.trim()) {
-      setError('Give the door style a name.')
+      setError('Give the drawer style a name.')
       return
     }
     setSaving(true)
     try {
-      // Fold machining into assembly, divide everything by 4 → per-door.
-      // Finish step is gone (door pricing v2): finish labor lives on the
-      // per-finish row, not the door type. perDoor.finish stays 0 in the
-      // payload so saveDoorTypeCalibration's NOT NULL DEFAULT 0 column
-      // takes the value cleanly. Existing rows that had a non-zero
-      // labor_hours_finish are ignored on read by composer-loader.
       const foldedAssembly = (hours.assembly || 0) + (hours.machining || 0)
-      const perDoor = {
+      const perDrawer = {
         eng: (hours.eng || 0) / DIVIDE_BY,
         cnc: (hours.cnc || 0) / DIVIDE_BY,
         assembly: foldedAssembly / DIVIDE_BY,
-        finish: 0,
+        finish: (hours.finish || 0) / DIVIDE_BY,
       }
-      // Door pricing v2: writes to door_types (not rate_book_items).
-      // Hardware $ stays at 0 from this walkthrough — it's edited in the
-      // rate-book detail view alongside the materials/finishes.
-      const typeId = await saveDoorTypeCalibration({
+      const styleId = await saveDrawerStyleCalibration({
         orgId,
-        existingId: existingStyle?.id ?? null,
-        name: name.trim() || 'Door type',
-        perDoor,
-        hardwareCost: 0,
+        existingStyleId: existingStyle?.id ?? null,
+        name: name.trim() || 'Drawer style',
+        perDrawer,
+        hardwareCost: Number(hardware) || 0,
       })
-      onComplete(typeId)
+      onComplete(styleId)
     } catch (err: any) {
-      setError(err?.message || 'Failed to save door style')
+      setError(err?.message || 'Failed to save drawer style')
     } finally {
       setSaving(false)
     }
   }
-
-  // ── Render ──
 
   return (
     <div
@@ -228,16 +182,18 @@ export default function DoorStyleWalkthrough({
             name={name}
             isNewStyle={isNewStyle}
             hours={hours}
+            hardware={hardware}
             stepIdx={stepIdx}
             saving={saving}
             error={error}
             onName={setName}
             onHour={setHour}
             onStep={stepHour}
+            onHardware={setHardware}
             onBack={() => setStepIdx((i) => Math.max(0, i - 1))}
             onNext={() =>
               setStepIdx((i) =>
-                Math.min(isNewStyle ? STEPS.length : STEPS.length - 1, i + 1)
+                Math.min(isNewStyle ? STEPS.length : STEPS.length - 1, i + 1),
               )
             }
             onCancel={onCancel}
@@ -247,11 +203,13 @@ export default function DoorStyleWalkthrough({
           <MiniCard
             name={name}
             hours={hours}
+            hardware={hardware}
             saving={saving}
             error={error}
             existingLabor={existingStyle!.labor}
             onHour={setHour}
             onStep={stepHour}
+            onHardware={setHardware}
             onCancel={onCancel}
             onSave={save}
           />
@@ -261,37 +219,34 @@ export default function DoorStyleWalkthrough({
   )
 }
 
-// ── Full modal: step-through for a new or all-zero style ──
-
 function FullModal(p: {
   name: string
   isNewStyle: boolean
   hours: HoursByStep
+  hardware: number
   stepIdx: number
   saving: boolean
   error: string | null
   onName: (v: string) => void
   onHour: (key: Dept, v: string) => void
   onStep: (key: Dept, delta: number) => void
+  onHardware: (v: number) => void
   onBack: () => void
   onNext: () => void
   onCancel: () => void
   onSave: () => void
 }) {
-  // Step 0 on a new style = name input. Otherwise step 0 = first dept (Eng).
   const showNameAsFirstStep = p.isNewStyle && p.stepIdx === 0
   const displayStepIdx = p.isNewStyle ? Math.max(0, p.stepIdx - 1) : p.stepIdx
   const totalSteps = p.isNewStyle ? STEPS.length + 1 : STEPS.length
-  const currentPos = p.isNewStyle ? p.stepIdx : p.stepIdx
-
+  const currentPos = p.stepIdx
   const isLast = showNameAsFirstStep ? false : displayStepIdx === STEPS.length - 1
 
   return (
     <div className="max-w-[620px] w-full bg-white border border-[#E5E7EB] rounded-2xl text-[#111] shadow-xl overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
         <div className="text-[13px] font-semibold text-[#111]">
-          {p.isNewStyle ? 'New door style' : p.name || 'Door style'} · calibration
+          {p.isNewStyle ? 'New drawer style' : p.name || 'Drawer style'} · calibration
         </div>
         <button
           onClick={p.onCancel}
@@ -302,7 +257,6 @@ function FullModal(p: {
         </button>
       </div>
 
-      {/* Progress dots */}
       <div className="flex items-center gap-1.5 px-5 pt-4">
         {Array.from({ length: totalSteps }).map((_, i) => {
           const state =
@@ -311,8 +265,8 @@ function FullModal(p: {
             state === 'current'
               ? 'bg-[#2563EB]'
               : state === 'done'
-              ? 'bg-[#93C5FD]'
-              : 'bg-[#E5E7EB]'
+                ? 'bg-[#93C5FD]'
+                : 'bg-[#E5E7EB]'
           return <div key={i} className={`h-1 flex-1 rounded-full ${cls}`} />
         })}
       </div>
@@ -321,33 +275,65 @@ function FullModal(p: {
         {showNameAsFirstStep ? (
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#2563EB] mb-1">
-              Step 1 of {totalSteps} · Name this door style
+              Step 1 of {totalSteps} · Name this drawer style
             </div>
             <h2 className="text-[20px] font-semibold text-[#111] mb-2">
-              What do you call this door style?
+              What do you call this drawer style?
             </h2>
             <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
-              The name appears in the composer dropdown. "Shaker," "Slab,"
-              anything that reads like what you build.
+              The name appears in the composer dropdown. "Standard," "Dovetail,"
+              "Inset," anything that reads like what you build.
             </p>
             <input
               type="text"
               value={p.name}
               onChange={(e) => p.onName(e.target.value)}
-              placeholder="e.g. Shaker"
+              placeholder="e.g. Standard"
               className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2.5 text-sm text-[#111] outline-none focus:border-[#2563EB]"
               autoFocus
             />
           </div>
         ) : (
-          <StepContent
-            step={STEPS[displayStepIdx]}
-            stepNum={p.isNewStyle ? displayStepIdx + 2 : displayStepIdx + 1}
-            totalSteps={totalSteps}
-            value={p.hours[STEPS[displayStepIdx].key]}
-            onChange={(v) => p.onHour(STEPS[displayStepIdx].key, v)}
-            onStep={(d) => p.onStep(STEPS[displayStepIdx].key, d)}
-          />
+          <>
+            <StepContent
+              step={STEPS[displayStepIdx]}
+              stepNum={p.isNewStyle ? displayStepIdx + 2 : displayStepIdx + 1}
+              totalSteps={totalSteps}
+              value={p.hours[STEPS[displayStepIdx].key]}
+              onChange={(v) => p.onHour(STEPS[displayStepIdx].key, v)}
+              onStep={(d) => p.onStep(STEPS[displayStepIdx].key, d)}
+            />
+            {/* Hardware $ field rides on the Finish step rather than its
+                own step — keeps the walkthrough at the same step count
+                as DoorStyleWalkthrough. Slides + pulls + anything that
+                ships per drawer. */}
+            {STEPS[displayStepIdx].key === 'finish' && (
+              <div className="mt-6 pt-5 border-t border-[#F3F4F6]">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#2563EB] mb-1">
+                  Hardware
+                </div>
+                <h3 className="text-[15px] font-semibold text-[#111] mb-1">
+                  Hardware cost per drawer
+                </h3>
+                <p className="text-sm text-[#6B7280] leading-relaxed mb-3">
+                  Slides, pulls, anything that ships with each drawer.
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#9CA3AF] text-sm">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={p.hardware === 0 ? '' : p.hardware}
+                    placeholder="0"
+                    onChange={(e) => p.onHardware(parseFloat(e.target.value) || 0)}
+                    className="w-32 text-center font-mono text-base px-3 py-2 bg-white border border-[#E5E7EB] rounded-md text-[#111] outline-none focus:border-[#2563EB]"
+                  />
+                  <span className="text-sm text-[#9CA3AF] ml-2">per drawer</span>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {p.error && (
@@ -421,7 +407,7 @@ function StepContent({
         Step {stepNum} of {totalSteps} · {step.bucketLabel}
       </div>
       <h2 className="text-[20px] font-semibold text-[#111] mb-2">
-        {step.heading} · hours for 4 doors (24" × 30")
+        {step.heading} · hours for 4 drawers
       </h2>
       <p className="text-sm text-[#6B7280] leading-relaxed mb-5">{step.prompt}</p>
 
@@ -456,16 +442,16 @@ function StepContent({
   )
 }
 
-// ── Mini-card: compact all-fields form for partial gaps ──
-
 function MiniCard(p: {
   name: string
   hours: HoursByStep
+  hardware: number
   saving: boolean
   error: string | null
-  existingLabor: { eng: number; cnc: number; assembly: number; finish?: number }
+  existingLabor: { eng: number; cnc: number; assembly: number; finish: number }
   onHour: (key: Dept, v: string) => void
   onStep: (key: Dept, delta: number) => void
+  onHardware: (v: number) => void
   onCancel: () => void
   onSave: () => void
 }) {
@@ -473,7 +459,7 @@ function MiniCard(p: {
     <div className="max-w-[620px] w-full bg-white border border-[#E5E7EB] rounded-2xl text-[#111] shadow-xl overflow-hidden">
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
         <div className="text-[13px] font-semibold text-[#111]">
-          {p.name || 'Door style'} · fill in the gaps
+          {p.name || 'Drawer style'} · fill in the gaps
         </div>
         <button
           onClick={p.onCancel}
@@ -487,14 +473,16 @@ function MiniCard(p: {
       <div className="p-5">
         <p className="text-sm text-[#6B7280] leading-relaxed mb-5">
           Some departments already have hours from a previous calibration.
-          Fill in the missing ones. Hours for <b>4 doors at 24" × 30"</b>.
-          Machining folds into Assembly on save.
+          Fill in the missing ones. Hours for <b>4 drawers</b>. Machining
+          folds into Assembly on save.
         </p>
 
         <div className="space-y-3">
           {STEPS.map((step) => {
             const existingValue =
-              step.key === 'machining' ? 0 : p.existingLabor[step.key as keyof typeof p.existingLabor] || 0
+              step.key === 'machining'
+                ? 0
+                : p.existingLabor[step.key as keyof typeof p.existingLabor] || 0
             const isFilled = existingValue > 0
             return (
               <div
@@ -545,6 +533,30 @@ function MiniCard(p: {
           })}
         </div>
 
+        <div className="mt-4 p-3 border border-[#E5E7EB] rounded-lg">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-[#111]">Hardware</div>
+              <div className="text-[11.5px] text-[#6B7280] leading-snug">
+                Slides + pulls + anything per drawer.
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[#9CA3AF] text-xs">$</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={p.hardware === 0 ? '' : p.hardware}
+                placeholder="0"
+                onChange={(e) => p.onHardware(parseFloat(e.target.value) || 0)}
+                className="w-24 text-right font-mono text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md text-[#111] outline-none focus:border-[#2563EB]"
+              />
+              <span className="text-[11px] text-[#9CA3AF] ml-1">per drawer</span>
+            </div>
+          </div>
+        </div>
+
         {p.error && (
           <div className="mt-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
             {p.error}
@@ -572,3 +584,55 @@ function MiniCard(p: {
   )
 }
 
+const DRAWERS_CATEGORY_NAME = 'Drawers'
+
+async function saveDrawerStyleCalibration(input: {
+  orgId: string
+  existingStyleId: string | null
+  name: string
+  perDrawer: { eng: number; cnc: number; assembly: number; finish: number }
+  hardwareCost: number
+}): Promise<string> {
+  const { orgId, existingStyleId, name, perDrawer, hardwareCost } = input
+
+  const patch = {
+    drawer_labor_hours_eng: perDrawer.eng,
+    drawer_labor_hours_cnc: perDrawer.cnc,
+    drawer_labor_hours_assembly: perDrawer.assembly,
+    drawer_labor_hours_finish: perDrawer.finish,
+    drawer_hardware_cost: hardwareCost,
+    updated_at: new Date().toISOString(),
+  }
+
+  if (existingStyleId) {
+    const { error } = await supabase
+      .from('rate_book_items')
+      .update({ ...patch, name })
+      .eq('id', existingStyleId)
+    if (error) throw error
+    return existingStyleId
+  }
+
+  const categoryId = await ensureRateBookCategoryId(
+    orgId,
+    DRAWERS_CATEGORY_NAME,
+    'drawer_style',
+  )
+  return await upsertRateBookItem({
+    orgId,
+    categoryId,
+    name,
+    patch,
+    insertDefaults: {
+      unit: 'each',
+      material_mode: 'none',
+      sheets_per_unit: 0,
+      sheet_cost: 0,
+      linear_cost: 0,
+      lump_cost: 0,
+      hardware_cost: 0,
+      confidence: 'untested',
+      active: true,
+    },
+  })
+}

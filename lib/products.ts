@@ -90,6 +90,13 @@ export interface Product {
    *   Full   2.5×    (much larger face, more handling + edges)
    */
   doorLaborMultiplier: number
+  /**
+   * Sheets of door/drawer face stock consumed by ONE drawer front.
+   * Only used by the drawer slot (Base only). 0 on products that don't
+   * carry drawers. Typical 6"×24" Base drawer front: ~1 sf face out of a
+   * 32 sf sheet → ~0.03; rounded to 0.04 to leave headroom for waste.
+   */
+  sheetsPerDrawerFront: number
   /** Tile is pickable on the composer grid. */
   active: boolean
   /** Tile is visible but greyed out with a "Later" badge. Implies !active. */
@@ -104,6 +111,7 @@ function make(p: Partial<Product> & Pick<Product, 'key' | 'label' | 'unit'>): Pr
     sheetsPerLfFace: 0,
     sheetsPerLfCarcass: 0,
     sheetsPerLfBack: 0,
+    sheetsPerDrawerFront: 0,
     doorsPerLf: 0,
     doorLaborMultiplier: 0,
     active: false,
@@ -122,6 +130,7 @@ export const PRODUCT_BASE: Product = make({
   sheetsPerLfFace: 1 / 12,
   sheetsPerLfCarcass: 0.4,
   sheetsPerLfBack: 1 / 6,
+  sheetsPerDrawerFront: 0.04,
   doorsPerLf: 0.5,
   doorLaborMultiplier: 1.0,
   active: true,

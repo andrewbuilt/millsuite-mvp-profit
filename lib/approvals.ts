@@ -427,9 +427,13 @@ export function guessSlotOwner(label: string): 'client' | 'shop' | 'vendor' {
 /**
  * Resolve composer slot ids → human names against the composer rate book.
  * Used by proposeSlotsFromComposerLine so the approval-card material/finish
- * text reads "White oak", not "<uuid>". Prefinished sentinel is treated as
- * "no exterior finish picked" — those lines didn't elect to spec a finish
- * and shouldn't generate a finish approval card.
+ * text reads "White oak", not "<uuid>".
+ *
+ * Door pricing v2: doorMaterial reads slots.doorMaterialId from
+ * door_type_materials; exteriorFinish reads slots.doorFinishId from
+ * door_type_material_finishes. The "Door/drawer material" + "Exterior finish"
+ * approval-card labels stay so existing post-sale UX keeps reading the
+ * same column headers — only the lookup source moved.
  */
 export function resolveComposerSlotNames(
   slots: ComposerSlots,
@@ -442,17 +446,16 @@ export function resolveComposerSlotNames(
   const carcass = slots.carcassMaterial
     ? rateBook.carcassMaterials.find((m) => m.id === slots.carcassMaterial) ?? null
     : null
-  const door = slots.doorMaterial
-    ? rateBook.extMaterials.find((m) => m.id === slots.doorMaterial) ?? null
+  const door = slots.doorMaterialId
+    ? rateBook.doorTypeMaterials.find((m) => m.id === slots.doorMaterialId) ?? null
     : null
-  const finish =
-    slots.exteriorFinish && slots.exteriorFinish !== PREFINISHED_FINISH_ID
-      ? rateBook.finishes.find((f) => f.id === slots.exteriorFinish) ?? null
-      : null
+  const finish = slots.doorFinishId
+    ? rateBook.doorTypeMaterialFinishes.find((f) => f.id === slots.doorFinishId) ?? null
+    : null
   return {
     carcassMaterial: carcass ? { id: carcass.id, name: carcass.name } : null,
-    doorMaterial: door ? { id: door.id, name: door.name } : null,
-    exteriorFinish: finish ? { id: finish.id, name: finish.name } : null,
+    doorMaterial: door ? { id: door.id, name: door.material_name } : null,
+    exteriorFinish: finish ? { id: finish.id, name: finish.finish_name } : null,
   }
 }
 

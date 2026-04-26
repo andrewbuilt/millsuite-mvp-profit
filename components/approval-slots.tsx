@@ -61,8 +61,8 @@ interface Props {
  *  the per-spec "+ CO" button hides. */
 function slotKeyForApprovalLabel(label: string): string | null {
   if (label === 'Carcass material') return 'carcassMaterial'
-  if (label === 'Door/drawer material') return 'doorMaterial'
-  if (label === 'Exterior finish') return 'exteriorFinish'
+  if (label === 'Door/drawer material') return 'doorMaterialId'
+  if (label === 'Exterior finish') return 'doorFinishId'
   return null
 }
 

@@ -675,6 +675,9 @@ export default function SubprojectEditorPage() {
                   {staleLines.length} composer line{staleLines.length === 1 ? '' : 's'} out of date.
                   Recompute against the current rate book to push the new numbers into the lines.
                 </div>
+                <div className="text-[11px] text-[#78350F] mt-1 italic">
+                  Door pricing updated — re-pick door type, material, and finish on each line.
+                </div>
               </div>
               <button
                 type="button"

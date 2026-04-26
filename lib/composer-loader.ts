@@ -32,6 +32,13 @@ import {
   listExtMaterials,
   listBackPanelMaterials,
 } from './rate-book-materials'
+import {
+  listDoorTypes,
+  listDoorTypeMaterials,
+  listDoorTypeMaterialFinishes,
+  indexDoorTypeMaterials,
+  indexDoorTypeMaterialFinishes,
+} from './door-types'
 
 /** Load + shape the composer's rate-book payload for an org. */
 export async function loadComposerRateBook(orgId: string): Promise<ComposerRateBook> {
@@ -41,7 +48,10 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     carcassMats,
     extMats,
     backPanelMats,
-    doorStyles,
+    doorTypes,
+    doorTypeMaterials,
+    doorTypeMaterialFinishes,
+    drawerStyles,
     finishes,
   ] = await Promise.all([
     loadShopRate(orgId),
@@ -49,7 +59,10 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     listCarcassMaterials(orgId),
     listExtMaterials(orgId),
     listBackPanelMaterials(orgId),
-    loadDoorStyles(orgId),
+    listDoorTypes(orgId),
+    listDoorTypeMaterials(orgId),
+    listDoorTypeMaterialFinishes(orgId),
+    loadDrawerStyles(orgId),
     loadFinishes(orgId),
   ])
 
@@ -76,7 +89,12 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
       name: m.name,
       sheet_cost: Number(m.sheet_cost) || 0,
     })),
-    doorStyles,
+    doorTypes,
+    doorTypeMaterials,
+    doorTypeMaterialFinishes,
+    doorTypeMaterialsByTypeId: indexDoorTypeMaterials(doorTypeMaterials),
+    doorFinishesByMaterialId: indexDoorTypeMaterialFinishes(doorTypeMaterialFinishes),
+    drawerStyles,
     finishes,
   }
 }
@@ -122,14 +140,14 @@ async function loadCarcassLaborFromBaseCab(orgId: string): Promise<ComposerCarca
   }
 }
 
-// ── Door styles ──
+// ── Drawer styles ──
 
-async function loadDoorStyles(orgId: string): Promise<ComposerDoorStyle[]> {
+async function loadDrawerStyles(orgId: string): Promise<ComposerDoorStyle[]> {
   const { data: cats } = await supabase
     .from('rate_book_categories')
     .select('id')
     .eq('org_id', orgId)
-    .eq('item_type', 'door_style')
+    .eq('item_type', 'drawer_style')
     .eq('active', true)
   const catIds = ((cats || []) as Array<{ id: string }>).map((c) => c.id)
   if (catIds.length === 0) return []
@@ -137,7 +155,7 @@ async function loadDoorStyles(orgId: string): Promise<ComposerDoorStyle[]> {
   const { data: items } = await supabase
     .from('rate_book_items')
     .select(
-      'id, name, door_labor_hours_eng, door_labor_hours_cnc, door_labor_hours_assembly, door_labor_hours_finish'
+      'id, name, drawer_labor_hours_eng, drawer_labor_hours_cnc, drawer_labor_hours_assembly, drawer_labor_hours_finish, drawer_hardware_cost',
     )
     .eq('org_id', orgId)
     .in('category_id', catIds)
@@ -147,19 +165,26 @@ async function loadDoorStyles(orgId: string): Promise<ComposerDoorStyle[]> {
   return ((items || []) as Array<{
     id: string
     name: string
-    door_labor_hours_eng: number | null
-    door_labor_hours_cnc: number | null
-    door_labor_hours_assembly: number | null
-    door_labor_hours_finish: number | null
+    drawer_labor_hours_eng: number | null
+    drawer_labor_hours_cnc: number | null
+    drawer_labor_hours_assembly: number | null
+    drawer_labor_hours_finish: number | null
+    drawer_hardware_cost: number | null
   }>).map((row) => {
     const labor = {
-      eng: Number(row.door_labor_hours_eng ?? 0),
-      cnc: Number(row.door_labor_hours_cnc ?? 0),
-      assembly: Number(row.door_labor_hours_assembly ?? 0),
-      finish: Number(row.door_labor_hours_finish ?? 0),
+      eng: Number(row.drawer_labor_hours_eng ?? 0),
+      cnc: Number(row.drawer_labor_hours_cnc ?? 0),
+      assembly: Number(row.drawer_labor_hours_assembly ?? 0),
+      finish: Number(row.drawer_labor_hours_finish ?? 0),
     }
     const calibrated = labor.eng + labor.cnc + labor.assembly + labor.finish > 0
-    return { id: row.id, name: row.name, labor, calibrated }
+    return {
+      id: row.id,
+      name: row.name,
+      labor,
+      calibrated,
+      hardwareCost: Number(row.drawer_hardware_cost ?? 0),
+    }
   })
 }
 

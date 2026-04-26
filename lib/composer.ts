@@ -16,6 +16,11 @@
 // ============================================================================
 
 import { PRODUCTS, type Product, type ProductKey } from './products'
+import type {
+  DoorType,
+  DoorTypeMaterial,
+  DoorTypeMaterialFinish,
+} from './door-types'
 
 /** Per-LF carcass labor hours, from the "Base cabinet" rate_book_item's
  *  base_labor_hours_*. Reused across Base / Upper / Full per the spec. */
@@ -52,6 +57,11 @@ export interface ComposerDoorStyle {
   /** true iff any dept has non-zero per-door labor. V1 treats "all zero"
    *  as "not calibrated"; item 7 walkthrough populates the values. */
   calibrated: boolean
+  /** Per-unit hardware cost ($). Drawer styles use this for slides + pulls
+   *  + anything that ships per-drawer (drawer_hardware_cost on
+   *  rate_book_items). Door styles leave this 0 — they don't ship with
+   *  per-door hardware in V1. */
+  hardwareCost: number
 }
 
 /** A finish item plus its per-product calibration rows. Missing product
@@ -132,7 +142,18 @@ export interface ComposerRateBook {
    *  shape as ext: just name + sheet_cost. Sourced from rate_book_items
    *  under a category whose item_type='back_panel_material'. */
   backPanelMaterials: ComposerExtMaterial[]
-  doorStyles: ComposerDoorStyle[]
+  /** Door pricing v2 — door types, scoped materials, scoped finishes.
+   *  doorTypeMaterialsByTypeId / doorFinishesByMaterialId drive the
+   *  cascading composer dropdowns. Flat lookup arrays let id-based
+   *  resolves (approvals, summarizeSlots) skip iterating maps. */
+  doorTypes: DoorType[]
+  doorTypeMaterialsByTypeId: Map<string, DoorTypeMaterial[]>
+  doorFinishesByMaterialId: Map<string, DoorTypeMaterialFinish[]>
+  doorTypeMaterials: DoorTypeMaterial[]
+  doorTypeMaterialFinishes: DoorTypeMaterialFinish[]
+  /** Drawer styles — same shape as the legacy ComposerDoorStyle. Per-drawer
+   *  labor stored on rate_book_items.drawer_labor_hours_*. Base-only. */
+  drawerStyles: ComposerDoorStyle[]
   finishes: ComposerFinish[]
 }
 
@@ -147,16 +168,25 @@ export interface ComposerDefaults {
 
 export interface ComposerSlots {
   carcassMaterial: string | null
-  /** Back-panel sheet stock (1/4" ply typical). Picked from extMaterials —
-   *  the same sheet-stock pool as door/drawer faces. Null = no back panel
+  /** Back-panel sheet stock (1/4" ply typical). Picked from a dedicated
+   *  back-panel pool — separate from face stock. Null = no back panel
    *  material priced (rare but valid for open-back specials). */
   backPanelMaterial: string | null
-  doorStyle: string | null
-  doorMaterial: string | null
+  /** Door-pricing-v2 trio: cascading picks. doorTypeId selects the door
+   *  type (labor + hardware live there); doorMaterialId selects a
+   *  material scoped to that type (cost_value + unit); doorFinishId
+   *  selects a finish scoped to that material (per-door labor + per-door
+   *  $). Picking a parent slot clears the children. */
+  doorTypeId: string | null
+  doorMaterialId: string | null
+  doorFinishId: string | null
   interiorFinish: string | null
-  exteriorFinish: string | null
   endPanels: number
   fillers: number
+  /** Drawer count and style. Base-only product slots; Upper / Full leave
+   *  drawerCount=0 + drawerStyle=null and the composer hides the section. */
+  drawerCount: number
+  drawerStyle: string | null
   notes: string
 }
 
@@ -170,12 +200,14 @@ export function emptySlots(): ComposerSlots {
   return {
     carcassMaterial: null,
     backPanelMaterial: null,
-    doorStyle: null,
-    doorMaterial: null,
+    doorTypeId: null,
+    doorMaterialId: null,
+    doorFinishId: null,
     interiorFinish: null,
-    exteriorFinish: null,
     endPanels: 0,
     fillers: 0,
+    drawerCount: 0,
+    drawerStyle: null,
     notes: '',
   }
 }
@@ -195,8 +227,8 @@ export function productLabelFromKey(key: ProductKey): string {
 
 /** Count the finish-spec slots set on a composer line:
  *    +1 if carcassMaterial is set
- *    +1 if doorMaterial is set
- *    +1 if exteriorFinish is set AND not the Prefinished sentinel id
+ *    +1 if doorMaterialId is set
+ *    +1 if doorFinishId is set
  *  Freeform / rate-book lines (no slots) return 0. Used by surfaces
  *  that previously read line.finish_specs.length (legacy field). */
 export function countFinishSpecsFromSlots(
@@ -205,11 +237,35 @@ export function countFinishSpecsFromSlots(
   if (!slots) return 0
   let count = 0
   if (slots.carcassMaterial) count++
-  if (slots.doorMaterial) count++
-  if (slots.exteriorFinish && slots.exteriorFinish !== PREFINISHED_FINISH_ID) {
-    count++
-  }
+  if (slots.doorMaterialId) count++
+  if (slots.doorFinishId) count++
   return count
+}
+
+/** Convert a door-type material's cost_unit into "cost per door."
+ *  - 'sheet': cost is per-sheet; sheets-per-door = sheetsPerLfFace ÷ doorsPerLf.
+ *  - 'ea' / 'lump': cost is already-per-door (or per-line lump treated as
+ *    per-door for V1 — operator does the math when entering the cost).
+ *  - 'lf' / 'bf': operator entered the cost as already-per-door's-worth
+ *    (V1 simplification — no auto conversion). Surfaced on the breakdown
+ *    detail so the operator can sanity-check.
+ */
+export function materialCostPerDoor(
+  cost_unit: string | undefined,
+  prod: Product,
+): number {
+  switch (cost_unit) {
+    case 'sheet': {
+      const dpl = Math.max(prod.doorsPerLf, 1e-9)
+      return prod.sheetsPerLfFace / dpl
+    }
+    case 'ea':
+    case 'lump':
+    case 'lf':
+    case 'bf':
+    default:
+      return 1
+  }
 }
 
 // ── Breakdown output ──
@@ -227,6 +283,31 @@ export interface ComposerBreakdown {
   doorLaborWarn: boolean
   doorMaterial: number
   doorMaterialDetail: string | null
+  /** Door type hardware × door count. Per door pricing v2 — dt.hardware_cost
+   *  applied at doorsPerLine. */
+  doorHardware: number
+  /** Per-door numerics for the breakdown panel's ($X/door) annotations.
+   *  All zero when the underlying slot isn't picked. avgPerDoor sums
+   *  labor + material + finish + hardware so the breakdown can render a
+   *  single roll-up at the bottom of the door section. */
+  doorsPerLine: number
+  doorLaborPerDoor: number
+  doorMaterialPerDoor: number
+  doorFinishLaborPerDoor: number
+  doorFinishMaterialPerDoor: number
+  doorHardwarePerDoor: number
+  avgPerDoor: number
+
+  /** Drawer-slot rollup. drawerLaborWarn fires when drawerCount>0 but the
+   *  drawer style isn't calibrated; the breakdown panel shows a hint and
+   *  drawer labor contributes 0 until the operator calibrates. drawerHardware
+   *  is per-drawer hardware $ × count (slides + pulls). */
+  drawerLabor: number
+  drawerLaborWarn: boolean
+  drawerLaborDetail: string | null
+  drawerMaterial: number
+  drawerMaterialDetail: string | null
+  drawerHardware: number
 
   interiorFinishLabor: number
   interiorFinishMaterial: number
@@ -266,17 +347,12 @@ export interface ComposerBreakdown {
   }
 }
 
-// ── Hardcoded V1 constants per spec ──
-// Filler/scribes is a flat per-unit approximation. End panels roll up
-// from the line's door style + door material + exterior finish (see
-// computeBreakdown below). Both lifted into the rate book in a
-// follow-up if real shops push back.
+// ── Hardcoded V1 constants ──
+// Filler/scribes is a flat per-unit approximation. End panels under door
+// pricing v2 = one full-door rollup per panel (labor + material + finish
+// labor + finish material + hardware) — the legacy 2-LF formula is gone.
 const FILLER_LABOR_HR = 0.5         // applied at assembly-dept rate
 const FILLER_MATERIAL = 18          // dollars per each
-// End-panel geometry — panel is 2 LF of the cabinet height, 24" deep.
-// Operator gets a "Assumes 24" deep. Price multiple panels if oversized."
-// helper next to the count input in the composer.
-const END_PANEL_LF_PER_PANEL = 2
 
 // ── The compute ──
 
@@ -307,10 +383,18 @@ export function computeBreakdown(
 
   const cm = rb.carcassMaterials.find((m) => m.id === s.carcassMaterial) || null
   const bm = rb.backPanelMaterials.find((m) => m.id === s.backPanelMaterial) || null
-  const em = rb.extMaterials.find((m) => m.id === s.doorMaterial) || null
-  const ds = rb.doorStyles.find((d) => d.id === s.doorStyle) || null
+  // Door pricing v2: cascading lookups against the new tables. The
+  // doorMaterials/doorFinishes flat arrays let us resolve by id without
+  // walking the by-parent maps (those drive dropdowns, not lookups).
+  const dt = rb.doorTypes.find((t) => t.id === s.doorTypeId) || null
+  const dm = s.doorMaterialId
+    ? rb.doorTypeMaterials.find((m) => m.id === s.doorMaterialId) || null
+    : null
+  const df = s.doorFinishId
+    ? rb.doorTypeMaterialFinishes.find((f) => f.id === s.doorFinishId) || null
+    : null
+  const drs = rb.drawerStyles.find((d) => d.id === s.drawerStyle) || null
   const ifn = rb.finishes.find((f) => f.id === s.interiorFinish) || null
-  const efn = rb.finishes.find((f) => f.id === s.exteriorFinish) || null
 
   // Carcass sheets/LF comes from the product's dedicated carcass constant
   // (3/4" ply yield, much higher than face yield because every cab eats
@@ -331,32 +415,94 @@ export function computeBreakdown(
     ? `${backPanelSheets.toFixed(2)} sht × $${bm.sheet_cost}`
     : null
 
-  // Door labor — per-door × doorsPerLf × product multiplier → per-LF.
-  // Sum the 4 dept hours first, price at the blended shop rate.
-  // Uncalibrated door (all zero) → zero labor + warn flag.
-  let doorHoursByDept = { eng: 0, cnc: 0, assembly: 0, finish: 0 }
-  let doorLaborPerLf = 0
-  if (ds && ds.calibrated) {
-    const perLfMult = prod.doorsPerLf * prod.doorLaborMultiplier
-    doorHoursByDept = {
-      eng: qty * ds.labor.eng * perLfMult,
-      cnc: qty * ds.labor.cnc * perLfMult,
-      assembly: qty * ds.labor.assembly * perLfMult,
-      finish: qty * ds.labor.finish * perLfMult,
-    }
-    const doorHoursSumPerLf =
-      (ds.labor.eng + ds.labor.cnc + ds.labor.assembly + ds.labor.finish) * perLfMult
-    doorLaborPerLf = doorHoursSumPerLf * rate
-  }
-  const doorLabor = qty * doorLaborPerLf
-  const doorLaborWarn = !!s.doorStyle && ds !== null && !ds.calibrated
+  // Doors per line — the count of doors this run carries. Materials and
+  // labor scale by this count under the v2 model. The product's doorLabor
+  // multiplier is intentionally NOT applied: operators who want a heavier
+  // labor budget for Upper / Full doors create a separate door type.
+  const doorsPerLine = qty * prod.doorsPerLf
 
-  // Door/drawer face material — sheetsPerLfFace is product, not template.
-  const faceSheets = qty * prod.sheetsPerLfFace
-  const doorMaterial = em ? faceSheets * em.sheet_cost : 0
-  const doorMaterialDetail = em
-    ? `${faceSheets.toFixed(2)} sht × $${em.sheet_cost}`
+  // Door type labor — sum per-door dept hours × door count.
+  let doorHoursByDept = { eng: 0, cnc: 0, assembly: 0, finish: 0 }
+  let doorLabor = 0
+  if (dt && dt.calibrated) {
+    doorHoursByDept = {
+      eng: doorsPerLine * dt.labor_hours_eng,
+      cnc: doorsPerLine * dt.labor_hours_cnc,
+      assembly: doorsPerLine * dt.labor_hours_assembly,
+      finish: doorsPerLine * dt.labor_hours_finish,
+    }
+    const totalHours =
+      doorHoursByDept.eng +
+      doorHoursByDept.cnc +
+      doorHoursByDept.assembly +
+      doorHoursByDept.finish
+    doorLabor = totalHours * rate
+  }
+  const doorLaborPerLf = doorsPerLine > 0 ? doorLabor / Math.max(qty, 1e-9) : 0
+  const doorLaborWarn = !!s.doorTypeId && dt !== null && !dt.calibrated
+
+  // Door material — cost_value × per-door conversion × door count.
+  const matPerDoor = dm ? materialCostPerDoor(dm.cost_unit, prod) : 0
+  const doorMaterial = dm ? doorsPerLine * dm.cost_value * matPerDoor : 0
+  const doorMaterialDetail = dm
+    ? `${doorsPerLine.toFixed(2)} doors × $${dm.cost_value}/${dm.cost_unit}` +
+      (dm.cost_unit === 'sheet' ? ` (${matPerDoor.toFixed(3)} sht/door)` : '')
     : null
+
+  // Door hardware — per-type × door count. 0 for door types without
+  // hardware on file.
+  const doorHardware = dt ? doorsPerLine * (dt.hardware_cost || 0) : 0
+
+  // Per-door rolls for the breakdown panel's ($X/door) annotations.
+  // safeDoors guards the divides — when doorsPerLine rounds to 0 (qty 0
+  // or a product with doorsPerLf=0), every per-door reads 0.
+  const safeDoors = doorsPerLine > 0 ? doorsPerLine : 0
+  const doorLaborPerDoor = safeDoors > 0 ? doorLabor / safeDoors : 0
+  const doorMaterialPerDoor = safeDoors > 0 ? doorMaterial / safeDoors : 0
+  const doorHardwarePerDoor = dt ? dt.hardware_cost || 0 : 0
+
+  // Drawers — Base only. drawerCount × per-drawer hours by dept.
+  // Drawer fronts pull from the doorMaterial slot (faces are the same
+  // stock); sheetsPerDrawerFront is a small constant per product (0 on
+  // products that don't carry drawers, so the math zeroes itself).
+  const drawerCount = Math.max(0, Math.round(s.drawerCount || 0))
+  let drawerHoursByDept = { eng: 0, cnc: 0, assembly: 0, finish: 0 }
+  let drawerLabor = 0
+  let drawerLaborDetail: string | null = null
+  if (drawerCount > 0 && drs && drs.calibrated) {
+    drawerHoursByDept = {
+      eng: drawerCount * drs.labor.eng,
+      cnc: drawerCount * drs.labor.cnc,
+      assembly: drawerCount * drs.labor.assembly,
+      finish: drawerCount * drs.labor.finish,
+    }
+    const totalHours =
+      drawerHoursByDept.eng + drawerHoursByDept.cnc +
+      drawerHoursByDept.assembly + drawerHoursByDept.finish
+    drawerLabor = totalHours * rate
+    drawerLaborDetail = `${drawerCount} × ${drs.name}`
+  } else if (drawerCount > 0 && drs) {
+    drawerLaborDetail = `${drawerCount} × ${drs.name} (uncalibrated)`
+  } else if (drawerCount > 0) {
+    drawerLaborDetail = `${drawerCount} drawer${drawerCount === 1 ? '' : 's'} — pick a style to price`
+  }
+  const drawerLaborWarn = drawerCount > 0 && (!drs || !drs.calibrated)
+
+  // Drawer fronts share the door material slot under v2. We only know how
+  // to convert sheet-unit costs into a per-front cost (sheetsPerDrawerFront
+  // is already a per-drawer ratio); other units leave drawer material at 0
+  // until the operator switches to a sheet-unit material or we add explicit
+  // per-front conversions.
+  const drawerSheets = drawerCount * prod.sheetsPerDrawerFront
+  const drawerMaterial =
+    drawerCount > 0 && dm && dm.cost_unit === 'sheet'
+      ? drawerSheets * dm.cost_value
+      : 0
+  const drawerMaterialDetail =
+    drawerCount > 0 && dm && dm.cost_unit === 'sheet'
+      ? `${drawerSheets.toFixed(2)} sht × $${dm.cost_value}`
+      : null
+  const drawerHardware = drawerCount > 0 && drs ? drawerCount * (drs.hardwareCost || 0) : 0
 
   // Finishes — per-LF labor hours + per-LF material, per product
   // category. Prefinished or missing byProduct row → zero, no error.
@@ -390,78 +536,84 @@ export function computeBreakdown(
 
   const interiorFinishLabor = finishLabor(ifn)
   const interiorFinishMaterial = finishMaterial(ifn)
-  const exteriorFinishLabor = finishLabor(efn)
-  const exteriorFinishMaterial = finishMaterial(efn)
-  const finishHoursTotal = finishLaborHours(ifn) + finishLaborHours(efn)
+  // Door pricing v2: the "exterior finish" slot is now a door-material-
+  // scoped finish row (door_type_material_finishes). Per-door labor +
+  // per-door material costs come from there directly — no per-product
+  // calibration row.
+  const doorFinishLabor = df ? doorsPerLine * df.labor_hours_per_door * rate : 0
+  const doorFinishMaterial = df ? doorsPerLine * df.material_per_door : 0
+  const doorFinishHours = df ? doorsPerLine * df.labor_hours_per_door : 0
+  const doorFinishDetail = df
+    ? `${doorsPerLine.toFixed(2)} doors × ${df.labor_hours_per_door}h/door + $${df.material_per_door}/door`
+    : null
+  const doorFinishLaborPerDoor = df ? df.labor_hours_per_door * rate : 0
+  const doorFinishMaterialPerDoor = df ? df.material_per_door : 0
+  const avgPerDoor =
+    doorLaborPerDoor +
+    doorMaterialPerDoor +
+    doorFinishLaborPerDoor +
+    doorFinishMaterialPerDoor +
+    doorHardwarePerDoor
+  const finishHoursTotal = finishLaborHours(ifn) + doorFinishHours
 
-  // End panels — roll up from door style + door material + exterior
-  // finish for this product category. A panel = 2 LF of the cabinet
-  // height at 24" deep (the operator hint in the composer notes
-  // oversized panels should bump the count).
-  //   labor/panel    = 2 × (doorStyleLaborPerLf + exteriorFinishLaborPerLf)
-  //   material/panel = 2 × (doorMaterialSheetCost × sheetsPerLfFace
-  //                         + exteriorFinishMaterialPerLf)
-  // Any missing slot contributes zero — a bare sheet unfinished panel
-  // is a valid state (interior-only use case) and shouldn't crash.
-  const endPanelDoorHoursPerLf =
-    ds && ds.calibrated
-      ? (ds.labor.eng + ds.labor.cnc + ds.labor.assembly + ds.labor.finish) *
-        prod.doorsPerLf *
-        prod.doorLaborMultiplier
-      : 0
-  const endPanelFinishHoursPerLf = (() => {
-    if (!efn || efn.isPrefinished) return 0
-    const row = efn.byProduct[draft.productId as 'base' | 'upper' | 'full']
-    return row ? row.laborHr : 0
-  })()
-  const endPanelFinishMatPerLf = (() => {
-    if (!efn || efn.isPrefinished) return 0
-    const row = efn.byProduct[draft.productId as 'base' | 'upper' | 'full']
-    return row ? row.material : 0
-  })()
-  const endPanelLaborHoursPerPanel =
-    END_PANEL_LF_PER_PANEL * (endPanelDoorHoursPerLf + endPanelFinishHoursPerLf)
-  const endPanelMaterialPerPanel =
-    END_PANEL_LF_PER_PANEL *
-    ((em ? em.sheet_cost * prod.sheetsPerLfFace : 0) + endPanelFinishMatPerLf)
+  // End panels — under door pricing v2 each panel rolls up as one full
+  // door equivalent. perPanelTotal sums door-type labor + door material +
+  // door-finish labor + door-finish material + hardware per door. Hours
+  // are dept-distributed via dt.labor_hours_* / df.labor_hours_per_door.
+  const dtLaborHrsPerDoor = dt
+    ? dt.labor_hours_eng +
+      dt.labor_hours_cnc +
+      dt.labor_hours_assembly +
+      dt.labor_hours_finish
+    : 0
+  const perPanelLabor =
+    (dtLaborHrsPerDoor + (df?.labor_hours_per_door || 0)) * rate
+  const perPanelMaterial =
+    (dm ? dm.cost_value * matPerDoor : 0) +
+    (df?.material_per_door || 0) +
+    (dt?.hardware_cost || 0)
   const endPanelsCount = s.endPanels || 0
-  const endPanelsLabor = endPanelsCount * endPanelLaborHoursPerPanel * rate
-  const endPanelsMaterial = endPanelsCount * endPanelMaterialPerPanel
+  const endPanelsLabor = endPanelsCount * perPanelLabor
+  const endPanelsMaterial = endPanelsCount * perPanelMaterial
 
   // Fillers — flat per-each, still priced at the blended rate.
   const fillersLabor = (s.fillers || 0) * FILLER_LABOR_HR * rate
   const fillersMaterial = (s.fillers || 0) * FILLER_MATERIAL
 
   // Aggregate dept hours for the saved-line round-trip. End-panel hours
-  // fold into the same depts the line's door style + exterior finish
-  // already occupy (door hours spread across 4 depts, finish hours to
-  // Finish). Filler hours land on Assembly.
-  const doorShareEng  = endPanelDoorHoursPerLf > 0 ? ds!.labor.eng      * prod.doorsPerLf * prod.doorLaborMultiplier : 0
-  const doorShareCnc  = endPanelDoorHoursPerLf > 0 ? ds!.labor.cnc      * prod.doorsPerLf * prod.doorLaborMultiplier : 0
-  const doorShareAsm  = endPanelDoorHoursPerLf > 0 ? ds!.labor.assembly * prod.doorsPerLf * prod.doorLaborMultiplier : 0
-  const doorShareFin  = endPanelDoorHoursPerLf > 0 ? ds!.labor.finish   * prod.doorsPerLf * prod.doorLaborMultiplier : 0
-  const endPanelLfTotal = endPanelsCount * END_PANEL_LF_PER_PANEL
+  // fold in as one full-door equivalent per panel: door-type hours per
+  // dept × endPanels, plus the door-finish per-door hours into Finish.
+  // Drawer + filler hours land on the same depts they always have.
+  const endPanelDoorEng = dt && dt.calibrated ? dt.labor_hours_eng * endPanelsCount : 0
+  const endPanelDoorCnc = dt && dt.calibrated ? dt.labor_hours_cnc * endPanelsCount : 0
+  const endPanelDoorAsm = dt && dt.calibrated ? dt.labor_hours_assembly * endPanelsCount : 0
+  const endPanelDoorFin = dt && dt.calibrated ? dt.labor_hours_finish * endPanelsCount : 0
+  const endPanelFinishHoursTotal = df ? df.labor_hours_per_door * endPanelsCount : 0
+
   const hoursByDept = {
-    eng: carcassHoursByDept.eng + doorHoursByDept.eng + endPanelLfTotal * doorShareEng,
-    cnc: carcassHoursByDept.cnc + doorHoursByDept.cnc + endPanelLfTotal * doorShareCnc,
+    eng: carcassHoursByDept.eng + doorHoursByDept.eng + drawerHoursByDept.eng + endPanelDoorEng,
+    cnc: carcassHoursByDept.cnc + doorHoursByDept.cnc + drawerHoursByDept.cnc + endPanelDoorCnc,
     assembly:
       carcassHoursByDept.assembly +
       doorHoursByDept.assembly +
-      endPanelLfTotal * doorShareAsm +
+      drawerHoursByDept.assembly +
+      endPanelDoorAsm +
       (s.fillers || 0) * FILLER_LABOR_HR,
     finish:
       carcassHoursByDept.finish +
       doorHoursByDept.finish +
+      drawerHoursByDept.finish +
       finishHoursTotal +
-      endPanelLfTotal * doorShareFin +
-      endPanelLfTotal * endPanelFinishHoursPerLf,
+      endPanelDoorFin +
+      endPanelFinishHoursTotal,
   }
 
   const totalLabor =
     carcassLabor +
     doorLabor +
+    drawerLabor +
     interiorFinishLabor +
-    exteriorFinishLabor +
+    doorFinishLabor +
     endPanelsLabor +
     fillersLabor
 
@@ -469,8 +621,11 @@ export function computeBreakdown(
     carcassMaterial +
     backPanelMaterial +
     doorMaterial +
+    doorHardware +
+    drawerMaterial +
+    drawerHardware +
     interiorFinishMaterial +
-    exteriorFinishMaterial +
+    doorFinishMaterial +
     endPanelsMaterial +
     fillersMaterial
 
@@ -493,13 +648,31 @@ export function computeBreakdown(
     doorLaborWarn,
     doorMaterial,
     doorMaterialDetail,
+    doorHardware,
+    doorsPerLine,
+    doorLaborPerDoor,
+    doorMaterialPerDoor,
+    doorFinishLaborPerDoor,
+    doorFinishMaterialPerDoor,
+    doorHardwarePerDoor,
+    avgPerDoor,
+
+    drawerLabor,
+    drawerLaborWarn,
+    drawerLaborDetail,
+    drawerMaterial,
+    drawerMaterialDetail,
+    drawerHardware,
 
     interiorFinishLabor,
     interiorFinishMaterial,
     interiorFinishDetail: finishDetail(ifn),
-    exteriorFinishLabor,
-    exteriorFinishMaterial,
-    exteriorFinishDetail: finishDetail(efn),
+    // The breakdown shape keeps the legacy "exterior finish" key names
+    // so the AddLineComposer Row labels don't churn — under door v2 these
+    // values come from the door-material-scoped finish (df).
+    exteriorFinishLabor: doorFinishLabor,
+    exteriorFinishMaterial: doorFinishMaterial,
+    exteriorFinishDetail: doorFinishDetail,
 
     endPanelsLabor,
     endPanelsMaterial,
@@ -551,31 +724,21 @@ export function checkSaveGate(
   if (!draft.slots.carcassMaterial) {
     return { ok: false, reason: 'Pick a carcass material.' }
   }
-  if (!draft.slots.doorStyle) {
-    return { ok: false, reason: 'Pick a door style.' }
+  if (!draft.slots.doorTypeId) {
+    return { ok: false, reason: 'Pick a door type.' }
   }
-  const ds = rb.doorStyles.find((d) => d.id === draft.slots.doorStyle)
-  if (ds && !ds.calibrated) {
+  const dt = rb.doorTypes.find((t) => t.id === draft.slots.doorTypeId)
+  if (dt && !dt.calibrated) {
     return {
       ok: false,
-      reason: `Door style "${ds.name}" isn't calibrated yet — walkthrough coming in the next item.`,
+      reason: `Door type "${dt.name}" isn't calibrated yet — open the door-type walkthrough.`,
     }
   }
-  if (!draft.slots.doorMaterial) {
-    return { ok: false, reason: 'Pick a door/drawer material.' }
+  if (!draft.slots.doorMaterialId) {
+    return { ok: false, reason: 'Pick a door material.' }
   }
-  if (!draft.slots.exteriorFinish) {
-    return { ok: false, reason: 'Pick an exterior finish.' }
-  }
-  const efn = rb.finishes.find((f) => f.id === draft.slots.exteriorFinish)
-  if (efn && !efn.isPrefinished) {
-    const row = efn.byProduct[draft.productId as 'base' | 'upper' | 'full']
-    if (!row) {
-      return {
-        ok: false,
-        reason: `Exterior finish "${efn.name}" isn't calibrated for ${draft.productId} cabinets — walkthrough coming.`,
-      }
-    }
+  if (!draft.slots.doorFinishId) {
+    return { ok: false, reason: 'Pick a door finish.' }
   }
   if (!draft.slots.interiorFinish) {
     return { ok: false, reason: 'Pick an interior finish.' }
@@ -594,12 +757,19 @@ export function summarizeSlots(
   if (cm) bits.push(cm.name)
   const bm = rb.backPanelMaterials.find((m) => m.id === draft.slots.backPanelMaterial)
   if (bm) bits.push(`${bm.name} back`)
-  const ds = rb.doorStyles.find((d) => d.id === draft.slots.doorStyle)
-  if (ds) bits.push(`${ds.name} door`)
-  const em = rb.extMaterials.find((m) => m.id === draft.slots.doorMaterial)
-  if (em) bits.push(em.name)
-  const efn = rb.finishes.find((f) => f.id === draft.slots.exteriorFinish)
-  if (efn && !efn.isPrefinished) bits.push(efn.name)
+  const dt = rb.doorTypes.find((t) => t.id === draft.slots.doorTypeId)
+  if (dt) bits.push(`${dt.name} door`)
+  const dm = rb.doorTypeMaterials.find((m) => m.id === draft.slots.doorMaterialId)
+  if (dm) bits.push(dm.material_name)
+  const df = rb.doorTypeMaterialFinishes.find((f) => f.id === draft.slots.doorFinishId)
+  if (df) bits.push(df.finish_name)
+  if (draft.slots.drawerCount > 0) {
+    const drs = rb.drawerStyles.find((d) => d.id === draft.slots.drawerStyle)
+    const drawerLabel = drs ? `${drs.name} drawer` : 'drawer'
+    bits.push(
+      `${draft.slots.drawerCount} ${drawerLabel}${draft.slots.drawerCount === 1 ? '' : 's'}`,
+    )
+  }
   if (draft.slots.endPanels > 0) {
     bits.push(
       `${draft.slots.endPanels} end panel${draft.slots.endPanels === 1 ? '' : 's'}`
