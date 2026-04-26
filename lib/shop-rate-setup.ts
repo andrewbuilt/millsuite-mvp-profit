@@ -35,6 +35,19 @@ export interface TeamMember {
    *  billable_hours_year's people multiplier. Non-billable still counts
    *  toward total payroll cost (the numerator). */
   billable: boolean
+  /** Department assignments — array of departments.id (UUID). Single
+   *  source of truth for schedule capacity per dept: capacity =
+   *  count(team_members where billable AND dept_assignments includes
+   *  dept.id) × hours_per_day × 5. Replaces the legacy split where
+   *  /team wrote department_members rows + the schedule read those
+   *  rows for capacity. The walkthrough doesn't populate this — defaults
+   *  to []. */
+  dept_assignments: string[]
+  /** Optional FK to users.id, kept for time-tracking surfaces that
+   *  reference users (clock-in, time_entries.user_id). Set when /team
+   *  needs to materialize a scheduling identity for this person. NULL
+   *  for payroll-only members. */
+  user_id?: string | null
 }
 
 export interface BillableHoursInputs {
@@ -78,7 +91,7 @@ export function makeTeamMember(
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `tm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  return { id, name, annual_comp, billable }
+  return { id, name, annual_comp, billable, dept_assignments: [] }
 }
 
 /** Floor of 1 so an empty-team state doesn't divide by zero in the
@@ -154,11 +167,18 @@ export async function loadShopRateSetup(orgId: string): Promise<ShopRateSetup> {
   }
   // Backfill billable=true on any member that predates the flag.
   // Only an explicit `false` persists a non-billable state.
+  // Backfill dept_assignments=[] on any member that predates the
+  // jsonb dept-assignment migration; the schedule treats missing as
+  // "not assigned to any dept" (zero contribution to capacity).
   const team: TeamMember[] = (row.team_members ?? []).map((m) => ({
     id: String(m.id ?? makeTeamMember().id),
     name: String(m.name ?? ''),
     annual_comp: Number(m.annual_comp) || 0,
     billable: m.billable === false ? false : true,
+    dept_assignments: Array.isArray((m as { dept_assignments?: unknown }).dept_assignments)
+      ? ((m as { dept_assignments: unknown[] }).dept_assignments).map(String)
+      : [],
+    user_id: m.user_id ? String(m.user_id) : null,
   }))
   return {
     shopRate: Number(row.shop_rate) || 0,
