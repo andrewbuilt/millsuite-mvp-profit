@@ -39,6 +39,13 @@ export interface DoorTypeMaterial {
   cost_unit: DoorMaterialCostUnit
   notes: string | null
   active: boolean
+  /** When non-null, this material's cost_value is derived from a
+   *  solid_wood_components row. cost_unit is forced to 'ea' on
+   *  solid-wood-derived materials. */
+  solid_wood_component_id: string | null
+  /** Board feet of solid wood per door. Persisted alongside the link so
+   *  the modal can re-pop the calculator when re-opened. */
+  bdft_per_unit: number | null
 }
 
 export interface DoorTypeMaterialFinish {
@@ -74,10 +81,31 @@ export async function listDoorTypes(orgId: string): Promise<DoorType[]> {
   }))
 }
 
+const DOOR_MATERIAL_COLUMNS =
+  'id, org_id, door_type_id, material_name, cost_value, cost_unit, notes, active, solid_wood_component_id, bdft_per_unit'
+
+function normalizeDoorMaterial(r: any): DoorTypeMaterial {
+  return {
+    id: r.id,
+    org_id: r.org_id,
+    door_type_id: r.door_type_id,
+    material_name: r.material_name,
+    cost_value: Number(r.cost_value) || 0,
+    cost_unit: r.cost_unit as DoorMaterialCostUnit,
+    notes: r.notes ?? null,
+    active: !!r.active,
+    solid_wood_component_id: r.solid_wood_component_id ?? null,
+    bdft_per_unit:
+      r.bdft_per_unit === null || r.bdft_per_unit === undefined
+        ? null
+        : Number(r.bdft_per_unit),
+  }
+}
+
 export async function listDoorTypeMaterials(orgId: string): Promise<DoorTypeMaterial[]> {
   const { data, error } = await supabase
     .from('door_type_materials')
-    .select('id, org_id, door_type_id, material_name, cost_value, cost_unit, notes, active')
+    .select(DOOR_MATERIAL_COLUMNS)
     .eq('org_id', orgId)
     .eq('active', true)
     .order('material_name')
@@ -85,10 +113,22 @@ export async function listDoorTypeMaterials(orgId: string): Promise<DoorTypeMate
     console.error('listDoorTypeMaterials', error)
     return []
   }
-  return ((data || []) as DoorTypeMaterial[]).map((r) => ({
-    ...r,
-    cost_value: Number(r.cost_value) || 0,
-  }))
+  return (data || []).map(normalizeDoorMaterial)
+}
+
+export async function listDoorTypeMaterialsForSolidWood(
+  componentId: string,
+): Promise<DoorTypeMaterial[]> {
+  const { data, error } = await supabase
+    .from('door_type_materials')
+    .select(DOOR_MATERIAL_COLUMNS)
+    .eq('solid_wood_component_id', componentId)
+    .eq('active', true)
+  if (error) {
+    console.error('listDoorTypeMaterialsForSolidWood', error)
+    return []
+  }
+  return (data || []).map(normalizeDoorMaterial)
 }
 
 export async function listDoorTypeMaterialFinishes(
@@ -120,6 +160,8 @@ export async function createDoorTypeMaterial(input: {
   cost_value: number
   cost_unit: DoorMaterialCostUnit
   notes?: string | null
+  solid_wood_component_id?: string | null
+  bdft_per_unit?: number | null
 }): Promise<DoorTypeMaterial | null> {
   const { data, error } = await supabase
     .from('door_type_materials')
@@ -130,17 +172,90 @@ export async function createDoorTypeMaterial(input: {
       cost_value: input.cost_value,
       cost_unit: input.cost_unit,
       notes: input.notes ?? null,
+      solid_wood_component_id: input.solid_wood_component_id ?? null,
+      bdft_per_unit: input.bdft_per_unit ?? null,
       active: true,
     })
-    .select('id, org_id, door_type_id, material_name, cost_value, cost_unit, notes, active')
+    .select(DOOR_MATERIAL_COLUMNS)
     .single()
   if (error) {
     console.error('createDoorTypeMaterial', error)
     throw new Error(error.message || 'Failed to save door material')
   }
-  return data
-    ? { ...(data as DoorTypeMaterial), cost_value: Number(data.cost_value) || 0 }
-    : null
+  return data ? normalizeDoorMaterial(data) : null
+}
+
+export async function updateDoorTypeMaterial(
+  id: string,
+  patch: Partial<
+    Pick<
+      DoorTypeMaterial,
+      | 'material_name'
+      | 'cost_value'
+      | 'cost_unit'
+      | 'notes'
+      | 'solid_wood_component_id'
+      | 'bdft_per_unit'
+    >
+  >,
+): Promise<DoorTypeMaterial | null> {
+  const update: Record<string, unknown> = {}
+  if (patch.material_name !== undefined) update.material_name = patch.material_name
+  if (patch.cost_value !== undefined) update.cost_value = patch.cost_value
+  if (patch.cost_unit !== undefined) update.cost_unit = patch.cost_unit
+  if (patch.notes !== undefined) update.notes = patch.notes
+  if (patch.solid_wood_component_id !== undefined)
+    update.solid_wood_component_id = patch.solid_wood_component_id
+  if (patch.bdft_per_unit !== undefined) update.bdft_per_unit = patch.bdft_per_unit
+  if (Object.keys(update).length === 0) return null
+  const { data, error } = await supabase
+    .from('door_type_materials')
+    .update(update)
+    .eq('id', id)
+    .select(DOOR_MATERIAL_COLUMNS)
+    .single()
+  if (error) {
+    console.error('updateDoorTypeMaterial', error)
+    throw new Error(error.message || 'Failed to update door material')
+  }
+  return data ? normalizeDoorMaterial(data) : null
+}
+
+/** Recompute cost_value for every door_type_materials row that points at
+ *  the given solid wood component. Reads the wood row once, then walks
+ *  each material and applies bdft_per_unit × cost_per_bdft × (1 + waste).
+ *  Materials with bdft_per_unit IS NULL are skipped (shouldn't happen on
+ *  a solid-wood-derived row, but defensive).
+ *
+ *  Returns the count of rows touched. Caller surfaces the number to the
+ *  operator so they can verify the recalc affected what they expected. */
+export async function recalculateMaterialsForSolidWood(
+  componentId: string,
+): Promise<number> {
+  const { data: wood, error: woodErr } = await supabase
+    .from('solid_wood_components')
+    .select('cost_per_bdft, waste_pct')
+    .eq('id', componentId)
+    .single()
+  if (woodErr || !wood) {
+    throw new Error(woodErr?.message || 'Solid wood component not found')
+  }
+  const cost = Number(wood.cost_per_bdft) || 0
+  const waste = Number(wood.waste_pct) || 0
+
+  const materials = await listDoorTypeMaterialsForSolidWood(componentId)
+  let touched = 0
+  for (const m of materials) {
+    if (m.bdft_per_unit == null) continue
+    const next = m.bdft_per_unit * cost * (1 + waste / 100)
+    const { error } = await supabase
+      .from('door_type_materials')
+      .update({ cost_value: next })
+      .eq('id', m.id)
+    if (!error) touched++
+    else console.error('recalculateMaterialsForSolidWood update', m.id, error)
+  }
+  return touched
 }
 
 export async function createDoorTypeMaterialFinish(input: {
