@@ -53,6 +53,7 @@ import {
   recalculateMaterialsForSolidWood,
 } from '@/lib/door-types'
 import SolidWoodWalkthrough from '@/components/walkthroughs/SolidWoodWalkthrough'
+import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 import { useConfirm } from '@/components/confirm-dialog'
 
 // Upper / Full are multipliers on Base cabinet, not standalone rate
@@ -134,6 +135,12 @@ export default function RateBookPage() {
   const [selectedSolidWoodId, setSelectedSolidWoodId] = useState<string | null>(null)
   // Walkthrough overlay: 'new' for create, an id string for edit, null closed.
   const [solidWoodWt, setSolidWoodWt] = useState<'new' | string | null>(null)
+
+  // Finish walkthrough overlay — only mounted when the empty-state card
+  // for application='interior' kicks the operator into calibration. Other
+  // entry points (composer Interior/Exterior dropdowns) own their own
+  // FinishWalkthrough mount.
+  const [finishWtApp, setFinishWtApp] = useState<'interior' | 'exterior' | null>(null)
 
   useEffect(() => {
     if (!orgId) return
@@ -396,6 +403,28 @@ export default function RateBookPage() {
                           </button>
                         )
                       })}
+                    {open &&
+                      cat.item_type === 'finish' &&
+                      !its.some((it) => (it as any).application === 'interior') && (
+                        <div className="mx-1 my-2 p-3 rounded-lg bg-[#FFFBEB] border border-[#FDE68A]">
+                          <div className="text-[12px] font-semibold text-[#92400E] mb-1">
+                            Interior finishes — none calibrated yet
+                          </div>
+                          <p className="text-[11.5px] text-[#78350F] leading-snug">
+                            Most shops finish cabinet interiors with prefinished
+                            sheet stock (no labor) but if you spray your interiors,
+                            calibrate the finish to price interior finish labor +
+                            material per LF.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setFinishWtApp('interior')}
+                            className="mt-2 inline-flex items-center gap-1 text-[11.5px] font-medium text-[#92400E] hover:text-[#78350F]"
+                          >
+                            Calibrate interior finish →
+                          </button>
+                        </div>
+                      )}
                   </div>
                 )
               })
@@ -698,6 +727,20 @@ export default function RateBookPage() {
             await refreshAll(orgId)
             setSelectedSolidWoodId(id)
             setSelectedId(null)
+          }}
+        />
+      )}
+
+      {/* Finish walkthrough — opened by the interior empty-state card so
+          the operator can calibrate without leaving the rate book. */}
+      {finishWtApp && orgId && (
+        <FinishWalkthrough
+          orgId={orgId}
+          application={finishWtApp}
+          onCancel={() => setFinishWtApp(null)}
+          onComplete={async () => {
+            setFinishWtApp(null)
+            await refreshAll(orgId)
           }}
         />
       )}
