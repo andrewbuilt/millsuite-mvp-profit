@@ -91,7 +91,22 @@ export function resolveSlotsAgainstRateBook(
   rb: Awaited<ReturnType<typeof loadComposerRateBook>> | null | undefined,
   hints: ParsedSlotHints | null | undefined,
 ): ComposerSlots {
-  if (!rb) return emptySlots()
+  if (!rb) {
+    // Even with no rate book, we should still record the parsed
+    // strings so the composer can offer to calibrate them later.
+    const empty = emptySlots()
+    if (hints) {
+      empty.carcassMaterialUnmatched = nonEmpty(hints.carcass_material)
+      empty.doorTypeUnmatched = nonEmpty(hints.door_style)
+      empty.doorMaterialUnmatched = nonEmpty(hints.door_material)
+      empty.doorFinishUnmatched = nonEmpty(hints.exterior_finish)
+      empty.interiorFinishUnmatched =
+        nonEmpty(hints.interior_finish) === 'prefinished'
+          ? null
+          : nonEmpty(hints.interior_finish)
+    }
+    return empty
+  }
   const h = hints || {}
 
   const carcass = matchByName(rb.carcassMaterials, h.carcass_material)
@@ -123,12 +138,17 @@ export function resolveSlotsAgainstRateBook(
   // the composer treats the line as zero finish labor/cost. Otherwise
   // match against the flat finishes list.
   let interiorFinish: string | null = null
+  let interiorFinishUnmatched: string | null = null
   const interiorHint = h.interior_finish?.trim().toLowerCase()
   if (interiorHint === 'prefinished') {
     interiorFinish = PREFINISHED_FINISH_ID
   } else {
     const f = matchByName(rb.finishes, h.interior_finish)
-    interiorFinish = f?.id ?? null
+    if (f) {
+      interiorFinish = f.id
+    } else if (h.interior_finish && h.interior_finish.trim()) {
+      interiorFinishUnmatched = h.interior_finish.trim()
+    }
   }
 
   const drawerCount = Number.isFinite(h.drawer_count as number)
@@ -141,6 +161,10 @@ export function resolveSlotsAgainstRateBook(
     ? Math.max(0, Math.round(Number(h.filler_count)))
     : 0
 
+  // Persist unmatched strings on the slot so the composer dropdown
+  // can render "FROM DRAWINGS · NOT YET CALIBRATED · {value}
+  // [+ Calibrate]" at the top. Only set when the parsed hint had a
+  // value AND no match was found.
   return {
     carcassMaterial: carcass?.id ?? null,
     backPanelMaterial: backPanel?.id ?? null,
@@ -153,7 +177,19 @@ export function resolveSlotsAgainstRateBook(
     drawerCount,
     drawerStyle: null,
     notes: '',
+    carcassMaterialUnmatched: !carcass ? nonEmpty(h.carcass_material) : null,
+    doorTypeUnmatched: !doorType ? nonEmpty(h.door_style) : null,
+    doorMaterialUnmatched: !doorMaterial ? nonEmpty(h.door_material) : null,
+    doorFinishUnmatched: !doorFinish ? nonEmpty(h.exterior_finish) : null,
+    interiorFinishUnmatched,
+    backPanelMaterialUnmatched: null,
   }
+}
+
+function nonEmpty(s: string | null | undefined): string | null {
+  if (!s) return null
+  const t = s.trim()
+  return t.length > 0 ? t : null
 }
 
 /** Required slots for a given product key. The needs-slots indicator

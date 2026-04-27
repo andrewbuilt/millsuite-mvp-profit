@@ -56,6 +56,7 @@ import {
   type ComposerDraft,
   type ComposerFinish,
   type ComposerRateBook,
+  type ComposerSlots,
 } from '@/lib/composer'
 import { loadComposerRateBook } from '@/lib/composer-loader'
 import {
@@ -221,8 +222,14 @@ export default function AddLineComposer({
   const [saveError, setSaveError] = useState<string | null>(null)
   // Door walkthrough overlay — either { style } for an existing
   // uncalibrated style, or { style: null } for the "+ Add new" path.
+  // defaultName seeds the walkthrough's name input when the operator
+  // is calibrating a parser-extracted string ("FROM DRAWINGS" path).
   const [doorWt, setDoorWt] = useState<
-    | { style: DoorStyleWalkthroughExistingStyle | null }
+    | {
+        style: DoorStyleWalkthroughExistingStyle | null
+        defaultName?: string
+        clearUnmatchedKey?: keyof ComposerSlots
+      }
     | null
   >(null)
   // Drawer walkthrough overlay — same pattern as the door overlay.
@@ -287,11 +294,26 @@ export default function AddLineComposer({
     setDoorWt({ style: null })
   }
 
+  /** Open the door walkthrough seeded with a parser-extracted name
+   *  ("Slab" off the drawings). On save, both selects the new door
+   *  type AND clears doorTypeUnmatched so the FROM DRAWINGS section
+   *  drops out of the dropdown. */
+  function openDoorWalkthroughForDrawingsCalibrate(name: string) {
+    setOpenDropdown(null)
+    setDoorWt({
+      style: null,
+      defaultName: name,
+      clearUnmatchedKey: 'doorTypeUnmatched',
+    })
+  }
+
   async function handleDoorWalkthroughComplete(typeId: string) {
+    const wt = doorWt
     setDoorWt(null)
     await refreshRateBook()
     // Select the calibrated (or newly-created) door type on the draft.
-    // Picking a new type clears the cascading children.
+    // Picking a new type clears the cascading children. Also clear
+    // doorTypeUnmatched if this was a from-drawings calibrate run.
     setDraft((prev) =>
       prev
         ? {
@@ -301,6 +323,9 @@ export default function AddLineComposer({
               doorTypeId: typeId,
               doorMaterialId: null,
               doorFinishId: null,
+              ...(wt?.clearUnmatchedKey
+                ? { [wt.clearUnmatchedKey]: null }
+                : {}),
             },
           }
         : prev,
@@ -649,6 +674,7 @@ export default function AddLineComposer({
                 saveAddNew={saveAddNew}
                 onDoorUncalibratedPick={openDoorWalkthroughForPick}
                 onAddNewDoorStyle={openDoorWalkthroughForNew}
+                onCalibrateDoorTypeFromDrawings={openDoorWalkthroughForDrawingsCalibrate}
                 onAddDoorMaterial={(typeId) => setAddMaterialFor(typeId)}
                 onAddDoorFinish={(matId) => setAddFinishFor(matId)}
                 onDrawerUncalibratedPick={openDrawerWalkthroughForPick}
@@ -665,6 +691,7 @@ export default function AddLineComposer({
         <DoorStyleWalkthrough
           orgId={orgId}
           existingStyle={doorWt.style}
+          defaultName={doorWt.defaultName}
           onCancel={() => setDoorWt(null)}
           onComplete={handleDoorWalkthroughComplete}
         />
@@ -844,6 +871,11 @@ function Composer(p: {
   saveAddNew: () => void
   onDoorUncalibratedPick: (styleId: string) => void
   onAddNewDoorStyle: () => void
+  /** "FROM DRAWINGS · NOT YET CALIBRATED · {name} [+ Calibrate]"
+   *  affordance — opens the door walkthrough seeded with the
+   *  parser-extracted name so the operator just steps through
+   *  the calibration. */
+  onCalibrateDoorTypeFromDrawings: (name: string) => void
   /** Door v2: open the inline "+ Add material" form scoped to the
    *  selected door type. Adds a row to door_type_materials. */
   onAddDoorMaterial: (doorTypeId: string) => void
@@ -903,11 +935,16 @@ function Composer(p: {
                   onToggle={() => p.toggleDropdown('carcassMaterial')}
                   onPick={(id) => {
                     p.setSlot('carcassMaterial', id)
+                    p.setSlot('carcassMaterialUnmatched', null)
                     p.toggleDropdown('carcassMaterial')
                   }}
                   onAddNew={() => p.openAddNew('carcassMaterial', 'carcass')}
                   addNewLabel="+ Add new material"
                   placeholder="Choose…"
+                  unmatchedFromDrawings={draft.slots.carcassMaterialUnmatched ?? null}
+                  onCalibrateUnmatched={() =>
+                    p.openAddNew('carcassMaterial', 'carcass')
+                  }
                 />
               )}
             </Field>
@@ -932,11 +969,16 @@ function Composer(p: {
                   onToggle={() => p.toggleDropdown('backPanelMaterial')}
                   onPick={(id) => {
                     p.setSlot('backPanelMaterial', id)
+                    p.setSlot('backPanelMaterialUnmatched', null)
                     p.toggleDropdown('backPanelMaterial')
                   }}
                   onAddNew={() => p.openAddNew('backPanelMaterial', 'back_panel')}
                   addNewLabel="+ Add new material"
                   placeholder="Choose…"
+                  unmatchedFromDrawings={draft.slots.backPanelMaterialUnmatched ?? null}
+                  onCalibrateUnmatched={() =>
+                    p.openAddNew('backPanelMaterial', 'back_panel')
+                  }
                 />
               )}
             </Field>
@@ -952,11 +994,14 @@ function Composer(p: {
                 onToggle={() => p.toggleDropdown('interiorFinish')}
                 onPick={(id) => {
                   p.setSlot('interiorFinish', id)
+                  p.setSlot('interiorFinishUnmatched', null)
                   p.toggleDropdown('interiorFinish')
                 }}
                 onAddNew={() => p.onOpenFinishWalkthrough('interior')}
                 addNewLabel="+ Calibrate interior finish"
                 placeholder="Choose…"
+                unmatchedFromDrawings={draft.slots.interiorFinishUnmatched ?? null}
+                onCalibrateUnmatched={() => p.onOpenFinishWalkthrough('interior')}
               />
             </Field>
           </section>
@@ -976,18 +1021,27 @@ function Composer(p: {
                 onPick={(id) => {
                   p.toggleDropdown('doorTypeId')
                   const dt = rateBook.doorTypes.find((t) => t.id === id)
-                  // Picking a new door type clears the cascading children.
+                  // Picking a new door type clears the cascading children
+                  // and the FROM DRAWINGS unmatched hint (it's been
+                  // resolved). Uncalibrated picks still open the
+                  // walkthrough; calibrated picks land directly.
                   if (dt && !dt.calibrated) {
                     p.onDoorUncalibratedPick(id)
                   } else {
                     p.setSlot('doorTypeId', id)
                     p.setSlot('doorMaterialId', null)
                     p.setSlot('doorFinishId', null)
+                    p.setSlot('doorTypeUnmatched', null)
                   }
                 }}
                 onAddNew={() => p.onAddNewDoorStyle()}
                 addNewLabel="+ Add new door type"
                 placeholder="Choose…"
+                unmatchedFromDrawings={draft.slots.doorTypeUnmatched ?? null}
+                onCalibrateUnmatched={() => {
+                  const name = draft.slots.doorTypeUnmatched
+                  if (name) p.onCalibrateDoorTypeFromDrawings(name)
+                }}
               />
               {rateBook.doorTypes.length === 0 && (
                 <button
@@ -1027,10 +1081,13 @@ function Composer(p: {
                       p.setSlot('doorMaterialId', id)
                       // Picking a different material clears the finish.
                       p.setSlot('doorFinishId', null)
+                      p.setSlot('doorMaterialUnmatched', null)
                       p.toggleDropdown('doorMaterialId')
                     }}
                     onAddNew={() => p.onAddDoorMaterial(dtId)}
                     addNewLabel="+ Add material"
+                    unmatchedFromDrawings={draft.slots.doorMaterialUnmatched ?? null}
+                    onCalibrateUnmatched={() => p.onAddDoorMaterial(dtId)}
                     placeholder={
                       materials.length === 0
                         ? 'No materials yet — + Add material'
@@ -1066,6 +1123,7 @@ function Composer(p: {
                     onToggle={() => p.toggleDropdown('doorFinishId')}
                     onPick={(id) => {
                       p.setSlot('doorFinishId', id)
+                      p.setSlot('doorFinishUnmatched', null)
                       p.toggleDropdown('doorFinishId')
                     }}
                     onAddNew={() => p.onAddDoorFinish(dmId)}
@@ -1075,6 +1133,8 @@ function Composer(p: {
                         ? 'No finishes yet — + Add finish'
                         : 'Choose…'
                     }
+                    unmatchedFromDrawings={draft.slots.doorFinishUnmatched ?? null}
+                    onCalibrateUnmatched={() => p.onAddDoorFinish(dmId)}
                   />
                 )
               })()}
@@ -1312,6 +1372,8 @@ function Dropdown({
   onAddNew,
   addNewLabel,
   placeholder,
+  unmatchedFromDrawings,
+  onCalibrateUnmatched,
 }: {
   open: boolean
   value: string | null
@@ -1321,8 +1383,16 @@ function Dropdown({
   onAddNew?: () => void
   addNewLabel?: string
   placeholder: string
+  /** Parser-extracted name that didn't match the org's library.
+   *  Renders a "FROM DRAWINGS · NOT YET CALIBRATED" section at the
+   *  top of the dropdown with a [+ Calibrate] button. Cleared when
+   *  the operator picks any calibrated option. */
+  unmatchedFromDrawings?: string | null
+  onCalibrateUnmatched?: () => void
 }) {
   const selected = options.find((o) => o.id === value)
+  const showFromDrawings =
+    !!unmatchedFromDrawings && !!onCalibrateUnmatched && !value
   return (
     <div className="relative">
       <button
@@ -1340,7 +1410,34 @@ function Dropdown({
       </button>
       {open && (
         <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-[#E5E7EB] rounded-md shadow-lg z-10 max-h-64 overflow-y-auto">
-          {options.length === 0 && !onAddNew && (
+          {showFromDrawings && (
+            <div className="border-b border-[#E5E7EB]">
+              <div className="px-3 pt-2 pb-1 text-[9.5px] font-semibold uppercase tracking-wider text-[#92400E]">
+                From drawings · not yet calibrated
+              </div>
+              <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-0.5">
+                <span className="text-[13px] text-[#111] truncate">
+                  {unmatchedFromDrawings}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCalibrateUnmatched?.()
+                  }}
+                  className="flex-shrink-0 inline-flex items-center px-2 py-0.5 text-[11px] font-medium text-[#92400E] border border-[#F59E0B] rounded hover:bg-[#FEF3C7]"
+                >
+                  + Calibrate
+                </button>
+              </div>
+              {options.length > 0 && (
+                <div className="px-3 pt-1.5 pb-1 text-[9.5px] font-semibold uppercase tracking-wider text-[#9CA3AF] border-t border-[#F3F4F6]">
+                  Your library
+                </div>
+              )}
+            </div>
+          )}
+          {options.length === 0 && !onAddNew && !showFromDrawings && (
             <div className="px-3 py-2 text-[12px] text-[#9CA3AF] italic">
               Nothing here yet.
             </div>
