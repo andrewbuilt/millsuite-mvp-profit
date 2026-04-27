@@ -141,14 +141,14 @@ export function checkLineStaleness(
 
   if (!hoursDrift && !matDrift) return null
 
-  // Diagnostic: log whenever drift trips so we can tell genuine
-  // recalibration drift from float-noise false positives. Printed at
-  // debug level so it doesn't pollute regular logs unless the user
-  // opens the browser console with Verbose enabled. Includes the
-  // exact stored vs fresh values + which dept(s) tripped the threshold
-  // so a screenshot is enough to diagnose.
+  // Diagnostic: log every drift trip at info level so the dogfood
+  // staleness-banner-firing-repeatedly investigation can see exactly
+  // which line drifted by how much. Reproduce → screenshot the
+  // console → paste in the issue. Once we've identified the path,
+  // dial this back to console.debug.
   if (typeof console !== 'undefined') {
-    console.debug('staleness', line.id, {
+    console.log('staleness drift', line.id, {
+      product_key: line.product_key,
       stored,
       freshHoursByDept,
       hoursDeltas: {
@@ -189,6 +189,29 @@ export function findStaleLines(
     const stale = checkLineStaleness(line, defaults, rateBook)
     if (stale) out.push(stale)
   }
+  // Diagnostic: summary print so the dogfood staleness-firing-
+  // repeatedly investigation can see every call's count + per-line
+  // breakdown in a single console entry. Reproduce the banner →
+  // copy this entry → paste. Pull this back to console.debug once
+  // we've identified the firing path.
+  if (typeof console !== 'undefined') {
+    console.log('findStaleLines', {
+      totalLines: lines.length,
+      composerLines: lines.filter((l) => l.product_key && l.product_slots).length,
+      staleCount: out.length,
+      stale: out.map((s) => ({
+        lineId: s.lineId,
+        productKey: s.productKey,
+        hoursDeltas: {
+          eng: s.storedHoursByDept.eng - s.freshHoursByDept.eng,
+          cnc: s.storedHoursByDept.cnc - s.freshHoursByDept.cnc,
+          assembly: s.storedHoursByDept.assembly - s.freshHoursByDept.assembly,
+          finish: s.storedHoursByDept.finish - s.freshHoursByDept.finish,
+        },
+        matDelta: s.storedMaterial - s.freshMaterial,
+      })),
+    })
+  }
   return out
 }
 
@@ -220,4 +243,96 @@ export async function bulkRefreshStaleLines(stale: StaleLineInfo[]): Promise<num
     void recomputeProjectBidTotalForLine(stale[0].lineId)
   }
   return updated
+}
+
+/**
+ * Auto-refresh every stale line on a project. Called after rate-book
+ * calibration changes (door type, drawer style, base cabinet, finish,
+ * inline material/finish adds) so silent drift never accumulates: the
+ * operator calibrated a thing, every line that uses it gets pulled up
+ * to the new values immediately.
+ *
+ * Loads the project's subprojects + estimate_lines + composer rate book
+ * + defaults, runs findStaleLines, calls bulkRefreshStaleLines. Returns
+ * the count of lines updated. Skip the call entirely from the caller
+ * side when no projectId is in context (calibrating from the rate
+ * book page) — this helper assumes a project.
+ *
+ * Errors land as warnings; the calibration UI shouldn't block on
+ * background staleness refresh.
+ */
+export async function autoRefreshStaleForProject(
+  orgId: string,
+  projectId: string,
+): Promise<number> {
+  try {
+    // Load all subprojects under the project.
+    const { data: subs } = await supabase
+      .from('subprojects')
+      .select('id, defaults')
+      .eq('project_id', projectId)
+    if (!subs || subs.length === 0) return 0
+
+    // Load lines + rate book in parallel.
+    const subIds = subs.map((s: any) => s.id as string)
+    const [{ data: lines }, rateBook] = await Promise.all([
+      supabase
+        .from('estimate_lines')
+        .select(
+          'id, subproject_id, product_key, product_slots, quantity, dept_hour_overrides, lump_cost_override',
+        )
+        .in('subproject_id', subIds),
+      loadComposerRateBookForProject(orgId),
+    ])
+    if (!lines || lines.length === 0) return 0
+    if (!rateBook) return 0
+
+    const linesBySub = new Map<string, EstimateLine[]>()
+    for (const l of lines as EstimateLine[]) {
+      const arr = linesBySub.get(l.subproject_id as string) ?? []
+      arr.push(l)
+      linesBySub.set(l.subproject_id as string, arr)
+    }
+
+    let allStale: StaleLineInfo[] = []
+    for (const sub of subs as any[]) {
+      const subLines = linesBySub.get(sub.id) ?? []
+      const defaults: ComposerDefaults = {
+        consumablesPct: Number(sub.defaults?.consumablesPct) || 0,
+        wastePct: Number(sub.defaults?.wastePct) || 0,
+      }
+      const stale = findStaleLines(subLines, defaults, rateBook)
+      allStale = allStale.concat(stale)
+    }
+
+    if (allStale.length === 0) {
+      console.log('autoRefreshStaleForProject', { projectId, updated: 0 })
+      return 0
+    }
+    const updated = await bulkRefreshStaleLines(allStale)
+    console.log('autoRefreshStaleForProject', {
+      projectId,
+      updated,
+      flagged: allStale.length,
+    })
+    return updated
+  } catch (err) {
+    console.warn('autoRefreshStaleForProject failed', err)
+    return 0
+  }
+}
+
+/** Side-import the rate-book loader without dragging the full module
+ *  into the staleness file's static surface — keeps cold-load cheap on
+ *  pages that never trigger a refresh. */
+async function loadComposerRateBookForProject(
+  orgId: string,
+): Promise<ComposerRateBook | null> {
+  try {
+    const mod = await import('./composer-loader')
+    return mod.loadComposerRateBook(orgId)
+  } catch (err) {
+    console.warn('loadComposerRateBookForProject failed', err)
+    return null
+  }
 }

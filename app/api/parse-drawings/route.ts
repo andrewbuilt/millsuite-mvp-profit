@@ -56,6 +56,18 @@ relax this — closet built-ins are still split per wall, each landing as
 its own product_key="full" line with the wall's slots populated as
 visible.
 
+### Stacker / extension cabinets — also separate items.
+
+Closet built-ins often combine a main cabinet bank with smaller "stacker"
+or "extension" cabinets above to reach the ceiling. These are SEPARATE
+items. Output one Full-height line for the main bank (typically 60–84"
+tall), and a separate item for the stacker section (typically 12–24" tall)
+with its own LF.
+
+If the drawing shows both, never combine them into one line — even if
+they share a wall. Name the stacker line so the operator can distinguish
+it ("West Elevation — Stacker / Extension Cabinets" or similar).
+
 ### Categories — use one of these exact strings
 - base_cabinet     — floor-mounted base cabinets (perimeter runs, vanities with no uppers)
 - upper_cabinet    — wall-hung uppers only (no base on the same wall)
