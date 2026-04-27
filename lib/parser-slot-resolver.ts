@@ -50,12 +50,37 @@ function matchByName<T extends NamedRow>(
  *  Returns ComposerSlots with null for any unmatched slot. Drawer
  *  count, end panels, and fillers come straight from numeric hints
  *  (default 0 when missing — matches the composer's empty-line shape). */
+/** All-null slots — used as a fallback when the rate book can't load
+ *  (org hasn't run any walkthroughs yet, network error, etc.). The
+ *  composer happily renders missing slots with $0 contribution and
+ *  the "Needs slots" pill flags the line for the operator. */
+export function emptySlots(): ComposerSlots {
+  return {
+    carcassMaterial: null,
+    backPanelMaterial: null,
+    doorTypeId: null,
+    doorMaterialId: null,
+    doorFinishId: null,
+    interiorFinish: null,
+    endPanels: 0,
+    fillers: 0,
+    drawerCount: 0,
+    drawerStyle: null,
+    notes: '',
+  }
+}
+
 export async function resolveSlots(
   orgId: string,
   hints: ParsedSlotHints | null | undefined,
 ): Promise<ComposerSlots> {
-  const rb = await loadComposerRateBook(orgId)
-  return resolveSlotsAgainstRateBook(rb, hints)
+  try {
+    const rb = await loadComposerRateBook(orgId)
+    return resolveSlotsAgainstRateBook(rb, hints)
+  } catch (err) {
+    console.warn('resolveSlots: rate-book load failed, falling back to empty slots', err)
+    return emptySlots()
+  }
 }
 
 /** Pure slot-resolution against an already-loaded rate book. Caller
@@ -63,9 +88,10 @@ export async function resolveSlots(
  *  once, resolve N items). resolveSlots() above wraps this for the
  *  one-off case. */
 export function resolveSlotsAgainstRateBook(
-  rb: Awaited<ReturnType<typeof loadComposerRateBook>>,
+  rb: Awaited<ReturnType<typeof loadComposerRateBook>> | null | undefined,
   hints: ParsedSlotHints | null | undefined,
 ): ComposerSlots {
+  if (!rb) return emptySlots()
   const h = hints || {}
 
   const carcass = matchByName(rb.carcassMaterials, h.carcass_material)

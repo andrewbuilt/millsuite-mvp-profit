@@ -376,7 +376,7 @@ export async function seedEstimateLinesFromParsed(input: {
 
   // Load the composer rate book once per call when we have any
   // composer-bound items. Skip when no orgId or no composer items —
-  // freeform-only batches stay a single round-trip.
+  // freeform-only batches stay a single load.
   const hasComposerItem = items.some(
     (it) =>
       it.product_key === 'base' ||
@@ -393,119 +393,113 @@ export async function seedEstimateLinesFromParsed(input: {
     }
   }
 
-  // Group by subproject so we can hand out sequential sort_orders inside each.
-  const rowsBySub = new Map<string, any[]>()
+  // Per-item insert with try/catch + freeform fallback. The previous
+  // batch-insert approach lost the entire batch when any single row
+  // tripped a constraint or RLS check; with N items that's binary
+  // success/failure. Now each item lands independently and a
+  // composer-path failure (resolveSlots throw, NOT NULL trip, etc.)
+  // falls through to the freeform path so the operator never opens
+  // a project missing items they expected to see.
+  const sortOrderBySub = new Map<string, number>()
+  function nextSort(subId: string): number {
+    const n = sortOrderBySub.get(subId) ?? 0
+    sortOrderBySub.set(subId, n + 1)
+    return n
+  }
+
+  let inserted = 0
   for (const it of items) {
     const key = (it.room || '').trim().toLowerCase()
     const subId = subIdByRoom.get(key)
-    if (!subId) continue
+    if (!subId) {
+      console.warn('seedEstimateLines: no subproject for room', it.room, '— skipping', it.name)
+      continue
+    }
 
-    const isComposer =
+    const wantsComposer =
       (it.product_key === 'base' ||
         it.product_key === 'upper' ||
         it.product_key === 'full' ||
         it.product_key === 'drawer') &&
       !!rateBook
 
-    if (isComposer && rateBook) {
-      // Composer line — resolve slots against the rate book and write
-      // product_key + product_slots so the composer takes over for
-      // pricing. dept_hour_overrides + lump_cost_override stay null;
-      // the composer recomputes from slots live (no static hours).
-      const slots = resolveSlotsAgainstRateBook(rateBook, it.slots ?? null)
-      const quantity =
-        typeof it.linear_feet === 'number' && it.linear_feet > 0
-          ? it.linear_feet
-          : it.quantity || 1
-      const list = rowsBySub.get(subId) || []
-      list.push({
-        subproject_id: subId,
-        sort_order: list.length,
-        description: it.name,
-        quantity,
-        unit: 'lf',
-        product_key: it.product_key,
-        product_slots: slots,
-        composer_hours_corrected: true,
-        notes:
-          [it.source_sheet ? `[${it.source_sheet}]` : null, it.notes || null]
-            .filter(Boolean)
-            .join(' · ') || null,
-      })
-      rowsBySub.set(subId, list)
+    if (wantsComposer && rateBook) {
+      const sortOrder = nextSort(subId)
+      try {
+        const row = buildComposerRow(it, subId, sortOrder, rateBook)
+        const { error } = await supabase.from('estimate_lines').insert(row)
+        if (error) {
+          console.error('seedEstimateLines composer branch failed', {
+            itemName: it.name,
+            room: it.room,
+            error: error.message,
+          })
+          // Reuse the same sort_order — the composer attempt didn't
+          // land, so the freeform retry takes its slot.
+          const freeformRow = buildFreeformRow(it, subId, sortOrder)
+          const { error: ffErr } = await supabase
+            .from('estimate_lines')
+            .insert(freeformRow)
+          if (ffErr) {
+            console.error('seedEstimateLines freeform fallback also failed', {
+              itemName: it.name,
+              error: ffErr.message,
+            })
+          } else {
+            console.log('seedEstimateLines: fell back to freeform', it.name)
+            inserted += 1
+          }
+        } else {
+          console.log('seedEstimateLines: composer line', it.name, '·', it.room)
+          inserted += 1
+        }
+      } catch (err) {
+        console.error('seedEstimateLines composer exception', {
+          itemName: it.name,
+          err: err instanceof Error ? err.message : String(err),
+        })
+        // Last-resort freeform fallback so the item lands somewhere.
+        try {
+          const freeformRow = buildFreeformRow(it, subId, sortOrder)
+          const { error: ffErr } = await supabase
+            .from('estimate_lines')
+            .insert(freeformRow)
+          if (!ffErr) {
+            console.log('seedEstimateLines: fell back to freeform after exception', it.name)
+            inserted += 1
+          }
+        } catch (ffErr) {
+          console.error('seedEstimateLines freeform fallback exception', ffErr)
+        }
+      }
       continue
     }
 
-    // Freeform line — current behavior. Hardware, customer-supplied,
-    // anything the parser couldn't map to a cabinet product, or any
-    // composer item that fell through (no rate book loaded).
-    const fs: any[] = []
-    const ms = it.material_specs
-    if (ms) {
-      const ext = [ms.exterior_species, ms.exterior_thickness].filter(Boolean).join(' ').trim()
-      const intr = [ms.interior_material, ms.interior_thickness].filter(Boolean).join(' ').trim()
-      if (ext || it.finish_specs?.finish_type || it.finish_specs?.stain_color) {
-        fs.push({
-          material: ext || undefined,
-          finish: it.finish_specs?.finish_type
-            ? [it.finish_specs.finish_type, it.finish_specs.stain_color, it.finish_specs.sheen]
-                .filter(Boolean).join(' · ')
-            : undefined,
-          notes: it.finish_specs?.notes || undefined,
+    // Freeform path — hardware, customer-supplied, items the parser
+    // couldn't map to a cabinet product, or any item where the rate
+    // book wasn't loaded.
+    const sortOrder = nextSort(subId)
+    try {
+      const row = buildFreeformRow(it, subId, sortOrder)
+      const { error } = await supabase.from('estimate_lines').insert(row)
+      if (error) {
+        console.error('seedEstimateLines freeform branch failed', {
+          itemName: it.name,
+          error: error.message,
         })
+      } else {
+        console.log('seedEstimateLines: freeform line', it.name, '·', it.room)
+        inserted += 1
       }
-      if (intr) {
-        fs.push({ material: `${intr} interior`, finish: 'prefinished' })
-      }
+    } catch (err) {
+      console.error('seedEstimateLines freeform exception', {
+        itemName: it.name,
+        err: err instanceof Error ? err.message : String(err),
+      })
     }
-
-    const quantity =
-      typeof it.linear_feet === 'number' && it.linear_feet > 0 ? it.linear_feet : (it.quantity || 1)
-    const unit = typeof it.linear_feet === 'number' && it.linear_feet > 0 ? 'lf' : 'each'
-
-    const noteParts: string[] = []
-    if (it.features?.notes) noteParts.push(it.features.notes)
-    if (it.notes) noteParts.push(it.notes)
-    if (it.features?.drawer_count) noteParts.push(`${it.features.drawer_count} drawers`)
-    if (it.features?.door_style) noteParts.push(`${it.features.door_style} doors`)
-    if (it.features?.trash_pullout) noteParts.push('trash pullout')
-    if (it.features?.lazy_susan) noteParts.push('lazy susan')
-    if (it.features?.has_led) noteParts.push('integrated LED')
-    if (it.source_sheet) noteParts.push(`[${it.source_sheet}]`)
-    if (it.needs_review) noteParts.push('(needs review)')
-    if (it.quality === 'customer_supplied') noteParts.push('customer-supplied')
-
-    const list = rowsBySub.get(subId) || []
-    list.push({
-      subproject_id: subId,
-      sort_order: list.length,
-      description: it.name,
-      quantity,
-      unit,
-      material_description:
-        it.material_specs?.exterior_species
-          ? [
-              it.material_specs.exterior_species,
-              it.material_specs.exterior_thickness,
-            ].filter(Boolean).join(' ')
-          : null,
-      finish_specs: fs.length ? fs : null,
-      notes: noteParts.filter(Boolean).join(' · ') || null,
-    })
-    rowsBySub.set(subId, list)
   }
 
-  const allRows = Array.from(rowsBySub.values()).flat()
-  if (allRows.length === 0) return 0
-
-  const { data, error } = await supabase
-    .from('estimate_lines')
-    .insert(allRows)
-    .select('id')
-  if (error) {
-    console.error('seedEstimateLinesFromParsed', error)
-    return 0
-  }
+  if (inserted === 0) return 0
   // Pricing-input write-back: a parsed bid that lands lines on multiple
   // subs of the same project should trigger one recompute. Pull project_id
   // off the first sub we touched.
@@ -521,7 +515,97 @@ export async function seedEstimateLinesFromParsed(input: {
       if (pid) void recomputeProjectBidTotal(pid)
     })()
   }
-  return (data || []).length
+  return inserted
+}
+
+// Row-builder helpers extracted so the per-item insert loop above
+// stays focused on dispatch + error handling. Both return plain
+// objects ready for supabase.from('estimate_lines').insert(...).
+
+function buildComposerRow(
+  it: ParsedScopeItem,
+  subId: string,
+  sortOrder: number,
+  rateBook: Awaited<ReturnType<typeof loadComposerRateBook>>,
+): Record<string, unknown> {
+  const slots = resolveSlotsAgainstRateBook(rateBook, it.slots ?? null)
+  const quantity =
+    typeof it.linear_feet === 'number' && it.linear_feet > 0
+      ? it.linear_feet
+      : it.quantity || 1
+  return {
+    subproject_id: subId,
+    sort_order: sortOrder,
+    description: it.name || 'Item',
+    quantity,
+    unit: 'lf',
+    product_key: it.product_key,
+    product_slots: slots,
+    composer_hours_corrected: true,
+    notes:
+      [it.source_sheet ? `[${it.source_sheet}]` : null, it.notes || null]
+        .filter(Boolean)
+        .join(' · ') || null,
+  }
+}
+
+function buildFreeformRow(
+  it: ParsedScopeItem,
+  subId: string,
+  sortOrder: number,
+): Record<string, unknown> {
+  const fs: any[] = []
+  const ms = it.material_specs
+  if (ms) {
+    const ext = [ms.exterior_species, ms.exterior_thickness].filter(Boolean).join(' ').trim()
+    const intr = [ms.interior_material, ms.interior_thickness].filter(Boolean).join(' ').trim()
+    if (ext || it.finish_specs?.finish_type || it.finish_specs?.stain_color) {
+      fs.push({
+        material: ext || undefined,
+        finish: it.finish_specs?.finish_type
+          ? [it.finish_specs.finish_type, it.finish_specs.stain_color, it.finish_specs.sheen]
+              .filter(Boolean).join(' · ')
+          : undefined,
+        notes: it.finish_specs?.notes || undefined,
+      })
+    }
+    if (intr) {
+      fs.push({ material: `${intr} interior`, finish: 'prefinished' })
+    }
+  }
+  const quantity =
+    typeof it.linear_feet === 'number' && it.linear_feet > 0
+      ? it.linear_feet
+      : it.quantity || 1
+  const unit =
+    typeof it.linear_feet === 'number' && it.linear_feet > 0 ? 'lf' : 'each'
+  const noteParts: string[] = []
+  if (it.features?.notes) noteParts.push(it.features.notes)
+  if (it.notes) noteParts.push(it.notes)
+  if (it.features?.drawer_count) noteParts.push(`${it.features.drawer_count} drawers`)
+  if (it.features?.door_style) noteParts.push(`${it.features.door_style} doors`)
+  if (it.features?.trash_pullout) noteParts.push('trash pullout')
+  if (it.features?.lazy_susan) noteParts.push('lazy susan')
+  if (it.features?.has_led) noteParts.push('integrated LED')
+  if (it.source_sheet) noteParts.push(`[${it.source_sheet}]`)
+  if (it.needs_review) noteParts.push('(needs review)')
+  if (it.quality === 'customer_supplied') noteParts.push('customer-supplied')
+  return {
+    subproject_id: subId,
+    sort_order: sortOrder,
+    description: it.name || 'Item',
+    quantity,
+    unit,
+    material_description:
+      it.material_specs?.exterior_species
+        ? [
+            it.material_specs.exterior_species,
+            it.material_specs.exterior_thickness,
+          ].filter(Boolean).join(' ')
+        : null,
+    finish_specs: fs.length ? fs : null,
+    notes: noteParts.filter(Boolean).join(' · ') || null,
+  }
 }
 
 // ── Quick notes ──

@@ -38,6 +38,24 @@ const SYSTEM_PROMPT = `You are a millwork takeoff specialist reviewing an archit
 
 Group by installation zone — a continuous wall run of base + upper + pantry in the same room = ONE item, not three. A typical room yields 1–3 items, not 5–10. Split across rooms, floors, and freestanding pieces.
 
+### CRITICAL: Multi-wall closets MUST be split into separate items per wall.
+
+A U-shaped or L-shaped walk-in with 3 walls = 3 items, each with its own
+linear_feet matching that wall's dimension. Do NOT combine wall sections
+into a single "Full-height built-in closet system" item — even if the
+total LF is what shows in the project total. The shop needs per-wall
+granularity to plan production and price elevations independently.
+
+Single-wall closets (linen, small reach-in) = 1 item.
+Multi-wall closets = 1 item per wall section, named by elevation
+("West Elevation — Drawers + Hanging", "North Wall — Tower with Shelves").
+
+This rule overrides "group by installation zone" when each wall has its
+own dimension on the drawing. The product_key + slots additions don't
+relax this — closet built-ins are still split per wall, each landing as
+its own product_key="full" line with the wall's slots populated as
+visible.
+
 ### Categories — use one of these exact strings
 - base_cabinet     — floor-mounted base cabinets (perimeter runs, vanities with no uppers)
 - upper_cabinet    — wall-hung uppers only (no base on the same wall)
