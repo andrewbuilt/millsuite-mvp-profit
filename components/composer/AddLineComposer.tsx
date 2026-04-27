@@ -942,22 +942,44 @@ function Composer(p: {
             </Field>
 
             <Field label="Interior finish" hint="Usually prefinished, so no finish labor.">
-              <Dropdown
-                open={p.openDropdown === 'interiorFinish'}
-                value={draft.slots.interiorFinish}
-                options={rateBook.finishes
+              {(() => {
+                const interiorFinishes = rateBook.finishes
                   .filter((f) => f.application === 'interior')
                   .filter(isFinishUsed)
-                  .map((f) => ({ id: f.id, name: f.name }))}
-                onToggle={() => p.toggleDropdown('interiorFinish')}
-                onPick={(id) => {
-                  p.setSlot('interiorFinish', id)
-                  p.toggleDropdown('interiorFinish')
-                }}
-                onAddNew={() => p.onOpenFinishWalkthrough('interior')}
-                addNewLabel="+ Calibrate interior finish"
-                placeholder="Choose…"
-              />
+                const hasCalibratedInterior = interiorFinishes.some(
+                  (f) => !f.isPrefinished,
+                )
+                return (
+                  <>
+                    <Dropdown
+                      open={p.openDropdown === 'interiorFinish'}
+                      value={draft.slots.interiorFinish}
+                      options={interiorFinishes.map((f) => ({ id: f.id, name: f.name }))}
+                      onToggle={() => p.toggleDropdown('interiorFinish')}
+                      onPick={(id) => {
+                        p.setSlot('interiorFinish', id)
+                        p.toggleDropdown('interiorFinish')
+                      }}
+                      onAddNew={() => p.onOpenFinishWalkthrough('interior')}
+                      addNewLabel="+ Calibrate interior finish"
+                      placeholder="Choose…"
+                    />
+                    {!hasCalibratedInterior && (
+                      <p className="mt-2 text-[11px] text-[#6B7280] leading-snug">
+                        Most shops use prefinished interiors. If yours don't,{' '}
+                        <button
+                          type="button"
+                          onClick={() => p.onOpenFinishWalkthrough('interior')}
+                          className="text-[#2563EB] hover:underline"
+                        >
+                          calibrate an interior finish
+                        </button>{' '}
+                        to enable per-LF interior finish pricing.
+                      </p>
+                    )}
+                  </>
+                )
+              })()}
             </Field>
           </section>
 
