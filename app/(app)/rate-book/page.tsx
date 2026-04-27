@@ -48,6 +48,10 @@ import {
   quartersToInches,
   type SolidWoodComponent,
 } from '@/lib/solid-wood'
+import {
+  listDoorTypeMaterialsForSolidWood,
+  recalculateMaterialsForSolidWood,
+} from '@/lib/door-types'
 import SolidWoodWalkthrough from '@/components/walkthroughs/SolidWoodWalkthrough'
 import { useConfirm } from '@/components/confirm-dialog'
 
@@ -1422,6 +1426,27 @@ function SolidWoodDetail({
   onEdit: (id: string) => void
   onDelete: (row: SolidWoodComponent) => void | Promise<void>
 }) {
+  const [linkedCount, setLinkedCount] = useState<number | null>(null)
+  const [recalcing, setRecalcing] = useState(false)
+  const [recalcMsg, setRecalcMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!row) {
+      setLinkedCount(null)
+      setRecalcMsg(null)
+      return
+    }
+    let cancelled = false
+    setRecalcMsg(null)
+    ;(async () => {
+      const mats = await listDoorTypeMaterialsForSolidWood(row.id)
+      if (!cancelled) setLinkedCount(mats.length)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [row?.id])
+
   if (!row) {
     return (
       <div className="p-12 text-sm text-[#6B7280]">
@@ -1430,6 +1455,27 @@ function SolidWoodDetail({
     )
   }
   const inches = quartersToInches(row.thickness_quarters)
+
+  async function handleRecalc() {
+    if (!row || recalcing) return
+    setRecalcing(true)
+    setRecalcMsg(null)
+    try {
+      const touched = await recalculateMaterialsForSolidWood(row.id)
+      setRecalcMsg(
+        touched === 1
+          ? '1 door material recalculated.'
+          : `${touched} door materials recalculated.`,
+      )
+    } catch (e) {
+      setRecalcMsg(
+        e instanceof Error ? e.message : 'Recalculation failed.',
+      )
+    } finally {
+      setRecalcing(false)
+    }
+  }
+
   return (
     <div className="p-8 max-w-3xl">
       <div className="text-[11px] text-[#9CA3AF] tracking-wide mb-1">Solid wood</div>
@@ -1483,10 +1529,31 @@ function SolidWoodDetail({
         {row.notes && <DetailRow label="Notes" value={row.notes} />}
       </div>
 
-      <p className="mt-4 text-[11.5px] text-[#9CA3AF] leading-relaxed italic">
-        Door-material wiring lands in a follow-up — solid wood components will
-        be selectable as a face stock with cost = bdft × ${row.cost_per_bdft.toFixed(2)} × (1 + {row.waste_pct}% waste).
-      </p>
+      {linkedCount != null && linkedCount > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-3 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg">
+          <div className="text-[12.5px] text-[#374151]">
+            <span className="font-medium">
+              {linkedCount} door material{linkedCount === 1 ? '' : 's'}
+            </span>{' '}
+            <span className="text-[#6B7280]">
+              {linkedCount === 1 ? 'uses' : 'use'} this stock.
+            </span>{' '}
+            <span className="text-[#9CA3AF]">
+              After editing cost or waste, recalculate to push the new $/door.
+            </span>
+          </div>
+          <button
+            onClick={handleRecalc}
+            disabled={recalcing}
+            className="shrink-0 inline-flex items-center px-3 py-1.5 text-[12px] font-medium text-white bg-[#111] hover:bg-[#1F2937] rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {recalcing ? 'Recalculating…' : 'Recalculate all'}
+          </button>
+        </div>
+      )}
+      {recalcMsg && (
+        <div className="mt-2 text-[11.5px] text-[#059669]">{recalcMsg}</div>
+      )}
     </div>
   )
 }

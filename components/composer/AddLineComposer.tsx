@@ -80,6 +80,13 @@ import {
   indexDoorTypeMaterialFinishes,
   type DoorMaterialCostUnit,
 } from '@/lib/door-types'
+import {
+  computeSolidWoodCost,
+  formatThickness,
+  loadSolidWoodComponents,
+  type SolidWoodComponent,
+} from '@/lib/solid-wood'
+import SolidWoodWalkthrough from '@/components/walkthroughs/SolidWoodWalkthrough'
 import DoorStyleWalkthrough, {
   type DoorStyleWalkthroughExistingStyle,
 } from '@/components/walkthroughs/DoorStyleWalkthrough'
@@ -1708,35 +1715,108 @@ function AddDoorMaterialModal(p: {
     row: import('@/lib/door-types').DoorTypeMaterial,
   ) => void
 }) {
+  type Tab = 'sheet' | 'solid_wood'
+  const [tab, setTab] = useState<Tab>('sheet')
+
+  // Sheet-stock fields
   const [name, setName] = useState('')
   const [costValue, setCostValue] = useState('')
   const [costUnit, setCostUnit] = useState<DoorMaterialCostUnit>('sheet')
   const [notes, setNotes] = useState('')
+
+  // Solid-wood fields
+  const [woodComponents, setWoodComponents] = useState<SolidWoodComponent[]>([])
+  const [woodComponentId, setWoodComponentId] = useState<string>('')
+  const [bdftPerDoor, setBdftPerDoor] = useState<string>('')
+  const [woodMaterialName, setWoodMaterialName] = useState<string>('')
+  const [woodNameDirty, setWoodNameDirty] = useState(false)
+  const [solidWoodWtOpen, setSolidWoodWtOpen] = useState(false)
+
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Load solid-wood components when the modal opens. Lazy refresh after
+  // the inline walkthrough closes auto-picks the new row.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const rows = await loadSolidWoodComponents(p.orgId)
+      if (!cancelled) setWoodComponents(rows)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [p.orgId])
+
+  const pickedWood = useMemo(
+    () => woodComponents.find((w) => w.id === woodComponentId) || null,
+    [woodComponents, woodComponentId],
+  )
+  const bdftNum = parseFloat(bdftPerDoor)
+  const derivedCost =
+    pickedWood && Number.isFinite(bdftNum) && bdftNum > 0
+      ? computeSolidWoodCost(pickedWood, bdftNum)
+      : 0
+
+  // Auto-suggest material name when the picker / bdft inputs change —
+  // unless the operator already typed one in. woodNameDirty latches once
+  // they edit the name field.
+  useEffect(() => {
+    if (woodNameDirty) return
+    if (!pickedWood) {
+      setWoodMaterialName('')
+      return
+    }
+    const bdftLabel =
+      Number.isFinite(bdftNum) && bdftNum > 0 ? ` · ${bdftNum} BDFT/door` : ''
+    setWoodMaterialName(`${pickedWood.name}${bdftLabel}`)
+  }, [pickedWood, bdftNum, woodNameDirty])
+
   async function save() {
     setError(null)
-    if (!name.trim()) {
-      setError('Give the material a name.')
-      return
-    }
-    const cv = parseFloat(costValue)
-    if (!Number.isFinite(cv) || cv < 0) {
-      setError('Cost needs a non-negative number.')
-      return
-    }
     setSaving(true)
     try {
-      const created = await createDoorTypeMaterial({
-        org_id: p.orgId,
-        door_type_id: p.doorTypeId,
-        material_name: name.trim(),
-        cost_value: cv,
-        cost_unit: costUnit,
-        notes: notes.trim() || null,
-      })
-      if (created) p.onCreated(created)
+      if (tab === 'sheet') {
+        if (!name.trim()) {
+          setError('Give the material a name.')
+          return
+        }
+        const cv = parseFloat(costValue)
+        if (!Number.isFinite(cv) || cv < 0) {
+          setError('Cost needs a non-negative number.')
+          return
+        }
+        const created = await createDoorTypeMaterial({
+          org_id: p.orgId,
+          door_type_id: p.doorTypeId,
+          material_name: name.trim(),
+          cost_value: cv,
+          cost_unit: costUnit,
+          notes: notes.trim() || null,
+        })
+        if (created) p.onCreated(created)
+      } else {
+        if (!pickedWood) {
+          setError('Pick a solid wood component.')
+          return
+        }
+        if (!Number.isFinite(bdftNum) || bdftNum <= 0) {
+          setError('BDFT per door needs a positive number.')
+          return
+        }
+        const finalName = woodMaterialName.trim() || pickedWood.name
+        const created = await createDoorTypeMaterial({
+          org_id: p.orgId,
+          door_type_id: p.doorTypeId,
+          material_name: finalName,
+          cost_value: derivedCost,
+          cost_unit: 'ea',
+          notes: null,
+          solid_wood_component_id: pickedWood.id,
+          bdft_per_unit: bdftNum,
+        })
+        if (created) p.onCreated(created)
+      }
     } catch (err: any) {
       setError(err?.message || 'Failed to save material')
     } finally {
@@ -1753,59 +1833,176 @@ function AddDoorMaterialModal(p: {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[480px] bg-white border border-[#E5E7EB] rounded-2xl shadow-xl overflow-hidden"
+        className="w-full max-w-[520px] bg-white border border-[#E5E7EB] rounded-2xl shadow-xl overflow-hidden"
       >
         <div className="px-5 py-3.5 border-b border-[#E5E7EB] text-[13px] font-semibold text-[#111]">
           Add door material
         </div>
+
+        {/* Tab strip */}
+        <div className="flex border-b border-[#E5E7EB] px-5 pt-3">
+          <button
+            type="button"
+            onClick={() => setTab('sheet')}
+            className={
+              'px-3 py-2 text-[12.5px] border-b-2 -mb-px transition-colors ' +
+              (tab === 'sheet'
+                ? 'border-[#2563EB] text-[#111] font-medium'
+                : 'border-transparent text-[#6B7280] hover:text-[#374151]')
+            }
+          >
+            Sheet stock
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('solid_wood')}
+            className={
+              'ml-2 px-3 py-2 text-[12.5px] border-b-2 -mb-px transition-colors ' +
+              (tab === 'solid_wood'
+                ? 'border-[#2563EB] text-[#111] font-medium'
+                : 'border-transparent text-[#6B7280] hover:text-[#374151]')
+            }
+          >
+            Calculate from solid wood
+          </button>
+        </div>
+
         <div className="p-5 space-y-3">
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Material name</span>
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Walnut veneer"
-              className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
-            />
-          </label>
-          <div className="grid grid-cols-[1fr_120px] gap-2">
-            <label className="block">
-              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Cost</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={costValue}
-                onChange={(e) => setCostValue(e.target.value)}
-                placeholder="0"
-                className="mt-1 w-full px-3 py-2 text-sm font-mono tabular-nums border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Per</span>
-              <select
-                value={costUnit}
-                onChange={(e) => setCostUnit(e.target.value as DoorMaterialCostUnit)}
-                className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
-              >
-                <option value="sheet">sheet</option>
-                <option value="lf">lf</option>
-                <option value="bf">bf</option>
-                <option value="ea">each</option>
-                <option value="lump">lump</option>
-              </select>
-            </label>
-          </div>
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Notes (optional)</span>
-            <input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Anything the next operator should know…"
-              className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
-            />
-          </label>
+          {tab === 'sheet' ? (
+            <>
+              <label className="block">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Material name</span>
+                <input
+                  autoFocus
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Walnut veneer"
+                  className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+                />
+              </label>
+              <div className="grid grid-cols-[1fr_120px] gap-2">
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Cost</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={costValue}
+                    onChange={(e) => setCostValue(e.target.value)}
+                    placeholder="0"
+                    className="mt-1 w-full px-3 py-2 text-sm font-mono tabular-nums border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Per</span>
+                  <select
+                    value={costUnit}
+                    onChange={(e) => setCostUnit(e.target.value as DoorMaterialCostUnit)}
+                    className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+                  >
+                    <option value="sheet">sheet</option>
+                    <option value="lf">lf</option>
+                    <option value="bf">bf</option>
+                    <option value="ea">each</option>
+                    <option value="lump">lump</option>
+                  </select>
+                </label>
+              </div>
+              <label className="block">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Notes (optional)</span>
+                <input
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Anything the next operator should know…"
+                  className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label className="block">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Solid wood component</span>
+                {woodComponents.length === 0 ? (
+                  <div className="mt-1 px-3 py-2 text-[12.5px] text-[#6B7280] italic border border-dashed border-[#E5E7EB] rounded-md">
+                    No solid wood components yet —{' '}
+                    <button
+                      type="button"
+                      onClick={() => setSolidWoodWtOpen(true)}
+                      className="text-[#2563EB] hover:text-[#1D4ED8] underline"
+                    >
+                      add one
+                    </button>
+                    .
+                  </div>
+                ) : (
+                  <div className="mt-1 flex items-center gap-2">
+                    <select
+                      autoFocus
+                      value={woodComponentId}
+                      onChange={(e) => setWoodComponentId(e.target.value)}
+                      className="flex-1 px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+                    >
+                      <option value="">Choose…</option>
+                      {woodComponents.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name} · {formatThickness(w.thickness_quarters)} ·
+                          {' '}
+                          ${w.cost_per_bdft}/bdft
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setSolidWoodWtOpen(true)}
+                      className="text-[12px] text-[#2563EB] hover:text-[#1D4ED8] whitespace-nowrap"
+                    >
+                      + Add new
+                    </button>
+                  </div>
+                )}
+              </label>
+
+              <label className="block">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">BDFT per door</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.1"
+                  value={bdftPerDoor}
+                  onChange={(e) => setBdftPerDoor(e.target.value)}
+                  placeholder="0"
+                  className="mt-1 w-32 px-3 py-2 text-sm font-mono tabular-nums border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+                />
+                <span className="ml-2 text-[11px] text-[#6B7280]">
+                  Board feet of solid wood per door, including any frame stock.
+                </span>
+              </label>
+
+              {pickedWood && Number.isFinite(bdftNum) && bdftNum > 0 && (
+                <div className="px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded text-[12px] text-[#374151] font-mono tabular-nums leading-relaxed">
+                  {bdftNum} BDFT × ${pickedWood.cost_per_bdft}/bdft × (1 +{' '}
+                  {pickedWood.waste_pct}%) ={' '}
+                  <span className="text-[#111] font-semibold">
+                    ${derivedCost.toFixed(2)}/door
+                  </span>
+                </div>
+              )}
+
+              <label className="block">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Material name</span>
+                <input
+                  value={woodMaterialName}
+                  onChange={(e) => {
+                    setWoodMaterialName(e.target.value)
+                    setWoodNameDirty(true)
+                  }}
+                  placeholder="e.g. 8/4 Walnut · 4 BDFT/door"
+                  className="mt-1 w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB]"
+                />
+              </label>
+            </>
+          )}
+
           {error && (
             <div className="px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded text-xs text-[#991B1B]">
               {error}
@@ -1824,6 +2021,19 @@ function AddDoorMaterialModal(p: {
             {saving ? 'Saving…' : 'Save material'}
           </button>
         </div>
+
+        {solidWoodWtOpen && (
+          <SolidWoodWalkthrough
+            orgId={p.orgId}
+            onCancel={() => setSolidWoodWtOpen(false)}
+            onComplete={async (componentId) => {
+              setSolidWoodWtOpen(false)
+              const fresh = await loadSolidWoodComponents(p.orgId)
+              setWoodComponents(fresh)
+              setWoodComponentId(componentId)
+            }}
+          />
+        )}
       </div>
     </div>
   )
