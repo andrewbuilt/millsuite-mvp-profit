@@ -93,7 +93,31 @@ export interface ParsedScopeItem {
    *  that contributed to it. Single-file parses leave it undefined or
    *  with one entry — UI hides the provenance line in that case. */
   source_files?: string[]
+  /** Composer product mapping. base/upper/full/drawer route the item
+   *  through the composer line path on save (slots get resolved
+   *  against the org's rate book); null routes to the freeform line
+   *  path (current behavior — hardware, customer-supplied, etc.). */
+  product_key?: 'base' | 'upper' | 'full' | 'drawer' | null
+  /** Pre-resolution slot hints from the parser. Strings only — the
+   *  server-side resolver matches them to rate-book ids before
+   *  writing to estimate_lines.product_slots. Null any slot the
+   *  drawing didn't specify. */
+  slots?: ParsedSlotHints | null
   notes: string
+}
+
+/** Parsed slot hints — strings as Claude read them off the drawing.
+ *  No ids; the slot resolver looks them up against the org's rate
+ *  book and returns nullable ComposerSlots. */
+export interface ParsedSlotHints {
+  carcass_material?: string | null
+  door_style?: string | null
+  door_material?: string | null
+  exterior_finish?: string | null
+  interior_finish?: string | null
+  drawer_count?: number | null
+  end_panel_count?: number | null
+  filler_count?: number | null
 }
 
 export interface ParsedPdf {

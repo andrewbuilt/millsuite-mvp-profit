@@ -72,6 +72,7 @@ import {
 } from '@/lib/composer-persist'
 import type { ComposerDefaults, ComposerRateBook, ComposerSlots } from '@/lib/composer'
 import { productLabelFromKey } from '@/lib/composer'
+import { hasMissingSlots } from '@/lib/parser-slot-resolver'
 import type { ProductKey } from '@/lib/products'
 import {
   bulkRefreshStaleLines,
@@ -754,8 +755,28 @@ export default function SubprojectEditorPage() {
                     className={`grid grid-cols-[1fr_72px_56px_80px_100px_100px_64px] px-3 py-2.5 border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors ${editable ? 'cursor-pointer' : ''}`}
                   >
                     <div className="pr-3 min-w-0">
-                      <div className="text-sm text-[#111] font-medium truncate">
-                        {headline}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="text-sm text-[#111] font-medium truncate">
+                          {headline}
+                        </div>
+                        {(() => {
+                          const pk = (line as any).product_key as
+                            | 'base' | 'upper' | 'full' | 'drawer' | null | undefined
+                          if (pk !== 'base' && pk !== 'upper' && pk !== 'full' && pk !== 'drawer') {
+                            return null
+                          }
+                          if (!hasMissingSlots(pk, (line as any).product_slots ?? null)) {
+                            return null
+                          }
+                          return (
+                            <span
+                              className="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider rounded bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]"
+                              title="Composer line has unset slots — click the row to open the composer and pick the missing pieces"
+                            >
+                              Needs slots
+                            </span>
+                          )
+                        })()}
                       </div>
                       {slotSummary && (
                         <div className="text-[11px] text-[#6B7280] truncate mt-0.5">

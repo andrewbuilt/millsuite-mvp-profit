@@ -88,6 +88,29 @@ For a mixed wall run (base + uppers together), use "base_cabinet" and mention th
     - sheen           (e.g. "satin", "matte", "semi-gloss")
     - sides_to_finish ("exterior_only" | "all_sides")
     - notes           (string)
+- product_key       — REQUIRED — one of: "base" | "upper" | "full" | "drawer" | null
+    - base    = base cabinet runs (~30" typical)
+    - upper   = upper cabinet runs (~42" or less)
+    - full    = full-height runs (96" or less) — closets, pantries, towers
+    - drawer  = standalone drawer banks
+    - null    = hardware, accessories, customer-supplied items, or anything
+                that doesn't map to a cabinet product. Closet built-ins
+                are almost always "full". Hardware (rods, brackets, pulls,
+                slides) is null. quality="customer_supplied" → null.
+- slots             — object with extractable rate-book hints. Use what's
+                       visible in the drawings; null any slot the drawing
+                       doesn't specify. Strings only (no ids — the server
+                       resolves them against the org's rate book).
+    - carcass_material   (e.g. "white liner", "white melamine")
+    - door_style         (e.g. "slab", "shaker")
+    - door_material      (e.g. "white oak", "walnut")
+    - exterior_finish    (e.g. "matte clear", "natural lacquer")
+    - interior_finish    (e.g. "prefinished" — use that exact string when
+                          the interior is prefinished and no shop finish
+                          is required)
+    - drawer_count       (integer, mirrors features.drawer_count)
+    - end_panel_count    (integer)
+    - filler_count       (integer)
 - source_sheet      — sheet number this item came from (e.g. "A-3", "Sheet 5")
 - needs_review      — true if ANY field is uncertain (missing dimensions, ambiguous finish, inferred drawer count, mixed heights)
 - confidence        — REQUIRED — one of: "high" | "medium" | "low"
@@ -134,6 +157,17 @@ Return ONLY a valid JSON object — no markdown, no preamble. Start with { and e
       "source_sheet": "A-3",
       "needs_review": false,
       "confidence": "high",
+      "product_key": "base",
+      "slots": {
+        "carcass_material": "white liner",
+        "door_style": "shaker",
+        "door_material": "white oak",
+        "exterior_finish": "matte clear",
+        "interior_finish": "prefinished",
+        "drawer_count": 8,
+        "end_panel_count": 2,
+        "filler_count": 1
+      },
       "notes": ""
     }
   ]
@@ -434,6 +468,19 @@ export async function POST(req: NextRequest) {
       // degradation against older prompts and pre-PR records.
       confidence:
         it.confidence === 'high' || it.confidence === 'low' ? it.confidence : 'medium',
+      // product_key drives the composer-vs-freeform branch on save.
+      // Anything not in the cabinet enum coerces to null so hardware /
+      // customer-supplied / accessories take the freeform path.
+      product_key:
+        it.product_key === 'base' ||
+        it.product_key === 'upper' ||
+        it.product_key === 'full' ||
+        it.product_key === 'drawer'
+          ? it.product_key
+          : null,
+      // slots is a hint object — keep whatever shape Claude returned;
+      // the slot resolver normalizes against the rate book downstream.
+      slots: it.slots && typeof it.slots === 'object' ? it.slots : null,
       notes: typeof it.notes === 'string' ? it.notes : '',
     }))
 

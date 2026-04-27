@@ -283,6 +283,14 @@ export interface ComposerBreakdown {
   doorLaborWarn: boolean
   doorMaterial: number
   doorMaterialDetail: string | null
+  /** True when the door type is picked but the door material slot is
+   *  null. Surfaces a "pick a material to price" inline hint in the
+   *  breakdown panel. Door material cost stays $0 in this state — the
+   *  hint just makes the missing-pick obvious instead of silent. */
+  doorMaterialMissing: boolean
+  /** True when the door material is picked but the door finish slot
+   *  is null. Same hint pattern as doorMaterialMissing. */
+  doorFinishMissing: boolean
   /** Door type hardware × door count. Per door pricing v2 — dt.hardware_cost
    *  applied at doorsPerLine. */
   doorHardware: number
@@ -648,6 +656,8 @@ export function computeBreakdown(
     doorLaborWarn,
     doorMaterial,
     doorMaterialDetail,
+    doorMaterialMissing: !!s.doorTypeId && !s.doorMaterialId,
+    doorFinishMissing: !!s.doorMaterialId && !s.doorFinishId,
     doorHardware,
     doorsPerLine,
     doorLaborPerDoor,
