@@ -206,6 +206,84 @@ function btnS(bg: string, color: string): React.CSSProperties {
 const simBtnS: React.CSSProperties = { fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4, border: '1px solid #E5E7EB', background: '#FFF', color: '#6B7280', cursor: 'pointer' }
 
 // =====================================================
+// BLOCK ACTION MENU (⋮ kebab on each schedule block)
+// =====================================================
+function BlockActionMenu({ block, hasSiblings, onDivide, onMerge, btnStyle }: {
+  block: Block
+  hasSiblings: boolean
+  onDivide: (b: Block) => void
+  onMerge: (b: Block) => void
+  btnStyle: React.CSSProperties
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  // No siblings → keep the legacy single-purpose ⋮ button (fires divide directly).
+  if (!hasSiblings) {
+    return (
+      <button
+        className="sched-divide-btn"
+        onClick={(e) => { e.stopPropagation(); onDivide(block) }}
+        onPointerDown={(e) => e.stopPropagation()}
+        title="Divide block"
+        style={btnStyle}
+      >⋮</button>
+    )
+  }
+
+  const itemStyle: React.CSSProperties = {
+    display: 'block', width: '100%', textAlign: 'left',
+    fontSize: 11, padding: '6px 10px', border: 'none', background: 'transparent',
+    color: '#374151', cursor: 'pointer', borderRadius: 4, whiteSpace: 'nowrap',
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: 'absolute', right: btnStyle.right ?? 2, top: '50%', transform: 'translateY(-50%)' }}>
+      <button
+        className="sched-divide-btn"
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
+        onPointerDown={(e) => e.stopPropagation()}
+        title="Block actions"
+        style={{ ...btnStyle, position: 'static', transform: 'none', right: undefined, top: undefined }}
+      >⋮</button>
+      {open && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute', top: 16, right: 0, minWidth: 160,
+            background: '#FFF', border: '1px solid #E5E7EB', borderRadius: 6,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 100, padding: 4,
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setOpen(false); onDivide(block) }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#F3F4F6')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            style={itemStyle}
+          >Divide block</button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setOpen(false); onMerge(block) }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#F3F4F6')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            style={itemStyle}
+          >Merge with adjacent</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// =====================================================
 // THINKING BLOCK
 // =====================================================
 function ThinkingBlock({ thinking }: { thinking: string }) {
@@ -310,7 +388,7 @@ function CapacityRow({ numWeeks, departments, capacityMap, effectiveCapacity, de
 // =====================================================
 // FLOW VIEW (departments as rows)
 // =====================================================
-function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
+function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
@@ -329,6 +407,8 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
   onLeave: () => void
   onSelect: (sk: string) => void
   onDivide: (block: Block) => void
+  onMerge: (block: Block) => void
+  siblingCounts: Record<string, number>
   simMode: boolean
   adjustCapacity: (deptId: string, delta: number) => void
   capacityOverrides: Record<string, number>
@@ -415,15 +495,13 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
                         <span style={{ fontSize: n > 6 ? 8 : n > 4 ? 9 : 10, fontWeight: 600, lineHeight: 1, color: hl ? '#FFF' : oc ? '#991B1B' : c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>{block.sub}</span>
                         <span style={{ fontSize: n > 4 ? 7 : 8, fontWeight: 600, marginLeft: 'auto', paddingLeft: 3, fontFamily: "'SF Mono', monospace", flexShrink: 0, color: hl ? 'rgba(255,255,255,0.7)' : oc ? '#DC2626' : '#B0B0B0' }}>{block.hours}h</span>
                         {isNew && <span style={{ fontSize: 7, marginLeft: 3, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
-                        <button
-                          className="sched-divide-btn"
-                          onClick={(e) => { e.stopPropagation(); onDivide(block) }}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          title="Divide block"
-                          style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', width: 12, height: 14, padding: 0, border: 'none', background: 'rgba(255,255,255,0.85)', borderRadius: 2, cursor: 'pointer', color: '#374151', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        >
-                          ⋮
-                        </button>
+                        <BlockActionMenu
+                          block={block}
+                          hasSiblings={(siblingCounts[`${block.subId}::${block.dept}`] || 0) > 1}
+                          onDivide={onDivide}
+                          onMerge={onMerge}
+                          btnStyle={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', width: 12, height: 14, padding: 0, border: 'none', background: 'rgba(255,255,255,0.85)', borderRadius: 2, cursor: 'pointer', color: '#374151', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        />
                       </div>
                     )
                   })}
@@ -441,7 +519,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
 // =====================================================
 // SWIMLANE VIEW (projects as rows, expand to subprojects)
 // =====================================================
-function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, priorities, onWeekClick }: {
+function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, priorities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
@@ -466,6 +544,8 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
   onLeave: () => void
   onSelect: (sk: string) => void
   onDivide: (block: Block) => void
+  onMerge: (block: Block) => void
+  siblingCounts: Record<string, number>
   priorities: Record<string, number>
   onWeekClick: (weekIndex: number) => void
 }) {
@@ -612,15 +692,13 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
                               <span style={{ fontSize: 8, fontWeight: 700, color: hl ? '#FFF' : dc.text, letterSpacing: '0.02em' }}>{deptShortMap[block.dept] || 'DEPT'}</span>
                               <span style={{ fontSize: 8, fontWeight: 600, color: hl ? 'rgba(255,255,255,0.7)' : `${dc.text}90`, fontFamily: "'SF Mono', monospace" }}>{block.hours}h</span>
                               {isNew && <span style={{ fontSize: 6, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
-                              <button
-                                className="sched-divide-btn"
-                                onClick={(e) => { e.stopPropagation(); onDivide(block) }}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                title="Divide block"
-                                style={{ position: 'absolute', right: 1, top: '50%', transform: 'translateY(-50%)', width: 12, height: 14, padding: 0, border: 'none', background: 'rgba(255,255,255,0.85)', borderRadius: 2, cursor: 'pointer', color: '#374151', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                              >
-                                ⋮
-                              </button>
+                              <BlockActionMenu
+                                block={block}
+                                hasSiblings={(siblingCounts[`${block.subId}::${block.dept}`] || 0) > 1}
+                                onDivide={onDivide}
+                                onMerge={onMerge}
+                                btnStyle={{ position: 'absolute', right: 1, top: '50%', transform: 'translateY(-50%)', width: 12, height: 14, padding: 0, border: 'none', background: 'rgba(255,255,255,0.85)', borderRadius: 2, cursor: 'pointer', color: '#374151', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              />
                             </div>
                           )
                         })}
@@ -866,6 +944,19 @@ export default function SchedulePage() {
     for (const p of projects) { m[p.id] = p.name }
     return m
   }, [projects])
+
+  // siblingCounts[`${subId}::${deptId}`] = number of allocation rows for that
+  // subproject × department pair. Drives the "Merge with adjacent" menu
+  // option visibility — only show it when count > 1 (i.e. the block was
+  // previously split).
+  const siblingCounts = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const b of blocks) {
+      const k = `${b.subId}::${b.dept}`
+      m[k] = (m[k] || 0) + 1
+    }
+    return m
+  }, [blocks])
 
   const projectSubs = useMemo(() => {
     const m: Record<string, string[]> = {}
@@ -1191,6 +1282,60 @@ export default function SchedulePage() {
     // is sufficient.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [divideBlock, org?.id],
+  )
+
+  // Merge-with-adjacent: collapse a multi-row dept split (multiple
+  // department_allocations for same subproject_id × department_id) back
+  // into a single row. Sums hours + scheduled_days, keeps the earliest
+  // scheduled_date, deletes the rest.
+  const handleMerge = useCallback(
+    async (block: Block) => {
+      if (!org?.id) return
+      const { data: rows, error: fetchErr } = await supabase
+        .from('department_allocations')
+        .select('id, scheduled_date, scheduled_days, estimated_hours')
+        .eq('subproject_id', block.subId)
+        .eq('department_id', block.dept)
+      if (fetchErr || !rows || rows.length < 2) return
+
+      const sortedByDate = [...rows].sort((a, b) => {
+        const da = a.scheduled_date || '9999-12-31'
+        const db = b.scheduled_date || '9999-12-31'
+        return da.localeCompare(db)
+      })
+      const survivor = sortedByDate[0]
+      const totalHours = rows.reduce((s, r) => s + (r.estimated_hours || 0), 0)
+      const totalDays = rows.reduce((s, r) => s + (r.scheduled_days || 0), 0)
+
+      const { error: updErr } = await supabase
+        .from('department_allocations')
+        .update({
+          estimated_hours: totalHours,
+          scheduled_days: totalDays,
+          scheduled_date: survivor.scheduled_date,
+        })
+        .eq('id', survivor.id)
+      if (updErr) {
+        console.error('handleMerge update', updErr)
+        return
+      }
+
+      const toDelete = rows.filter(r => r.id !== survivor.id).map(r => r.id)
+      if (toDelete.length > 0) {
+        const { error: delErr } = await supabase
+          .from('department_allocations')
+          .delete()
+          .in('id', toDelete)
+        if (delErr) {
+          console.error('handleMerge delete', delErr)
+          return
+        }
+      }
+
+      await loadData()
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [org?.id],
   )
 
   // --- FLOW VIEW DRAG ---
@@ -1753,6 +1898,8 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   whatIfDiff={whatIfDiff} whatIfActive={!!whatIfBlocks}
                   onPointerDown={handlePointerDown} onHover={handleHover} onLeave={handleLeave} onSelect={handleSelect}
                   onDivide={(b) => setDivideBlock(b)}
+                  onMerge={handleMerge}
+                  siblingCounts={siblingCounts}
                   simMode={simMode} adjustCapacity={adjustCapacity} capacityOverrides={capacityOverrides}
                   deptCapacities={deptCapacities}
                   onWeekClick={(wi: number) => setSelectedWeek(sw => sw === wi ? null : wi)}
@@ -1769,6 +1916,8 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                   whatIfDiff={whatIfDiff} whatIfActive={!!whatIfBlocks}
                   onPointerDown={handlePointerDown} onHover={handleHover} onLeave={handleLeave} onSelect={handleSelect}
                   onDivide={(b) => setDivideBlock(b)}
+                  onMerge={handleMerge}
+                  siblingCounts={siblingCounts}
                   priorities={priorities}
                   onWeekClick={(wi: number) => setSelectedWeek(sw => sw === wi ? null : wi)}
                 />

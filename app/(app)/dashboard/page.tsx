@@ -78,6 +78,13 @@ function DashboardContent() {
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  // Client-invoice (AR) summary for the Receivables card. Three
+  // buckets: overdue (sent + due_date < today), due-7 (today..+7),
+  // due-8-30 (+8..+30). Loaded alongside the rest of the dashboard
+  // data; empty array when no AR yet.
+  const [arInvoices, setArInvoices] = useState<
+    Array<{ id: string; status: string; due_date: string; total: number; amount_received: number }>
+  >([])
   const shopRate = org?.shop_rate ?? 0
   const [loading, setLoading] = useState(true)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -112,6 +119,7 @@ function DashboardContent() {
       { data: subs },
       { data: entries },
       { data: invs },
+      { data: ar },
     ] = await Promise.all([
       supabase
         .from('projects')
@@ -129,12 +137,22 @@ function DashboardContent() {
       supabase.from('subprojects').select('id, project_id, name, labor_hours').eq('org_id', org.id),
       supabase.from('time_entries').select('project_id, subproject_id, duration_minutes').eq('org_id', org.id),
       supabase.from('invoices').select('project_id, total_amount').eq('org_id', org.id),
+      // AR invoices for the Receivables card. Pull only sent/partial
+      // statuses — the buckets all key off due_date and these are the
+      // states that have one. Drafts have no due date relevance, paid/
+      // void/overdue-pseudo-state are handled client-side.
+      supabase
+        .from('client_invoices')
+        .select('id, status, due_date, total, amount_received')
+        .eq('org_id', org.id)
+        .in('status', ['sent', 'partial']),
     ])
 
     setProjects(projs || [])
     setSubprojects(subs || [])
     setTimeEntries(entries || [])
     setInvoices(invs || [])
+    setArInvoices((ar || []) as any[])
     setLoading(false)
   }
 
@@ -187,6 +205,46 @@ function DashboardContent() {
   const displayMarginPct = hasCompleted ? overallMarginPct : inProdMarginPct
   const displayMarginLabel = hasCompleted ? 'Completed Projects' : 'In Production (live)'
   const displayVariance = hasCompleted ? completedBid - completedActual : inProductionBidTotal - inProdActual
+
+  // Receivables aging buckets — pure client-side over the loaded
+  // sent/partial AR invoices. due_date strings are 'YYYY-MM-DD' so
+  // string compare against today is safe + avoids timezone drift.
+  const today = new Date()
+  const todayIso = today.toISOString().slice(0, 10)
+  const plus7 = new Date(today)
+  plus7.setUTCDate(plus7.getUTCDate() + 7)
+  const plus7Iso = plus7.toISOString().slice(0, 10)
+  const plus30 = new Date(today)
+  plus30.setUTCDate(plus30.getUTCDate() + 30)
+  const plus30Iso = plus30.toISOString().slice(0, 10)
+  const arBuckets = arInvoices.reduce(
+    (acc, inv) => {
+      const balance = Math.max(
+        0,
+        +(Number(inv.total) - Number(inv.amount_received)).toFixed(2),
+      )
+      if (balance <= 0) return acc
+      const due = inv.due_date
+      if (due < todayIso) {
+        acc.overdue.count += 1
+        acc.overdue.total += balance
+      } else if (due <= plus7Iso) {
+        acc.due7.count += 1
+        acc.due7.total += balance
+      } else if (due <= plus30Iso) {
+        acc.due30.count += 1
+        acc.due30.total += balance
+      }
+      return acc
+    },
+    {
+      overdue: { count: 0, total: 0 },
+      due7: { count: 0, total: 0 },
+      due30: { count: 0, total: 0 },
+    },
+  )
+  const hasReceivables =
+    arBuckets.overdue.count + arBuckets.due7.count + arBuckets.due30.count > 0
 
   // Projects at risk: actual cost > 50% of bid OR any subproject over estimated hours
   const atRiskProjects: ProjectRisk[] = activeProjects
@@ -390,6 +448,51 @@ function DashboardContent() {
             </div>
           </div>
         )}
+
+        {/* ── Receivables ── */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl mb-4 sm:mb-6 overflow-hidden">
+          <div className="px-4 sm:px-5 py-3 border-b border-[#F3F4F6] flex items-center justify-between">
+            <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">
+              Receivables
+            </span>
+            <Link
+              href="/invoices"
+              className="text-[11px] text-[#2563EB] hover:underline"
+            >
+              View all
+            </Link>
+          </div>
+          {hasReceivables ? (
+            <div>
+              <ReceivablesRow
+                href={`/invoices?status=sent&due_before=${todayIso}`}
+                label="Overdue"
+                count={arBuckets.overdue.count}
+                total={arBuckets.overdue.total}
+                tone="red"
+              />
+              <ReceivablesRow
+                href={`/invoices?status=sent&due_before=${plus7Iso}`}
+                label="Due in 7 days"
+                count={arBuckets.due7.count}
+                total={arBuckets.due7.total}
+                tone="amber"
+              />
+              <ReceivablesRow
+                href={`/invoices?status=sent&due_before=${plus30Iso}`}
+                label="Due in 8–30 days"
+                count={arBuckets.due30.count}
+                total={arBuckets.due30.total}
+                tone="gray"
+                last
+              />
+            </div>
+          ) : (
+            <div className="px-4 sm:px-5 py-4 text-[12.5px] text-[#9CA3AF] italic">
+              No invoices outstanding.
+            </div>
+          )}
+        </div>
 
         {/* ── TOP ROW: Key Metrics ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
@@ -644,5 +747,65 @@ function DashboardContent() {
         </div>
       </div>
     </>
+  )
+}
+
+// ── Receivables row helper ──────────────────────────────────────────────
+// Three-tone bucket row inside the Receivables card. Click routes to
+// /invoices?status=sent&due_before=<iso>; empty buckets dim the row but
+// still link.
+
+function ReceivablesRow({
+  href,
+  label,
+  count,
+  total,
+  tone,
+  last,
+}: {
+  href: string
+  label: string
+  count: number
+  total: number
+  tone: 'red' | 'amber' | 'gray'
+  last?: boolean
+}) {
+  const dim = count === 0
+  const valueClass =
+    dim
+      ? 'text-[#9CA3AF]'
+      : tone === 'red'
+        ? 'text-[#991B1B]'
+        : tone === 'amber'
+          ? 'text-[#92400E]'
+          : 'text-[#374151]'
+  const dotClass =
+    tone === 'red'
+      ? 'bg-[#DC2626]'
+      : tone === 'amber'
+        ? 'bg-[#F59E0B]'
+        : 'bg-[#9CA3AF]'
+  const Wrap: any = dim ? 'div' : Link
+  const wrapProps = dim ? {} : { href }
+  return (
+    <Wrap
+      {...wrapProps}
+      className={`flex items-center justify-between gap-3 px-4 sm:px-5 py-2.5 ${
+        last ? '' : 'border-b border-[#F3F4F6]'
+      } ${dim ? '' : 'hover:bg-[#F9FAFB] transition-colors'}`}
+    >
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} />
+        <span className="text-[12.5px] text-[#374151] truncate">{label}</span>
+        <span className="text-[11.5px] text-[#9CA3AF] font-mono tabular-nums">
+          {count} {count === 1 ? 'invoice' : 'invoices'}
+        </span>
+      </div>
+      <div
+        className={`text-[14px] font-mono tabular-nums font-semibold ${valueClass}`}
+      >
+        ${total.toFixed(2)}
+      </div>
+    </Wrap>
   )
 }

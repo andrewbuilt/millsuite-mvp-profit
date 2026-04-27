@@ -73,6 +73,32 @@ export async function POST(req: NextRequest) {
       .from('shop_rate_settings')
       .insert({ org_id: org.id })
 
+    // Seed the canonical 5 departments. Settings → Active departments
+    // can toggle any of these off later (active=false hides them from
+    // schedule / time clock / capacity without orphaning past time
+    // entries). 8 hours/day default = 40 hours/week.
+    const DEFAULT_DEPARTMENTS = [
+      { name: 'Engineering', display_order: 1 },
+      { name: 'CNC', display_order: 2 },
+      { name: 'Assembly', display_order: 3 },
+      { name: 'Finish', display_order: 4 },
+      { name: 'Install', display_order: 5 },
+    ]
+    const { error: deptErr } = await supabaseAdmin.from('departments').insert(
+      DEFAULT_DEPARTMENTS.map((d) => ({
+        org_id: org.id,
+        name: d.name,
+        display_order: d.display_order,
+        active: true,
+        hours_per_day: 8,
+      })),
+    )
+    if (deptErr) {
+      // Non-fatal — the org is created, the operator can add departments
+      // manually from Settings if the seed insert fails.
+      console.warn('Department seed failed', deptErr)
+    }
+
     return NextResponse.json({
       org_id: org.id,
       user_id: user.id,
