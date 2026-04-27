@@ -46,6 +46,7 @@ import {
   ChevronDown,
   LayoutGrid,
   UserCircle2,
+  FileText,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
@@ -90,6 +91,7 @@ const NAV: Array<NavLeaf | NavGroupSpec> = [
       { href: '/capacity', label: 'Capacity', icon: BarChart3, feature: 'capacity' },
     ],
   },
+  { href: '/invoices', label: 'Invoices', icon: FileText },
   {
     href: '/team',
     label: 'Team',
