@@ -138,6 +138,39 @@ export default function InvoicesPage() {
     return arr
   }, [filtered, sortKey])
 
+  // AR-aging aggregates — computed from the loaded list (org-wide,
+  // pre-filter). Outstanding = sent + partial + overdue balances.
+  // Overdue = sent past due date. Paid this month = paid invoices
+  // whose paid_at falls in the current calendar month.
+  const aging = useMemo(() => {
+    const now = new Date()
+    const ymPrefix = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+    let outstanding = 0
+    let overdue = 0
+    let overdueCount = 0
+    let paidThisMonth = 0
+    for (const inv of invoices) {
+      if (inv.status === 'void' || inv.status === 'draft') continue
+      const balance = +(inv.total - inv.amount_received).toFixed(2)
+      if (inv.status === 'sent' || inv.status === 'partial') {
+        outstanding += balance
+        if (isOverdue(inv)) {
+          overdue += balance
+          overdueCount += 1
+        }
+      }
+      if (inv.status === 'paid' && inv.paid_at?.startsWith(ymPrefix)) {
+        paidThisMonth += inv.total
+      }
+    }
+    return {
+      outstanding: +outstanding.toFixed(2),
+      overdue: +overdue.toFixed(2),
+      overdueCount,
+      paidThisMonth: +paidThisMonth.toFixed(2),
+    }
+  }, [invoices])
+
   if (!orgId) {
     return (
       <div className="min-h-screen bg-[#FAFAFA]">
@@ -154,6 +187,57 @@ export default function InvoicesPage() {
         <div className="flex items-center justify-between mb-5">
           <h1 className="text-[20px] font-semibold text-[#111]">Invoices</h1>
         </div>
+
+        {/* AR-aging summary — pre-filter aggregate so the numbers
+            don't shift as the operator filters the list. */}
+        {invoices.length > 0 && (
+          <div className="mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="px-4 py-3 bg-white border border-[#E5E7EB] rounded-xl">
+              <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
+                Outstanding
+              </div>
+              <div className="text-[18px] font-semibold text-[#111] font-mono tabular-nums mt-0.5">
+                ${aging.outstanding.toFixed(2)}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setStatusFilter(aging.overdueCount > 0 ? 'overdue' : statusFilter)}
+              disabled={aging.overdueCount === 0}
+              className={`px-4 py-3 bg-white border border-[#E5E7EB] rounded-xl text-left transition-colors ${
+                aging.overdueCount > 0
+                  ? 'hover:border-[#FECACA] hover:bg-[#FEF2F2] cursor-pointer'
+                  : 'cursor-default'
+              }`}
+            >
+              <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
+                Overdue
+              </div>
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <div
+                  className={`text-[18px] font-semibold font-mono tabular-nums ${
+                    aging.overdueCount > 0 ? 'text-[#991B1B]' : 'text-[#9CA3AF]'
+                  }`}
+                >
+                  ${aging.overdue.toFixed(2)}
+                </div>
+                {aging.overdueCount > 0 && (
+                  <div className="text-[11.5px] text-[#9CA3AF]">
+                    {aging.overdueCount} invoice{aging.overdueCount === 1 ? '' : 's'}
+                  </div>
+                )}
+              </div>
+            </button>
+            <div className="px-4 py-3 bg-white border border-[#E5E7EB] rounded-xl">
+              <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
+                Paid this month
+              </div>
+              <div className="text-[18px] font-semibold text-[#059669] font-mono tabular-nums mt-0.5">
+                ${aging.paidThisMonth.toFixed(2)}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="mb-5 flex flex-wrap items-center gap-3">

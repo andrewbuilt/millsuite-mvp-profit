@@ -26,6 +26,7 @@ import {
   type Invoice,
   type InvoiceLineItem,
 } from '@/lib/invoices'
+import AddLineItemPicker, { type AdHocLineSeed } from './AddLineItemPicker'
 
 interface DraftLine {
   description: string
@@ -43,15 +44,17 @@ interface BillTo {
   phone: string | null
 }
 
-export default function CreateInvoiceModal({
-  milestoneId,
-  onClose,
-  onCreated,
-}: {
-  milestoneId: string
+type Props = {
   onClose: () => void
   onCreated: (invoice: Invoice, action: 'draft' | 'sent') => void
-}) {
+} & (
+  | { mode: 'milestone'; milestoneId: string }
+  | { mode: 'ad_hoc'; projectId: string; orgId: string }
+)
+
+export default function CreateInvoiceModal(props: Props) {
+  const { onClose, onCreated } = props
+  const isMilestone = props.mode === 'milestone'
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -75,56 +78,110 @@ export default function CreateInvoiceModal({
     let cancelled = false
     ;(async () => {
       try {
-        const seed = await buildInvoiceFromMilestone(milestoneId)
-        if (cancelled) return
-        const inv = seed.invoice
-        setOrgId(inv.org_id ?? null)
-        setProjectId(inv.project_id ?? null)
-        setClientId(inv.client_id ?? null)
-        setInvoiceDate(inv.invoice_date ?? '')
-        setDueDate(inv.due_date ?? '')
-        setTaxPct(Number(inv.tax_pct) || 0)
-        setNotes(inv.notes ?? '')
-        setInternalNotes(inv.internal_notes ?? '')
-        setLinkedMilestoneId(inv.linked_milestone_id ?? null)
-        setLineItems(
-          seed.lineItems.map((li) => ({
-            description: li.description ?? '',
-            quantity: Number(li.quantity ?? 1),
-            unit: li.unit ?? null,
-            unit_price: Number(li.unit_price ?? 0),
-            source_type: li.source_type ?? null,
-            source_id: li.source_id ?? null,
-          })),
-        )
+        if (props.mode === 'milestone') {
+          const seed = await buildInvoiceFromMilestone(props.milestoneId)
+          if (cancelled) return
+          const inv = seed.invoice
+          setOrgId(inv.org_id ?? null)
+          setProjectId(inv.project_id ?? null)
+          setClientId(inv.client_id ?? null)
+          setInvoiceDate(inv.invoice_date ?? '')
+          setDueDate(inv.due_date ?? '')
+          setTaxPct(Number(inv.tax_pct) || 0)
+          setNotes(inv.notes ?? '')
+          setInternalNotes(inv.internal_notes ?? '')
+          setLinkedMilestoneId(inv.linked_milestone_id ?? null)
+          setLineItems(
+            seed.lineItems.map((li) => ({
+              description: li.description ?? '',
+              quantity: Number(li.quantity ?? 1),
+              unit: li.unit ?? null,
+              unit_price: Number(li.unit_price ?? 0),
+              source_type: li.source_type ?? null,
+              source_id: li.source_id ?? null,
+            })),
+          )
+          if (inv.project_id) {
+            const { data: proj } = await supabase
+              .from('projects')
+              .select('name')
+              .eq('id', inv.project_id)
+              .single()
+            if (!cancelled && proj?.name) setProjectName(proj.name)
+          }
+          if (inv.client_id) {
+            const { data: c } = await supabase
+              .from('clients')
+              .select('name, address, email, phone')
+              .eq('id', inv.client_id)
+              .single()
+            if (!cancelled && c) {
+              setBillTo({
+                name: c.name,
+                address: c.address ?? null,
+                email: c.email ?? null,
+                phone: c.phone ?? null,
+              })
+            }
+          }
+        } else {
+          // Ad-hoc — seed from project + org settings only. No
+          // milestone link, no prefilled line items, today + default
+          // payment terms for dates.
+          setOrgId(props.orgId)
+          setProjectId(props.projectId)
+          setLineItems([])
+          setLinkedMilestoneId(null)
 
-        // Bill-to + project name come from the project + client rows.
-        if (inv.project_id) {
-          const { data: proj } = await supabase
-            .from('projects')
-            .select('name')
-            .eq('id', inv.project_id)
-            .single()
-          if (!cancelled && proj?.name) setProjectName(proj.name)
-        }
-        if (inv.client_id) {
-          const { data: c } = await supabase
-            .from('clients')
-            .select('name, address, email, phone')
-            .eq('id', inv.client_id)
-            .single()
-          if (!cancelled && c) {
-            setBillTo({
-              name: c.name,
-              address: c.address ?? null,
-              email: c.email ?? null,
-              phone: c.phone ?? null,
-            })
+          const [projRes, orgRes] = await Promise.all([
+            supabase
+              .from('projects')
+              .select('name, client_id')
+              .eq('id', props.projectId)
+              .single(),
+            supabase
+              .from('orgs')
+              .select(
+                'default_tax_pct, default_payment_terms_days, invoice_footer_text',
+              )
+              .eq('id', props.orgId)
+              .single(),
+          ])
+          if (cancelled) return
+          if (projRes.data) {
+            setProjectName((projRes.data as any).name)
+            setClientId((projRes.data as any).client_id ?? null)
+          }
+          const today = new Date().toISOString().slice(0, 10)
+          const termsDays =
+            Number((orgRes.data as any)?.default_payment_terms_days) || 14
+          const due = new Date()
+          due.setUTCDate(due.getUTCDate() + termsDays)
+          setInvoiceDate(today)
+          setDueDate(due.toISOString().slice(0, 10))
+          setTaxPct(Number((orgRes.data as any)?.default_tax_pct) || 0)
+          setNotes(((orgRes.data as any)?.invoice_footer_text as string) ?? '')
+          setInternalNotes('')
+
+          if (projRes.data && (projRes.data as any).client_id) {
+            const { data: c } = await supabase
+              .from('clients')
+              .select('name, address, email, phone')
+              .eq('id', (projRes.data as any).client_id)
+              .single()
+            if (!cancelled && c) {
+              setBillTo({
+                name: c.name,
+                address: c.address ?? null,
+                email: c.email ?? null,
+                phone: c.phone ?? null,
+              })
+            }
           }
         }
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Failed to load milestone')
+          setError(e instanceof Error ? e.message : 'Failed to seed invoice')
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -133,7 +190,8 @@ export default function CreateInvoiceModal({
     return () => {
       cancelled = true
     }
-  }, [milestoneId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.mode === 'milestone' ? props.milestoneId : `${props.mode === 'ad_hoc' ? props.projectId : ''}`])
 
   const totals = useMemo(
     () =>
@@ -160,18 +218,21 @@ export default function CreateInvoiceModal({
     setLineItems((prev) => prev.filter((_, idx) => idx !== i))
   }
 
-  function addCustomLine() {
+  const [pickerOpen, setPickerOpen] = useState(false)
+
+  function appendSeeds(seeds: AdHocLineSeed[]) {
     setLineItems((prev) => [
       ...prev,
-      {
-        description: '',
-        quantity: 1,
-        unit: null,
-        unit_price: 0,
-        source_type: 'custom',
-        source_id: null,
-      },
+      ...seeds.map((s) => ({
+        description: s.description,
+        quantity: s.quantity,
+        unit: s.unit,
+        unit_price: s.unit_price,
+        source_type: s.source_type,
+        source_id: s.source_id,
+      })),
     ])
+    setPickerOpen(false)
   }
 
   async function handleSave(markSent: boolean) {
@@ -320,7 +381,7 @@ export default function CreateInvoiceModal({
                 </div>
                 <button
                   type="button"
-                  onClick={addCustomLine}
+                  onClick={() => setPickerOpen(true)}
                   className="inline-flex items-center gap-1 text-[11.5px] text-[#2563EB] hover:underline"
                 >
                   <Plus className="w-3.5 h-3.5" /> Add line item
@@ -466,6 +527,14 @@ export default function CreateInvoiceModal({
           </button>
         </div>
       </div>
+
+      {pickerOpen && projectId && (
+        <AddLineItemPicker
+          projectId={projectId}
+          onClose={() => setPickerOpen(false)}
+          onPick={appendSeeds}
+        />
+      )}
     </div>
   )
 }

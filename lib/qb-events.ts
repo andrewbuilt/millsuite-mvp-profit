@@ -79,6 +79,26 @@ export interface MatchCandidate {
   reasons: string[]     // human-readable scoring breakdown
 }
 
+/** Invoice-side candidate. Scoring shape mirrors MatchCandidate but
+ *  the resolution path differs — confirming an invoice match writes
+ *  to client_invoice_payments (and cascades to the linked milestone
+ *  via the invoice's existing recordPayment flow), rather than
+ *  flipping a cash_flow_receivables row directly. */
+export interface InvoiceMatchCandidate {
+  projectId: string
+  projectName: string
+  clientName: string | null
+  invoiceId: string
+  invoiceNumber: string
+  invoiceDate: string
+  dueDate: string
+  /** Balance due — total minus amount_received. The amount QB likely matches. */
+  balanceDue: number
+  total: number
+  confidence: number
+  reasons: string[]
+}
+
 // ─── Scoring thresholds ───
 //
 // These are intentionally lenient for the MVP; the reconciliation UI is the
@@ -334,6 +354,105 @@ export async function findCandidates(
   return candidates
 }
 
+/**
+ * Same scoring shape as findCandidates but matches against open
+ * client_invoices instead of projected milestones. An invoice is
+ * "open" when its status is sent, partial, or overdue (paid + draft +
+ * void are excluded). Score uses balance-due against the QB amount,
+ * client name on the joined project, and either invoice_date or
+ * due_date — whichever is closer to the QB event date.
+ */
+export async function findInvoiceCandidates(
+  orgId: string,
+  event: {
+    customer_name: string | null
+    amount: number
+    occurred_at: string
+  },
+): Promise<InvoiceMatchCandidate[]> {
+  const { data, error } = await supabase
+    .from('client_invoices')
+    .select(
+      'id, project_id, invoice_number, invoice_date, due_date, total, amount_received, status, projects(id, name, client_name, org_id)',
+    )
+    .eq('org_id', orgId)
+    .in('status', ['sent', 'partial'])
+  if (error || !data) {
+    console.error('findInvoiceCandidates', error)
+    return []
+  }
+  type Row = {
+    id: string
+    project_id: string
+    invoice_number: string
+    invoice_date: string
+    due_date: string
+    total: number | string
+    amount_received: number | string
+    status: string
+    projects:
+      | { id: string; name: string; client_name: string | null; org_id: string }
+      | Array<{ id: string; name: string; client_name: string | null; org_id: string }>
+      | null
+  }
+  const out: InvoiceMatchCandidate[] = []
+  for (const row of data as unknown as Row[]) {
+    const proj = Array.isArray(row.projects) ? row.projects[0] : row.projects
+    if (!proj || proj.org_id !== orgId) continue
+    const total = Number(row.total) || 0
+    const received = Number(row.amount_received) || 0
+    const balance = +(total - received).toFixed(2)
+    if (balance <= 0) continue
+
+    const nameScore = nameSimilarity(proj.client_name, event.customer_name)
+    const amountScore = amountSimilarity(balance, event.amount)
+    const dateScore = Math.max(
+      dateProximity(row.invoice_date, event.occurred_at),
+      dateProximity(row.due_date, event.occurred_at),
+    )
+    const confidence = amountScore * 0.55 + nameScore * 0.3 + dateScore * 0.15
+    if (confidence < SUGGEST_THRESHOLD) continue
+
+    const reasons: string[] = []
+    if (amountScore >= 0.99) {
+      reasons.push(`Exact balance-due match ($${balance.toLocaleString()})`)
+    } else if (amountScore > 0.5) {
+      const pct = ((Math.abs(balance - event.amount) / balance) * 100).toFixed(1)
+      reasons.push(`Amount within ${pct}% of balance due`)
+    }
+    if (nameScore >= 0.9) {
+      reasons.push(`Customer "${proj.client_name}" matches closely`)
+    } else if (nameScore > 0.4) {
+      reasons.push(`Customer "${proj.client_name}" partially matches`)
+    }
+    if (dateScore >= 0.85) {
+      reasons.push(`Near invoice or due date`)
+    }
+
+    out.push({
+      projectId: row.project_id,
+      projectName: proj.name,
+      clientName: proj.client_name,
+      invoiceId: row.id,
+      invoiceNumber: row.invoice_number,
+      invoiceDate: row.invoice_date,
+      dueDate: row.due_date,
+      balanceDue: balance,
+      total,
+      confidence,
+      reasons,
+    })
+  }
+  out.sort((a, b) => {
+    if (b.confidence !== a.confidence) return b.confidence - a.confidence
+    const aExact = a.balanceDue === event.amount ? 1 : 0
+    const bExact = b.balanceDue === event.amount ? 1 : 0
+    if (bExact !== aExact) return bExact - aExact
+    return a.dueDate.localeCompare(b.dueDate)
+  })
+  return out
+}
+
 // ─── Apply / resolve ───
 
 /**
@@ -361,38 +480,202 @@ export async function processIncoming(
     }
   }
 
-  const candidates = await findCandidates(input.org_id, {
-    customer_name: input.customer_name || null,
-    amount: input.amount,
-    occurred_at: input.occurred_at,
-  })
-  if (candidates.length === 0) {
+  // Score against both projected milestones and open invoices, then
+  // pick the higher-confidence pool. In practice an invoice's
+  // existence flipped the milestone to 'invoiced' (so it's no longer
+  // a milestone candidate), making this an either/or rather than a
+  // race — but pulling both lets us be defensive against drift.
+  const [milestoneCands, invoiceCands] = await Promise.all([
+    findCandidates(input.org_id, {
+      customer_name: input.customer_name || null,
+      amount: input.amount,
+      occurred_at: input.occurred_at,
+    }),
+    findInvoiceCandidates(input.org_id, {
+      customer_name: input.customer_name || null,
+      amount: input.amount,
+      occurred_at: input.occurred_at,
+    }),
+  ])
+  const topMilestone = milestoneCands[0]
+  const topInvoice = invoiceCands[0]
+  const milestoneConf = topMilestone?.confidence ?? 0
+  const invoiceConf = topInvoice?.confidence ?? 0
+
+  if (!topMilestone && !topInvoice) {
     return { eventId: ins.eventId, status: 'unmatched', autoMatched: false }
   }
 
-  const top = candidates[0]
-  const second = candidates[1]
-  const gapOk = !second || top.confidence - second.confidence >= AUTO_MATCH_GAP
-  const confidentEnough = top.confidence >= AUTO_MATCH_THRESHOLD
-
-  if (confidentEnough && gapOk) {
-    // Auto-confirm.
-    await confirmMatch(ins.eventId, top.receivableId, { auto: true })
-    return { eventId: ins.eventId, status: 'confirmed', autoMatched: true }
+  // Prefer invoice match when it scores at least as high — invoices
+  // are more granular (capture the specific payment), and the
+  // recordInvoicePayment cascade reaches the milestone anyway.
+  if (topInvoice && invoiceConf >= milestoneConf) {
+    const second = invoiceCands[1]
+    const gapOk = !second || topInvoice.confidence - second.confidence >= AUTO_MATCH_GAP
+    if (topInvoice.confidence >= AUTO_MATCH_THRESHOLD && gapOk) {
+      await confirmInvoiceMatch(ins.eventId, topInvoice.invoiceId, { auto: true })
+      return { eventId: ins.eventId, status: 'confirmed', autoMatched: true }
+    }
+    // Park as suggestion. matched_receivable_id stays null; the
+    // reconciliation page reads matched_invoice_id (encoded into
+    // match_reasons[0] as `invoice:${id}` so we don't need a
+    // schema change for the parking record).
+    await supabase
+      .from('qb_events')
+      .update({
+        match_status: 'matched',
+        matched_project_id: topInvoice.projectId,
+        matched_receivable_id: null,
+        match_confidence: topInvoice.confidence,
+        match_reasons: [`invoice:${topInvoice.invoiceId}`, ...topInvoice.reasons],
+      })
+      .eq('id', ins.eventId)
+    return { eventId: ins.eventId, status: 'matched', autoMatched: false }
   }
 
-  // Suggest but don't auto-apply.
+  // Milestone path — original behavior.
+  const second = milestoneCands[1]
+  const gapOk = !second || topMilestone!.confidence - second.confidence >= AUTO_MATCH_GAP
+  if (topMilestone!.confidence >= AUTO_MATCH_THRESHOLD && gapOk) {
+    await confirmMatch(ins.eventId, topMilestone!.receivableId, { auto: true })
+    return { eventId: ins.eventId, status: 'confirmed', autoMatched: true }
+  }
   await supabase
     .from('qb_events')
     .update({
       match_status: 'matched',
-      matched_project_id: top.projectId,
-      matched_receivable_id: top.receivableId,
-      match_confidence: top.confidence,
-      match_reasons: top.reasons,
+      matched_project_id: topMilestone!.projectId,
+      matched_receivable_id: topMilestone!.receivableId,
+      match_confidence: topMilestone!.confidence,
+      match_reasons: topMilestone!.reasons,
     })
     .eq('id', ins.eventId)
   return { eventId: ins.eventId, status: 'matched', autoMatched: false }
+}
+
+/**
+ * Confirm a QB event against a specific open invoice. Inserts a
+ * payment row on the invoice with qb_event_id set, which flows
+ * through recordInvoicePayment's cascade — invoice status flips +
+ * linked milestone gets received when the invoice is fully paid.
+ *
+ * Idempotent on the qb_events side: a re-call updates the event row
+ * but won't create a duplicate payment as long as the caller checks
+ * the existing payment first. We don't double-insert here because
+ * confirmInvoiceMatch is the single write path for QB→invoice.
+ */
+export async function confirmInvoiceMatch(
+  eventId: string,
+  invoiceId: string,
+  opts: { auto?: boolean; reviewerId?: string } = {},
+): Promise<boolean> {
+  const { data: evt } = await supabase
+    .from('qb_events')
+    .select('org_id, amount, occurred_at, event_type, qb_event_id')
+    .eq('id', eventId)
+    .single()
+  if (!evt) return false
+
+  // Don't double-write a payment for the same QB event.
+  const { data: existing } = await supabase
+    .from('client_invoice_payments')
+    .select('id')
+    .eq('qb_event_id', eventId)
+    .maybeSingle()
+
+  if (!existing) {
+    const inferredMethod =
+      evt.event_type === 'deposit_received' ? 'ach' : null
+    const { error: payErr } = await supabase
+      .from('client_invoice_payments')
+      .insert({
+        invoice_id: invoiceId,
+        amount: evt.amount,
+        payment_date: String(evt.occurred_at).slice(0, 10),
+        payment_method: inferredMethod,
+        reference: evt.qb_event_id,
+        notes: 'Auto-matched from QuickBooks',
+        qb_event_id: eventId,
+      })
+    if (payErr) {
+      console.error('confirmInvoiceMatch → payment insert', payErr)
+      return false
+    }
+    // Recompute invoice aggregates + cascade to milestone. We have
+    // to re-derive the invoice here because the recordInvoicePayment
+    // helper assumes it owns the insert. Run the same status math
+    // against the full payments list.
+    const [invRes, paysRes] = await Promise.all([
+      supabase
+        .from('client_invoices')
+        .select('id, total, status, linked_milestone_id, amount_received')
+        .eq('id', invoiceId)
+        .single(),
+      supabase
+        .from('client_invoice_payments')
+        .select('amount')
+        .eq('invoice_id', invoiceId),
+    ])
+    if (invRes.data) {
+      const inv = invRes.data as {
+        id: string
+        total: number | string
+        status: QbMatchStatus | string
+        linked_milestone_id: string | null
+        amount_received: number | string
+      }
+      const total = Number(inv.total) || 0
+      const sum = (paysRes.data || []).reduce(
+        (s, r) => s + (Number(r.amount) || 0),
+        0,
+      )
+      const nowIso = new Date().toISOString()
+      const fullyPaid = sum >= total && total > 0
+      const nextStatus = fullyPaid ? 'paid' : 'partial'
+      await supabase
+        .from('client_invoices')
+        .update({
+          amount_received: +sum.toFixed(2),
+          status: nextStatus,
+          paid_at: fullyPaid ? nowIso : null,
+          updated_at: nowIso,
+        })
+        .eq('id', invoiceId)
+      if (fullyPaid && inv.linked_milestone_id) {
+        await supabase
+          .from('cash_flow_receivables')
+          .update({
+            status: 'received',
+            received_date: String(evt.occurred_at).slice(0, 10),
+            received_amount: +sum.toFixed(2),
+          })
+          .eq('id', inv.linked_milestone_id)
+      }
+    }
+  }
+
+  const { data: invRow } = await supabase
+    .from('client_invoices')
+    .select('project_id')
+    .eq('id', invoiceId)
+    .single()
+
+  const { error: evtErr } = await supabase
+    .from('qb_events')
+    .update({
+      match_status: 'confirmed',
+      matched_project_id: invRow?.project_id ?? null,
+      matched_receivable_id: null,
+      match_reasons: [`invoice:${invoiceId}`],
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: opts.reviewerId || null,
+    })
+    .eq('id', eventId)
+  if (evtErr) {
+    console.error('confirmInvoiceMatch → event', evtErr)
+    return false
+  }
+  return true
 }
 
 /**

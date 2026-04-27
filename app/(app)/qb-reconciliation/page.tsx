@@ -28,12 +28,15 @@ import { supabase } from '@/lib/supabase'
 import {
   listQbEvents,
   findCandidates,
+  findInvoiceCandidates,
   confirmMatch,
+  confirmInvoiceMatch,
   dismissEvent,
   processIncoming,
   type QbEvent,
   type QbMatchStatus,
   type MatchCandidate,
+  type InvoiceMatchCandidate,
   AUTO_MATCH_THRESHOLD,
 } from '@/lib/qb-events'
 import { AlertCircle, CheckCircle2, Circle, XCircle, RefreshCw, Zap } from 'lucide-react'
@@ -65,6 +68,14 @@ function confidenceTone(c: number | null | undefined): string {
   return 'text-[#DC2626]'
 }
 
+/** Pull the invoice id out of an event's match_reasons. processIncoming
+ *  encodes a parked invoice match as `invoice:${id}` in the first
+ *  reason slot — see lib/qb-events.processIncoming. */
+function parkedInvoiceId(evt: QbEvent): string | null {
+  const tag = evt.match_reasons?.find((r) => r.startsWith('invoice:'))
+  return tag ? tag.slice('invoice:'.length) : null
+}
+
 export default function QbReconciliationPage() {
   const { org, user } = useAuth()
   const [events, setEvents] = useState<QbEvent[]>([])
@@ -73,6 +84,9 @@ export default function QbReconciliationPage() {
   // Per-event expanded-candidate view.
   const [expanded, setExpanded] = useState<string | null>(null)
   const [candidates, setCandidates] = useState<Record<string, MatchCandidate[]>>({})
+  const [invoiceCandidates, setInvoiceCandidates] = useState<
+    Record<string, InvoiceMatchCandidate[]>
+  >({})
   const [busyId, setBusyId] = useState<string | null>(null)
   const [connection, setConnection] = useState<{ realm_id: string; connected_at: string } | null>(null)
 
@@ -99,14 +113,19 @@ export default function QbReconciliationPage() {
   // Load candidates lazily the first time a row is expanded — keeps the
   // initial page paint cheap when there are many unmatched events.
   async function loadCandidatesFor(evt: QbEvent) {
-    if (candidates[evt.id]) return
     if (!org?.id) return
-    const cands = await findCandidates(org.id, {
+    if (candidates[evt.id] && invoiceCandidates[evt.id]) return
+    const probe = {
       customer_name: evt.customer_name,
       amount: evt.amount,
       occurred_at: evt.occurred_at,
-    })
+    }
+    const [cands, invs] = await Promise.all([
+      findCandidates(org.id, probe),
+      findInvoiceCandidates(org.id, probe),
+    ])
     setCandidates((c) => ({ ...c, [evt.id]: cands }))
+    setInvoiceCandidates((c) => ({ ...c, [evt.id]: invs }))
   }
 
   async function handleConfirm(evt: QbEvent, receivableId: string) {
@@ -115,6 +134,17 @@ export default function QbReconciliationPage() {
     setBusyId(null)
     if (!ok) {
       alert('Failed to confirm match — check console for details.')
+      return
+    }
+    refresh()
+  }
+
+  async function handleConfirmInvoice(evt: QbEvent, invoiceId: string) {
+    setBusyId(evt.id)
+    const ok = await confirmInvoiceMatch(evt.id, invoiceId, { reviewerId: user?.id })
+    setBusyId(null)
+    if (!ok) {
+      alert('Failed to confirm invoice match — check console for details.')
       return
     }
     refresh()
@@ -303,28 +333,38 @@ export default function QbReconciliationPage() {
                           </>
                         )}
                       </div>
-                      {evt.match_status === 'matched' && evt.matched_receivable_id && (
-                        <div className="mt-2 text-xs">
-                          <span className="text-[#6B7280]">Suggested: </span>
-                          <span className={`font-semibold ${confidenceTone(evt.match_confidence)}`}>
-                            {confidencePct(evt.match_confidence)} confidence
-                          </span>
-                          {evt.match_reasons?.length > 0 && (
-                            <ul className="mt-1 ml-1 text-[11px] text-[#9CA3AF] list-disc list-inside">
-                              {evt.match_reasons.map((r, i) => (
-                                <li key={i}>{r}</li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      )}
+                      {evt.match_status === 'matched' &&
+                        (evt.matched_receivable_id || parkedInvoiceId(evt)) && (
+                          <div className="mt-2 text-xs">
+                            <span className="text-[#6B7280]">
+                              Suggested {parkedInvoiceId(evt) ? 'invoice' : 'milestone'}:{' '}
+                            </span>
+                            <span className={`font-semibold ${confidenceTone(evt.match_confidence)}`}>
+                              {confidencePct(evt.match_confidence)} confidence
+                            </span>
+                            {evt.match_reasons?.length > 0 && (
+                              <ul className="mt-1 ml-1 text-[11px] text-[#9CA3AF] list-disc list-inside">
+                                {evt.match_reasons
+                                  .filter((r) => !r.startsWith('invoice:'))
+                                  .map((r, i) => (
+                                    <li key={i}>{r}</li>
+                                  ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       {evt.match_status !== 'confirmed' && evt.match_status !== 'dismissed' && (
                         <>
-                          {evt.matched_receivable_id && (
+                          {(evt.matched_receivable_id || parkedInvoiceId(evt)) && (
                             <button
-                              onClick={() => handleConfirm(evt, evt.matched_receivable_id!)}
+                              onClick={() => {
+                                const invId = parkedInvoiceId(evt)
+                                if (invId) handleConfirmInvoice(evt, invId)
+                                else if (evt.matched_receivable_id)
+                                  handleConfirm(evt, evt.matched_receivable_id)
+                              }}
                               disabled={isBusy}
                               className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#059669] text-white hover:bg-[#047857] disabled:opacity-50 inline-flex items-center gap-1.5"
                             >
@@ -374,10 +414,50 @@ export default function QbReconciliationPage() {
 
                   {isExpanded && (
                     <div className="mt-3 pt-3 border-t border-[#F3F4F6] space-y-1.5">
-                      {cands.length === 0 ? (
+                      {(invoiceCandidates[evt.id] || []).length > 0 && (
+                        <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-0.5">
+                          Open invoices
+                        </div>
+                      )}
+                      {(invoiceCandidates[evt.id] || []).map((inv) => (
+                        <div
+                          key={inv.invoiceId}
+                          className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center py-2 px-3 rounded-lg bg-[#F9FAFB] hover:bg-[#F3F4F6] text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-semibold text-[#111] truncate">
+                              {inv.projectName}{' '}
+                              <span className="font-mono text-[#6B7280] font-normal">
+                                · {inv.invoiceNumber}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-[#6B7280] truncate">
+                              {inv.clientName || '—'} · balance {money(inv.balanceDue)} of {money(inv.total)}
+                              {' · due '}{inv.dueDate}
+                            </div>
+                          </div>
+                          <div className="font-mono text-[#111]">{money(inv.balanceDue)}</div>
+                          <div className={`font-semibold ${confidenceTone(inv.confidence)}`}>
+                            {confidencePct(inv.confidence)}
+                          </div>
+                          <button
+                            onClick={() => handleConfirmInvoice(evt, inv.invoiceId)}
+                            disabled={isBusy}
+                            className="px-3 py-1 text-xs font-semibold rounded bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50"
+                          >
+                            Confirm
+                          </button>
+                        </div>
+                      ))}
+                      {cands.length > 0 && (invoiceCandidates[evt.id] || []).length > 0 && (
+                        <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold mt-2 mb-0.5">
+                          Projected milestones
+                        </div>
+                      )}
+                      {cands.length === 0 && (invoiceCandidates[evt.id] || []).length === 0 ? (
                         <div className="text-xs text-[#9CA3AF] italic inline-flex items-center gap-1.5">
                           <AlertCircle className="w-3.5 h-3.5" />
-                          No plausible candidates found in your projected milestones. Confirm manually by opening the project's rollup page and marking the milestone there, or dismiss this event.
+                          No plausible candidates — neither open invoices nor projected milestones scored above the suggest threshold. Confirm manually from the project page or dismiss this event.
                         </div>
                       ) : (
                         cands.map((c) => (

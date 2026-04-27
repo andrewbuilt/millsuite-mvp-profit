@@ -55,6 +55,7 @@ import {
 } from '@/lib/composer'
 import { type ProductKey } from '@/lib/products'
 import { useConfirm } from '@/components/confirm-dialog'
+import { supabase } from '@/lib/supabase'
 
 interface Props {
   projectId: string
@@ -74,6 +75,10 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
   const [loading, setLoading] = useState(true)
   const [busyCoId, setBusyCoId] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  // CO id → invoice number that already references it. Used to surface
+  // "Invoiced on MS-0042" so operators see at a glance which approved
+  // COs are billed and which are pending billing.
+  const [invoicedCoMap, setInvoicedCoMap] = useState<Map<string, string>>(new Map())
   // The standalone "+ New CO" trigger has been removed (post-sale dogfood
   // pass): the only path to create a CO is from a subproject line row,
   // which uses the seed-aware CreateCoModal mounted on the subproject page
@@ -88,6 +93,41 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
     setLoading(true)
     const next = await loadChangeOrdersForProject(projectId)
     setCos(next)
+    // Pull invoice references for any approved CO so the row can show
+    // an "Invoiced on MS-XXXX" pill. Empty list short-circuits.
+    const approvedIds = next.filter((c) => c.state === 'approved').map((c) => c.id)
+    if (approvedIds.length > 0) {
+      const { data: invs } = await supabase
+        .from('client_invoices')
+        .select('id, invoice_number, status')
+        .eq('project_id', projectId)
+      const invIds = (invs || [])
+        .filter((i) => (i as any).status !== 'void')
+        .map((i) => (i as any).id as string)
+      const numberById = new Map<string, string>(
+        (invs || []).map((i) => [(i as any).id as string, (i as any).invoice_number as string]),
+      )
+      const result = new Map<string, string>()
+      if (invIds.length > 0) {
+        const { data: lines } = await supabase
+          .from('client_invoice_line_items')
+          .select('source_id, invoice_id')
+          .eq('source_type', 'change_order')
+          .in('invoice_id', invIds)
+          .in('source_id', approvedIds)
+        for (const r of (lines || []) as { source_id: string | null; invoice_id: string }[]) {
+          if (!r.source_id) continue
+          // First match wins — show whichever invoice billed it.
+          if (!result.has(r.source_id)) {
+            const num = numberById.get(r.invoice_id)
+            if (num) result.set(r.source_id, num)
+          }
+        }
+      }
+      setInvoicedCoMap(result)
+    } else {
+      setInvoicedCoMap(new Map())
+    }
     setLoading(false)
   }, [projectId])
 
@@ -157,6 +197,7 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
         <CoCard
           key={co.id}
           co={co}
+          invoicedOn={invoicedCoMap.get(co.id) ?? null}
           projectName={projectName}
           subprojects={subprojects}
           isExpanded={expanded.has(co.id)}
@@ -187,6 +228,9 @@ export default function ChangeOrders({ projectId, projectName, pricing, subproje
 
 interface CoCardProps {
   co: ChangeOrder
+  /** Invoice number that already references this CO, or null. Drives
+   *  the "Invoiced on MS-XXXX" pill in the row header. */
+  invoicedOn: string | null
   projectName?: string
   subprojects: { id: string; name: string }[]
   isExpanded: boolean
@@ -201,6 +245,7 @@ interface CoCardProps {
 
 function CoCard({
   co,
+  invoicedOn,
   projectName,
   subprojects,
   isExpanded,
@@ -230,6 +275,14 @@ function CoCard({
             {co.no_price_change && (
               <span className="text-[10px] uppercase tracking-wider text-neutral-600 bg-neutral-100 px-1.5 py-0.5 rounded">
                 No $ change
+              </span>
+            )}
+            {invoicedOn && (
+              <span
+                className="text-[10px] uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-mono"
+                title={`This CO was billed on invoice ${invoicedOn}`}
+              >
+                Invoiced · {invoicedOn}
               </span>
             )}
           </div>

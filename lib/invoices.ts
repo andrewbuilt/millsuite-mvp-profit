@@ -537,6 +537,239 @@ export async function markInvoiceSent(id: string): Promise<Invoice | null> {
   return normalized
 }
 
+// ── Payments ──
+
+/** Recompute invoice status from amount_received and total. Pure —
+ *  caller persists. Returns the next status + paid_at:
+ *    received >= total  → paid     + paid_at = nowIso
+ *    received > 0       → partial  + paid_at = null
+ *    received = 0       → revert to 'sent' if it was paid/partial,
+ *                         else keep current status
+ *  Note: this never returns 'overdue' (that's computed) or 'void'
+ *  (terminal). Callers gate on the existing status before calling. */
+export function nextStatusFromReceived(
+  current: InvoiceStatus,
+  total: number,
+  received: number,
+  nowIso: string,
+): { status: InvoiceStatus; paid_at: string | null } {
+  if (received >= total && total > 0) {
+    return { status: 'paid', paid_at: nowIso }
+  }
+  if (received > 0) {
+    return { status: 'partial', paid_at: null }
+  }
+  // received == 0 — revert paid/partial to sent; otherwise keep.
+  if (current === 'paid' || current === 'partial') {
+    return { status: 'sent', paid_at: null }
+  }
+  return { status: current, paid_at: null }
+}
+
+interface RecordPaymentInput {
+  invoice_id: string
+  amount: number
+  payment_date: string
+  payment_method?: InvoicePayment['payment_method']
+  reference?: string | null
+  notes?: string | null
+  qb_event_id?: string | null
+}
+
+/** Insert a payment, bump amount_received, recompute status, flip the
+ *  linked milestone to received when fully paid. Returns the refreshed
+ *  invoice. */
+export async function recordInvoicePayment(
+  input: RecordPaymentInput,
+): Promise<Invoice> {
+  const { data: inv, error: invErr } = await supabase
+    .from('client_invoices')
+    .select(INVOICE_COLUMNS)
+    .eq('id', input.invoice_id)
+    .single()
+  if (invErr || !inv) {
+    throw new Error(invErr?.message || 'Invoice not found')
+  }
+  const current = normalizeInvoice(inv)
+
+  const { error: payErr } = await supabase.from('client_invoice_payments').insert({
+    invoice_id: input.invoice_id,
+    amount: input.amount,
+    payment_date: input.payment_date,
+    payment_method: input.payment_method ?? null,
+    reference: input.reference ?? null,
+    notes: input.notes ?? null,
+    qb_event_id: input.qb_event_id ?? null,
+  })
+  if (payErr) {
+    console.error('recordInvoicePayment insert', payErr)
+    throw new Error(payErr.message || 'Failed to record payment')
+  }
+
+  const nowIso = new Date().toISOString()
+  const nextReceived = +(current.amount_received + input.amount).toFixed(2)
+  const next = nextStatusFromReceived(current.status, current.total, nextReceived, nowIso)
+
+  await supabase
+    .from('client_invoices')
+    .update({
+      amount_received: nextReceived,
+      status: next.status,
+      paid_at: next.paid_at,
+      updated_at: nowIso,
+    })
+    .eq('id', input.invoice_id)
+
+  // Linked milestone: when this payment fully settles the invoice,
+  // flip the milestone to received and stamp received_date. PR-1
+  // already flipped projected → invoiced when the invoice was sent.
+  if (next.status === 'paid' && current.linked_milestone_id) {
+    await supabase
+      .from('cash_flow_receivables')
+      .update({
+        status: 'received',
+        received_date: input.payment_date,
+        received_amount: nextReceived,
+      })
+      .eq('id', current.linked_milestone_id)
+  }
+
+  const { data: refreshed } = await supabase
+    .from('client_invoices')
+    .select(INVOICE_COLUMNS)
+    .eq('id', input.invoice_id)
+    .single()
+  return refreshed ? normalizeInvoice(refreshed) : { ...current, amount_received: nextReceived, status: next.status }
+}
+
+interface UpdatePaymentInput {
+  amount?: number
+  payment_date?: string
+  payment_method?: InvoicePayment['payment_method']
+  reference?: string | null
+  notes?: string | null
+}
+
+/** Edit a payment row. Recomputes invoice aggregates from the full
+ *  payments list, since the delta isn't local to the row. */
+export async function updateInvoicePayment(
+  paymentId: string,
+  patch: UpdatePaymentInput,
+): Promise<Invoice> {
+  const update: Record<string, unknown> = {}
+  if (patch.amount !== undefined) update.amount = patch.amount
+  if (patch.payment_date !== undefined) update.payment_date = patch.payment_date
+  if (patch.payment_method !== undefined) update.payment_method = patch.payment_method
+  if (patch.reference !== undefined) update.reference = patch.reference
+  if (patch.notes !== undefined) update.notes = patch.notes
+  const { data: existing, error: getErr } = await supabase
+    .from('client_invoice_payments')
+    .select('invoice_id')
+    .eq('id', paymentId)
+    .single()
+  if (getErr || !existing) {
+    throw new Error(getErr?.message || 'Payment not found')
+  }
+  if (Object.keys(update).length > 0) {
+    const { error } = await supabase
+      .from('client_invoice_payments')
+      .update(update)
+      .eq('id', paymentId)
+    if (error) {
+      throw new Error(error.message || 'Failed to update payment')
+    }
+  }
+  return recomputeInvoiceFromPayments(existing.invoice_id as string)
+}
+
+/** Hard-delete a payment row, then recompute aggregates. The original
+ *  payment is gone — operators void + re-record rather than refund. */
+export async function voidInvoicePayment(paymentId: string): Promise<Invoice> {
+  const { data: existing, error: getErr } = await supabase
+    .from('client_invoice_payments')
+    .select('invoice_id')
+    .eq('id', paymentId)
+    .single()
+  if (getErr || !existing) {
+    throw new Error(getErr?.message || 'Payment not found')
+  }
+  const invoiceId = existing.invoice_id as string
+  const { error: delErr } = await supabase
+    .from('client_invoice_payments')
+    .delete()
+    .eq('id', paymentId)
+  if (delErr) {
+    throw new Error(delErr.message || 'Failed to void payment')
+  }
+  return recomputeInvoiceFromPayments(invoiceId)
+}
+
+/** Re-sum every payment for an invoice and persist the rolled-up
+ *  amount_received + status. Single source of truth used by the
+ *  edit/void flows where the delta isn't easy to track locally. */
+async function recomputeInvoiceFromPayments(invoiceId: string): Promise<Invoice> {
+  const [invRes, paysRes] = await Promise.all([
+    supabase.from('client_invoices').select(INVOICE_COLUMNS).eq('id', invoiceId).single(),
+    supabase
+      .from('client_invoice_payments')
+      .select('amount, payment_date')
+      .eq('invoice_id', invoiceId)
+      .order('payment_date', { ascending: false }),
+  ])
+  if (invRes.error || !invRes.data) {
+    throw new Error(invRes.error?.message || 'Invoice not found')
+  }
+  const current = normalizeInvoice(invRes.data)
+  const total = current.total
+  const sum = (paysRes.data || []).reduce((s, r) => s + (Number(r.amount) || 0), 0)
+  const nowIso = new Date().toISOString()
+  const next = nextStatusFromReceived(current.status, total, sum, nowIso)
+
+  await supabase
+    .from('client_invoices')
+    .update({
+      amount_received: +sum.toFixed(2),
+      status: next.status,
+      paid_at: next.paid_at,
+      updated_at: nowIso,
+    })
+    .eq('id', invoiceId)
+
+  // Milestone state mirrors invoice state. fully-paid invoice ⇒
+  // milestone received; otherwise (partial or fell back to sent) the
+  // milestone reverts from received to invoiced.
+  if (current.linked_milestone_id) {
+    if (next.status === 'paid') {
+      await supabase
+        .from('cash_flow_receivables')
+        .update({
+          status: 'received',
+          received_date: nowIso.slice(0, 10),
+          received_amount: +sum.toFixed(2),
+        })
+        .eq('id', current.linked_milestone_id)
+    } else {
+      // Edit/void dropped us below total — pull the milestone back.
+      await supabase
+        .from('cash_flow_receivables')
+        .update({
+          status: 'invoiced',
+          received_date: null,
+          received_amount: 0,
+        })
+        .eq('id', current.linked_milestone_id)
+        .eq('status', 'received')
+    }
+  }
+
+  const { data: fresh } = await supabase
+    .from('client_invoices')
+    .select(INVOICE_COLUMNS)
+    .eq('id', invoiceId)
+    .single()
+  return fresh ? normalizeInvoice(fresh) : current
+}
+
 // ── Status helpers ──
 
 /** Computed-only state — overdue is not stored. An invoice is overdue

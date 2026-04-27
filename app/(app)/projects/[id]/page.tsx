@@ -291,6 +291,9 @@ export default function ProjectCoverPage() {
   // Milestone the operator clicked "Generate invoice" on; opens the
   // CreateInvoiceModal. null when no modal is open.
   const [createInvoiceMilestoneId, setCreateInvoiceMilestoneId] = useState<string | null>(null)
+  // Ad-hoc invoice modal — opens via the "+ New invoice" button above
+  // the Payment Milestones panel. No milestone seed.
+  const [adHocInvoiceOpen, setAdHocInvoiceOpen] = useState(false)
 
   // ── Load ──
 
@@ -1056,6 +1059,19 @@ export default function ProjectCoverPage() {
                 </div>
               </div>
 
+              {/* Top-level invoice action — distinct from the per-milestone
+                  "Generate invoice" pill. Use this for ad-hoc CO billing
+                  or partial scope outside the milestone schedule. */}
+              <div className="mt-4 pt-4 border-t border-[#F3F4F6] flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setAdHocInvoiceOpen(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] text-[#2563EB] hover:bg-[#EFF6FF] rounded-md"
+                >
+                  + New invoice
+                </button>
+              </div>
+
               {/* Milestones — per-project builder */}
               <MilestoneBuilder
                 milestones={milestones}
@@ -1260,6 +1276,7 @@ export default function ProjectCoverPage() {
 
       {createInvoiceMilestoneId && (
         <CreateInvoiceModal
+          mode="milestone"
           milestoneId={createInvoiceMilestoneId}
           onClose={() => setCreateInvoiceMilestoneId(null)}
           onCreated={async (inv, action) => {
@@ -1269,9 +1286,24 @@ export default function ProjectCoverPage() {
                 ? `Invoice ${inv.invoice_number} sent. Mark received when payment lands.`
                 : `Invoice ${inv.invoice_number} saved as draft.`,
             )
-            // Reload milestones (status flip on send) + invoice ids
-            // (button hides for the linked milestone whether draft or
-            // sent).
+            await reload()
+          }}
+        />
+      )}
+
+      {adHocInvoiceOpen && org?.id && (
+        <CreateInvoiceModal
+          mode="ad_hoc"
+          projectId={projectId}
+          orgId={org.id}
+          onClose={() => setAdHocInvoiceOpen(false)}
+          onCreated={async (inv, action) => {
+            setAdHocInvoiceOpen(false)
+            showToast(
+              action === 'sent'
+                ? `Invoice ${inv.invoice_number} sent.`
+                : `Invoice ${inv.invoice_number} saved as draft.`,
+            )
             await reload()
           }}
         />
