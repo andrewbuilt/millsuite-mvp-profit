@@ -435,7 +435,11 @@ function SalesInner() {
         }
         const parsedItems = parsed?.items || []
         if (subsByRoom.length > 0 && parsedItems.length > 0) {
-          await seedEstimateLinesFromParsed({ subsByRoom, items: parsedItems })
+          await seedEstimateLinesFromParsed({
+            orgId: org.id,
+            subsByRoom,
+            items: parsedItems,
+          })
         }
         router.push(`/projects/${p.id}`)
       }

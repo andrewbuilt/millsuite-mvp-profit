@@ -11,6 +11,8 @@ import { supabase } from './supabase'
 import type { ProjectStage } from './types'
 import type { ParsedScopeItem } from './pdf-parser'
 import { recomputeProjectBidTotal } from './project-totals'
+import { loadComposerRateBook } from './composer-loader'
+import { resolveSlotsAgainstRateBook } from './parser-slot-resolver'
 
 // ── Types ──
 
@@ -358,14 +360,38 @@ export async function createRoomSubprojects(input: {
  *   when they open the line.
  */
 export async function seedEstimateLinesFromParsed(input: {
+  /** Org id needed only when at least one parsed item carries a
+   *  product_key — the slot resolver loads the rate book to map
+   *  parser hints to ids. Optional for backward compat with callers
+   *  that pre-date the composer-line path. */
+  orgId?: string
   subsByRoom: Array<{ id: string; name: string }>
   items: ParsedScopeItem[]
 }): Promise<number> {
-  const { subsByRoom, items } = input
+  const { subsByRoom, items, orgId } = input
   if (items.length === 0 || subsByRoom.length === 0) return 0
 
   const subIdByRoom = new Map<string, string>()
   for (const s of subsByRoom) subIdByRoom.set(s.name.trim().toLowerCase(), s.id)
+
+  // Load the composer rate book once per call when we have any
+  // composer-bound items. Skip when no orgId or no composer items —
+  // freeform-only batches stay a single round-trip.
+  const hasComposerItem = items.some(
+    (it) =>
+      it.product_key === 'base' ||
+      it.product_key === 'upper' ||
+      it.product_key === 'full' ||
+      it.product_key === 'drawer',
+  )
+  let rateBook: Awaited<ReturnType<typeof loadComposerRateBook>> | null = null
+  if (hasComposerItem && orgId) {
+    try {
+      rateBook = await loadComposerRateBook(orgId)
+    } catch (e) {
+      console.warn('seedEstimateLinesFromParsed: rate-book load failed', e)
+    }
+  }
 
   // Group by subproject so we can hand out sequential sort_orders inside each.
   const rowsBySub = new Map<string, any[]>()
@@ -374,6 +400,45 @@ export async function seedEstimateLinesFromParsed(input: {
     const subId = subIdByRoom.get(key)
     if (!subId) continue
 
+    const isComposer =
+      (it.product_key === 'base' ||
+        it.product_key === 'upper' ||
+        it.product_key === 'full' ||
+        it.product_key === 'drawer') &&
+      !!rateBook
+
+    if (isComposer && rateBook) {
+      // Composer line — resolve slots against the rate book and write
+      // product_key + product_slots so the composer takes over for
+      // pricing. dept_hour_overrides + lump_cost_override stay null;
+      // the composer recomputes from slots live (no static hours).
+      const slots = resolveSlotsAgainstRateBook(rateBook, it.slots ?? null)
+      const quantity =
+        typeof it.linear_feet === 'number' && it.linear_feet > 0
+          ? it.linear_feet
+          : it.quantity || 1
+      const list = rowsBySub.get(subId) || []
+      list.push({
+        subproject_id: subId,
+        sort_order: list.length,
+        description: it.name,
+        quantity,
+        unit: 'lf',
+        product_key: it.product_key,
+        product_slots: slots,
+        composer_hours_corrected: true,
+        notes:
+          [it.source_sheet ? `[${it.source_sheet}]` : null, it.notes || null]
+            .filter(Boolean)
+            .join(' · ') || null,
+      })
+      rowsBySub.set(subId, list)
+      continue
+    }
+
+    // Freeform line — current behavior. Hardware, customer-supplied,
+    // anything the parser couldn't map to a cabinet product, or any
+    // composer item that fell through (no rate book loaded).
     const fs: any[] = []
     const ms = it.material_specs
     if (ms) {
@@ -408,6 +473,7 @@ export async function seedEstimateLinesFromParsed(input: {
     if (it.features?.has_led) noteParts.push('integrated LED')
     if (it.source_sheet) noteParts.push(`[${it.source_sheet}]`)
     if (it.needs_review) noteParts.push('(needs review)')
+    if (it.quality === 'customer_supplied') noteParts.push('customer-supplied')
 
     const list = rowsBySub.get(subId) || []
     list.push({

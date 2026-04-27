@@ -1561,19 +1561,35 @@ function BreakdownPanel({
           value={breakdown.doorLabor}
         />
       )}
-      <Row
-        label="Door material"
-        detail={appendPerDoor(breakdown.doorMaterialDetail, breakdown.doorMaterialPerDoor)}
-        value={breakdown.doorMaterial}
-      />
-      <Row
-        label="Exterior finish"
-        detail={appendPerDoor(
-          breakdown.exteriorFinishDetail,
-          breakdown.doorFinishLaborPerDoor + breakdown.doorFinishMaterialPerDoor,
-        )}
-        value={breakdown.exteriorFinishLabor + breakdown.exteriorFinishMaterial}
-      />
+      {breakdown.doorMaterialMissing ? (
+        <div className="py-2 border-b border-[#F3F4F6]">
+          <div className="text-[12px] text-[#92400E]">
+            Door material: pick one to price
+          </div>
+        </div>
+      ) : (
+        <Row
+          label="Door material"
+          detail={appendPerDoor(breakdown.doorMaterialDetail, breakdown.doorMaterialPerDoor)}
+          value={breakdown.doorMaterial}
+        />
+      )}
+      {breakdown.doorFinishMissing ? (
+        <div className="py-2 border-b border-[#F3F4F6]">
+          <div className="text-[12px] text-[#92400E]">
+            Exterior finish: pick one to price
+          </div>
+        </div>
+      ) : (
+        <Row
+          label="Exterior finish"
+          detail={appendPerDoor(
+            breakdown.exteriorFinishDetail,
+            breakdown.doorFinishLaborPerDoor + breakdown.doorFinishMaterialPerDoor,
+          )}
+          value={breakdown.exteriorFinishLabor + breakdown.exteriorFinishMaterial}
+        />
+      )}
       {breakdown.doorHardware > 0 && (
         <Row
           label="Door hardware"
