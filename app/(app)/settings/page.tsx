@@ -966,6 +966,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Active departments */}
+        <DepartmentsSection orgId={org?.id} />
+
         {/* Drawing parser limits */}
         <ParserLimitsSection orgId={org?.id} />
 
@@ -1314,6 +1317,96 @@ function ParserLimitsSection({ orgId }: { orgId: string | undefined }) {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Departments section ──────────────────────────────────────────────────
+// Toggling a dept off sets active=false; schedule/time-clock/capacity
+// already filter on active=true so the row drops out everywhere.
+// Don't delete — that would orphan time_entries.
+
+function DepartmentsSection({ orgId }: { orgId: string | undefined }) {
+  const [rows, setRows] = useState<Array<{ id: string; name: string; active: boolean; display_order: number }>>([])
+  const [loaded, setLoaded] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!orgId) return
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('departments')
+        .select('id, name, active, display_order')
+        .eq('org_id', orgId)
+        .order('display_order')
+      if (cancelled) return
+      setRows((data || []) as any[])
+      setLoaded(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [orgId])
+
+  async function toggle(id: string, next: boolean) {
+    setBusyId(id)
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, active: next } : r)))
+    const { error } = await supabase
+      .from('departments')
+      .update({ active: next })
+      .eq('id', id)
+    setBusyId(null)
+    if (error) {
+      // Roll back optimistic update on failure.
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, active: !next } : r)))
+      console.warn('toggle department', error)
+    }
+  }
+
+  return (
+    <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+      <div className="px-6 py-4 border-b border-[#E5E7EB]">
+        <h2 className="text-base font-semibold">Active departments</h2>
+        <p className="text-xs text-[#9CA3AF] mt-0.5">
+          Departments your shop runs. Inactive ones drop out of schedule, time
+          clock, and capacity. Existing time entries are preserved.
+        </p>
+      </div>
+      <div className="px-6 py-4">
+        {!loaded ? (
+          <div className="text-xs text-[#9CA3AF]">Loading departments…</div>
+        ) : rows.length === 0 ? (
+          <div className="text-xs text-[#9CA3AF] italic">
+            No departments yet. They seed automatically on signup; if your
+            org pre-dates that seed, add them in the schedule page first.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {rows.map((r) => (
+              <label
+                key={r.id}
+                className="flex items-center gap-3 py-1.5 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={r.active}
+                  disabled={busyId === r.id}
+                  onChange={(e) => toggle(r.id, e.target.checked)}
+                  className="w-4 h-4 rounded border-[#D1D5DB] text-[#2563EB] focus:ring-[#2563EB]"
+                />
+                <span
+                  className={`text-sm ${
+                    r.active ? 'text-[#111]' : 'text-[#9CA3AF] line-through'
+                  }`}
+                >
+                  {r.name}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

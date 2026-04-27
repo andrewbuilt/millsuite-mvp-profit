@@ -21,12 +21,13 @@ import {
   SalesProject,
   SalesStage,
   addProjectNote,
+  deleteProject,
   loadSalesProjects,
   updateProjectStage,
 } from '@/lib/sales'
 import { useConfirm } from '@/components/confirm-dialog'
 import Link from 'next/link'
-import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight } from 'lucide-react'
+import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2 } from 'lucide-react'
 
 function fmtMoney(n: number | null | undefined) {
   if (n == null || n === 0) return '—'
@@ -180,6 +181,21 @@ function KanbanInner() {
                           project={p}
                           onOpen={() => router.push(`/projects/${p.id}`)}
                           onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
+                          onDelete={async () => {
+                            const ok = await confirm({
+                              title: 'Delete this project?',
+                              message: `Permanently delete "${p.name}"? Subprojects, estimate lines, and notes go with it. This can't be undone.`,
+                              confirmLabel: 'Delete',
+                              variant: 'danger',
+                            })
+                            if (!ok) return
+                            try {
+                              await deleteProject(p.id)
+                              setProjects((prev) => prev.filter((x) => x.id !== p.id))
+                            } catch (err) {
+                              console.error('deleteProject', err)
+                            }
+                          }}
                           onDragStart={() => setDragId(p.id)}
                           onDragEnd={() => { setDragId(null); setDragOver(null) }}
                           isDragging={dragId === p.id}
@@ -259,6 +275,7 @@ function KanbanCard({
   project,
   onOpen,
   onQuickNote,
+  onDelete,
   onDragStart,
   onDragEnd,
   isDragging,
@@ -266,6 +283,7 @@ function KanbanCard({
   project: SalesProject
   onOpen: () => void
   onQuickNote: () => void
+  onDelete: () => void
   onDragStart: () => void
   onDragEnd: () => void
   isDragging: boolean
@@ -335,6 +353,14 @@ function KanbanCard({
             >
               <ArrowRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
               Open project
+            </button>
+            <div className="my-1 border-t border-[#F3F4F6]" />
+            <button
+              onClick={() => { setMenuOpen(false); onDelete() }}
+              className="w-full text-left px-3 py-1.5 text-xs text-[#DC2626] hover:bg-[#FEF2F2] inline-flex items-center gap-2"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete
             </button>
           </div>
         </>
