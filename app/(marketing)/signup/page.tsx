@@ -74,7 +74,7 @@ export default function SignupPage() {
         <div className="w-full max-w-sm">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-white mb-2">Create your account</h1>
-            <p className="text-sm text-[#8B8B96]">14-day free trial. No credit card required.</p>
+            <p className="text-sm text-[#8B8B96]">Free trial. No credit card required.</p>
           </div>
 
           <form onSubmit={handleSignup} className="space-y-4">

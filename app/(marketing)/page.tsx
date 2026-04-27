@@ -20,7 +20,6 @@ function MarketingNav() {
 
         {/* Desktop nav */}
         <div className="hidden sm:flex items-center gap-6">
-          <Link href="/pricing" className="text-sm text-[#8B8B96] hover:text-white transition-colors">Pricing</Link>
           <Link href="/login" className="text-sm text-[#8B8B96] hover:text-white transition-colors">Log in</Link>
           <Link href="/signup" className="px-4 py-2 bg-[#D4956A] text-white text-sm font-medium rounded-lg hover:bg-[#C4855A] transition-colors">
             Start Free Trial
@@ -36,7 +35,6 @@ function MarketingNav() {
       {/* Mobile dropdown */}
       {menuOpen && (
         <div className="sm:hidden border-t border-white/[0.06] px-5 py-4 space-y-3" style={{ background: 'rgba(13,13,15,0.95)' }}>
-          <Link href="/pricing" onClick={() => setMenuOpen(false)} className="block text-sm text-[#8B8B96] py-2">Pricing</Link>
           <Link href="/login" onClick={() => setMenuOpen(false)} className="block text-sm text-[#8B8B96] py-2">Log in</Link>
           <Link href="/signup" onClick={() => setMenuOpen(false)} className="block w-full text-center px-4 py-2.5 bg-[#D4956A] text-white text-sm font-medium rounded-lg">
             Start Free Trial
@@ -116,7 +114,7 @@ export default function LandingPage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
             <Link href="/signup" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-[#D4956A] text-white font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
-              Start free for 14 days <ArrowRight className="w-4 h-4" />
+              Start your free trial <ArrowRight className="w-4 h-4" />
             </Link>
             <a href="https://tools.millsuite.com" className="w-full sm:w-auto text-center px-6 py-3 text-[#8B8B96] font-medium rounded-xl border border-white/[0.08] hover:border-white/[0.15] hover:text-white transition-colors">
               Calculate your shop rate (free)
@@ -284,7 +282,6 @@ export default function LandingPage() {
           </div>
 
           <div>
-            <FAQItem question="What happens after the 14 days?" answer="You pick a plan or you walk away. We don't auto-charge anything. We don't believe in surprise bills." />
             <FAQItem question="Is there a contract?" answer="Nope. Month-to-month. Cancel whenever. We'd rather earn your business every month than lock you in." />
             <FAQItem question="What if my data isn't perfect?" answer="It doesn't need to be. Perfect data isn't the goal. Directional data that gets better every project is. Track what you can. The system learns from whatever you give it. Every job you track makes the next estimate better." />
             <FAQItem question="My shop is different from everyone else's." answer="We've talked to shops from $1M to $50M in revenue. Custom millwork, commercial interiors, residential cabinets. They all have the same core problem: they don't know which jobs make money. The work is unique. The problem isn't. And because MillSuite learns from YOUR projects, it adapts to your specific shop." />
@@ -306,7 +303,7 @@ export default function LandingPage() {
           </h2>
           <div className="mt-8">
             <Link href="/signup" className="inline-flex items-center gap-2 px-6 sm:px-8 py-3 sm:py-4 bg-[#D4956A] text-white text-base sm:text-lg font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
-              Start your free 14-day trial <ArrowRight className="w-5 h-5" />
+              Start your free trial <ArrowRight className="w-5 h-5" />
             </Link>
           </div>
           <p className="text-sm text-[#8B8B96] mt-4">Join the shop owners who stopped guessing and started knowing.</p>
@@ -324,7 +321,6 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-6 text-xs text-[#555]">
             <a href="mailto:info@millsuite.com" className="hover:text-[#8B8B96] transition-colors">info@millsuite.com</a>
-            <Link href="/pricing" className="hover:text-[#8B8B96] transition-colors">Pricing</Link>
             <Link href="/login" className="hover:text-[#8B8B96] transition-colors">Log in</Link>
           </div>
         </div>

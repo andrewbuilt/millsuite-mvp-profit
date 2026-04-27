@@ -1312,12 +1312,6 @@ function ParserLimitsSection({ orgId }: { orgId: string | undefined }) {
             <div className="text-sm font-mono tabular-nums text-[#111]">
               {loaded ? `${used} / ${cap}` : '—'}
             </div>
-            <Link
-              href="/pricing"
-              className="text-[12px] text-[#2563EB] hover:underline"
-            >
-              View pricing
-            </Link>
           </div>
         </div>
       </div>
