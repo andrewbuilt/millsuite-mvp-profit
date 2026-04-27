@@ -84,6 +84,11 @@ export interface ParsedScopeItem {
   finish_specs?: ParsedFinishSpecs | null
   source_sheet?: string | null
   needs_review?: boolean
+  /** Per-item confidence from the parser. Populated by the API route's
+   *  prompt; defaults to 'medium' when missing for backward compat with
+   *  pre-PR intake_context records. UI uses it to flag low-confidence
+   *  items for review without gating creation. */
+  confidence?: 'high' | 'medium' | 'low'
   notes: string
 }
 
@@ -102,7 +107,18 @@ export interface ParsedPdf {
   // Populated when the AI path failed. Surfaced in the UI so users know why
   // they're looking at fallback chips instead of a clean AI parse.
   apiError?: string | null
+  /** True when pdfjs found < TEXT_EMPTY_THRESHOLD chars in the file —
+   *  signals the API call was made in vision-only mode. Threaded
+   *  through so the UI can render a hint when the API also fails
+   *  ("regex on a junk text layer is worse than nothing"). */
+  isScanned?: boolean
 }
+
+/** Below this many chars of extracted text across all pages, treat
+ *  the PDF as scanned (no usable text layer). Some scanners drop a
+ *  thin junk OCR layer that pdfjs reads — the threshold catches both
+ *  zero-text and near-zero-text cases without hard-coding `=== 0`. */
+const TEXT_EMPTY_THRESHOLD = 100
 
 // Short id helper; we don't need crypto-strong ids for react keys.
 function rid() {
@@ -598,7 +614,11 @@ interface ParseApiResult {
  * available. Returns either a parsed envelope or an error message —
  * `null` is no longer used so the caller can surface the failure.
  */
-async function parseViaApi(file: File, orgId?: string): Promise<ParseApiResult> {
+async function parseViaApi(
+  file: File,
+  orgId?: string,
+  opts: { isScanned?: boolean } = {},
+): Promise<ParseApiResult> {
   let payload: Record<string, any>
   let uploadedPath: string | null = null
 
@@ -612,6 +632,7 @@ async function parseViaApi(file: File, orgId?: string): Promise<ParseApiResult> 
       storage_path: up.path,
       file_name: file.name,
       mime_type: file.type || 'application/pdf',
+      is_scanned: !!opts.isScanned,
     }
   } else {
     // Small-file path — limited by the Vercel 4.5 MB request-body ceiling.
@@ -621,6 +642,7 @@ async function parseViaApi(file: File, orgId?: string): Promise<ParseApiResult> 
         base64_content: base64,
         file_name: file.name,
         mime_type: file.type || 'application/pdf',
+        is_scanned: !!opts.isScanned,
       }
     } catch (err: any) {
       return { error: `Encoding failed: ${err?.message || String(err)}` }
@@ -752,14 +774,49 @@ export async function parsePdfFile(file: File, orgId?: string): Promise<ParsedPd
     }
   }
 
+  // Detect scanned PDFs up-front so the API call can switch to vision-
+  // mode and we know whether the regex fallback is worth attempting.
+  // Failure here is non-fatal — fall through to the API anyway and
+  // assume not-scanned.
+  let isScanned = false
+  try {
+    const probe = await extractTextFromPdf(file)
+    isScanned = probe.text.trim().length < TEXT_EMPTY_THRESHOLD
+  } catch {
+    // pdfjs failed — leave isScanned=false so the API gets the normal
+    // prompt. Regex path won't help either; we just rely on the API.
+  }
+
   // Try the Claude-backed API first. If it fails we drop to the regex
   // extractor so the user still sees SOMETHING, but we stash the API error
   // on the envelope so the UI can show a "fallback mode" banner.
-  const result = await parseViaApi(file, orgId)
-  if (result.pdf) return result.pdf
+  const result = await parseViaApi(file, orgId, { isScanned })
+  if (result.pdf) {
+    result.pdf.isScanned = isScanned
+    return result.pdf
+  }
+
+  // For scanned PDFs, regex on a junk OCR layer is worse than nothing —
+  // skip the fallback and surface the failure cleanly so the UI can
+  // route to the manual form with a "try again or fill in manually"
+  // hint.
+  if (isScanned) {
+    return {
+      fileName: file.name,
+      pageCount: 0,
+      text: '',
+      candidates: [],
+      projectNameGuess: file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
+      parseSucceeded: false,
+      source: 'none',
+      apiError: result.error || 'AI parser returned no result',
+      isScanned: true,
+    }
+  }
 
   const regex = await parseViaRegex(file)
   regex.apiError = result.error || 'AI parser returned no result'
+  regex.isScanned = false
   return regex
 }
 

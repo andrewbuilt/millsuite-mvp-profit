@@ -46,6 +46,7 @@ import {
   CandidateRole,
   ParsedCandidate,
   ParsedPdf,
+  ParsedScopeItem,
   ROLE_LABEL,
   defaultRoleFor,
   parsePdfFile,
@@ -686,14 +687,22 @@ function ParsePreview({
         </button>
       </div>
 
-      {parsed.apiError && (
+      {parsed.apiError && parsed.isScanned ? (
+        <div className="mb-4 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-xs text-[#92400E] flex items-start gap-2">
+          <span className="font-semibold">Drawing parsing failed —</span>
+          <span className="flex-1">
+            try uploading the PDF again or fill in manually below. Reason:{' '}
+            {parsed.apiError}
+          </span>
+        </div>
+      ) : parsed.apiError ? (
         <div className="mb-4 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-xs text-[#92400E] flex items-start gap-2">
           <span className="font-semibold">AI parser failed —</span>
           <span className="flex-1">
             showing fallback chips from raw text scan. Reason: {parsed.apiError}
           </span>
         </div>
-      )}
+      ) : null}
       {!parsed.apiError && parsed.source === 'api' && (
         <div className="mb-4 px-3 py-2 bg-[#ECFDF5] border border-[#A7F3D0] rounded-lg text-[11px] text-[#047857] flex items-center gap-2">
           <span className="font-semibold uppercase tracking-wider">AI parsed</span>
@@ -731,6 +740,12 @@ function ParsePreview({
           />
         ))}
       </div>
+
+      {/* Parsed scope items — read-only preview with confidence
+          indicators. Items flow into estimate lines on submit; this
+          surface lets the operator scan for low-confidence calls
+          before the project is created. */}
+      <ScopeItemsPreview items={parsed.items} />
 
       {/* Summary strip — "this is what will land on the project" */}
       <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-3 text-xs text-[#6B7280] mb-4">
@@ -788,6 +803,105 @@ function Line({ label, value }: { label: string; value?: string | null }) {
         {label}
       </span>
       <span className="text-xs text-[#111] truncate font-mono">{value || '—'}</span>
+    </div>
+  )
+}
+
+// ── Scope items preview ──────────────────────────────────────────────────
+// Read-only list of the parsed scope items grouped by room. Confidence
+// indicator per row: low → ⚠️ warning chip; medium → subtle gray dot;
+// high → no marker. A summary strip at the bottom counts low-confidence
+// items and offers a jump-to-first affordance.
+
+function ScopeItemsPreview({
+  items,
+}: {
+  items: ParsedScopeItem[] | undefined
+}) {
+  if (!items || items.length === 0) return null
+
+  const lowCount = items.filter((it) => it.confidence === 'low').length
+  // Render order: preserve API order (rooms appear naturally grouped
+  // since the prompt asks for items grouped by room).
+
+  function jumpToFirstFlag() {
+    const first = document.querySelector(
+      '[data-scope-confidence="low"]',
+    ) as HTMLElement | null
+    if (first) {
+      first.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      first.focus()
+    }
+  }
+
+  return (
+    <div className="mb-4">
+      <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
+        Parsed scope items ({items.length})
+      </div>
+      <div className="bg-white border border-[#E5E7EB] rounded-lg overflow-hidden">
+        {items.map((it, i) => {
+          const conf = it.confidence ?? 'medium'
+          const isLow = conf === 'low'
+          const isMed = conf === 'medium'
+          return (
+            <div
+              key={i}
+              tabIndex={isLow ? 0 : -1}
+              data-scope-confidence={conf}
+              className={`grid grid-cols-[110px_1fr_auto] gap-3 items-center px-3 py-2 text-[12.5px] border-b border-[#F3F4F6] last:border-b-0 ${
+                isLow ? 'bg-[#FFFBEB]' : ''
+              }`}
+            >
+              <div className="text-[#6B7280] truncate">{it.room || '—'}</div>
+              <div className="text-[#111] truncate">
+                {it.name}
+                {it.linear_feet != null && (
+                  <span className="ml-2 text-[#9CA3AF] font-mono text-[11.5px]">
+                    {it.linear_feet} LF
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {isLow ? (
+                  <span
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded bg-[#FEF3C7] text-[#92400E]"
+                    title="Low-confidence parse. Review and confirm before adding."
+                  >
+                    ⚠️ Low
+                  </span>
+                ) : isMed ? (
+                  <span
+                    className="inline-block w-1.5 h-1.5 rounded-full bg-[#D1D5DB]"
+                    title="Medium-confidence parse"
+                    aria-label="medium confidence"
+                  />
+                ) : null}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {lowCount > 0 && (
+        <div className="mt-2 flex items-center justify-between gap-2 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg">
+          <div className="text-[12px] text-[#92400E]">
+            <span className="font-semibold">
+              {lowCount} item{lowCount === 1 ? '' : 's'} need review
+            </span>{' '}
+            <span className="text-[#A16207]">
+              — flagged below the &ldquo;suggest&rdquo; threshold; double-check before
+              relying on the parse.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={jumpToFirstFlag}
+            className="flex-shrink-0 px-2.5 py-1 text-[11.5px] font-medium text-[#92400E] border border-[#F59E0B] rounded-md hover:bg-[#FEF3C7]"
+          >
+            Review all flagged
+          </button>
+        </div>
+      )}
     </div>
   )
 }
