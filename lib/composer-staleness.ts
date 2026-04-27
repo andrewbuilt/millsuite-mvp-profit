@@ -141,14 +141,14 @@ export function checkLineStaleness(
 
   if (!hoursDrift && !matDrift) return null
 
-  // Diagnostic: log whenever drift trips so we can tell genuine
-  // recalibration drift from float-noise false positives. Printed at
-  // debug level so it doesn't pollute regular logs unless the user
-  // opens the browser console with Verbose enabled. Includes the
-  // exact stored vs fresh values + which dept(s) tripped the threshold
-  // so a screenshot is enough to diagnose.
+  // Diagnostic: log every drift trip at info level so the dogfood
+  // staleness-banner-firing-repeatedly investigation can see exactly
+  // which line drifted by how much. Reproduce → screenshot the
+  // console → paste in the issue. Once we've identified the path,
+  // dial this back to console.debug.
   if (typeof console !== 'undefined') {
-    console.debug('staleness', line.id, {
+    console.log('staleness drift', line.id, {
+      product_key: line.product_key,
       stored,
       freshHoursByDept,
       hoursDeltas: {
@@ -188,6 +188,29 @@ export function findStaleLines(
   for (const line of lines) {
     const stale = checkLineStaleness(line, defaults, rateBook)
     if (stale) out.push(stale)
+  }
+  // Diagnostic: summary print so the dogfood staleness-firing-
+  // repeatedly investigation can see every call's count + per-line
+  // breakdown in a single console entry. Reproduce the banner →
+  // copy this entry → paste. Pull this back to console.debug once
+  // we've identified the firing path.
+  if (typeof console !== 'undefined') {
+    console.log('findStaleLines', {
+      totalLines: lines.length,
+      composerLines: lines.filter((l) => l.product_key && l.product_slots).length,
+      staleCount: out.length,
+      stale: out.map((s) => ({
+        lineId: s.lineId,
+        productKey: s.productKey,
+        hoursDeltas: {
+          eng: s.storedHoursByDept.eng - s.freshHoursByDept.eng,
+          cnc: s.storedHoursByDept.cnc - s.freshHoursByDept.cnc,
+          assembly: s.storedHoursByDept.assembly - s.freshHoursByDept.assembly,
+          finish: s.storedHoursByDept.finish - s.freshHoursByDept.finish,
+        },
+        matDelta: s.storedMaterial - s.freshMaterial,
+      })),
+    })
   }
   return out
 }
