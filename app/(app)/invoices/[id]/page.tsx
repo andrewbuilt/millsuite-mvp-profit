@@ -16,7 +16,18 @@ import { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Download, Eye, Pencil, Plus, Send, Trash2, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  CreditCard,
+  Download,
+  Eye,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Send,
+  Trash2,
+  X,
+} from 'lucide-react'
 import Nav from '@/components/nav'
 import { useAuth } from '@/lib/auth-context'
 import { useConfirm } from '@/components/confirm-dialog'
@@ -27,6 +38,7 @@ import {
   updateInvoice,
   updateInvoiceLineItems,
   voidInvoice,
+  voidInvoicePayment,
   INVOICE_STATUS_LABEL,
   INVOICE_STATUS_TONE,
   type Invoice,
@@ -36,6 +48,7 @@ import {
 } from '@/lib/invoices'
 import { downloadInvoicePdf } from '@/lib/invoice-pdf'
 import SendInvoiceModal from '@/components/invoices/SendInvoiceModal'
+import RecordPaymentModal from '@/components/invoices/RecordPaymentModal'
 import { supabase } from '@/lib/supabase'
 
 // react-pdf's <PDFViewer> needs to be client-only. The viewer file
@@ -120,6 +133,11 @@ export default function InvoiceDetailPage() {
   const [sendModalOpen, setSendModalOpen] = useState(false)
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
+  // Record-payment modal: null = closed, an empty object = create
+  // mode, an InvoicePayment row = edit mode for that row.
+  const [paymentModal, setPaymentModal] = useState<
+    { mode: 'create' } | { mode: 'edit'; payment: InvoicePayment } | null
+  >(null)
 
   useEffect(() => {
     if (!id || !user?.org_id) return
@@ -452,6 +470,16 @@ export default function InvoiceDetailPage() {
                 <Send className="w-3.5 h-3.5" /> Send invoice
               </button>
             )}
+            {(invoice.status === 'sent' ||
+              invoice.status === 'partial' ||
+              isOverdue(invoice)) && (
+              <button
+                onClick={() => setPaymentModal({ mode: 'create' })}
+                className="px-3 py-1.5 text-[12px] text-[#374151] border border-[#E5E7EB] hover:bg-[#F9FAFB] rounded-md inline-flex items-center gap-1.5"
+              >
+                <CreditCard className="w-3.5 h-3.5" /> Record payment
+              </button>
+            )}
             {!isVoid && (
               <button
                 onClick={handleVoid}
@@ -540,6 +568,25 @@ export default function InvoiceDetailPage() {
             totals={totals}
             balance={balance}
             payments={payments}
+            onRecordPayment={() => setPaymentModal({ mode: 'create' })}
+            onEditPayment={(p) => setPaymentModal({ mode: 'edit', payment: p })}
+            onVoidPayment={async (p) => {
+              const ok = await confirm({
+                title: 'Void this payment?',
+                message: `Removes the ${p.payment_method ?? 'payment'} of $${p.amount.toFixed(2)} on ${p.payment_date}. The invoice's balance and status recalc; if it was paid, the linked milestone reverts to invoiced.`,
+                confirmLabel: 'Void payment',
+                variant: 'danger',
+              })
+              if (!ok) return
+              try {
+                const updated = await voidInvoicePayment(p.id)
+                setInvoice(updated)
+                const refreshed = await getInvoice(updated.id)
+                if (refreshed) setPayments(refreshed.payments)
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Failed to void payment')
+              }
+            }}
             notes={notes}
             setNotes={(v) => {
               setNotes(v)
@@ -581,6 +628,114 @@ export default function InvoiceDetailPage() {
           }}
         />
       )}
+
+      {paymentModal && (
+        <RecordPaymentModal
+          invoice={invoice}
+          payment={paymentModal.mode === 'edit' ? paymentModal.payment : null}
+          onClose={() => setPaymentModal(null)}
+          onSaved={async (updated) => {
+            setPaymentModal(null)
+            setInvoice(updated)
+            // Refresh payments list — recordInvoicePayment / updateInvoicePayment
+            // / voidInvoicePayment all return the invoice; payments come
+            // from a separate read.
+            const refreshed = await getInvoice(updated.id)
+            if (refreshed) setPayments(refreshed.payments)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Payments table row ──────────────────────────────────────────────────
+
+function PaymentRow({
+  payment,
+  onEdit,
+  onVoid,
+}: {
+  payment: InvoicePayment
+  onEdit: () => void
+  onVoid: () => void
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const isQbMatched = !!payment.qb_event_id
+  return (
+    <div
+      className="grid grid-cols-[100px_100px_80px_1fr_120px_36px] gap-2 px-4 py-1.5 items-center border-b border-[#F3F4F6] last:border-b-0 text-[12.5px]"
+    >
+      <div className="font-mono tabular-nums text-[#374151]">
+        {fmtDate(payment.payment_date)}
+      </div>
+      <div className="font-mono tabular-nums text-[#111] text-right">
+        ${payment.amount.toFixed(2)}
+      </div>
+      <div className="text-[#6B7280] capitalize">
+        {payment.payment_method ?? '—'}
+      </div>
+      <div className="text-[#374151] truncate">
+        {payment.reference ? (
+          <span className="font-mono text-[12px] mr-2">{payment.reference}</span>
+        ) : null}
+        {payment.notes && (
+          <span className="text-[#6B7280] text-[11.5px]">{payment.notes}</span>
+        )}
+        {!payment.reference && !payment.notes && (
+          <span className="text-[#9CA3AF] italic">—</span>
+        )}
+      </div>
+      <div>
+        {isQbMatched ? (
+          <span className="inline-flex items-center px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider rounded bg-[#DCFCE7] text-[#15803D]">
+            QB
+          </span>
+        ) : (
+          <span className="inline-flex items-center px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider rounded bg-[#F3F4F6] text-[#6B7280]">
+            Manual
+          </span>
+        )}
+      </div>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          className="p-1 text-[#9CA3AF] hover:text-[#111] rounded"
+          aria-label="Row actions"
+        >
+          <MoreHorizontal className="w-4 h-4" />
+        </button>
+        {menuOpen && (
+          <div
+            className="absolute right-0 top-full mt-1 z-10 min-w-[120px] bg-white border border-[#E5E7EB] rounded-lg shadow-lg py-1 text-[12.5px]"
+            onMouseLeave={() => setMenuOpen(false)}
+          >
+            {!isQbMatched && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  onEdit()
+                }}
+                className="w-full px-3 py-1.5 text-left text-[#374151] hover:bg-[#F9FAFB]"
+              >
+                Edit
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false)
+                onVoid()
+              }}
+              className="w-full px-3 py-1.5 text-left text-[#DC2626] hover:bg-[#FEF2F2]"
+            >
+              Void
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -605,6 +760,9 @@ function EditView(props: {
   totals: { subtotal: number; tax_amount: number; total: number }
   balance: number
   payments: InvoicePayment[]
+  onRecordPayment: () => void
+  onEditPayment: (payment: InvoicePayment) => void
+  onVoidPayment: (payment: InvoicePayment) => void | Promise<void>
   notes: string
   setNotes: (v: string) => void
   internalNotes: string
@@ -628,6 +786,9 @@ function EditView(props: {
     totals,
     balance,
     payments,
+    onRecordPayment,
+    onEditPayment,
+    onVoidPayment,
     notes,
     setNotes,
     internalNotes,
@@ -815,16 +976,53 @@ function EditView(props: {
         <Row label="Balance due" value={`$${balance.toFixed(2)}`} bold />
       </div>
 
-      {/* Payments stub */}
+      {/* Payments */}
       <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-[#E5E7EB] text-[11px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
-          Payments
+        <div className="px-4 py-2.5 border-b border-[#E5E7EB] flex items-center justify-between">
+          <div className="text-[11px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
+            Payments
+          </div>
+          {(invoice.status === 'sent' ||
+            invoice.status === 'partial' ||
+            isOverdue(invoice)) && (
+            <button
+              type="button"
+              onClick={onRecordPayment}
+              className="inline-flex items-center gap-1 text-[11.5px] text-[#2563EB] hover:underline"
+            >
+              <Plus className="w-3.5 h-3.5" /> Record payment
+            </button>
+          )}
         </div>
-        <div className="px-4 py-4 text-[12px] text-[#9CA3AF] italic">
-          {payments.length === 0
-            ? 'No payments recorded — manual recording lands in the next release.'
-            : `${payments.length} payment${payments.length === 1 ? '' : 's'} recorded (read-only until PR-3 wires the modal).`}
-        </div>
+        {payments.length === 0 ? (
+          <div className="px-4 py-4 text-[12px] text-[#9CA3AF] italic">
+            No payments recorded yet.{' '}
+            {invoice.status === 'draft'
+              ? 'Send the invoice first.'
+              : invoice.status === 'paid'
+                ? 'Marked paid without per-payment detail.'
+                : 'Click Record payment when one comes in.'}
+          </div>
+        ) : (
+          <div>
+            <div className="grid grid-cols-[100px_100px_80px_1fr_120px_36px] gap-2 px-4 py-1.5 text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold border-b border-[#F3F4F6] bg-[#F9FAFB]">
+              <div>Date</div>
+              <div className="text-right">Amount</div>
+              <div>Method</div>
+              <div>Reference / notes</div>
+              <div>Source</div>
+              <div></div>
+            </div>
+            {payments.map((p) => (
+              <PaymentRow
+                key={p.id}
+                payment={p}
+                onEdit={() => onEditPayment(p)}
+                onVoid={() => onVoidPayment(p)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Notes */}
