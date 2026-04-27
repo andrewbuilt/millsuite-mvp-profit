@@ -1088,6 +1088,19 @@ export default function ProjectCoverPage() {
                 </div>
               </div>
 
+              {/* Hours rollup — surfaces the time-clock actuals that
+                  proj.actualByDept already aggregates. Per-dept est vs
+                  actual with thresholded %, plus a totals line. Empty
+                  state routes the operator to the time clock pre-filled
+                  with this project. */}
+              <ProjectHoursSection
+                est={proj.hoursByDept}
+                actualMinutes={proj.actualByDept}
+                totalEst={proj.totalHours}
+                totalActualMinutes={proj.actualMinutes}
+                projectId={projectId}
+              />
+
               {/* Top-level invoice action — distinct from the per-milestone
                   "Generate invoice" pill. Use this for ad-hoc CO billing
                   or partial scope outside the milestone schedule. */}
@@ -1389,6 +1402,116 @@ function FinRow({
         )}
         <span className="font-mono text-[#111] tabular-nums">{value}</span>
       </div>
+    </div>
+  )
+}
+
+// ── Project-wide Hours rollup ──
+// Five-dept est-vs-actual grid + total row. Renders below COST BREAKDOWN
+// in the project total panel. Source: proj.hoursByDept (est) and
+// proj.actualByDept (actual minutes). Empty state when no time has been
+// clocked yet routes the operator to /time pre-filled with this project.
+const HOURS_DEPTS: Array<{
+  key: 'eng' | 'cnc' | 'assembly' | 'finish' | 'install'
+  label: string
+}> = [
+  { key: 'eng', label: 'Engineering' },
+  { key: 'cnc', label: 'CNC' },
+  { key: 'assembly', label: 'Assembly' },
+  { key: 'finish', label: 'Finish' },
+  { key: 'install', label: 'Install' },
+]
+
+function pctColor(pct: number | null): string {
+  if (pct == null) return '#9CA3AF'
+  if (pct > 100) return '#EF4444'
+  if (pct > 85) return '#F59E0B'
+  return '#6B7280'
+}
+
+function HoursRow({ label, est, actual, bold }: {
+  label: string
+  est: number
+  actual: number
+  bold?: boolean
+}) {
+  const pct = est > 0 ? Math.round((actual / est) * 100) : null
+  const color = pctColor(pct)
+  const overBold = pct != null && pct > 100
+  return (
+    <div className={`flex items-center justify-between gap-2 py-1.5 text-[12.5px] ${bold ? 'font-semibold text-[#111]' : 'text-[#374151]'}`}>
+      <span className="flex-1 min-w-0 truncate">{label}</span>
+      <span className="w-12 text-right font-mono tabular-nums text-[#6B7280]">{est.toFixed(0)}h</span>
+      <span className="w-12 text-right font-mono tabular-nums text-[#374151]">{actual.toFixed(0)}h</span>
+      <span
+        className={`w-10 text-right font-mono tabular-nums ${overBold ? 'font-bold' : ''}`}
+        style={{ color }}
+      >
+        {pct == null ? '—' : `${pct}%`}
+      </span>
+    </div>
+  )
+}
+
+function ProjectHoursSection({
+  est,
+  actualMinutes,
+  totalEst,
+  totalActualMinutes,
+  projectId,
+}: {
+  est: { eng: number; cnc: number; assembly: number; finish: number; install: number }
+  actualMinutes: { eng: number; cnc: number; assembly: number; finish: number; install: number }
+  totalEst: number
+  totalActualMinutes: number
+  projectId: string
+}) {
+  const hasActuals = totalActualMinutes > 0
+  return (
+    <div className="pt-4 mt-4 border-t border-[#F3F4F6]">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+          Hours
+        </div>
+        {hasActuals && (
+          <div className="flex items-center gap-2 text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+            <span className="w-12 text-right">Est</span>
+            <span className="w-12 text-right">Actual</span>
+            <span className="w-10 text-right">%</span>
+          </div>
+        )}
+      </div>
+
+      {hasActuals ? (
+        <>
+          {HOURS_DEPTS.map((d) => (
+            <HoursRow
+              key={d.key}
+              label={d.label}
+              est={est[d.key]}
+              actual={(actualMinutes[d.key] || 0) / 60}
+            />
+          ))}
+          <div className="border-t border-[#E5E7EB] mt-1 pt-1">
+            <HoursRow
+              label="Total"
+              est={totalEst}
+              actual={totalActualMinutes / 60}
+              bold
+            />
+          </div>
+        </>
+      ) : (
+        <div className="flex items-center justify-between gap-2 py-2 text-[12.5px] text-[#6B7280]">
+          <span>No time clocked yet</span>
+          <Link
+            href={`/time?project=${projectId}`}
+            className="text-[#2563EB] hover:underline"
+          >
+            Start tracking →
+          </Link>
+        </div>
+      )}
     </div>
   )
 }
