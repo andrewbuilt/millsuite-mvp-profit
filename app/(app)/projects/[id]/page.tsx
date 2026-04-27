@@ -74,6 +74,8 @@ import {
   type MilestoneTrigger,
   type ProjectMilestone,
 } from '@/lib/milestones'
+import { loadInvoicesForProject } from '@/lib/invoices'
+import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
 import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
@@ -282,6 +284,13 @@ export default function ProjectCoverPage() {
   const [milestonesDirty, setMilestonesDirty] = useState(false)
   const [milestonesSaving, setMilestonesSaving] = useState(false)
   const [newSubOpen, setNewSubOpen] = useState(false)
+  // Set of cash_flow_receivables ids that already have an invoice
+  // attached. Drives whether each milestone row shows the "Generate
+  // invoice" button or hides it (already invoiced as draft or sent).
+  const [invoicedMilestoneIds, setInvoicedMilestoneIds] = useState<Set<string>>(new Set())
+  // Milestone the operator clicked "Generate invoice" on; opens the
+  // CreateInvoiceModal. null when no modal is open.
+  const [createInvoiceMilestoneId, setCreateInvoiceMilestoneId] = useState<string | null>(null)
 
   // ── Load ──
 
@@ -400,6 +409,17 @@ export default function ProjectCoverPage() {
 
     // Milestones.
     const ms = await loadMilestones(projectId)
+    // Invoices for this project — used to hide the "Generate invoice"
+    // button on milestones that already have a draft or sent invoice.
+    // Only non-void invoices count; voided ones free the milestone for
+    // re-invoicing.
+    const invs = await loadInvoicesForProject(projectId)
+    const invoicedIds = new Set(
+      invs
+        .filter((i) => i.status !== 'void' && i.linked_milestone_id)
+        .map((i) => i.linked_milestone_id as string),
+    )
+    setInvoicedMilestoneIds(invoicedIds)
 
     setProject(projRes.data as Project)
     setCards(cardData)
@@ -1040,6 +1060,8 @@ export default function ProjectCoverPage() {
               <MilestoneBuilder
                 milestones={milestones}
                 total={proj.priceTotal}
+                invoicedMilestoneIds={invoicedMilestoneIds}
+                onGenerateInvoice={(id) => setCreateInvoiceMilestoneId(id)}
                 onChange={(next) => {
                   setMilestones(next)
                   setMilestonesDirty(true)
@@ -1233,6 +1255,25 @@ export default function ProjectCoverPage() {
           orgId={org.id}
           orgConsumablePct={org.consumable_markup_pct ?? null}
           onClose={() => setNewSubOpen(false)}
+        />
+      )}
+
+      {createInvoiceMilestoneId && (
+        <CreateInvoiceModal
+          milestoneId={createInvoiceMilestoneId}
+          onClose={() => setCreateInvoiceMilestoneId(null)}
+          onCreated={async (inv, action) => {
+            setCreateInvoiceMilestoneId(null)
+            showToast(
+              action === 'sent'
+                ? `Invoice ${inv.invoice_number} sent. Mark received when payment lands.`
+                : `Invoice ${inv.invoice_number} saved as draft.`,
+            )
+            // Reload milestones (status flip on send) + invoice ids
+            // (button hides for the linked milestone whether draft or
+            // sent).
+            await reload()
+          }}
         />
       )}
       </div>
@@ -1438,6 +1479,8 @@ function TargetMarginEditor({
 function MilestoneBuilder({
   milestones,
   total,
+  invoicedMilestoneIds,
+  onGenerateInvoice,
   onChange,
   onSave,
   onReceived,
@@ -1446,6 +1489,13 @@ function MilestoneBuilder({
 }: {
   milestones: ProjectMilestone[]
   total: number
+  /** Cash-flow-receivable ids that already have a non-void invoice
+   *  attached. Used to hide the "Generate invoice" button on rows
+   *  that have an in-flight draft or have already been sent. */
+  invoicedMilestoneIds?: Set<string>
+  /** Open the create-invoice modal seeded from this milestone. The
+   *  parent owns the modal state. */
+  onGenerateInvoice?: (milestoneId: string) => void
   onChange: (next: ProjectMilestone[]) => void
   onSave: () => void
   /** Manual mark-received fallback for shops without QB connected. The
@@ -1617,52 +1667,67 @@ function MilestoneBuilder({
               value={m.trigger}
               onChange={(e) => updateOne(i, { trigger: e.target.value as MilestoneTrigger })}
               disabled={isReceived}
-              className="flex-shrink-0 max-w-[130px] text-[11px] bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1 py-1 outline-none text-[#6B7280] truncate disabled:opacity-60"
+              className="flex-shrink-0 max-w-[110px] text-[11px] bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1 py-1 outline-none text-[#6B7280] truncate disabled:opacity-60"
             >
               {TRIGGER_ORDER.map((t) => (
                 <option key={t} value={t}>{TRIGGER_LABEL[t]}</option>
               ))}
             </select>
-            {/* Status pill — clickable when projected (manual mark-received
-                fallback when QB isn't connected); read-only green when
-                already received. New rows (not yet persisted) hide the
-                pill until the operator saves. */}
-            {isReceived ? (
-              <span
-                className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#D1FAE5] text-[#065F46]"
-                title="Marked received — flip via QB watcher or manual button"
-              >
-                <CheckCircle2 className="w-3 h-3" /> Received
-              </span>
-            ) : isPersisted && onReceived ? (
-              <button
-                onClick={async () => {
-                  const ok = await confirm({
-                    title: 'Mark milestone as received?',
-                    message: `Records ${money(amount)} (${m.label || 'this milestone'}) received on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Use this when you've taken the payment outside QB or want to override the watcher.`,
-                    confirmLabel: 'Mark received',
-                  })
-                  if (!ok) return
-                  try {
-                    await onReceived(m.id)
-                  } catch {
-                    await alert({
-                      title: 'Couldn’t mark received',
-                      message:
-                        'Something went wrong saving the change. Open the browser console for the full error and try again.',
+            {/* Pill stack — Invoice action + Status pill share one
+                right-side column so the row width stays bounded when
+                both are visible. The Invoice action is conditional
+                (projected milestone with no non-void invoice attached);
+                the status pill always renders. */}
+            <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+              {isPersisted &&
+                m.status === 'projected' &&
+                onGenerateInvoice &&
+                !(invoicedMilestoneIds?.has(m.id) ?? false) && (
+                  <button
+                    onClick={() => onGenerateInvoice(m.id)}
+                    className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#DBEAFE] text-[#1E40AF] hover:bg-[#BFDBFE] transition-colors"
+                    title="Generate an invoice from this milestone"
+                  >
+                    Invoice
+                  </button>
+                )}
+              {isReceived ? (
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#D1FAE5] text-[#065F46]"
+                  title="Marked received — flip via QB watcher or manual button"
+                >
+                  <CheckCircle2 className="w-3 h-3" /> Received
+                </span>
+              ) : isPersisted && onReceived ? (
+                <button
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: 'Mark milestone as received?',
+                      message: `Records ${money(amount)} (${m.label || 'this milestone'}) received on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Use this when you've taken the payment outside QB or want to override the watcher.`,
+                      confirmLabel: 'Mark received',
                     })
-                  }
-                }}
-                className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#6B7280] hover:bg-[#DBEAFE] hover:text-[#1E40AF] transition-colors"
-                title="Mark this milestone as received (manual fallback for non-QB shops)"
-              >
-                Projected
-              </button>
-            ) : (
-              <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#9CA3AF]">
-                New
-              </span>
-            )}
+                    if (!ok) return
+                    try {
+                      await onReceived(m.id)
+                    } catch {
+                      await alert({
+                        title: 'Couldn’t mark received',
+                        message:
+                          'Something went wrong saving the change. Open the browser console for the full error and try again.',
+                      })
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#6B7280] hover:bg-[#DBEAFE] hover:text-[#1E40AF] transition-colors"
+                  title="Mark this milestone as received (manual fallback for non-QB shops)"
+                >
+                  {m.status === 'invoiced' ? 'Invoiced' : 'Projected'}
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#9CA3AF]">
+                  New
+                </span>
+              )}
+            </div>
             <button
               onClick={() => remove(i)}
               disabled={isReceived}

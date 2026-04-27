@@ -97,6 +97,16 @@ export default function SettingsPage() {
   const [businessPhone, setBusinessPhone] = useState('')
   const [businessEmail, setBusinessEmail] = useState('')
 
+  // Invoicing settings — feed the create-invoice modal prefill and the
+  // numbering sequence. nextInvoiceNumber is shown read-only with a
+  // confirm-gated reset; the rest are free-form.
+  const [invoicePrefix, setInvoicePrefix] = useState('')
+  const [nextInvoiceNumber, setNextInvoiceNumber] = useState(1)
+  const [defaultTaxPct, setDefaultTaxPct] = useState('')
+  const [defaultPaymentTermsDays, setDefaultPaymentTermsDays] = useState('14')
+  const [invoiceFooterText, setInvoiceFooterText] = useState('')
+  const [invoiceEmailTemplate, setInvoiceEmailTemplate] = useState('')
+
   const [copied, setCopied] = useState(false)
   const [savingRate, setSavingRate] = useState(false)
   const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
@@ -157,6 +167,30 @@ export default function SettingsPage() {
         setBusinessZip((org as any).business_zip || '')
         setBusinessPhone((org as any).business_phone || '')
         setBusinessEmail((org as any).business_email || '')
+
+        // Invoicing — pulled with a fresh select since the auth Org type
+        // doesn't expose these columns yet.
+        const { data: invSettings } = await supabase
+          .from('orgs')
+          .select(
+            'invoice_prefix, next_invoice_number, default_tax_pct, default_payment_terms_days, invoice_footer_text, invoice_email_template',
+          )
+          .eq('id', org.id)
+          .single()
+        if (invSettings && !cancelled) {
+          setInvoicePrefix(invSettings.invoice_prefix || '')
+          setNextInvoiceNumber(Number(invSettings.next_invoice_number) || 1)
+          setDefaultTaxPct(
+            invSettings.default_tax_pct == null
+              ? ''
+              : String(invSettings.default_tax_pct),
+          )
+          setDefaultPaymentTermsDays(
+            String(Number(invSettings.default_payment_terms_days) || 14),
+          )
+          setInvoiceFooterText(invSettings.invoice_footer_text || '')
+          setInvoiceEmailTemplate(invSettings.invoice_email_template || '')
+        }
         setLoaded(true)
       }
     })()
@@ -248,6 +282,50 @@ export default function SettingsPage() {
     loaded,
     refreshOrg,
   ])
+
+  // Invoicing settings — separate debounce so the heavier invoice-prefix
+  // change doesn't piggyback on the project-defaults effect's deps.
+  useEffect(() => {
+    if (!org?.id || !loaded) return
+    const t = setTimeout(async () => {
+      const taxNum = defaultTaxPct.trim() === '' ? null : Number(defaultTaxPct)
+      const termsNum = Math.max(0, parseInt(defaultPaymentTermsDays, 10) || 14)
+      const { error } = await supabase
+        .from('orgs')
+        .update({
+          invoice_prefix: invoicePrefix.trim() || null,
+          default_tax_pct: taxNum != null && !Number.isNaN(taxNum) ? taxNum : null,
+          default_payment_terms_days: termsNum,
+          invoice_footer_text: invoiceFooterText.trim() || null,
+          invoice_email_template: invoiceEmailTemplate.trim() || null,
+        })
+        .eq('id', org.id)
+      if (error) console.warn('invoicing save', error)
+    }, 800)
+    return () => clearTimeout(t)
+  }, [
+    invoicePrefix,
+    defaultTaxPct,
+    defaultPaymentTermsDays,
+    invoiceFooterText,
+    invoiceEmailTemplate,
+    org?.id,
+    loaded,
+  ])
+
+  async function handleResetInvoiceNumber() {
+    if (!org?.id) return
+    const ok = window.confirm(
+      'Reset the next invoice number to 1? Future invoices will start at INV-0001 (or your prefix). Existing invoices keep their numbers.',
+    )
+    if (!ok) return
+    const { error } = await supabase
+      .from('orgs')
+      .update({ next_invoice_number: 1 })
+      .eq('id', org.id)
+    if (!error) setNextInvoiceNumber(1)
+    else console.warn('reset invoice number', error)
+  }
 
   // ── Mutators for the lists ──
   function updateOverheadRow(category: string, patch: Partial<OverheadInput>) {
@@ -776,6 +854,114 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
               <label className="text-sm text-[#6B7280]">Email</label>
               <input type="text" value={businessEmail} onChange={e => setBusinessEmail(e.target.value)} className="w-64 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="info@yourbusiness.com" />
+            </div>
+          </div>
+        </div>
+
+        {/* Invoicing */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-[#E5E7EB]">
+            <h2 className="text-base font-semibold">Invoicing</h2>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">
+              Defaults applied when generating an invoice from a project milestone.
+            </p>
+          </div>
+          <div className="px-6 py-4 space-y-3">
+            <div className="flex items-center justify-between py-2">
+              <label className="text-sm text-[#6B7280]">
+                Invoice number prefix
+                <span className="block text-[11px] text-[#9CA3AF] font-normal">
+                  Defaults to "INV-" when blank
+                </span>
+              </label>
+              <input
+                type="text"
+                value={invoicePrefix}
+                onChange={(e) => setInvoicePrefix(e.target.value)}
+                placeholder="INV-"
+                className="w-32 px-3 py-2 text-sm font-mono bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
+              />
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">
+                Next invoice number
+                <span className="block text-[11px] text-[#9CA3AF] font-normal">
+                  Bumps automatically as invoices are created
+                </span>
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="font-mono tabular-nums text-sm text-[#111] tabular-nums px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg w-32 text-right">
+                  {String(nextInvoiceNumber).padStart(4, '0')}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetInvoiceNumber}
+                  className="text-[12px] text-[#9CA3AF] hover:text-[#DC2626]"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">Default tax %</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={defaultTaxPct}
+                  onChange={(e) =>
+                    setDefaultTaxPct(e.target.value.replace(/[^0-9.]/g, ''))
+                  }
+                  placeholder="0"
+                  className={inputClass}
+                />
+                <span className="text-sm text-[#9CA3AF]">%</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">Default payment terms</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={defaultPaymentTermsDays}
+                  onChange={(e) =>
+                    setDefaultPaymentTermsDays(e.target.value.replace(/[^0-9]/g, ''))
+                  }
+                  className={inputClass}
+                />
+                <span className="text-sm text-[#9CA3AF]">days</span>
+              </div>
+            </div>
+            <div className="py-2 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280] block mb-1.5">
+                Invoice footer text
+                <span className="block text-[11px] text-[#9CA3AF] font-normal">
+                  Appears at the bottom of every invoice (terms, thank-you note, etc.)
+                </span>
+              </label>
+              <textarea
+                value={invoiceFooterText}
+                onChange={(e) => setInvoiceFooterText(e.target.value)}
+                rows={3}
+                placeholder="Payment due within 14 days. Make checks payable to ${business name}."
+                className="w-full px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] resize-none"
+              />
+            </div>
+            <div className="py-2 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280] block mb-1.5">
+                Email template body
+                <span className="block text-[11px] text-[#9CA3AF] font-normal">
+                  Used by the "copy email" affordance once PDF send ships in the next release.
+                </span>
+              </label>
+              <textarea
+                value={invoiceEmailTemplate}
+                onChange={(e) => setInvoiceEmailTemplate(e.target.value)}
+                rows={4}
+                placeholder="Hi ${client name},&#10;Attached is invoice ${invoice number} for ${project name}. Let me know if you have any questions.&#10;Thanks!"
+                className="w-full px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] resize-none"
+              />
             </div>
           </div>
         </div>
