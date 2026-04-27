@@ -500,16 +500,103 @@ export async function updateInvoiceLineItems(
   })
 }
 
-/** Mark an invoice void. Terminal — caller should confirm. */
+/** Mark an invoice void. Terminal — caller should confirm. Reverts
+ *  any linked milestone to status='projected' so the manual mark-
+ *  received toggle reappears on the project page. */
 export async function voidInvoice(id: string): Promise<void> {
+  const nowIso = new Date().toISOString()
+  // Read the linked-milestone id before the void update so we can
+  // revert it. Reading after would still work (status is the only
+  // field changing) but the explicit two-step makes the intent clear.
+  const { data: existing } = await supabase
+    .from('client_invoices')
+    .select('linked_milestone_id')
+    .eq('id', id)
+    .single()
   const { error } = await supabase
     .from('client_invoices')
-    .update({ status: 'void', updated_at: new Date().toISOString() })
+    .update({ status: 'void', updated_at: nowIso })
     .eq('id', id)
   if (error) {
     console.error('voidInvoice', error)
     throw new Error(error.message || 'Failed to void invoice')
   }
+  const linkedId = (existing as any)?.linked_milestone_id as string | null | undefined
+  if (linkedId) {
+    // Pull the milestone back to projected regardless of prior state
+    // (invoiced or received). The operator can re-mark received
+    // manually if they need to. Keeps the invariant: invoice status
+    // drives milestone status while the link is alive.
+    await supabase
+      .from('cash_flow_receivables')
+      .update({
+        status: 'projected',
+        invoiced_date: null,
+        received_date: null,
+        received_amount: 0,
+      })
+      .eq('id', linkedId)
+  }
+}
+
+/** Find the active (non-void) invoice that links to this milestone,
+ *  if any. Used by the project page to lock the milestone status pill
+ *  and by the reverse-sync path to find the invoice to settle when a
+ *  milestone is manually marked received. Latest by invoice_date wins
+ *  if multiple non-void invoices reference the same milestone. */
+export async function findInvoiceForMilestone(
+  milestoneId: string,
+): Promise<Pick<Invoice, 'id' | 'status' | 'invoice_number' | 'total' | 'amount_received'> | null> {
+  const { data } = await supabase
+    .from('client_invoices')
+    .select('id, status, invoice_number, total, amount_received')
+    .eq('linked_milestone_id', milestoneId)
+    .neq('status', 'void')
+    .order('invoice_date', { ascending: false })
+    .limit(1)
+  if (!data || data.length === 0) return null
+  const r = data[0] as any
+  return {
+    id: r.id,
+    status: r.status,
+    invoice_number: r.invoice_number,
+    total: Number(r.total) || 0,
+    amount_received: Number(r.amount_received) || 0,
+  }
+}
+
+/** Reverse-sync: when a milestone flips to 'received' (manually or via
+ *  the QB watcher), settle any open linked invoice by auto-recording
+ *  a payment for the outstanding balance. Idempotent — if the invoice
+ *  is already paid, this is a no-op. Returns the invoice number that
+ *  was settled, or null when there's nothing to do.
+ *
+ *  Caller (lib/milestones.markMilestoneReceived, qb-events.confirmMatch)
+ *  passes the payment date that was stamped on the milestone so the
+ *  payment row aligns with the milestone's received_date. */
+export async function syncInvoiceFromMilestoneReceived(
+  milestoneId: string,
+  paymentDate: string,
+  source: 'manual' | 'qb',
+): Promise<string | null> {
+  const inv = await findInvoiceForMilestone(milestoneId)
+  if (!inv) return null
+  if (inv.status === 'paid' || inv.status === 'draft') return null
+  const balance = +(inv.total - inv.amount_received).toFixed(2)
+  if (balance <= 0) return inv.invoice_number
+
+  await recordInvoicePayment({
+    invoice_id: inv.id,
+    amount: balance,
+    payment_date: paymentDate,
+    payment_method: null,
+    reference: null,
+    notes:
+      source === 'qb'
+        ? 'Auto-recorded from QB-matched milestone'
+        : 'Auto-recorded from milestone status flip',
+  })
+  return inv.invoice_number
 }
 
 /** Stamp a draft invoice as sent. PR-2 will replace this with a real

@@ -74,7 +74,11 @@ import {
   type MilestoneTrigger,
   type ProjectMilestone,
 } from '@/lib/milestones'
-import { loadInvoicesForProject } from '@/lib/invoices'
+import {
+  loadInvoicesForProject,
+  isOverdue as isInvoiceOverdue,
+  type InvoiceStatus,
+} from '@/lib/invoices'
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
@@ -284,10 +288,14 @@ export default function ProjectCoverPage() {
   const [milestonesDirty, setMilestonesDirty] = useState(false)
   const [milestonesSaving, setMilestonesSaving] = useState(false)
   const [newSubOpen, setNewSubOpen] = useState(false)
-  // Set of cash_flow_receivables ids that already have an invoice
-  // attached. Drives whether each milestone row shows the "Generate
-  // invoice" button or hides it (already invoiced as draft or sent).
-  const [invoicedMilestoneIds, setInvoicedMilestoneIds] = useState<Set<string>>(new Set())
+  // Milestone id → linked-invoice summary. Drives both the "Generate
+  // invoice" button hiding and the read-only status pill that mirrors
+  // the invoice's status (PR: invoice-milestone-sync). Void invoices
+  // are excluded so a voided invoice releases the milestone back to
+  // its manual mark-received affordance.
+  const [milestoneInvoiceMap, setMilestoneInvoiceMap] = useState<
+    Map<string, { id: string; status: InvoiceStatus; invoice_number: string; due_date: string }>
+  >(new Map())
   // Milestone the operator clicked "Generate invoice" on; opens the
   // CreateInvoiceModal. null when no modal is open.
   const [createInvoiceMilestoneId, setCreateInvoiceMilestoneId] = useState<string | null>(null)
@@ -412,17 +420,32 @@ export default function ProjectCoverPage() {
 
     // Milestones.
     const ms = await loadMilestones(projectId)
-    // Invoices for this project — used to hide the "Generate invoice"
-    // button on milestones that already have a draft or sent invoice.
-    // Only non-void invoices count; voided ones free the milestone for
-    // re-invoicing.
+    // Invoices for this project — used to (a) hide the "Generate
+    // invoice" button on milestones that already have a non-void
+    // invoice, and (b) lock the milestone's status pill to mirror
+    // the linked invoice's status. Void invoices are excluded so the
+    // milestone reverts to its normal manual toggle.
     const invs = await loadInvoicesForProject(projectId)
-    const invoicedIds = new Set(
-      invs
-        .filter((i) => i.status !== 'void' && i.linked_milestone_id)
-        .map((i) => i.linked_milestone_id as string),
-    )
-    setInvoicedMilestoneIds(invoicedIds)
+    const milestoneMap = new Map<
+      string,
+      { id: string; status: InvoiceStatus; invoice_number: string; due_date: string }
+    >()
+    for (const i of invs) {
+      if (i.status === 'void' || !i.linked_milestone_id) continue
+      // If multiple non-void invoices reference the same milestone
+      // (rare — would mean an old draft + a new active), keep the
+      // first one we hit (loadInvoicesForProject orders by date desc,
+      // so this is the latest).
+      if (!milestoneMap.has(i.linked_milestone_id)) {
+        milestoneMap.set(i.linked_milestone_id, {
+          id: i.id,
+          status: i.status,
+          invoice_number: i.invoice_number,
+          due_date: i.due_date,
+        })
+      }
+    }
+    setMilestoneInvoiceMap(milestoneMap)
 
     setProject(projRes.data as Project)
     setCards(cardData)
@@ -1076,7 +1099,7 @@ export default function ProjectCoverPage() {
               <MilestoneBuilder
                 milestones={milestones}
                 total={proj.priceTotal}
-                invoicedMilestoneIds={invoicedMilestoneIds}
+                milestoneInvoiceMap={milestoneInvoiceMap}
                 onGenerateInvoice={(id) => setCreateInvoiceMilestoneId(id)}
                 onChange={(next) => {
                   setMilestones(next)
@@ -1502,6 +1525,76 @@ function TargetMarginEditor({
   )
 }
 
+// ── Milestone invoice pill ──
+// Read-only badge that mirrors the linked invoice's status. Replaces
+// the manual mark-received toggle on milestone rows that have a non-
+// void invoice attached, since the invoice is now the source of
+// truth for cash status. Click → invoice detail page where payments
+// get recorded.
+
+function MilestoneInvoicePill({
+  invoiceId,
+  invoiceNumber,
+  invoiceStatus,
+  isOverdue,
+}: {
+  invoiceId: string
+  invoiceNumber: string
+  invoiceStatus: InvoiceStatus
+  isOverdue: boolean
+}) {
+  // Map invoice status → milestone-pill label + tone. Overdue
+  // overrides the 'sent' label so the operator sees the warning at
+  // the milestone level, not just on the invoice.
+  let label: string
+  let bg: string
+  let fg: string
+  if (isOverdue) {
+    label = 'Overdue'
+    bg = '#FEE2E2'
+    fg = '#991B1B'
+  } else {
+    switch (invoiceStatus) {
+      case 'draft':
+        label = 'Invoice draft'
+        bg = '#F3F4F6'
+        fg = '#374151'
+        break
+      case 'sent':
+        label = 'Invoiced'
+        bg = '#DBEAFE'
+        fg = '#1E40AF'
+        break
+      case 'partial':
+        label = 'Partial'
+        bg = '#FEF3C7'
+        fg = '#92400E'
+        break
+      case 'paid':
+        label = 'Received'
+        bg = '#D1FAE5'
+        fg = '#065F46'
+        break
+      default:
+        // 'overdue' / 'void' shouldn't reach here (overdue handled
+        // above; void milestones are unmapped by the parent loader).
+        label = 'Invoiced'
+        bg = '#DBEAFE'
+        fg = '#1E40AF'
+    }
+  }
+  return (
+    <Link
+      href={`/invoices/${invoiceId}`}
+      className="flex-shrink-0 inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full hover:opacity-90 transition-opacity"
+      style={{ backgroundColor: bg, color: fg }}
+      title={`Status follows invoice ${invoiceNumber}. Record payment on the invoice.`}
+    >
+      {label}
+    </Link>
+  )
+}
+
 // ── Milestone builder ──
 // Per-project list of {label, pct, trigger}. Validates total pct = 100
 // before allowing save. No default is shipped — users compose their own
@@ -1511,7 +1604,7 @@ function TargetMarginEditor({
 function MilestoneBuilder({
   milestones,
   total,
-  invoicedMilestoneIds,
+  milestoneInvoiceMap,
   onGenerateInvoice,
   onChange,
   onSave,
@@ -1521,10 +1614,15 @@ function MilestoneBuilder({
 }: {
   milestones: ProjectMilestone[]
   total: number
-  /** Cash-flow-receivable ids that already have a non-void invoice
-   *  attached. Used to hide the "Generate invoice" button on rows
-   *  that have an in-flight draft or have already been sent. */
-  invoicedMilestoneIds?: Set<string>
+  /** Per-milestone linked-invoice summary. When a milestone is in
+   *  this map, its row shows a read-only invoice-status pill instead
+   *  of the manual mark-received toggle, and clicking the pill
+   *  routes to the invoice detail page where payment recording
+   *  happens. Void invoices are excluded by the parent loader. */
+  milestoneInvoiceMap?: Map<
+    string,
+    { id: string; status: InvoiceStatus; invoice_number: string; due_date: string }
+  >
   /** Open the create-invoice modal seeded from this milestone. The
    *  parent owns the modal state. */
   onGenerateInvoice?: (milestoneId: string) => void
@@ -1532,7 +1630,8 @@ function MilestoneBuilder({
   onSave: () => void
   /** Manual mark-received fallback for shops without QB connected. The
    *  parent flips status='received' optimistically and persists via
-   *  lib/milestones.markMilestoneReceived. */
+   *  lib/milestones.markMilestoneReceived. Reverse-syncs to any
+   *  linked invoice as a side effect. */
   onReceived?: (id: string) => Promise<void>
   dirty: boolean
   saving: boolean
@@ -1705,61 +1804,76 @@ function MilestoneBuilder({
                 <option key={t} value={t}>{TRIGGER_LABEL[t]}</option>
               ))}
             </select>
-            {/* Pill stack — Invoice action + Status pill share one
-                right-side column so the row width stays bounded when
-                both are visible. The Invoice action is conditional
-                (projected milestone with no non-void invoice attached);
-                the status pill always renders. */}
-            <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-              {isPersisted &&
-                m.status === 'projected' &&
-                onGenerateInvoice &&
-                !(invoicedMilestoneIds?.has(m.id) ?? false) && (
-                  <button
-                    onClick={() => onGenerateInvoice(m.id)}
-                    className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#DBEAFE] text-[#1E40AF] hover:bg-[#BFDBFE] transition-colors"
-                    title="Generate an invoice from this milestone"
-                  >
-                    Invoice
-                  </button>
-                )}
-              {isReceived ? (
-                <span
-                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#D1FAE5] text-[#065F46]"
-                  title="Marked received — flip via QB watcher or manual button"
-                >
-                  <CheckCircle2 className="w-3 h-3" /> Received
-                </span>
-              ) : isPersisted && onReceived ? (
-                <button
-                  onClick={async () => {
-                    const ok = await confirm({
-                      title: 'Mark milestone as received?',
-                      message: `Records ${money(amount)} (${m.label || 'this milestone'}) received on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Use this when you've taken the payment outside QB or want to override the watcher.`,
-                      confirmLabel: 'Mark received',
-                    })
-                    if (!ok) return
-                    try {
-                      await onReceived(m.id)
-                    } catch {
-                      await alert({
-                        title: 'Couldn’t mark received',
-                        message:
-                          'Something went wrong saving the change. Open the browser console for the full error and try again.',
-                      })
-                    }
-                  }}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#6B7280] hover:bg-[#DBEAFE] hover:text-[#1E40AF] transition-colors"
-                  title="Mark this milestone as received (manual fallback for non-QB shops)"
-                >
-                  {m.status === 'invoiced' ? 'Invoiced' : 'Projected'}
-                </button>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#9CA3AF]">
-                  New
-                </span>
-              )}
-            </div>
+            {/* Pill stack — when a non-void invoice is linked, the
+                pill is read-only and mirrors the invoice's status,
+                clicking routes to the invoice detail page. Otherwise
+                falls back to the manual mark-received toggle (or a
+                "New" placeholder for unsaved rows). */}
+            {(() => {
+              const linkedInvoice = milestoneInvoiceMap?.get(m.id)
+              if (linkedInvoice) {
+                return (
+                  <MilestoneInvoicePill
+                    invoiceId={linkedInvoice.id}
+                    invoiceNumber={linkedInvoice.invoice_number}
+                    invoiceStatus={linkedInvoice.status}
+                    isOverdue={isInvoiceOverdue({
+                      status: linkedInvoice.status,
+                      due_date: linkedInvoice.due_date,
+                    })}
+                  />
+                )
+              }
+              return (
+                <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                  {isPersisted && m.status === 'projected' && onGenerateInvoice && (
+                    <button
+                      onClick={() => onGenerateInvoice(m.id)}
+                      className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#DBEAFE] text-[#1E40AF] hover:bg-[#BFDBFE] transition-colors"
+                      title="Generate an invoice from this milestone"
+                    >
+                      Invoice
+                    </button>
+                  )}
+                  {isReceived ? (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#D1FAE5] text-[#065F46]"
+                      title="Marked received — flip via QB watcher or manual button"
+                    >
+                      <CheckCircle2 className="w-3 h-3" /> Received
+                    </span>
+                  ) : isPersisted && onReceived ? (
+                    <button
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: 'Mark milestone as received?',
+                          message: `Records ${money(amount)} (${m.label || 'this milestone'}) received on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Use this when you've taken the payment outside QB or want to override the watcher.`,
+                          confirmLabel: 'Mark received',
+                        })
+                        if (!ok) return
+                        try {
+                          await onReceived(m.id)
+                        } catch {
+                          await alert({
+                            title: 'Couldn’t mark received',
+                            message:
+                              'Something went wrong saving the change. Open the browser console for the full error and try again.',
+                          })
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#6B7280] hover:bg-[#DBEAFE] hover:text-[#1E40AF] transition-colors"
+                      title="Mark this milestone as received (manual fallback for non-QB shops)"
+                    >
+                      Projected
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-[#F3F4F6] text-[#9CA3AF]">
+                      New
+                    </span>
+                  )}
+                </div>
+              )
+            })()}
             <button
               onClick={() => remove(i)}
               disabled={isReceived}
