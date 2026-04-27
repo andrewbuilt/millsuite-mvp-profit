@@ -603,6 +603,14 @@ function SalesInner() {
                 onRoleChange={(id, role) => setRoleByCand((r) => ({ ...r, [id]: role }))}
                 ignored={ignored}
                 onToggleIgnore={(id) => setIgnored((i) => ({ ...i, [id]: !i[id] }))}
+                onItemPatch={(index, patch) => {
+                  setParsed((prev) => {
+                    if (!prev || !prev.items) return prev
+                    const nextItems = prev.items.slice()
+                    nextItems[index] = { ...nextItems[index], ...patch }
+                    return { ...prev, items: nextItems }
+                  })
+                }}
                 onCancel={clearParser}
                 onSubmit={handleParsedSubmit}
                 creating={creating}
@@ -778,6 +786,7 @@ function ParsePreview({
   onRoleChange,
   ignored,
   onToggleIgnore,
+  onItemPatch,
   onCancel,
   onSubmit,
   creating,
@@ -789,6 +798,10 @@ function ParsePreview({
   onRoleChange: (id: string, role: CandidateRole) => void
   ignored: Record<string, boolean>
   onToggleIgnore: (id: string) => void
+  /** Called when the operator inline-edits a parsed scope item (e.g.
+   *  the LF inline editor in the dimension-check flow). The parent
+   *  re-sets parsed.items so the next render reflects the edit. */
+  onItemPatch?: (index: number, patch: Partial<ParsedScopeItem>) => void
   onCancel: () => void
   onSubmit: () => void
   creating: boolean
@@ -911,7 +924,7 @@ function ParsePreview({
           indicators. Items flow into estimate lines on submit; this
           surface lets the operator scan for low-confidence calls
           before the project is created. */}
-      <ScopeItemsPreview items={parsed.items} />
+      <ScopeItemsPreview items={parsed.items} onItemPatch={onItemPatch} />
 
       {/* Summary strip — "this is what will land on the project" */}
       <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-3 text-xs text-[#6B7280] mb-4">
@@ -979,20 +992,75 @@ function Line({ label, value }: { label: string; value?: string | null }) {
 // high → no marker. A summary strip at the bottom counts low-confidence
 // items and offers a jump-to-first affordance.
 
+/** Pre-commit dimension validation. Returns a list of human-readable
+ *  issues for the row's tooltip, or empty array when the item looks
+ *  fine. Pure — no DB calls. Run client-side on Claude's output as
+ *  a guard rail; we don't re-prompt Claude on validation failures. */
+function getDimensionIssues(it: ParsedScopeItem): string[] {
+  const issues: string[] = []
+  const requiresLf =
+    it.product_key === 'base' ||
+    it.product_key === 'upper' ||
+    it.product_key === 'full'
+  if (requiresLf) {
+    if (it.linear_feet == null) {
+      issues.push('Linear feet missing — required for cabinet runs')
+    } else if (it.linear_feet <= 0) {
+      issues.push(`Linear feet ≤ 0 (${it.linear_feet})`)
+    } else if (it.linear_feet > 100) {
+      issues.push(
+        `Linear feet implausibly large (${it.linear_feet}) — single line over 100 LF probably misread`,
+      )
+    }
+  }
+  if (it.quantity == null || it.quantity <= 0) {
+    issues.push(`Quantity ≤ 0 or null (${it.quantity ?? 'null'})`)
+  }
+  const drawer = it.features?.drawer_count
+  if (drawer != null && (drawer < 0 || !Number.isInteger(drawer))) {
+    issues.push(`Drawer count not a non-negative integer (${drawer})`)
+  }
+  const ends = it.slots?.end_panel_count
+  if (ends != null && (ends < 0 || !Number.isInteger(ends))) {
+    issues.push(`End panel count not a non-negative integer (${ends})`)
+  }
+  const fillers = it.slots?.filler_count
+  if (fillers != null && (fillers < 0 || !Number.isInteger(fillers))) {
+    issues.push(`Filler count not a non-negative integer (${fillers})`)
+  }
+  return issues
+}
+
 function ScopeItemsPreview({
   items,
+  onItemPatch,
 }: {
   items: ParsedScopeItem[] | undefined
+  /** Called when the operator inline-edits a numeric field. The
+   *  parent re-sets parsed.items so the next render reflects the
+   *  edit. Optional — if not provided, the validation badges still
+   *  surface but values can't be edited inline. */
+  onItemPatch?: (index: number, patch: Partial<ParsedScopeItem>) => void
 }) {
   if (!items || items.length === 0) return null
 
   const lowCount = items.filter((it) => it.confidence === 'low').length
-  // Render order: preserve API order (rooms appear naturally grouped
-  // since the prompt asks for items grouped by room).
+  const dimIssuesByIndex = items.map((it) => getDimensionIssues(it))
+  const dimFlagCount = dimIssuesByIndex.filter((arr) => arr.length > 0).length
 
   function jumpToFirstFlag() {
     const first = document.querySelector(
       '[data-scope-confidence="low"]',
+    ) as HTMLElement | null
+    if (first) {
+      first.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      first.focus()
+    }
+  }
+
+  function jumpToFirstDimFlag() {
+    const first = document.querySelector(
+      '[data-scope-dim-flagged="true"]',
     ) as HTMLElement | null
     if (first) {
       first.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -1010,23 +1078,33 @@ function ScopeItemsPreview({
           const conf = it.confidence ?? 'medium'
           const isLow = conf === 'low'
           const isMed = conf === 'medium'
+          const dimIssues = dimIssuesByIndex[i]
+          const dimFlagged = dimIssues.length > 0
           return (
             <div
               key={i}
-              tabIndex={isLow ? 0 : -1}
+              tabIndex={isLow || dimFlagged ? 0 : -1}
               data-scope-confidence={conf}
+              data-scope-dim-flagged={dimFlagged ? 'true' : 'false'}
               className={`grid grid-cols-[110px_1fr_auto] gap-3 items-center px-3 py-2 text-[12.5px] border-b border-[#F3F4F6] last:border-b-0 ${
-                isLow ? 'bg-[#FFFBEB]' : ''
+                dimFlagged ? 'bg-[#FFFBEB]' : isLow ? 'bg-[#FFFBEB]' : ''
               }`}
             >
               <div className="text-[#6B7280] truncate">{it.room || '—'}</div>
               <div className="text-[#111] truncate min-w-0">
                 <div className="truncate">
-                  {it.name}
-                  {it.linear_feet != null && (
-                    <span className="ml-2 text-[#9CA3AF] font-mono text-[11.5px]">
-                      {it.linear_feet} LF
-                    </span>
+                  {it.name}{' '}
+                  {onItemPatch ? (
+                    <InlineLfEditor
+                      value={it.linear_feet}
+                      onChange={(next) => onItemPatch(i, { linear_feet: next })}
+                    />
+                  ) : (
+                    it.linear_feet != null && (
+                      <span className="ml-2 text-[#9CA3AF] font-mono text-[11.5px]">
+                        {it.linear_feet} LF
+                      </span>
+                    )
                   )}
                 </div>
                 {it.source_files && it.source_files.length > 1 && (
@@ -1036,6 +1114,14 @@ function ScopeItemsPreview({
                 )}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
+                {dimFlagged && (
+                  <span
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded bg-[#FEF3C7] text-[#92400E]"
+                    title={dimIssues.join('\n')}
+                  >
+                    ⚠ Dimension check
+                  </span>
+                )}
                 {isLow ? (
                   <span
                     className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded bg-[#FEF3C7] text-[#92400E]"
@@ -1055,6 +1141,27 @@ function ScopeItemsPreview({
           )
         })}
       </div>
+      {dimFlagCount > 0 && (
+        <div className="mt-2 flex items-center justify-between gap-2 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg">
+          <div className="text-[12px] text-[#92400E]">
+            <span className="font-semibold">
+              {dimFlagCount} item{dimFlagCount === 1 ? '' : 's'} need a dimension
+              check
+            </span>{' '}
+            <span className="text-[#A16207]">
+              — flagged values look implausible. Click an LF number to edit
+              inline; the rest can be fixed on the project page after creation.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={jumpToFirstDimFlag}
+            className="flex-shrink-0 px-2.5 py-1 text-[11.5px] font-medium text-[#92400E] border border-[#F59E0B] rounded-md hover:bg-[#FEF3C7]"
+          >
+            Review all flagged
+          </button>
+        </div>
+      )}
       {lowCount > 0 && (
         <div className="mt-2 flex items-center justify-between gap-2 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg">
           <div className="text-[12px] text-[#92400E]">
@@ -1076,6 +1183,62 @@ function ScopeItemsPreview({
         </div>
       )}
     </div>
+  )
+}
+
+/** Click-to-edit numeric LF input. Click the value → swap to a
+ *  small input → save on blur or Enter. Cancel on Escape. */
+function InlineLfEditor({
+  value,
+  onChange,
+}: {
+  value: number | null | undefined
+  onChange: (next: number | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<string>(value == null ? '' : String(value))
+  useEffect(() => {
+    setDraft(value == null ? '' : String(value))
+  }, [value])
+  if (editing) {
+    return (
+      <input
+        type="number"
+        autoFocus
+        min={0}
+        step="any"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const n = draft.trim() === '' ? null : Number(draft)
+          if (n == null || (Number.isFinite(n) && n >= 0)) {
+            onChange(n)
+          }
+          setEditing(false)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            ;(e.currentTarget as HTMLInputElement).blur()
+          } else if (e.key === 'Escape') {
+            setDraft(value == null ? '' : String(value))
+            setEditing(false)
+          }
+        }}
+        className="ml-2 inline-block w-16 px-1 py-0 text-[11.5px] font-mono text-right border border-[#2563EB] rounded outline-none"
+      />
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className={`ml-2 font-mono text-[11.5px] hover:bg-[#F3F4F6] rounded px-1 ${
+        value == null ? 'text-[#DC2626]' : 'text-[#9CA3AF]'
+      }`}
+      title="Click to edit"
+    >
+      {value == null ? 'LF —' : `${value} LF`}
+    </button>
   )
 }
 

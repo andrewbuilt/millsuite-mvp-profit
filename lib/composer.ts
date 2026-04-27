@@ -188,6 +188,18 @@ export interface ComposerSlots {
   drawerCount: number
   drawerStyle: string | null
   notes: string
+  /** Parser-extracted strings that didn't match anything in the org's
+   *  rate book. Persist on product_slots so the composer dropdowns
+   *  can render a "FROM DRAWINGS · NOT YET CALIBRATED · {value}
+   *  [+ Calibrate]" affordance at the top of each dropdown. Cleared
+   *  when the operator picks a calibrated entry. Lines that weren't
+   *  parsed (operator-built from scratch) leave these undefined. */
+  doorTypeUnmatched?: string | null
+  doorMaterialUnmatched?: string | null
+  doorFinishUnmatched?: string | null
+  interiorFinishUnmatched?: string | null
+  carcassMaterialUnmatched?: string | null
+  backPanelMaterialUnmatched?: string | null
 }
 
 export interface ComposerDraft {
