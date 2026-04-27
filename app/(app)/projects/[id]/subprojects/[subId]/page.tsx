@@ -1195,6 +1195,7 @@ export default function SubprojectEditorPage() {
         <AddLineComposer
           subprojectId={subId}
           orgId={org.id}
+          projectId={projectId}
           orgConsumablePct={org?.consumable_markup_pct ?? null}
           hasExistingLinesInSubproject={lines.length > 0}
           editingLineId={editingLineId}

@@ -58,6 +58,7 @@ import {
   type ComposerRateBook,
 } from '@/lib/composer'
 import { loadComposerRateBook } from '@/lib/composer-loader'
+import { autoRefreshStaleForProject } from '@/lib/composer-staleness'
 import {
   initialSubprojectDefaults,
   loadLastUsedByProduct,
@@ -98,6 +99,13 @@ import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 interface Props {
   subprojectId: string
   orgId: string
+  /** Optional project context. When set, calibration saves (door type
+   *  walkthrough, drawer style walkthrough, finish walkthrough, inline
+   *  material/finish adds) trigger autoRefreshStaleForProject so any
+   *  drift introduced by the calibration gets pulled forward across
+   *  every line on the project immediately. Skip from rate-book
+   *  invocations — they don't have a project in scope. */
+  projectId?: string
   /** Current org.consumable_markup_pct — used for the "no subproject
    *  defaults row yet" fallback. */
   orgConsumablePct: number | null
@@ -139,6 +147,7 @@ interface AddNewContext {
 export default function AddLineComposer({
   subprojectId,
   orgId,
+  projectId,
   orgConsumablePct,
   hasExistingLinesInSubproject,
   editingLineId,
@@ -146,6 +155,15 @@ export default function AddLineComposer({
   onCancel,
 }: Props) {
   const isEditMode = !!editingLineId
+
+  /** Fire-and-forget refresh of every stale composer line on the
+   *  project after a calibration save. Skips when no projectId is in
+   *  scope (rate-book invocations, ad-hoc walkthroughs). Failures
+   *  log but never block the calibration UI. */
+  function triggerAutoRefresh(): void {
+    if (!projectId) return
+    void autoRefreshStaleForProject(orgId, projectId)
+  }
   // ── Data load ──
   const [rateBook, setRateBook] = useState<ComposerRateBook | null>(null)
   const [defaults, setDefaults] = useState<ComposerDefaults | null>(null)
@@ -305,6 +323,7 @@ export default function AddLineComposer({
           }
         : prev,
     )
+    triggerAutoRefresh()
   }
 
   function openDrawerWalkthroughForPick(styleId: string) {
@@ -333,6 +352,7 @@ export default function AddLineComposer({
     setDraft((prev) =>
       prev ? { ...prev, slots: { ...prev.slots, drawerStyle: styleId } } : prev,
     )
+    triggerAutoRefresh()
   }
 
   function openFinishWalkthrough(app: 'interior' | 'exterior') {
@@ -344,6 +364,7 @@ export default function AddLineComposer({
     await refreshRateBook()
     // Don't auto-select anything — the user may have calibrated multiple
     // combos; they pick from the dropdown after the walkthrough closes.
+    triggerAutoRefresh()
   }
 
   const pickProduct = useCallback(
@@ -575,6 +596,10 @@ export default function AddLineComposer({
       }
       setAddNew(null)
       setSaveError(null)
+      // Inline material adds shift sheet costs / per-LF math the
+      // same way a walkthrough recalibration does — push the new
+      // values into every existing line on the project.
+      triggerAutoRefresh()
     } catch (err: any) {
       setSaveError(err?.message || 'Failed to save material')
     }
@@ -698,6 +723,7 @@ export default function AddLineComposer({
             setSlot('doorMaterialId', created.id)
             setSlot('doorFinishId', null)
             setAddMaterialFor(null)
+            triggerAutoRefresh()
           }}
         />
       )}
@@ -717,6 +743,7 @@ export default function AddLineComposer({
             })
             setSlot('doorFinishId', created.id)
             setAddFinishFor(null)
+            triggerAutoRefresh()
           }}
         />
       )}
