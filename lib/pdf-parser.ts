@@ -89,6 +89,10 @@ export interface ParsedScopeItem {
    *  pre-PR intake_context records. UI uses it to flag low-confidence
    *  items for review without gating creation. */
   confidence?: 'high' | 'medium' | 'low'
+  /** When this item came from a multi-file ingestion, the file names
+   *  that contributed to it. Single-file parses leave it undefined or
+   *  with one entry — UI hides the provenance line in that case. */
+  source_files?: string[]
   notes: string
 }
 
@@ -112,6 +116,12 @@ export interface ParsedPdf {
    *  through so the UI can render a hint when the API also fails
    *  ("regex on a junk text layer is worse than nothing"). */
   isScanned?: boolean
+  /** Storage paths in the parse-drawings bucket when the caller asked
+   *  to keep the PDF(s) for later re-parse (keep_pdf=true). Empty
+   *  array on the inline-base64 path or when the cleanup ran. The
+   *  multi-file merge flattens all input paths into this array so
+   *  intake_context.source_pdf_paths can stash them on the project. */
+  sourcePdfPaths?: string[]
 }
 
 /** Below this many chars of extracted text across all pages, treat
@@ -617,8 +627,8 @@ interface ParseApiResult {
 async function parseViaApi(
   file: File,
   orgId?: string,
-  opts: { isScanned?: boolean } = {},
-): Promise<ParseApiResult> {
+  opts: { isScanned?: boolean; keepPdf?: boolean } = {},
+): Promise<ParseApiResult & { storagePath?: string | null; status?: number }> {
   let payload: Record<string, any>
   let uploadedPath: string | null = null
 
@@ -633,6 +643,7 @@ async function parseViaApi(
       file_name: file.name,
       mime_type: file.type || 'application/pdf',
       is_scanned: !!opts.isScanned,
+      keep_pdf: !!opts.keepPdf,
     }
   } else {
     // Small-file path — limited by the Vercel 4.5 MB request-body ceiling.
@@ -643,17 +654,34 @@ async function parseViaApi(
         file_name: file.name,
         mime_type: file.type || 'application/pdf',
         is_scanned: !!opts.isScanned,
+        keep_pdf: !!opts.keepPdf,
       }
     } catch (err: any) {
       return { error: `Encoding failed: ${err?.message || String(err)}` }
     }
   }
 
+  // Bearer-auth the request so the server can resolve the caller's
+  // org for cap-checking + log entries. Reads from the active
+  // Supabase session — no network round-trip when the session is
+  // already cached.
+  const sessionRes = await supabase.auth.getSession()
+  const token = sessionRes.data.session?.access_token
+  if (!token) {
+    if (uploadedPath) {
+      supabase.storage.from(PARSE_BUCKET).remove([uploadedPath]).catch(() => {})
+    }
+    return { error: 'Not signed in' }
+  }
+
   let resp: Response
   try {
     resp = await fetch('/api/parse-drawings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(payload),
     })
   } catch (err: any) {
@@ -675,7 +703,7 @@ async function parseViaApi(
     if (uploadedPath) {
       supabase.storage.from(PARSE_BUCKET).remove([uploadedPath]).catch(() => {})
     }
-    return { error: message }
+    return { error: message, status: resp.status }
   }
 
   const api = (await resp.json()) as ApiResponse
@@ -695,6 +723,12 @@ async function parseViaApi(
       scopeSummary: api.scope_summary || null,
       source: 'api',
       apiError: null,
+      // Surface the storage path when the caller asked the server to
+      // keep the PDF (keep_pdf=true). The sales flow records this on
+      // intake_context.source_pdf_paths so the project can re-parse
+      // later. Empty array when the file went via the inline base64
+      // path (no storage hop).
+      sourcePdfPaths: opts.keepPdf && uploadedPath ? [uploadedPath] : [],
     },
   }
 }
@@ -757,7 +791,12 @@ async function parseViaRegex(file: File): Promise<ParsedPdf> {
  *              so the server can read it back under RLS. If omitted the
  *              parser falls back to inline base64 (limited to ~3 MB).
  */
-export async function parsePdfFile(file: File, orgId?: string): Promise<ParsedPdf> {
+export async function parsePdfFile(
+  file: File,
+  orgId?: string,
+  opts: { keepPdf?: boolean } = {},
+): Promise<ParsedPdf> {
+  const keepPdf = !!opts.keepPdf
   // Images bypass the API (it only accepts PDFs) and the regex path (pdfjs
   // only speaks PDF). Drop straight into the manual-entry flow with a
   // filename seed.
@@ -790,10 +829,30 @@ export async function parsePdfFile(file: File, orgId?: string): Promise<ParsedPd
   // Try the Claude-backed API first. If it fails we drop to the regex
   // extractor so the user still sees SOMETHING, but we stash the API error
   // on the envelope so the UI can show a "fallback mode" banner.
-  const result = await parseViaApi(file, orgId, { isScanned })
+  // keep_pdf is opt-in by the caller; sales flow toggles it on for
+  // re-parse retention.
+  const result = await parseViaApi(file, orgId, { isScanned, keepPdf })
   if (result.pdf) {
     result.pdf.isScanned = isScanned
     return result.pdf
+  }
+
+  // 429 rate-limit case from the cap check — caller wants to know
+  // the cap was hit so the UI can surface the right banner. Skip the
+  // regex fallback (it'd waste the user's time at the cap boundary)
+  // and surface the rate-limited error directly.
+  if (result.status === 429) {
+    return {
+      fileName: file.name,
+      pageCount: 0,
+      text: '',
+      candidates: [],
+      projectNameGuess: file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
+      parseSucceeded: false,
+      source: 'none',
+      apiError: result.error || 'Daily parse limit reached',
+      isScanned,
+    }
   }
 
   // For scanned PDFs, regex on a junk OCR layer is worse than nothing —
@@ -818,6 +877,135 @@ export async function parsePdfFile(file: File, orgId?: string): Promise<ParsedPd
   regex.apiError = result.error || 'AI parser returned no result'
   regex.isScanned = false
   return regex
+}
+
+// ── Multi-file merge ─────────────────────────────────────────────────────
+//
+// Merges N parsed PDFs into a single envelope so the sales preview can
+// surface a unified candidate list + scope items. Pure — no side
+// effects — caller applies it after Promise.all on multiple parsePdfFile
+// runs. Items track which files they came from via source_files so
+// the UI can show provenance.
+
+const CONFIDENCE_RANK: Record<'low' | 'medium' | 'high', number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+}
+
+/** Lower-cased, whitespace-collapsed key for cross-file dedup. */
+function dedupKey(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+/** Tag every item with the file it came from so the merge can union
+ *  source_files when items dedupe. Idempotent — call before merging. */
+function tagItemsWithSource(pdf: ParsedPdf): void {
+  if (!pdf.items) return
+  for (const it of pdf.items) {
+    if (!Array.isArray(it.source_files) || it.source_files.length === 0) {
+      it.source_files = [pdf.fileName]
+    }
+  }
+}
+
+/** Merge multiple parsed PDFs into one envelope. Runs purely on the
+ *  passed inputs — caller filters out failed parses (parses with
+ *  parseSucceeded=false but no candidates) before calling. Order in
+ *  the output preserves first-occurrence order across the input list. */
+export function mergeParsedPdfs(parses: ParsedPdf[]): ParsedPdf {
+  if (parses.length === 0) {
+    return {
+      fileName: 'No files parsed',
+      pageCount: 0,
+      text: '',
+      candidates: [],
+      projectNameGuess: null,
+      parseSucceeded: false,
+      source: 'none',
+    }
+  }
+  if (parses.length === 1) {
+    tagItemsWithSource(parses[0])
+    return parses[0]
+  }
+
+  for (const p of parses) tagItemsWithSource(p)
+
+  // Candidates — dedupe by (kind, normalized value). Keep the first
+  // occurrence's role + confidence; later duplicates get dropped.
+  const candById = new Map<string, ParsedCandidate>()
+  for (const p of parses) {
+    for (const c of p.candidates) {
+      const key = `${c.kind}::${dedupKey(c.value)}`
+      if (!candById.has(key)) candById.set(key, c)
+    }
+  }
+
+  // Items — match by (room, name, item_type) with case-insensitive
+  // comparison. When duplicates appear across files, prefer the
+  // higher-confidence row and union source_files.
+  const itemByKey = new Map<string, ParsedScopeItem>()
+  const itemOrder: string[] = []
+  for (const p of parses) {
+    for (const it of p.items || []) {
+      const key = [
+        dedupKey(it.room || ''),
+        dedupKey(it.name || ''),
+        dedupKey(it.item_type || ''),
+      ].join('||')
+      const existing = itemByKey.get(key)
+      if (!existing) {
+        itemByKey.set(key, { ...it })
+        itemOrder.push(key)
+        continue
+      }
+      // Merge — prefer higher confidence, union source_files.
+      const exConf = CONFIDENCE_RANK[(existing.confidence ?? 'medium') as 'low' | 'medium' | 'high']
+      const newConf = CONFIDENCE_RANK[(it.confidence ?? 'medium') as 'low' | 'medium' | 'high']
+      const winner = newConf > exConf ? { ...it } : { ...existing }
+      const sources = new Set<string>([
+        ...(existing.source_files || []),
+        ...(it.source_files || []),
+      ])
+      winner.source_files = Array.from(sources)
+      itemByKey.set(key, winner)
+    }
+  }
+  const mergedItems = itemOrder.map((k) => itemByKey.get(k)!).filter(Boolean)
+
+  // Project-name guess — first non-null wins. Same for scope summary.
+  const projectNameGuess =
+    parses.find((p) => p.projectNameGuess)?.projectNameGuess ?? null
+  const scopeSummary =
+    parses.find((p) => p.scopeSummary)?.scopeSummary ?? null
+
+  // Source-pdf paths — union from every parse that recorded one.
+  const sourcePdfPaths: string[] = []
+  for (const p of parses) {
+    for (const path of p.sourcePdfPaths || []) {
+      if (path && !sourcePdfPaths.includes(path)) sourcePdfPaths.push(path)
+    }
+  }
+
+  // Synthetic file name — list the inputs so the UI can show "from
+  // drawings.pdf + spec_sheet.pdf".
+  const fileName = parses.map((p) => p.fileName).join(' + ')
+
+  return {
+    fileName,
+    pageCount: parses.reduce((s, p) => s + (p.pageCount || 0), 0),
+    text: '',
+    candidates: Array.from(candById.values()),
+    projectNameGuess,
+    parseSucceeded: parses.some((p) => p.parseSucceeded),
+    items: mergedItems,
+    scopeSummary,
+    source: 'api',
+    apiError: null,
+    isScanned: parses.every((p) => p.isScanned === true),
+    sourcePdfPaths,
+  }
 }
 
 // Default role guess for a candidate. Used when populating dropdowns so the

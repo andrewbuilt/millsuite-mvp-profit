@@ -44,6 +44,7 @@ import {
   ChevronRight,
   CheckCircle2,
   Circle,
+  FileText,
   Pencil,
   Plus,
   Copy,
@@ -80,6 +81,7 @@ import {
   type InvoiceStatus,
 } from '@/lib/invoices'
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
+import ReparseModal from '@/components/reparse/ReparseModal'
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
 import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
@@ -302,6 +304,10 @@ export default function ProjectCoverPage() {
   // Ad-hoc invoice modal — opens via the "+ New invoice" button above
   // the Payment Milestones panel. No milestone seed.
   const [adHocInvoiceOpen, setAdHocInvoiceOpen] = useState(false)
+  // Re-parse drawings modal. Opens when the operator clicks the
+  // action-bar button; reads source_pdf_paths from intake_context,
+  // re-runs the parser, and surfaces a diff against current scope.
+  const [reparseOpen, setReparseOpen] = useState(false)
 
   // ── Load ──
 
@@ -1251,6 +1257,11 @@ export default function ProjectCoverPage() {
           stage={project.stage}
           projectId={projectId}
           canSell={cards.length > 0}
+          hasReparseable={
+            Array.isArray(((project as any).intake_context as any)?.source_pdf_paths) &&
+            (((project as any).intake_context as any).source_pdf_paths as string[]).length > 0
+          }
+          onReparse={() => setReparseOpen(true)}
           onPreviewQb={() => setQbOpen(true)}
           onMarkSold={handleMarkSold}
           onAdvance={async (toStage) => {
@@ -1326,6 +1337,23 @@ export default function ProjectCoverPage() {
               action === 'sent'
                 ? `Invoice ${inv.invoice_number} sent.`
                 : `Invoice ${inv.invoice_number} saved as draft.`,
+            )
+            await reload()
+          }}
+        />
+      )}
+
+      {reparseOpen && org?.id && (
+        <ReparseModal
+          projectId={projectId}
+          orgId={org.id}
+          onClose={() => setReparseOpen(false)}
+          onApplied={async (count) => {
+            setReparseOpen(false)
+            showToast(
+              count === 0
+                ? 'No changes applied.'
+                : `Re-parse applied: ${count} change${count === 1 ? '' : 's'}.`,
             )
             await reload()
           }}
@@ -2527,6 +2555,8 @@ function StageActionBar({
   stage,
   projectId,
   canSell,
+  hasReparseable,
+  onReparse,
   onPreviewQb,
   onMarkSold,
   onAdvance,
@@ -2534,6 +2564,8 @@ function StageActionBar({
   stage: ProjectStage
   projectId: string
   canSell: boolean
+  hasReparseable: boolean
+  onReparse: () => void
   onPreviewQb: () => void
   onMarkSold: () => void
   onAdvance: (toStage: ProjectStage) => Promise<void>
@@ -2552,6 +2584,16 @@ function StageActionBar({
           <Pencil className="w-4 h-4" />
           Preview QB export
         </button>
+        {hasReparseable && (
+          <button
+            onClick={onReparse}
+            className={secondary}
+            title="Re-run the parser against the original drawings and review what changed"
+          >
+            <FileText className="w-4 h-4" />
+            Re-parse drawings
+          </button>
+        )}
         {(cover === 'sold' || cover === 'production' || cover === 'installed' || cover === 'complete') && (
           <Link href={`/projects/${projectId}/pre-production`} className={secondary}>
             <CheckCircle2 className="w-4 h-4" />
