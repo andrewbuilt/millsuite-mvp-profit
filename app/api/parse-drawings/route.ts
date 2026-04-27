@@ -90,6 +90,12 @@ For a mixed wall run (base + uppers together), use "base_cabinet" and mention th
     - notes           (string)
 - source_sheet      — sheet number this item came from (e.g. "A-3", "Sheet 5")
 - needs_review      — true if ANY field is uncertain (missing dimensions, ambiguous finish, inferred drawer count, mixed heights)
+- confidence        — REQUIRED — one of: "high" | "medium" | "low"
+    - high   = directly read from explicit text/label in the drawing
+    - medium = inferred from drawing context with reasonable certainty
+    - low    = guessed from ambiguous or partial information; needs human review
+  Be honest. A "low" confidence on a real item is more useful than a "high"
+  on a guess. Operators rely on this to decide what to double-check.
 - notes             — one short sentence on top-level (optional — features.notes is primary)
 
 Do NOT extract stone/quartz countertops, appliances, plumbing, lighting fixtures that aren't integrated LED, or trim packages that aren't shop scope.
@@ -127,6 +133,7 @@ Return ONLY a valid JSON object — no markdown, no preamble. Start with { and e
       "finish_specs": { "finish_type": "clear_lacquer", "stain_color": "natural", "sheen": "matte", "sides_to_finish": "all_sides", "notes": "" },
       "source_sheet": "A-3",
       "needs_review": false,
+      "confidence": "high",
       "notes": ""
     }
   ]
@@ -151,7 +158,29 @@ function extractJSON(raw: string): any {
   return JSON.parse(text)
 }
 
-async function callClaude(base64: string, apiKey: string, retries = 1): Promise<any> {
+/** Appended to USER_PROMPT when the upstream pdfjs extraction yielded
+ *  almost no text. Tells Claude to lean on its vision model rather
+ *  than expecting a text layer. */
+const SCANNED_PROMPT_SUFFIX = `
+
+This PDF appears to be scanned (no extractable text layer). Use the visual
+content of the document to extract the same structured intake + scope.
+
+Pay close attention to:
+- Title block (typically top-right or bottom-right corner)
+- Plan-view drawings showing room layouts and dimensions
+- Elevation drawings showing cabinet runs, door styles, drawer counts
+- Notes / specifications page (usually a sheet of typed text)
+
+Return the same JSON shape as text-extracted PDFs.`
+
+async function callClaude(
+  base64: string,
+  apiKey: string,
+  opts: { isScanned?: boolean } = {},
+  retries = 1,
+): Promise<any> {
+  const userPrompt = opts.isScanned ? USER_PROMPT + SCANNED_PROMPT_SUFFIX : USER_PROMPT
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -161,7 +190,7 @@ async function callClaude(base64: string, apiKey: string, retries = 1): Promise<
       'anthropic-beta': 'pdfs-2024-09-25',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 12000,
       temperature: 0,
       system: SYSTEM_PROMPT,
@@ -177,7 +206,7 @@ async function callClaude(base64: string, apiKey: string, retries = 1): Promise<
                 data: base64,
               },
             },
-            { type: 'text', text: USER_PROMPT },
+            { type: 'text', text: userPrompt },
           ],
         },
       ],
@@ -188,7 +217,7 @@ async function callClaude(base64: string, apiKey: string, retries = 1): Promise<
     const body = await resp.text()
     if ((resp.status === 429 || resp.status === 529) && retries > 0) {
       await new Promise((r) => setTimeout(r, 2000))
-      return callClaude(base64, apiKey, retries - 1)
+      return callClaude(base64, apiKey, opts, retries - 1)
     }
     throw new Error(`Anthropic ${resp.status}: ${body.slice(0, 300)}`)
   }
@@ -200,7 +229,7 @@ async function callClaude(base64: string, apiKey: string, retries = 1): Promise<
   } catch (err) {
     if (retries > 0) {
       console.warn('parse-drawings: JSON parse failed, retrying once')
-      return callClaude(base64, apiKey, retries - 1)
+      return callClaude(base64, apiKey, opts, retries - 1)
     }
     console.error('parse-drawings: parse failed, first 400 chars:', text.slice(0, 400))
     throw err
@@ -228,7 +257,12 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}))
-    const { storage_path, base64_content, file_name, mime_type } = body || {}
+    const { storage_path, base64_content, file_name, mime_type, is_scanned } = body || {}
+    // is_scanned signals that pdfjs found <100 chars of text. Falls
+    // through to callClaude which appends a vision-mode addendum to
+    // USER_PROMPT. Default false when omitted (back-compat for older
+    // lib/pdf-parser versions).
+    const isScanned = !!is_scanned
 
     if (mime_type && mime_type !== 'application/pdf') {
       return NextResponse.json(
@@ -267,7 +301,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const parsed = await callClaude(base64, apiKey)
+    const parsed = await callClaude(base64, apiKey, { isScanned })
 
     // Normalize the shape so the client can rely on it. Every rich sub-object
     // (features / material_specs / finish_specs) passes through as-is so the
@@ -287,6 +321,10 @@ export async function POST(req: NextRequest) {
       finish_specs: it.finish_specs && typeof it.finish_specs === 'object' ? it.finish_specs : null,
       source_sheet: typeof it.source_sheet === 'string' ? it.source_sheet : null,
       needs_review: !!it.needs_review,
+      // confidence defaults to 'medium' when omitted — graceful
+      // degradation against older prompts and pre-PR records.
+      confidence:
+        it.confidence === 'high' || it.confidence === 'low' ? it.confidence : 'medium',
       notes: typeof it.notes === 'string' ? it.notes : '',
     }))
 
