@@ -129,7 +129,7 @@ export async function loadInvoices(
   filters: InvoiceFilters = {},
 ): Promise<Invoice[]> {
   let q = supabase
-    .from('invoices')
+    .from('client_invoices')
     .select(INVOICE_COLUMNS)
     .eq('org_id', orgId)
   if (filters.project_id) q = q.eq('project_id', filters.project_id)
@@ -147,7 +147,7 @@ export async function loadInvoices(
 
 export async function loadInvoicesForProject(projectId: string): Promise<Invoice[]> {
   const { data, error } = await supabase
-    .from('invoices')
+    .from('client_invoices')
     .select(INVOICE_COLUMNS)
     .eq('project_id', projectId)
     .order('invoice_date', { ascending: false })
@@ -164,9 +164,9 @@ export async function getInvoice(id: string): Promise<{
   payments: InvoicePayment[]
 } | null> {
   const [invRes, lineRes, payRes] = await Promise.all([
-    supabase.from('invoices').select(INVOICE_COLUMNS).eq('id', id).single(),
-    supabase.from('invoice_line_items').select(LINE_COLUMNS).eq('invoice_id', id).order('sort_order'),
-    supabase.from('invoice_payments').select(PAYMENT_COLUMNS).eq('invoice_id', id).order('payment_date'),
+    supabase.from('client_invoices').select(INVOICE_COLUMNS).eq('id', id).single(),
+    supabase.from('client_invoice_line_items').select(LINE_COLUMNS).eq('invoice_id', id).order('sort_order'),
+    supabase.from('client_invoice_payments').select(PAYMENT_COLUMNS).eq('invoice_id', id).order('payment_date'),
   ])
   if (invRes.error || !invRes.data) {
     if (invRes.error) console.error('getInvoice', invRes.error)
@@ -370,7 +370,7 @@ export async function createInvoice(args: {
   }
 
   const { data: created, error: invErr } = await supabase
-    .from('invoices')
+    .from('client_invoices')
     .insert(insertRow)
     .select(INVOICE_COLUMNS)
     .single()
@@ -392,7 +392,7 @@ export async function createInvoice(args: {
       source_type: li.source_type ?? null,
       source_id: li.source_id ?? null,
     }))
-    const { error: linesErr } = await supabase.from('invoice_line_items').insert(lineRows)
+    const { error: linesErr } = await supabase.from('client_invoice_line_items').insert(lineRows)
     if (linesErr) {
       console.error('createInvoice lines', linesErr)
       throw new Error(linesErr.message || 'Failed to insert line items')
@@ -437,7 +437,7 @@ export async function updateInvoice(
   if (Object.keys(update).length === 0) return null
   update.updated_at = new Date().toISOString()
   const { data, error } = await supabase
-    .from('invoices')
+    .from('client_invoices')
     .update(update)
     .eq('id', id)
     .select(INVOICE_COLUMNS)
@@ -459,7 +459,7 @@ export async function updateInvoiceLineItems(
   taxPct: number,
 ): Promise<void> {
   const { error: delErr } = await supabase
-    .from('invoice_line_items')
+    .from('client_invoice_line_items')
     .delete()
     .eq('invoice_id', invoiceId)
   if (delErr) {
@@ -478,7 +478,7 @@ export async function updateInvoiceLineItems(
       source_type: li.source_type ?? null,
       source_id: li.source_id ?? null,
     }))
-    const { error: insErr } = await supabase.from('invoice_line_items').insert(rows)
+    const { error: insErr } = await supabase.from('client_invoice_line_items').insert(rows)
     if (insErr) {
       console.error('updateInvoiceLineItems insert', insErr)
       throw new Error(insErr.message || 'Failed to save line items')
@@ -503,7 +503,7 @@ export async function updateInvoiceLineItems(
 /** Mark an invoice void. Terminal — caller should confirm. */
 export async function voidInvoice(id: string): Promise<void> {
   const { error } = await supabase
-    .from('invoices')
+    .from('client_invoices')
     .update({ status: 'void', updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) {
@@ -518,7 +518,7 @@ export async function voidInvoice(id: string): Promise<void> {
 export async function markInvoiceSent(id: string): Promise<Invoice | null> {
   const nowIso = new Date().toISOString()
   const { data, error } = await supabase
-    .from('invoices')
+    .from('client_invoices')
     .update({ status: 'sent', sent_at: nowIso, updated_at: nowIso })
     .eq('id', id)
     .select(INVOICE_COLUMNS)
