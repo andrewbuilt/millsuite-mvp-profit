@@ -527,12 +527,12 @@ function SalesInner() {
                     Resets at midnight your time.
                   </span>
                 </div>
-                <Link
-                  href="/pricing"
+                <a
+                  href="mailto:info@millsuite.com?subject=Raise parse limit"
                   className="flex-shrink-0 px-3 py-1.5 text-[12px] font-medium text-white bg-[#DC2626] hover:bg-[#B91C1C] rounded-md"
                 >
-                  Upgrade plan
-                </Link>
+                  Contact us
+                </a>
               </div>
             )}
 
