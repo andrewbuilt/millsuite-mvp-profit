@@ -871,14 +871,29 @@ function Composer(p: {
         )}
 
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
-          <Field label="Quantity">
-            <Stepper
-              value={draft.qty}
-              step={0.5}
-              onChange={(v) => p.setDraftPatch({ qty: v })}
-              unit="LF"
-            />
-          </Field>
+          <QuantityFields
+            qty={draft.qty}
+            qtyDoors={draft.slots.qty_doors ?? null}
+            onQtyChange={(v) => {
+              // Carcass-LF change can leave qty_doors above the new
+              // ceiling — clamp on the way through so the stored slot
+              // never exceeds carcass.
+              const dQ = draft.slots.qty_doors
+              const clamped =
+                dQ != null && dQ > v ? v : dQ
+              p.setDraftPatch({
+                qty: v,
+                slots: { ...draft.slots, qty_doors: clamped ?? null },
+              })
+            }}
+            onQtyDoorsChange={(v) => {
+              // null = match carcass (default state). Number = explicit
+              // override; clamp at the carcass ceiling.
+              const next =
+                v == null ? null : Math.max(0, Math.min(Number(v) || 0, draft.qty))
+              p.setSlot('qty_doors', next)
+            }}
+          />
 
           <section className="space-y-4">
             <SectionHeader>Carcass</SectionHeader>
@@ -1285,6 +1300,68 @@ function Field({
   )
 }
 
+/** Two-LF entry for the line — carcass run + (optionally) the door
+ *  subset. Default state hides the second field and shows a "+ Add
+ *  open sections" toggle so the typical kitchen flow stays one input.
+ *  When qty_doors is explicitly set (parser-seeded line, or operator
+ *  toggled), both fields render with their own labels. */
+function QuantityFields({
+  qty,
+  qtyDoors,
+  onQtyChange,
+  onQtyDoorsChange,
+}: {
+  qty: number
+  qtyDoors: number | null
+  onQtyChange: (v: number) => void
+  onQtyDoorsChange: (v: number | null) => void
+}) {
+  const split = qtyDoors != null
+  return (
+    <div className="space-y-3">
+      <Field
+        label={split ? 'Quantity (carcass)' : 'Quantity'}
+        hint={split ? 'Total cabinet box run' : undefined}
+      >
+        <Stepper
+          value={qty}
+          step={0.5}
+          onChange={onQtyChange}
+          unit="LF"
+        />
+      </Field>
+      {split ? (
+        <Field
+          label="Doors (LF)"
+          hint="Run that has doors. Reduce if some sections are open."
+        >
+          <Stepper
+            value={qtyDoors as number}
+            step={0.5}
+            onChange={onQtyDoorsChange}
+            unit="LF"
+          />
+          <button
+            type="button"
+            onClick={() => onQtyDoorsChange(null)}
+            className="mt-1 text-[11px] text-[#6B7280] hover:text-[#111] hover:underline"
+          >
+            Match carcass (no open sections)
+          </button>
+        </Field>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onQtyDoorsChange(qty)}
+          className="text-[11px] text-[#2563EB] hover:underline"
+        >
+          + Add open sections (split door LF from carcass)
+        </button>
+      )}
+    </div>
+  )
+}
+
 function Stepper({
   value,
   step,
@@ -1543,13 +1620,18 @@ function BreakdownPanel({
   return (
     <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 lg:sticky lg:top-4 mt-1.5">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-3">
-        Line breakdown · {qty} LF · {label}
+        Line breakdown ·{' '}
+        {breakdown.qtyDoors !== breakdown.qtyCarcass
+          ? `${breakdown.qtyCarcass} LF carcass · ${breakdown.qtyDoors} LF doors`
+          : `${breakdown.qtyCarcass} LF`}
+        {' · '}
+        {label}
       </div>
 
       <BreakdownSection label="Carcass" />
       <Row
         label="Carcass labor"
-        detail={`${qty} LF × $${Math.round(breakdown.carcassLaborPerLf)}/LF`}
+        detail={`${breakdown.qtyCarcass} LF × $${Math.round(breakdown.carcassLaborPerLf)}/LF`}
         value={breakdown.carcassLabor}
       />
       <Row
@@ -1577,7 +1659,7 @@ function BreakdownPanel({
         <Row
           label="Door labor"
           detail={appendPerDoor(
-            `${qty} LF × $${Math.round(breakdown.doorLaborPerLf)}/LF`,
+            `${breakdown.qtyDoors} LF × $${Math.round(breakdown.doorLaborPerLf)}/LF`,
             breakdown.doorLaborPerDoor,
           )}
           value={breakdown.doorLabor}

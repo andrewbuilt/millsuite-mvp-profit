@@ -78,7 +78,28 @@ For a mixed wall run (base + uppers together), use "base_cabinet" and mention th
 - category          — from list above
 - item_type         — e.g. "frameless", "face_frame", "floating shelves" (null if unclear)
 - quality           — one of: standard, premium, custom, unspecified
-- linear_feet       — numeric LF from elevations rounded to 0.25, else null
+- linear_feet       — TOTAL cabinet box run (carcass) — numeric LF from
+                       elevations rounded to 0.25, else null
+- linear_feet_doors — SUBSET of linear_feet that has doors. Same units
+                       (LF, rounded to 0.25), null when unknown.
+
+  When the drawing shows a uniform door run (typical kitchen — every
+  section has doors), set linear_feet_doors = linear_feet.
+
+  When the drawing shows mixed open + door sections (typical closet
+  built-ins with hanging sections, open shelving, drawer banks, AND
+  door sections), set linear_feet_doors to ONLY the door portion.
+
+  Examples:
+    - Standard kitchen base run, 12 LF total, doors on every section
+        → linear_feet: 12, linear_feet_doors: 12
+    - Closet built-in, 14 LF total, drawer bank + 6 LF doors + 4 LF
+      open hanging
+        → linear_feet: 14, linear_feet_doors: 6
+    - Pure open shelving, 8 LF, no doors
+        → linear_feet: 8, linear_feet_doors: 0
+
+  When in doubt, default linear_feet_doors = linear_feet.
 - quantity          — integer, usually 1
 - features (object — include every key; null for unknown):
     - drawer_count         (integer, REQUIRED — count visible, 0 if none, NEVER null)
@@ -168,6 +189,7 @@ Return ONLY a valid JSON object — no markdown, no preamble. Start with { and e
       "item_type": "frameless",
       "quality": "standard",
       "linear_feet": 18.5,
+      "linear_feet_doors": 18.5,
       "quantity": 1,
       "features": { "drawer_count": 8, "door_style": "shaker", "soft_close": true, "hinge_type": null, "slide_type": null, "adjustable_shelves": 6, "rollout_trays": 0, "lazy_susan": false, "trash_pullout": true, "has_led": true, "notes": "includes 10 LF of uppers on the same wall" },
       "material_specs": { "exterior_species": "white_oak", "exterior_thickness": "3/4", "interior_material": "prefinished_maple", "interior_thickness": "1/2", "back_material": "melamine", "back_thickness": "1/4", "edgeband": "matching" },
@@ -476,6 +498,11 @@ export async function POST(req: NextRequest) {
       item_type: typeof it.item_type === 'string' ? it.item_type : null,
       quality: typeof it.quality === 'string' ? it.quality : 'unspecified',
       linear_feet: typeof it.linear_feet === 'number' ? it.linear_feet : null,
+      // linear_feet_doors — null falls back to linear_feet at seed
+      // time. Clamped at the seed step too (never billed above
+      // carcass).
+      linear_feet_doors:
+        typeof it.linear_feet_doors === 'number' ? it.linear_feet_doors : null,
       quantity: typeof it.quantity === 'number' ? it.quantity : 1,
       features: it.features && typeof it.features === 'object' ? it.features : null,
       material_specs: it.material_specs && typeof it.material_specs === 'object' ? it.material_specs : null,

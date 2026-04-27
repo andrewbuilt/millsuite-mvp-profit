@@ -188,6 +188,16 @@ export interface ComposerSlots {
   drawerCount: number
   drawerStyle: string | null
   notes: string
+  /** Door-side LF when it differs from the carcass run. null = match
+   *  draft.qty (same LF for carcass + doors — every kitchen, most
+   *  base/upper runs). Set explicitly for closet built-ins or runs
+   *  with mixed open + door sections: 14 LF carcass + 6 LF doors
+   *  prices the box at 14 and the doors / exterior finish at 6.
+   *  Existing lines saved before this field was added carry null and
+   *  fall back to the carcass LF — no migration needed. Clamped to
+   *  draft.qty in the composer; values > draft.qty are operator
+   *  errors caught at the input. */
+  qty_doors?: number | null
 }
 
 export interface ComposerDraft {
@@ -209,6 +219,7 @@ export function emptySlots(): ComposerSlots {
     drawerCount: 0,
     drawerStyle: null,
     notes: '',
+    qty_doors: null,
   }
 }
 
@@ -271,6 +282,15 @@ export function materialCostPerDoor(
 // ── Breakdown output ──
 
 export interface ComposerBreakdown {
+  /** Carcass-side LF — the cabinet box run that drives carcass labor,
+   *  carcass + back-panel sheets, and interior finish. Mirrors
+   *  draft.qty after the >0 guard. */
+  qtyCarcass: number
+  /** Door-side LF — the subset of qtyCarcass that has doors. Drives
+   *  doorsPerLine, door labor, door material, exterior finish. Falls
+   *  back to qtyCarcass when slots.qty_doors is null (every kitchen
+   *  case). Always clamped to qtyCarcass. */
+  qtyDoors: number
   carcassLabor: number
   carcassLaborPerLf: number
   carcassMaterial: number
@@ -370,8 +390,19 @@ export function computeBreakdown(
   defaults: ComposerDefaults
 ): ComposerBreakdown {
   const prod: Product = PRODUCTS[draft.productId]
-  const qty = Number.isFinite(draft.qty) && draft.qty > 0 ? draft.qty : 0
+  // Two LF inputs: qtyCarcass is the cabinet box run (everything that
+  // gets a back, sides, and shelves); qtyDoors is the subset of that
+  // run that actually has doors on it. Standard kitchen runs have
+  // doors on every section, so qty_doors==null falls back to
+  // qtyCarcass and pricing is unchanged. Closet built-ins with mixed
+  // open + door sections set qty_doors explicitly.
+  const qtyCarcass = Number.isFinite(draft.qty) && draft.qty > 0 ? draft.qty : 0
   const s = draft.slots
+  const qtyDoorsRaw = s.qty_doors == null ? qtyCarcass : Number(s.qty_doors)
+  const qtyDoors =
+    Number.isFinite(qtyDoorsRaw) && qtyDoorsRaw >= 0
+      ? Math.min(qtyDoorsRaw, qtyCarcass) // clamp — never bill more doors than carcass
+      : qtyCarcass
   const rate = Number(rb.shopRate) || 0
   const cl = rb.carcassLabor
 
@@ -380,13 +411,13 @@ export function computeBreakdown(
   // assembly (BaseCabinetWalkthrough's save folds it in).
   const carcassHoursPerLf = cl.eng + cl.cnc + cl.assembly + cl.finish
   const carcassLaborPerLf = carcassHoursPerLf * rate
-  const carcassLabor = qty * carcassLaborPerLf
+  const carcassLabor = qtyCarcass * carcassLaborPerLf
 
   const carcassHoursByDept = {
-    eng: qty * cl.eng,
-    cnc: qty * cl.cnc,
-    assembly: qty * cl.assembly,
-    finish: qty * cl.finish,
+    eng: qtyCarcass * cl.eng,
+    cnc: qtyCarcass * cl.cnc,
+    assembly: qtyCarcass * cl.assembly,
+    finish: qtyCarcass * cl.finish,
   }
 
   const cm = rb.carcassMaterials.find((m) => m.id === s.carcassMaterial) || null
@@ -408,7 +439,7 @@ export function computeBreakdown(
   // (3/4" ply yield, much higher than face yield because every cab eats
   // sides + bottom + shelf + nailers — face math underpriced this badly
   // before sheetsPerLfCarcass was split out from sheetsPerLfFace).
-  const carcassSheets = qty * prod.sheetsPerLfCarcass
+  const carcassSheets = qtyCarcass * prod.sheetsPerLfCarcass
   const carcassMaterial = cm ? carcassSheets * cm.sheet_cost : 0
   const carcassMaterialDetail = cm
     ? `${carcassSheets.toFixed(2)} sht × $${cm.sheet_cost}`
@@ -417,17 +448,16 @@ export function computeBreakdown(
   // Back panel — separate stock (1/4" ply typical) picked from the same
   // extMaterials pool as door faces. Per-LF ratio mirrors the legacy
   // face-sheet ratio because back-panel area scales with cabinet face.
-  const backPanelSheets = qty * prod.sheetsPerLfBack
+  const backPanelSheets = qtyCarcass * prod.sheetsPerLfBack
   const backPanelMaterial = bm ? backPanelSheets * bm.sheet_cost : 0
   const backPanelMaterialDetail = bm
     ? `${backPanelSheets.toFixed(2)} sht × $${bm.sheet_cost}`
     : null
 
-  // Doors per line — the count of doors this run carries. Materials and
-  // labor scale by this count under the v2 model. The product's doorLabor
-  // multiplier is intentionally NOT applied: operators who want a heavier
-  // labor budget for Upper / Full doors create a separate door type.
-  const doorsPerLine = qty * prod.doorsPerLf
+  // Doors per line — count of doors this run carries, scaled by the
+  // door-side LF only. Pure open shelving (qtyDoors=0) → 0 doors,
+  // every door-side cost zeroes out cleanly.
+  const doorsPerLine = qtyDoors * prod.doorsPerLf
 
   // Door type labor — sum per-door dept hours × door count.
   let doorHoursByDept = { eng: 0, cnc: 0, assembly: 0, finish: 0 }
@@ -446,7 +476,9 @@ export function computeBreakdown(
       doorHoursByDept.finish
     doorLabor = totalHours * rate
   }
-  const doorLaborPerLf = doorsPerLine > 0 ? doorLabor / Math.max(qty, 1e-9) : 0
+  // Per-LF here is "per LF of door run", so divide by qtyDoors. With
+  // qtyDoors=0 the divide is guarded and the value reads 0.
+  const doorLaborPerLf = doorsPerLine > 0 ? doorLabor / Math.max(qtyDoors, 1e-9) : 0
   const doorLaborWarn = !!s.doorTypeId && dt !== null && !dt.calibrated
 
   // Door material — cost_value × per-door conversion × door count.
@@ -514,24 +546,26 @@ export function computeBreakdown(
 
   // Finishes — per-LF labor hours + per-LF material, per product
   // category. Prefinished or missing byProduct row → zero, no error.
-  // Labor $ applies the blended shop rate.
+  // Labor $ applies the blended shop rate. Interior finish is a
+  // carcass-side cost (scales with qtyCarcass — every cabinet box
+  // gets an interior surface).
   function finishLabor(f: ComposerFinish | null): number {
     if (!f) return 0
     const row = f.byProduct[draft.productId as 'base' | 'upper' | 'full']
     if (!row) return 0
-    return qty * row.laborHr * rate
+    return qtyCarcass * row.laborHr * rate
   }
   function finishMaterial(f: ComposerFinish | null): number {
     if (!f) return 0
     const row = f.byProduct[draft.productId as 'base' | 'upper' | 'full']
     if (!row) return 0
-    return qty * row.material
+    return qtyCarcass * row.material
   }
   function finishLaborHours(f: ComposerFinish | null): number {
     if (!f) return 0
     const row = f.byProduct[draft.productId as 'base' | 'upper' | 'full']
     if (!row) return 0
-    return qty * row.laborHr
+    return qtyCarcass * row.laborHr
   }
   function finishDetail(f: ComposerFinish | null): string | null {
     if (!f) return null
@@ -539,7 +573,7 @@ export function computeBreakdown(
     const row = f.byProduct[draft.productId as 'base' | 'upper' | 'full']
     if (!row) return 'not calibrated for this category'
     const perLf = row.laborHr * rate + row.material
-    return `${qty} LF × $${Math.round(perLf)}/LF`
+    return `${qtyCarcass} LF × $${Math.round(perLf)}/LF`
   }
 
   const interiorFinishLabor = finishLabor(ifn)
@@ -644,6 +678,8 @@ export function computeBreakdown(
   const totalMaterial = materialSubtotal + consumables + waste
 
   return {
+    qtyCarcass,
+    qtyDoors,
     carcassLabor,
     carcassLaborPerLf,
     carcassMaterial,
