@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import Link from 'next/link'
 import KpiCard from './KpiCard'
 import AlertBar from './AlertBar'
 import OutlookChart from './OutlookChart'
@@ -45,6 +46,7 @@ export default function OutlookSection({
   )
 
   const showBaseline = crewSize !== currentHeadcount
+  const isEmpty = projects.length === 0
 
   return (
     <div className="space-y-4">
@@ -54,95 +56,127 @@ export default function OutlookSection({
           <h2 className="text-lg font-medium text-[#111]">Outlook</h2>
           <p className="text-sm text-[#6B7280]">If nothing changes, here&apos;s where you&apos;re heading</p>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-[#6B7280]">Crew size</label>
-          <input
-            type="range"
-            min={6}
-            max={30}
-            step={1}
-            value={crewSize}
-            onChange={e => setCrewSize(parseInt(e.target.value))}
-            className="w-44"
-          />
-          <span className="text-sm font-medium text-[#111] min-w-[70px] text-center font-mono tabular-nums">
-            {crewSize} people
-          </span>
-        </div>
-      </div>
-
-      {/* Alert */}
-      <AlertBar level={alert.level} message={alert.message} />
-
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard
-          label="Avg utilization"
-          value={`${outlook.avgUtil}%`}
-          sub="Projected avg"
-          valueColor={outlook.avgUtil >= 75 ? '#059669' : outlook.avgUtil >= 55 ? '#D97706' : '#DC2626'}
-        />
-        <KpiCard
-          label="Peak"
-          value={`${outlook.peakUtil}%`}
-          sub={`${outlook.peakMonth}${outlook.peakUtil > 100 ? ' — over capacity' : ''}`}
-          valueColor={outlook.peakUtil > 100 ? '#DC2626' : '#111'}
-        />
-        <KpiCard
-          label="Effective rate"
-          value={`$${outlook.effRate}/hr`}
-          sub={`At ${outlook.avgUtil}% util`}
-        />
-        <KpiCard
-          label="Hours gap"
-          value={`${outlook.hoursGap > 0 ? '+' : ''}${outlook.hoursGap.toLocaleString()}h`}
-          sub={outlook.hoursGap > 0 ? 'Over capacity' : 'Idle capacity'}
-          valueColor={outlook.hoursGap > 0 ? '#DC2626' : '#D97706'}
-        />
-      </div>
-
-      {/* Chart */}
-      <OutlookChart
-        months={outlook.months}
-        baselineMonths={baselineOutlook?.months}
-        showBaseline={showBaseline}
-        baselineHeadcount={currentHeadcount}
-      />
-
-      {/* Target hint + scenario note */}
-      <div className="space-y-1">
-        {targetHc && crewSize === currentHeadcount && (
-          <p className="text-xs text-[#6B7280]">
-            To average ~80% utilization on current booked work, you&apos;d need roughly <span className="font-medium text-[#111]">{targetHc} people</span>.
-          </p>
-        )}
-        {showBaseline && (
-          <p className="text-xs text-[#9CA3AF] italic">
-            Showing {crewSize} crew ({crewSize > currentHeadcount ? '+' : ''}{crewSize - currentHeadcount} from current). Gray dashed line is your current {currentHeadcount}.
-          </p>
-        )}
-        {!showBaseline && (
-          <p className="text-xs text-[#9CA3AF] italic">
-            Drag the slider to model different crew sizes against your booked work.
-          </p>
+        {!isEmpty && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-[#6B7280]">Crew size</label>
+            <input
+              type="range"
+              min={6}
+              max={30}
+              step={1}
+              value={crewSize}
+              onChange={e => setCrewSize(parseInt(e.target.value))}
+              className="w-44"
+            />
+            <span className="text-sm font-medium text-[#111] min-w-[70px] text-center font-mono tabular-nums">
+              {crewSize} people
+            </span>
+          </div>
         )}
       </div>
 
-      {/* Booked work list */}
-      <div className="bg-white border border-[#E5E7EB] rounded-xl p-6">
-        <div className="text-sm font-medium text-[#111] mb-0.5">Booked work</div>
-        <div className="text-xs text-[#6B7280] mb-3">Projects in production or scheduled to start</div>
-        <div className="divide-y divide-[#E5E7EB]">
-          {projects.map((p, i) => (
-            <div key={i} className="flex items-center justify-between py-2 text-sm">
-              <span className="font-medium text-[#111]">{p.name}</span>
-              <span className="text-[#6B7280] font-mono tabular-nums">
-                {p.estimatedHours.toLocaleString()}h &middot; {formatMonthRange(p.startMonth, p.endMonth)}
-              </span>
+      {isEmpty ? (
+        // Empty: no booked work in the period. AlertBar hidden entirely;
+        // chart replaced with a placeholder; KPI cards show "—" with hint.
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <KpiCard label="Avg utilization" value="—" sub="Awaiting booked work" />
+            <KpiCard label="Peak" value="—" sub="Awaiting booked work" />
+            <KpiCard label="Effective rate" value="—" sub="Awaiting booked work" />
+            <KpiCard label="Hours gap" value="—" sub="Awaiting booked work" />
+          </div>
+          <div className="bg-white border border-[#E5E7EB] rounded-xl p-8 text-center">
+            <div className="text-sm font-medium text-[#111] mb-1">
+              No booked work in this period
             </div>
-          ))}
-        </div>
-      </div>
+            <p className="text-xs text-[#6B7280] mb-3">
+              Once projects move into production with scheduled allocations, they show up here.
+            </p>
+            <Link
+              href="/schedule"
+              className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8]"
+            >
+              Open schedule →
+            </Link>
+          </div>
+        </>
+      ) : (
+        <>
+          <AlertBar level={alert.level} message={alert.message} />
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <KpiCard
+              label="Avg utilization"
+              value={`${outlook.avgUtil}%`}
+              sub="Projected avg"
+              valueColor={outlook.avgUtil >= 75 ? '#059669' : outlook.avgUtil >= 55 ? '#D97706' : '#DC2626'}
+            />
+            <KpiCard
+              label="Peak"
+              value={`${outlook.peakUtil}%`}
+              sub={`${outlook.peakMonth}${outlook.peakUtil > 100 ? ' — over capacity' : ''}`}
+              valueColor={outlook.peakUtil > 100 ? '#DC2626' : '#111'}
+            />
+            <KpiCard
+              label="Effective rate"
+              value={`$${outlook.effRate}/hr`}
+              sub={`At ${outlook.avgUtil}% util`}
+            />
+            <KpiCard
+              label="Hours gap"
+              value={`${outlook.hoursGap > 0 ? '+' : ''}${outlook.hoursGap.toLocaleString()}h`}
+              sub={outlook.hoursGap > 0 ? 'Over capacity' : 'Idle capacity'}
+              valueColor={outlook.hoursGap > 0 ? '#DC2626' : '#D97706'}
+            />
+          </div>
+
+          <OutlookChart
+            months={outlook.months}
+            baselineMonths={baselineOutlook?.months}
+            showBaseline={showBaseline}
+            baselineHeadcount={currentHeadcount}
+          />
+        </>
+      )}
+
+      {!isEmpty && (
+        <>
+          {/* Target hint + scenario note */}
+          <div className="space-y-1">
+            {targetHc && crewSize === currentHeadcount && (
+              <p className="text-xs text-[#6B7280]">
+                To average ~80% utilization on current booked work, you&apos;d need roughly <span className="font-medium text-[#111]">{targetHc} people</span>.
+              </p>
+            )}
+            {showBaseline && (
+              <p className="text-xs text-[#9CA3AF] italic">
+                Showing {crewSize} crew ({crewSize > currentHeadcount ? '+' : ''}{crewSize - currentHeadcount} from current). Gray dashed line is your current {currentHeadcount}.
+              </p>
+            )}
+            {!showBaseline && (
+              <p className="text-xs text-[#9CA3AF] italic">
+                Drag the slider to model different crew sizes against your booked work.
+              </p>
+            )}
+          </div>
+
+          {/* Booked work list */}
+          <div className="bg-white border border-[#E5E7EB] rounded-xl p-6">
+            <div className="text-sm font-medium text-[#111] mb-0.5">Booked work</div>
+            <div className="text-xs text-[#6B7280] mb-3">Projects in production or scheduled to start</div>
+            <div className="divide-y divide-[#E5E7EB]">
+              {projects.map((p, i) => (
+                <div key={i} className="flex items-center justify-between py-2 text-sm">
+                  <span className="font-medium text-[#111]">{p.name}</span>
+                  <span className="text-[#6B7280] font-mono tabular-nums">
+                    {p.estimatedHours.toLocaleString()}h &middot; {formatMonthRange(p.startMonth, p.endMonth)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import type { CompletedProject } from '@/lib/reports/gradeCalculations'
 import { marginBarColor } from '@/lib/reports/gradeCalculations'
 
@@ -17,7 +18,24 @@ export default function CompletedProjects({
   marginTarget?: number
   onProjectClick?: (project: CompletedProject) => void
 }) {
-  if (projects.length === 0) return null
+  if (projects.length === 0) {
+    return (
+      <div className="bg-white border border-[#E5E7EB] rounded-xl p-6 text-center">
+        <div className="text-sm font-medium text-[#111] mb-1">
+          No completed projects yet
+        </div>
+        <p className="text-xs text-[#6B7280] mb-3 leading-relaxed">
+          Mark a project complete to see it here.
+        </p>
+        <Link
+          href="/projects"
+          className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8]"
+        >
+          Open projects →
+        </Link>
+      </div>
+    )
+  }
 
   const maxMargin = Math.max(...projects.map(p => Math.abs(p.marginPct)), 35)
   const targetPosition = (marginTarget / maxMargin) * 100
