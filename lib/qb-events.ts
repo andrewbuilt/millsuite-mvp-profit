@@ -31,6 +31,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { syncInvoiceFromMilestoneReceived } from './invoices'
 
 // ─── Types ───
 
@@ -702,17 +703,27 @@ export async function confirmMatch(
     .single()
   if (!rcv) return false
 
+  const paymentDate = String(evt.occurred_at).slice(0, 10)
   const { error: rcvErr } = await supabase
     .from('cash_flow_receivables')
     .update({
       status: 'received',
-      received_date: String(evt.occurred_at).slice(0, 10),
+      received_date: paymentDate,
       received_amount: evt.amount,
     })
     .eq('id', receivableId)
   if (rcvErr) {
     console.error('confirmMatch → receivable', rcvErr)
     return false
+  }
+  // Reverse-sync: if there's a non-void invoice linked to this
+  // milestone, auto-record the outstanding balance as a payment so
+  // the invoice flips to 'paid' alongside. Failure here is non-fatal
+  // for the QB confirm flow — the milestone is already received.
+  try {
+    await syncInvoiceFromMilestoneReceived(receivableId, paymentDate, 'qb')
+  } catch (e) {
+    console.warn('confirmMatch → invoice sync', e)
   }
   const { error: evtErr } = await supabase
     .from('qb_events')

@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { syncInvoiceFromMilestoneReceived } from './invoices'
 
 export type MilestoneTrigger =
   | 'signing'        // deposit at contract signing
@@ -160,11 +161,12 @@ export async function markMilestoneReceived(
   milestoneId: string,
 ): Promise<ProjectMilestone | null> {
   const now = new Date().toISOString()
+  const paymentDate = now.slice(0, 10)
   const { data, error } = await supabase
     .from('cash_flow_receivables')
     .update({
       status: 'received',
-      received_date: now.slice(0, 10),
+      received_date: paymentDate,
     })
     .eq('id', milestoneId)
     .select(
@@ -174,6 +176,16 @@ export async function markMilestoneReceived(
   if (error) {
     console.error('markMilestoneReceived', error)
     throw error
+  }
+  // Reverse-sync: if a non-void invoice is linked to this milestone
+  // and still has an outstanding balance, auto-record the balance as
+  // a payment so the invoice flips to 'paid' alongside the milestone.
+  // Failure here is non-fatal — the milestone flip already succeeded
+  // and the operator can record the payment manually if needed.
+  try {
+    await syncInvoiceFromMilestoneReceived(milestoneId, paymentDate, 'manual')
+  } catch (e) {
+    console.warn('markMilestoneReceived → invoice sync', e)
   }
   return data ? rowToMilestone(data as Raw, 0) : null
 }
