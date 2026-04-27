@@ -40,6 +40,7 @@ import { useConfirm } from '@/components/confirm-dialog'
 import {
   createNewClient,
   loadClients,
+  setProjectClient,
   type Client,
 } from '@/lib/clients'
 import {
@@ -420,6 +421,39 @@ function SalesInner() {
         intake_context: intakeContext,
       })
       if (p) {
+        // Materialize the parsed client into the clients table and link
+        // it to the project. Pre-fix the project saved client_name as
+        // text but the clients row was never created and project.client_id
+        // stayed null, leaving the project orphaned from the CRM.
+        // Reuses an existing client when an exact name match already
+        // exists in the org so we don't accumulate duplicates.
+        const parsedClientName =
+          pickFirst('client_name') || pickFirst('client_company')
+        if (parsedClientName && parsedClientName.trim()) {
+          try {
+            const trimmed = parsedClientName.trim()
+            const existing = await loadClients(org.id)
+            const match = existing.find(
+              (c) => c.name.trim().toLowerCase() === trimmed.toLowerCase(),
+            )
+            const client =
+              match ??
+              (await createNewClient({
+                org_id: org.id,
+                name: trimmed,
+                phone: pickFirst('phone') ?? undefined,
+                email: pickFirst('email') ?? undefined,
+                address:
+                  pickFirst('address') || pickFirst('venue') || undefined,
+              }))
+            await setProjectClient(p.id, { id: client.id, name: client.name })
+          } catch (clientErr) {
+            // Non-fatal — project still navigates; operator can pick
+            // a client manually from the project page picker.
+            console.warn('parsed client materialization failed', clientErr)
+          }
+        }
+
         // Seed subprojects from any room chips the user confirmed, then
         // seed estimate_lines per parsed item onto the matching subs so the
         // editor opens with real scope + finish specs instead of empty cards.
