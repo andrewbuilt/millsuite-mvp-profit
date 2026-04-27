@@ -14,6 +14,34 @@ interface Project { id: string; name: string; client_name: string | null; status
 interface Subproject { id: string; project_id: string; name: string; labor_hours: number }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
 interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number; split_index?: number; split_total?: number; split_group_id?: string }
+// capacity_overrides row shape — see db/migrations/045_capacity_overrides.sql
+// team_member_id NULL = company holiday; non-null = individual PTO.
+// hours_reduction = 0 falls back to the team member's default day length
+// (8h until per-member day length lands).
+interface CapacityOverride {
+  id: string
+  override_date: string
+  team_member_id: string | null
+  department_id: string | null
+  reason: string
+  hours_reduction: number
+}
+
+// Default day length used when a PTO row carries hours_reduction=0. Matches
+// the seed default in app/api/auth/setup/route.ts. Per-member day length is
+// not yet stored on orgs.team_members jsonb.
+const DEFAULT_DAY_HOURS = 8
+
+// Count Mon–Fri days in a given calendar month.
+function weekdaysInMonth(year: number, month0: number): number {
+  let count = 0
+  const last = new Date(year, month0 + 1, 0).getDate()
+  for (let d = 1; d <= last; d++) {
+    const dow = new Date(year, month0, d).getDay()
+    if (dow !== 0 && dow !== 6) count++
+  }
+  return count
+}
 
 type ZoomLevel = 'quarter' | 'half' | 'year'
 
@@ -40,6 +68,7 @@ function CapacityContent() {
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [deptAllocations, setDeptAllocations] = useState<DeptAllocation[]>([])
   const [monthAllocations, setMonthAllocations] = useState<MonthAllocation[]>([])
+  const [capacityOverrides, setCapacityOverrides] = useState<CapacityOverride[]>([])
   const [loading, setLoading] = useState(true)
   const [zoom, setZoom] = useState<ZoomLevel>('year')
 
@@ -62,6 +91,7 @@ function CapacityContent() {
       { data: subs },
       { data: allocs },
       { data: monthAllocs },
+      { data: overrides },
     ] = await Promise.all([
       supabase.from('departments').select('*').eq('org_id', org!.id).eq('active', true).order('display_order'),
       supabase.from('department_members').select('department_id, user_id').eq('org_id', org!.id),
@@ -73,6 +103,12 @@ function CapacityContent() {
       supabase.from('subprojects').select('id, project_id, name, labor_hours').eq('org_id', org!.id),
       supabase.from('department_allocations').select('id, subproject_id, department_id, estimated_hours').eq('org_id', org!.id),
       supabase.from('project_month_allocations').select('*').eq('org_id', org!.id).gte('month_date', `${year}-01-01`).lte('month_date', `${year}-12-31`),
+      supabase
+        .from('capacity_overrides')
+        .select('id, override_date, team_member_id, department_id, reason, hours_reduction')
+        .eq('org_id', org!.id)
+        .gte('override_date', `${year}-01-01`)
+        .lte('override_date', `${year}-12-31`),
     ])
     setDepartments(depts || [])
     setDeptMembers(dm || [])
@@ -80,6 +116,7 @@ function CapacityContent() {
     setSubprojects(subs || [])
     setDeptAllocations(allocs || [])
     setMonthAllocations(monthAllocs || [])
+    setCapacityOverrides((overrides || []) as CapacityOverride[])
     setLoading(false)
   }
 
@@ -102,18 +139,44 @@ function CapacityContent() {
       const month = `${year}-${String(i + 1).padStart(2, '0')}`
       const label = new Date(year, i).toLocaleDateString('en-US', { month: 'short' })
       const longLabel = new Date(year, i).toLocaleDateString('en-US', { month: 'long' })
-      const workingDays = 21
+      const workingDays = weekdaysInMonth(year, i)
+
+      // Holidays + PTO for this month — partition by team_member_id.
+      // NULL team_member_id = company-wide holiday; non-null = individual PTO.
+      // Department-scoped holidays only knock days off that one dept; the
+      // common case (company-wide) has department_id NULL.
+      const monthOverrides = capacityOverrides.filter((o) => o.override_date.startsWith(month))
+      const holidays = monthOverrides.filter((o) => o.team_member_id == null)
+      const ptos = monthOverrides.filter((o) => o.team_member_id != null)
 
       const deptCapacity: Record<string, number> = {}
       let totalCapacity = 0
       for (const dept of departments) {
-        const memberCount = deptMembers.filter(dm => dm.department_id === dept.id).length
-        const cap = memberCount * dept.hours_per_day * workingDays
+        const memberCount = deptMembers.filter((dm) => dm.department_id === dept.id).length
+        const deptHolidayCount = holidays.filter(
+          (h) => h.department_id == null || h.department_id === dept.id,
+        ).length
+        const effectiveDays = Math.max(0, workingDays - deptHolidayCount)
+        const cap = memberCount * dept.hours_per_day * effectiveDays
         deptCapacity[dept.id] = cap
         totalCapacity += cap
       }
 
-      const monthAllocs = monthAllocations.filter(a => a.month_date.startsWith(month))
+      // PTO subtracts from the shop-wide total. Per-dept attribution would
+      // require knowing each member's primary dept; deferred to PR-B.
+      const ptoHours = ptos.reduce((sum, p) => {
+        const h = Number(p.hours_reduction) || 0
+        return sum + (h > 0 ? h : DEFAULT_DAY_HOURS)
+      }, 0)
+      totalCapacity = Math.max(0, totalCapacity - ptoHours)
+
+      // Surfaced on the month card header.
+      const holidayCount = holidays.length
+      const ptoDayCount = new Set(ptos.map((p) => p.override_date)).size
+      const ptoPersonCount = new Set(ptos.map((p) => p.team_member_id)).size
+      const effectiveWorkingDays = Math.max(0, workingDays - holidayCount)
+
+      const monthAllocs = monthAllocations.filter((a) => a.month_date.startsWith(month))
       let totalAllocated = 0
       const deptAllocated: Record<string, number> = {}
       for (const alloc of monthAllocs) {
@@ -126,14 +189,20 @@ function CapacityContent() {
       }
 
       const utilization = totalCapacity > 0 ? (totalAllocated / totalCapacity) * 100 : 0
-      const projectCards = monthAllocs.map(a => {
-        const proj = projects.find(p => p.id === a.project_id)
+      const projectCards = monthAllocs.map((a) => {
+        const proj = projects.find((p) => p.id === a.project_id)
         return proj ? { ...proj, allocationId: a.id, hours: a.hours_allocated, departmentHours: a.department_hours, splitIndex: a.split_index || 0, splitTotal: a.split_total || 0, splitGroupId: a.split_group_id || null } : null
       }).filter(Boolean) as (Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null })[]
 
-      return { month, label, longLabel, totalCapacity, totalAllocated, utilization, deptCapacity, deptAllocated, projectCards }
+      return {
+        month, label, longLabel,
+        totalCapacity, totalAllocated, utilization,
+        deptCapacity, deptAllocated, projectCards,
+        holidayCount, ptoHours, ptoDayCount, ptoPersonCount,
+        workingDays, effectiveWorkingDays,
+      }
     })
-  }, [departments, deptMembers, monthAllocations, projects, year])
+  }, [departments, deptMembers, monthAllocations, capacityOverrides, projects, year])
 
   // Unscheduled projects (not in any month)
   const scheduledProjectIds = new Set(monthAllocations.map(a => a.project_id))
@@ -341,6 +410,30 @@ function CapacityContent() {
                       } ${
                         m.utilization > 100 ? 'text-[#DC2626]' : m.utilization > 80 ? 'text-[#F59E0B]' : 'text-[#6B7280]'
                       }`}>{Math.round(m.utilization)}%</div>
+
+                      {/* Holiday + PTO badges. Hidden when both are zero so
+                          the month header doesn't grow with empty rows. */}
+                      {(m.holidayCount > 0 || m.ptoHours > 0) && (
+                        <div className={`flex items-center justify-center flex-wrap gap-1 mt-1 ${zoom === 'quarter' ? 'text-[10px]' : 'text-[9px]'}`}>
+                          {m.holidayCount > 0 && (
+                            <span
+                              title={`${m.holidayCount} company holiday${m.holidayCount === 1 ? '' : 's'} this month`}
+                              className="inline-flex items-center gap-0.5 font-mono tabular-nums text-[#DC2626]"
+                            >
+                              <span aria-hidden>🏛</span> {m.holidayCount}d
+                            </span>
+                          )}
+                          {m.ptoHours > 0 && (
+                            <span
+                              title={`${m.ptoDayCount} PTO day${m.ptoDayCount === 1 ? '' : 's'} across ${m.ptoPersonCount} ${m.ptoPersonCount === 1 ? 'person' : 'people'} (${Math.round(m.ptoHours)}h)`}
+                              className="inline-flex items-center gap-0.5 font-mono tabular-nums text-[#92400E]"
+                            >
+                              <span aria-hidden>🏖</span>
+                              {m.ptoDayCount}d · {m.ptoPersonCount}p · {Math.round(m.ptoHours)}h
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Department breakdown */}
