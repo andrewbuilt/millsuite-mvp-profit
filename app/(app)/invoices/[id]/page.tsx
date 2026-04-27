@@ -3,16 +3,17 @@
 // ============================================================================
 // /invoices/[id] — invoice detail
 // ============================================================================
-// Two view modes — Edit (default for any status, but inputs enabled
-// only on draft) and Preview (renders the same layout that PR-2 will
-// emit as PDF). Preview is throwaway scaffolding so operators can
-// sanity-check the look-and-feel before PDF wiring lands.
+// Two view modes — Edit (inline editable line items + tax + notes when
+// status='draft') and Preview (live react-pdf <PDFViewer> rendering of
+// the same layout the API route compiles to a downloadable PDF).
 //
-// PR-1 actions: Mark as sent (draft → sent), Void (anything except
-// void). PR-2 wires Download PDF; PR-3 wires Record payment.
+// PR-2 actions: Send invoice (draft → opens SendInvoiceModal which
+// flips status to 'sent'), Download PDF (regenerates + opens in new
+// tab), Void (anything except void). PR-3 wires Record payment.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Download, Eye, Pencil, Plus, Send, Trash2, X } from 'lucide-react'
@@ -22,7 +23,6 @@ import { useConfirm } from '@/components/confirm-dialog'
 import {
   getInvoice,
   isOverdue,
-  markInvoiceSent,
   recomputeInvoiceTotals,
   updateInvoice,
   updateInvoiceLineItems,
@@ -34,7 +34,28 @@ import {
   type InvoicePayment,
   type InvoiceStatus,
 } from '@/lib/invoices'
+import { downloadInvoicePdf } from '@/lib/invoice-pdf'
+import SendInvoiceModal from '@/components/invoices/SendInvoiceModal'
 import { supabase } from '@/lib/supabase'
+
+// react-pdf's <PDFViewer> needs to be client-only. The viewer file
+// imports react-pdf's browser entry, which trips SSR if loaded
+// directly. next/dynamic with ssr:false defers it to first paint.
+const InvoicePdfViewerLazy = dynamic(
+  () =>
+    import('@/components/invoices/InvoicePdfViewer').then(
+      (m) => m.InvoicePdfViewer,
+    ),
+  { ssr: false, loading: () => <PreviewLoading /> },
+)
+
+function PreviewLoading() {
+  return (
+    <div className="flex items-center justify-center h-[800px] text-[12.5px] text-[#9CA3AF] italic">
+      Rendering preview…
+    </div>
+  )
+}
 
 interface DraftLine {
   id?: string
@@ -96,6 +117,9 @@ export default function InvoiceDetailPage() {
   const [dirty, setDirty] = useState(false)
 
   const [view, setView] = useState<'edit' | 'preview'>('edit')
+  const [sendModalOpen, setSendModalOpen] = useState(false)
+  const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     if (!id || !user?.org_id) return
@@ -129,15 +153,20 @@ export default function InvoiceDetailPage() {
         setInvoiceDate(data.invoice.invoice_date)
         setDirty(false)
 
-        // Org header for the bill-from block + preview.
+        // Org header for the bill-from block + preview. Includes the
+        // email template body so SendInvoiceModal can prefill without
+        // a second round-trip.
         const { data: org } = await supabase
           .from('orgs')
           .select(
-            'name, business_address, business_city, business_state, business_zip, business_phone, business_email',
+            'name, business_address, business_city, business_state, business_zip, business_phone, business_email, invoice_email_template',
           )
           .eq('id', user.org_id)
           .single()
-        if (!cancelled && org) setOrgHeader(org as OrgInvoiceHeader)
+        if (!cancelled && org) {
+          setOrgHeader(org as OrgInvoiceHeader)
+          setEmailTemplate((org as any).invoice_email_template ?? null)
+        }
 
         const { data: proj } = await supabase
           .from('projects')
@@ -273,26 +302,30 @@ export default function InvoiceDetailPage() {
     }
   }
 
-  async function handleMarkSent() {
+  async function openSendModal() {
     if (!invoice) return
     if (dirty) {
       const proceed = await confirm({
         title: 'Save changes first?',
-        message: 'Save the current edits as part of the sent invoice?',
-        confirmLabel: 'Save & send',
+        message: 'Save the current edits before sending?',
+        confirmLabel: 'Save & continue',
       })
       if (!proceed) return
       await handleSaveDraft()
     }
-    setSaving(true)
+    setSendModalOpen(true)
+  }
+
+  async function handleDownloadPdf() {
+    if (!invoice) return
     setError(null)
+    setDownloading(true)
     try {
-      const sent = await markInvoiceSent(invoice.id)
-      if (sent) setInvoice(sent)
+      await downloadInvoicePdf(invoice.id)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to mark sent')
+      setError(e instanceof Error ? e.message : 'Failed to generate PDF')
     } finally {
-      setSaving(false)
+      setDownloading(false)
     }
   }
 
@@ -412,11 +445,11 @@ export default function InvoiceDetailPage() {
             )}
             {isDraft && (
               <button
-                onClick={handleMarkSent}
+                onClick={openSendModal}
                 disabled={saving}
                 className="px-3 py-1.5 text-[12px] font-medium text-white bg-[#111] hover:bg-[#1F2937] rounded-md inline-flex items-center gap-1.5 disabled:opacity-50"
               >
-                <Send className="w-3.5 h-3.5" /> Mark as sent
+                <Send className="w-3.5 h-3.5" /> Send invoice
               </button>
             )}
             {!isVoid && (
@@ -429,11 +462,12 @@ export default function InvoiceDetailPage() {
               </button>
             )}
             <button
-              disabled
-              title="PDF download lands in PR-2"
-              className="px-3 py-1.5 text-[12px] text-[#9CA3AF] border border-[#E5E7EB] rounded-md inline-flex items-center gap-1.5 cursor-not-allowed"
+              onClick={handleDownloadPdf}
+              disabled={downloading}
+              className="px-3 py-1.5 text-[12px] text-[#374151] border border-[#E5E7EB] hover:bg-[#F9FAFB] rounded-md inline-flex items-center gap-1.5 disabled:opacity-50"
             >
-              <Download className="w-3.5 h-3.5" /> PDF
+              <Download className="w-3.5 h-3.5" />
+              {downloading ? 'Generating…' : 'PDF'}
             </button>
           </div>
         </div>
@@ -445,17 +479,39 @@ export default function InvoiceDetailPage() {
         )}
 
         {view === 'preview' ? (
-          <InvoicePreview
-            invoice={invoice}
-            lines={lines}
-            taxPct={taxPct}
-            totals={totals}
-            balance={balance}
-            notes={notes}
-            orgHeader={orgHeader}
-            project={project}
-            client={client}
-          />
+          <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
+            <InvoicePdfViewerLazy
+              pdfProps={{
+                invoice: {
+                  ...invoice,
+                  invoice_date: invoiceDate || invoice.invoice_date,
+                  due_date: dueDate || invoice.due_date,
+                  notes,
+                  tax_pct: taxPct,
+                  subtotal: totals.subtotal,
+                  tax_amount: totals.tax_amount,
+                  total: totals.total,
+                },
+                lineItems: lines.map((li, i) => ({
+                  id: li.id ?? `draft-${i}`,
+                  invoice_id: invoice.id,
+                  sort_order: i,
+                  description: li.description,
+                  quantity: li.quantity,
+                  unit: li.unit,
+                  unit_price: li.unit_price,
+                  amount: +(li.quantity * li.unit_price).toFixed(2),
+                  source_type: li.source_type,
+                  source_id: li.source_id,
+                })),
+                payments,
+                org: orgHeader ?? { name: '' },
+                project,
+                client,
+              }}
+              height={800}
+            />
+          </div>
         ) : (
           <EditView
             invoice={invoice}
@@ -497,6 +553,34 @@ export default function InvoiceDetailPage() {
           />
         )}
       </div>
+
+      {sendModalOpen && orgHeader && (
+        <SendInvoiceModal
+          invoice={invoice}
+          lineItems={lines.map((li, i) => ({
+            id: li.id ?? `draft-${i}`,
+            invoice_id: invoice.id,
+            sort_order: i,
+            description: li.description,
+            quantity: li.quantity,
+            unit: li.unit,
+            unit_price: li.unit_price,
+            amount: +(li.quantity * li.unit_price).toFixed(2),
+            source_type: li.source_type,
+            source_id: li.source_id,
+          }))}
+          payments={payments}
+          org={orgHeader}
+          project={project}
+          client={client}
+          emailTemplateOverride={emailTemplate}
+          onClose={() => setSendModalOpen(false)}
+          onSent={(updated) => {
+            setSendModalOpen(false)
+            setInvoice(updated)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -764,136 +848,6 @@ function EditView(props: {
           />
         </Field>
       </div>
-    </div>
-  )
-}
-
-// ── Preview view ─────────────────────────────────────────────────────────
-
-function InvoicePreview({
-  invoice,
-  lines,
-  taxPct,
-  totals,
-  balance,
-  notes,
-  orgHeader,
-  project,
-  client,
-}: {
-  invoice: Invoice
-  lines: DraftLine[]
-  taxPct: number
-  totals: { subtotal: number; tax_amount: number; total: number }
-  balance: number
-  notes: string
-  orgHeader: OrgInvoiceHeader | null
-  project: ProjectInfo | null
-  client: ClientInfo | null
-}) {
-  const cityLine = orgHeader
-    ? [orgHeader.business_city, orgHeader.business_state, orgHeader.business_zip]
-        .filter(Boolean)
-        .join(orgHeader.business_state ? ', ' : ' ')
-    : ''
-  return (
-    <div className="bg-white border border-[#E5E7EB] rounded-xl shadow-sm p-10 max-w-[820px] mx-auto">
-      <div className="flex items-start justify-between gap-6 mb-8">
-        <div>
-          <div className="text-[18px] font-semibold text-[#111]">
-            {orgHeader?.name || 'Your Company'}
-          </div>
-          {orgHeader?.business_address && (
-            <div className="text-[12px] text-[#6B7280]">{orgHeader.business_address}</div>
-          )}
-          {cityLine && <div className="text-[12px] text-[#6B7280]">{cityLine}</div>}
-          {orgHeader?.business_phone && (
-            <div className="text-[12px] text-[#6B7280]">{orgHeader.business_phone}</div>
-          )}
-          {orgHeader?.business_email && (
-            <div className="text-[12px] text-[#6B7280]">{orgHeader.business_email}</div>
-          )}
-        </div>
-        <div className="text-right">
-          <div className="text-[24px] font-bold tracking-wider text-[#111]">INVOICE</div>
-          <div className="text-[12.5px] text-[#374151] font-mono mt-1">
-            {invoice.invoice_number}
-          </div>
-          <div className="text-[11.5px] text-[#6B7280] mt-2">
-            <div>Date: {fmtDate(invoice.invoice_date)}</div>
-            <div>Due: {fmtDate(invoice.due_date)}</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-6 mb-8">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1">
-            Bill to
-          </div>
-          {client ? (
-            <div className="text-[12.5px] text-[#111] leading-relaxed">
-              <div className="font-medium">{client.name}</div>
-              {client.address && (
-                <div className="text-[#6B7280] whitespace-pre-line">{client.address}</div>
-              )}
-              {client.email && <div className="text-[#6B7280]">{client.email}</div>}
-              {client.phone && <div className="text-[#6B7280]">{client.phone}</div>}
-            </div>
-          ) : (
-            <div className="text-[12px] text-[#9CA3AF] italic">—</div>
-          )}
-        </div>
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1">
-            Project
-          </div>
-          <div className="text-[12.5px] text-[#111] font-medium">{project?.name ?? '—'}</div>
-        </div>
-      </div>
-
-      <div className="border-t border-[#111] pt-2 mb-1">
-        <div className="grid grid-cols-[1fr_60px_60px_90px_90px] gap-3 text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold pb-2">
-          <div>Description</div>
-          <div className="text-right">Qty</div>
-          <div className="text-right">Unit</div>
-          <div className="text-right">Rate</div>
-          <div className="text-right">Amount</div>
-        </div>
-      </div>
-      {lines.map((li, i) => (
-        <div
-          key={i}
-          className="grid grid-cols-[1fr_60px_60px_90px_90px] gap-3 py-1.5 text-[12.5px] text-[#111] border-b border-[#F3F4F6]"
-        >
-          <div>{li.description}</div>
-          <div className="text-right font-mono tabular-nums">{li.quantity}</div>
-          <div className="text-right">{li.unit ?? '—'}</div>
-          <div className="text-right font-mono tabular-nums">${li.unit_price.toFixed(2)}</div>
-          <div className="text-right font-mono tabular-nums">
-            ${(li.quantity * li.unit_price).toFixed(2)}
-          </div>
-        </div>
-      ))}
-
-      <div className="ml-auto w-full max-w-[300px] mt-4 text-[13px] space-y-1">
-        <Row label="Subtotal" value={`$${totals.subtotal.toFixed(2)}`} />
-        <Row label={`Tax (${taxPct}%)`} value={`$${totals.tax_amount.toFixed(2)}`} />
-        <div className="border-t border-[#111] my-1" />
-        <Row label="Total" value={`$${totals.total.toFixed(2)}`} bold />
-        <Row
-          label="Received"
-          value={`$${invoice.amount_received.toFixed(2)}`}
-          dim
-        />
-        <Row label="Balance due" value={`$${balance.toFixed(2)}`} bold />
-      </div>
-
-      {notes && (
-        <div className="mt-8 pt-4 border-t border-[#E5E7EB] text-[12px] text-[#374151] leading-relaxed whitespace-pre-line">
-          {notes}
-        </div>
-      )}
     </div>
   )
 }
