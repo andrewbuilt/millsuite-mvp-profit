@@ -156,6 +156,18 @@ function getDeptDisplayName(name: string): string {
   return map[name.toLowerCase()] || name
 }
 
+// Capacity-utilization color thresholds — single source of truth used by
+// the header dots, the sticky CapacityRow, and any future widget that
+// surfaces per-column utilization. Returns null when zero so callers can
+// hide the indicator entirely.
+function capColor(pct: number): string | null {
+  if (pct <= 0) return null
+  if (pct > 100) return '#EF4444'
+  if (pct > 85) return '#F59E0B'
+  if (pct > 50) return '#3B82F6'
+  return '#D1D5DB'
+}
+
 function getMonday(d: Date): Date {
   const day = d.getDay()
   const diff = d.getDate() - day + (day === 0 ? -6 : 1)
@@ -232,18 +244,66 @@ function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCa
         const wt = departments.reduce((s, d) => s + (capacityMap[`${d.id}::${i}`] || 0), 0)
         const wc = departments.reduce((s, d) => s + effectiveCapacity(d.id), 0)
         const wp = wc > 0 ? Math.round((wt / wc) * 100) : 0
+        const dotC = capColor(wp)
         return (
-          <div key={i} onClick={() => onWeekClick?.(i)} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #F3F4F6', padding: '6px 0 4px', textAlign: 'center', background: i % 2 === 0 ? '#FFF' : '#FAFBFC', cursor: 'pointer' }}>
+          <div key={i} onClick={() => onWeekClick?.(i)} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #F3F4F6', padding: '6px 0 6px', textAlign: 'center', background: i % 2 === 0 ? '#FFF' : '#FAFBFC', cursor: 'pointer' }}>
             <div style={{ fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>WK {i + 1}</div>
             <div style={{ fontSize: 11, fontWeight: 500, color: '#6B7280', marginTop: 1 }}>{getWeekLabel(i)}</div>
-            <div style={{ margin: '3px 10px 0', height: 3, background: '#F3F4F6', borderRadius: 2, overflow: 'hidden' }}>
-              <div style={{ width: `${Math.min(wp, 100)}%`, height: '100%', borderRadius: 2, background: wp > 100 ? '#DC2626' : wp > 80 ? '#D97706' : wp > 50 ? '#2563EB' : '#D1D5DB', transition: 'width 0.3s' }} />
+            <div style={{ height: 6, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {dotC && <div title={`${wp}% utilized`} style={{ width: 4, height: 4, borderRadius: 999, background: dotC }} />}
             </div>
-            {wt > 0 && <div style={{ fontSize: 8, fontFamily: "'SF Mono', monospace", marginTop: 1, color: wp > 100 ? '#DC2626' : wp > 80 ? '#D97706' : '#9CA3AF', fontWeight: wp > 80 ? 600 : 400 }}>{wp}%</div>}
           </div>
         )
       })}
     </>
+  )
+}
+
+// =====================================================
+// CAPACITY ROW (sticky, pinned below the column-header row)
+// =====================================================
+// Shows a one-glance view of each week's total utilization across all
+// departments. Pinned via position:sticky immediately below the header
+// row so it stays visible while the operator scrolls vertically through
+// the dept rows. Numeric mode (per-week) for short horizons; pill bars
+// for long ones so the row doesn't crowd a wide projection.
+function CapacityRow({ numWeeks, departments, capacityMap, effectiveCapacity, deptColors, labelWidth, top }: {
+  numWeeks: number
+  departments: Department[]
+  capacityMap: Record<string, number>
+  effectiveCapacity: (deptId: string) => number
+  deptColors: Record<string, { bg: string; light: string; text: string }>
+  labelWidth: number
+  top: number
+}) {
+  const usePill = numWeeks > 26
+  const totalCap = departments.reduce((s, d) => s + effectiveCapacity(d.id), 0)
+  return (
+    <div style={{ display: 'flex', position: 'sticky', top, zIndex: 9, background: '#FAFAFA', borderBottom: '1px solid #E5E7EB' }}>
+      <div style={{ width: labelWidth, minWidth: labelWidth, flexShrink: 0, position: 'sticky', left: 0, zIndex: 12, background: '#FAFAFA', borderRight: '1px solid #E5E7EB', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
+        {departments.map(d => {
+          const c = deptColors[d.id] || DEPT_COLOR_PALETTE[0]
+          return (
+            <div key={d.id} title={d.name} style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+              <div style={{ width: 5, height: 5, borderRadius: 999, background: c.bg, flexShrink: 0 }} />
+              <span style={{ fontSize: 9, fontWeight: 500, color: '#6B7280', letterSpacing: '0.02em' }}>{getDeptShort(d.name)}</span>
+            </div>
+          )
+        })}
+      </div>
+      {Array.from({ length: numWeeks }, (_, i) => {
+        const wt = departments.reduce((s, d) => s + (capacityMap[`${d.id}::${i}`] || 0), 0)
+        const wp = totalCap > 0 ? Math.round((wt / totalCap) * 100) : 0
+        const c = capColor(wp)
+        return (
+          <div key={i} title={`${wp}% utilized`} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #F3F4F6', background: i % 2 === 0 ? '#FAFAFA' : '#F5F5F5' }}>
+            {usePill
+              ? (c && <div style={{ width: 6, height: 3, borderRadius: 2, background: c }} />)
+              : (c && <span style={{ fontSize: 10, fontFamily: "'SF Mono', monospace", fontWeight: wp > 85 ? 700 : 500, color: c }}>{wp}%</span>)}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -289,10 +349,13 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
   return (
     <div style={{ minWidth: DEPT_LABEL_WIDTH + numWeeks * WEEK_WIDTH }}>
       {/* Column headers */}
-      <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF' }}>
+      <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF', minHeight: 50 }}>
         <div style={{ width: DEPT_LABEL_WIDTH, minWidth: DEPT_LABEL_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'sticky', left: 0, background: '#FFF', zIndex: 25 }}>Dept</div>
         <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} onWeekClick={onWeekClick} />
       </div>
+      {/* Sticky capacity row — pinned below header so weekly utilization
+          stays visible while scrolling the dept rows. */}
+      <CapacityRow numWeeks={numWeeks} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} deptColors={deptColors} labelWidth={DEPT_LABEL_WIDTH} top={50} />
       {/* Rows */}
       {departments.map(dept => {
         const cap = effectiveCapacity(dept.id)
@@ -425,10 +488,13 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
   return (
     <div style={{ minWidth: SWIM_LABEL_WIDTH + numWeeks * WEEK_WIDTH }}>
       {/* Column headers */}
-      <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF' }}>
+      <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF', minHeight: 50 }}>
         <div style={{ width: SWIM_LABEL_WIDTH, minWidth: SWIM_LABEL_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'sticky', left: 0, background: '#FFF', zIndex: 25 }}>Project</div>
         <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} onWeekClick={onWeekClick} />
       </div>
+      {/* Sticky capacity row — pinned below header so weekly utilization
+          stays visible while scrolling the project rows. */}
+      <CapacityRow numWeeks={numWeeks} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} deptColors={deptColors} labelWidth={SWIM_LABEL_WIDTH} top={50} />
 
       {/* Project rows */}
       {filteredProjects.map(pk => {
