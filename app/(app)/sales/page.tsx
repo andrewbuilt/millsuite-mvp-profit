@@ -49,9 +49,11 @@ import {
   ParsedScopeItem,
   ROLE_LABEL,
   defaultRoleFor,
+  mergeParsedPdfs,
   parsePdfFile,
   roleOptionsFor,
 } from '@/lib/pdf-parser'
+import { loadParseUsage, type ParseUsage } from '@/lib/parse-cap'
 import {
   Upload,
   FileText,
@@ -150,13 +152,31 @@ function SalesInner() {
   // Surface create-project failures so the user can see what went wrong.
   const [createError, setCreateError] = useState<string | null>(null)
 
+  // Today's parse usage — drives the drop-zone counter and the 429
+  // banner. Refreshed after each parse + after page navigations so the
+  // counter stays accurate without polling.
+  const [usage, setUsage] = useState<ParseUsage | null>(null)
+
+  async function refreshUsage() {
+    if (!org?.id) return
+    try {
+      setUsage(await loadParseUsage(org.id))
+    } catch (e) {
+      console.warn('loadParseUsage', e)
+    }
+  }
+
   useEffect(() => {
     if (!org?.id) return
     ;(async () => {
       setLoading(true)
-      const { projects, summaries } = await loadSalesProjects(org.id)
+      const [{ projects, summaries }, u] = await Promise.all([
+        loadSalesProjects(org.id),
+        loadParseUsage(org.id),
+      ])
       setProjects(projects)
       setSummaries(summaries)
+      setUsage(u)
       setLoading(false)
     })()
   }, [org?.id])
@@ -173,40 +193,114 @@ function SalesInner() {
 
   // ── Parser flow ──
 
-  async function runParser(file: File) {
+  // Multi-file progress: count parsed files vs total queued so the
+  // drop-zone can show "1 of 3 parsed" while the rest are in flight.
+  // Each file gets its own cap check on the server side; if the cap
+  // hits mid-batch, the remaining files come back with rate-limited
+  // errors and we surface them in the partial-success banner.
+  const [parseProgress, setParseProgress] = useState<{
+    total: number
+    done: number
+    failures: { file: string; error: string }[]
+  } | null>(null)
+
+  async function runParser(files: File[]) {
+    if (files.length === 0) return
     setParsing(true)
     setParsed(null)
+    setParseProgress({ total: files.length, done: 0, failures: [] })
+    const failures: { file: string; error: string }[] = []
     try {
-      const result = await parsePdfFile(file, org?.id)
-      setParsed(result)
-      // Seed per-candidate role dropdowns with sensible defaults.
+      const results = await Promise.all(
+        files.map(async (f) => {
+          try {
+            const r = await parsePdfFile(f, org?.id, { keepPdf: true })
+            setParseProgress((prev) =>
+              prev ? { ...prev, done: prev.done + 1 } : prev,
+            )
+            return r
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'parse failed'
+            failures.push({ file: f.name, error: msg })
+            setParseProgress((prev) =>
+              prev
+                ? { ...prev, done: prev.done + 1, failures: [...prev.failures, { file: f.name, error: msg }] }
+                : prev,
+            )
+            return null
+          }
+        }),
+      )
+      // Surface per-file API failures from the envelope (parseSucceeded=false
+      // with apiError) alongside thrown errors. A scanned PDF whose vision
+      // path failed lands here, as does a 429 cap-hit mid-batch.
+      const successful: ParsedPdf[] = []
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i]
+        if (!r) continue
+        if (!r.parseSucceeded && r.apiError) {
+          failures.push({ file: files[i].name, error: r.apiError })
+          continue
+        }
+        successful.push(r)
+      }
+
+      if (successful.length === 0) {
+        // No file parsed successfully — drop into manual form with the
+        // first file's name so the operator sees something useful.
+        const seedName = files[0].name.replace(/\.[^.]+$/, '')
+        setShowBlankForm(true)
+        setBlankName(seedName)
+        // Hold the empty result so the partial-success banner can still
+        // render the failure list above the manual form.
+        setParsed({
+          fileName: files.map((f) => f.name).join(' + '),
+          pageCount: 0,
+          text: '',
+          candidates: [],
+          projectNameGuess: null,
+          parseSucceeded: false,
+          source: 'none',
+          apiError:
+            failures.length > 0
+              ? `${failures.length} file${failures.length === 1 ? '' : 's'} failed`
+              : 'No files parsed successfully',
+          // Stash failures for the banner to render.
+          ...({ multiFileFailures: failures } as any),
+        })
+        return
+      }
+
+      const merged = mergeParsedPdfs(successful)
+      // Stash the per-file failure list on the merged envelope so the
+      // ParsePreview banner can surface "2 of 3 files parsed
+      // successfully. drawings_v2.pdf failed: ..."
+      ;(merged as any).multiFileFailures = failures
+      setParsed(merged)
       const seededRoles: Record<string, CandidateRole> = {}
-      for (const c of result.candidates) seededRoles[c.id] = defaultRoleFor(c)
+      for (const c of merged.candidates) seededRoles[c.id] = defaultRoleFor(c)
       setRoleByCand(seededRoles)
       setIgnored({})
-      setProjectName(result.projectNameGuess || file.name.replace(/\.[^.]+$/, ''))
-      // Parse-miss fallback: open the manual form pre-filled with the filename.
-      if (!result.parseSucceeded) {
-        setShowBlankForm(true)
-        setBlankName(result.projectNameGuess || file.name.replace(/\.[^.]+$/, ''))
-      } else {
-        setShowBlankForm(false)
-      }
+      setProjectName(
+        merged.projectNameGuess || files[0].name.replace(/\.[^.]+$/, ''),
+      )
+      setShowBlankForm(false)
     } catch (err) {
       console.error('parser failed', err)
       setShowBlankForm(true)
-      setBlankName(file.name.replace(/\.[^.]+$/, ''))
+      setBlankName(files[0].name.replace(/\.[^.]+$/, ''))
     } finally {
       setParsing(false)
+      setParseProgress(null)
+      // Always refresh — both successful and rate-limited calls bump
+      // the counter, so the drop-zone display stays accurate.
+      refreshUsage()
     }
   }
 
   function handleDroppedFiles(files: FileList | null) {
     if (!files || files.length === 0) return
-    const first = files[0]
-    // If the user drops an image or an unknown type we still try — the parser
-    // will return a parse-miss result which we surface as the manual form.
-    runParser(first)
+    runParser(Array.from(files))
   }
 
   function clearParser() {
@@ -295,6 +389,16 @@ function SalesInner() {
         amount: amountText,
         date: pickFirst('date'),
       },
+      // Storage paths in the parse-drawings bucket. The Re-parse button
+      // on the project page reads these back to fetch the original
+      // PDF(s) and re-run the parser. Empty when the parse went via
+      // the inline base64 path (small files).
+      source_pdf_paths: parsed.sourcePdfPaths || [],
+      // Snapshot the parsed items + scope summary so the diff helper
+      // can compare against this baseline on re-parse.
+      parsed_items: parsed.items || [],
+      scope_summary: parsed.scopeSummary || null,
+      reparse_history: [] as any[],
       parsed_at: new Date().toISOString(),
     }
 
@@ -409,6 +513,25 @@ function SalesInner() {
               </div>
             )}
 
+            {usage && usage.used >= usage.cap && !parsed && !parsing && !showBlankForm && (
+              <div className="mb-4 px-4 py-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg flex items-center justify-between gap-3">
+                <div className="text-[12.5px] text-[#991B1B]">
+                  <span className="font-semibold">
+                    You&apos;ve hit today&apos;s parse limit ({usage.cap}).
+                  </span>{' '}
+                  <span className="text-[#7F1D1D]">
+                    Resets at midnight your time.
+                  </span>
+                </div>
+                <Link
+                  href="/pricing"
+                  className="flex-shrink-0 px-3 py-1.5 text-[12px] font-medium text-white bg-[#DC2626] hover:bg-[#B91C1C] rounded-md"
+                >
+                  Upgrade plan
+                </Link>
+              </div>
+            )}
+
             {!parsed && !parsing && !showBlankForm && (
               <div
                 onClick={() => fileInputRef.current?.click()}
@@ -430,13 +553,14 @@ function SalesInner() {
                 <div className="text-sm font-medium text-[#111] mb-1">
                   Drop drawings here to start a project
                 </div>
-                <div className="text-xs text-[#9CA3AF]">PDF · one file · 40 MB</div>
+                <div className="text-xs text-[#9CA3AF]">PDF · multiple files OK · 40 MB each</div>
                 <div className="inline-block mt-4 px-3 py-1.5 bg-white border border-[#E5E7EB] rounded-lg text-xs font-medium text-[#6B7280]">
                   Browse files
                 </div>
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
                   className="hidden"
                   accept=".pdf,.png,.jpg,.jpeg"
                   onChange={(e) => handleDroppedFiles(e.target.files)}
@@ -444,12 +568,24 @@ function SalesInner() {
               </div>
             )}
 
+            {usage && !parsed && !parsing && !showBlankForm && (
+              <div className="mt-2 text-center text-[11px] text-[#9CA3AF]">
+                {usage.used} / {usage.cap} parses used today
+              </div>
+            )}
+
             {parsing && (
               <div className="border-2 border-dashed border-[#BFDBFE] bg-[#EFF6FF] rounded-xl px-8 py-10 text-center">
                 <Loader2 className="w-6 h-6 mx-auto mb-3 text-[#2563EB] animate-spin" />
-                <div className="text-sm font-medium text-[#111] mb-1">Reading the PDF…</div>
+                <div className="text-sm font-medium text-[#111] mb-1">
+                  {parseProgress && parseProgress.total > 1
+                    ? `Parsing ${parseProgress.total} files…`
+                    : 'Reading the PDF…'}
+                </div>
                 <div className="text-xs text-[#6B7280]">
-                  Extracting text and candidate entities.
+                  {parseProgress && parseProgress.total > 1
+                    ? `${parseProgress.done} of ${parseProgress.total} parsed`
+                    : 'Extracting text and candidate entities.'}
                 </div>
               </div>
             )}
@@ -703,6 +839,32 @@ function ParsePreview({
           </span>
         </div>
       ) : null}
+
+      {/* Multi-file partial-success banner. Surfaces the failure list
+          when at least one file in the batch failed. The merge still
+          went forward with the rest, so the operator can review what
+          parsed and decide whether to retry the failures. */}
+      {(() => {
+        const failures = (parsed as any).multiFileFailures as
+          | { file: string; error: string }[]
+          | undefined
+        if (!failures || failures.length === 0) return null
+        return (
+          <div className="mb-4 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-xs text-[#92400E]">
+            <div className="font-semibold mb-1">
+              {failures.length} file{failures.length === 1 ? '' : 's'} failed
+              to parse
+            </div>
+            <ul className="list-disc list-inside space-y-0.5 text-[11.5px] text-[#A16207]">
+              {failures.map((f, i) => (
+                <li key={i}>
+                  <span className="font-mono">{f.file}</span> — {f.error}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })()}
       {!parsed.apiError && parsed.source === 'api' && (
         <div className="mb-4 px-3 py-2 bg-[#ECFDF5] border border-[#A7F3D0] rounded-lg text-[11px] text-[#047857] flex items-center gap-2">
           <span className="font-semibold uppercase tracking-wider">AI parsed</span>
@@ -854,12 +1016,19 @@ function ScopeItemsPreview({
               }`}
             >
               <div className="text-[#6B7280] truncate">{it.room || '—'}</div>
-              <div className="text-[#111] truncate">
-                {it.name}
-                {it.linear_feet != null && (
-                  <span className="ml-2 text-[#9CA3AF] font-mono text-[11.5px]">
-                    {it.linear_feet} LF
-                  </span>
+              <div className="text-[#111] truncate min-w-0">
+                <div className="truncate">
+                  {it.name}
+                  {it.linear_feet != null && (
+                    <span className="ml-2 text-[#9CA3AF] font-mono text-[11.5px]">
+                      {it.linear_feet} LF
+                    </span>
+                  )}
+                </div>
+                {it.source_files && it.source_files.length > 1 && (
+                  <div className="text-[10.5px] text-[#9CA3AF] truncate">
+                    from {it.source_files.join(', ')}
+                  </div>
                 )}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">

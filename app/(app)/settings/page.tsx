@@ -966,6 +966,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Drawing parser limits */}
+        <ParserLimitsSection orgId={org?.id} />
+
         {/* Team Invite Link */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-[#E5E7EB]">
@@ -1244,6 +1247,79 @@ function QuickBooksPanel({ orgId }: { orgId: string | null }) {
             </button>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+
+// ── Drawing parser limits section ────────────────────────────────────────
+// Shows the org's daily cap + today's usage. Read-only — V1 caps are
+// per-plan defaults configured at the org level. Click "View pricing"
+// to see plan tiers when the cap feels low.
+
+function ParserLimitsSection({ orgId }: { orgId: string | undefined }) {
+  const [cap, setCap] = useState<number>(50)
+  const [used, setUsed] = useState<number>(0)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    if (!orgId) return
+    let cancelled = false
+    ;(async () => {
+      const today = new Date().toISOString().slice(0, 10)
+      const [orgRes, usageRes] = await Promise.all([
+        supabase
+          .from('orgs')
+          .select('daily_parse_cap')
+          .eq('id', orgId)
+          .single(),
+        supabase
+          .from('parse_call_log')
+          .select('id', { count: 'exact', head: true })
+          .eq('org_id', orgId)
+          .eq('call_date', today)
+          .in('status', ['success', 'rate_limited']),
+      ])
+      if (cancelled) return
+      setCap(Number((orgRes.data as any)?.daily_parse_cap) || 50)
+      setUsed(usageRes.count ?? 0)
+      setLoaded(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [orgId])
+
+  return (
+    <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+      <div className="px-6 py-4 border-b border-[#E5E7EB]">
+        <h2 className="text-base font-semibold">Drawing parser</h2>
+        <p className="text-xs text-[#9CA3AF] mt-0.5">
+          Daily cap on /api/parse-drawings calls. Failed parses don&apos;t count.
+        </p>
+      </div>
+      <div className="px-6 py-4">
+        <div className="flex items-center justify-between py-2">
+          <label className="text-sm text-[#6B7280]">Daily drawing parse limit</label>
+          <div className="text-sm font-mono tabular-nums text-[#111]">
+            {loaded ? `${cap} parses / day (your plan)` : 'Loading…'}
+          </div>
+        </div>
+        <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
+          <label className="text-sm text-[#6B7280]">Used today</label>
+          <div className="flex items-center gap-3">
+            <div className="text-sm font-mono tabular-nums text-[#111]">
+              {loaded ? `${used} / ${cap}` : '—'}
+            </div>
+            <Link
+              href="/pricing"
+              className="text-[12px] text-[#2563EB] hover:underline"
+            >
+              View pricing
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   )

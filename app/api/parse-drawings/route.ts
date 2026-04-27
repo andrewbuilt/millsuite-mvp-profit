@@ -246,6 +246,77 @@ async function fetchFromStorage(storagePath: string): Promise<string> {
   return buf.toString('base64')
 }
 
+const DEFAULT_DAILY_PARSE_CAP = 50
+
+interface ResolvedCaller {
+  orgId: string
+  userId: string | null
+}
+
+/** Resolve the caller's org via Bearer token. Returns null when the
+ *  request isn't authenticated; the caller logs an error and returns
+ *  401. Mirrors the auth-resolve pattern used by /api/invoices/[id]/pdf. */
+async function authResolveCaller(req: NextRequest): Promise<ResolvedCaller | null> {
+  const authHeader = req.headers.get('authorization') || ''
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+  if (!token) return null
+  const { data, error } = await supabaseAdmin.auth.getUser(token)
+  if (error || !data?.user) return null
+  const { data: row } = await supabaseAdmin
+    .from('users')
+    .select('id, org_id')
+    .eq('auth_user_id', data.user.id)
+    .single()
+  if (!row?.org_id) return null
+  return { orgId: row.org_id as string, userId: (row as any).id ?? null }
+}
+
+async function logParseCall(
+  orgId: string,
+  userId: string | null,
+  fileName: string,
+  status: 'success' | 'failed' | 'rate_limited',
+  errorMessage?: string | null,
+): Promise<void> {
+  await supabaseAdmin
+    .from('parse_call_log')
+    .insert({
+      org_id: orgId,
+      user_id: userId,
+      file_name: fileName || 'unknown.pdf',
+      status,
+      error_message: errorMessage ?? null,
+    })
+    .then(({ error }) => {
+      if (error) console.warn('parse_call_log insert', error)
+    })
+}
+
+interface CapState {
+  used: number
+  cap: number
+}
+
+/** Read today's parse usage + the org's cap. Returns the row counts
+ *  the same way lib/parse-cap.ts does so the API and the UI stay
+ *  consistent. */
+async function readCapState(orgId: string): Promise<CapState> {
+  const today = new Date().toISOString().slice(0, 10)
+  const [usageRes, orgRes] = await Promise.all([
+    supabaseAdmin
+      .from('parse_call_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId)
+      .eq('call_date', today)
+      .in('status', ['success', 'rate_limited']),
+    supabaseAdmin.from('orgs').select('daily_parse_cap').eq('id', orgId).single(),
+  ])
+  return {
+    used: usageRes.count ?? 0,
+    cap: Number((orgRes.data as any)?.daily_parse_cap) || DEFAULT_DAILY_PARSE_CAP,
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -257,17 +328,55 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}))
-    const { storage_path, base64_content, file_name, mime_type, is_scanned } = body || {}
+    const { storage_path, base64_content, file_name, mime_type, is_scanned, keep_pdf } =
+      body || {}
     // is_scanned signals that pdfjs found <100 chars of text. Falls
     // through to callClaude which appends a vision-mode addendum to
     // USER_PROMPT. Default false when omitted (back-compat for older
     // lib/pdf-parser versions).
     const isScanned = !!is_scanned
+    // keep_pdf opts the caller into permanent retention of the
+    // uploaded PDF in the parse-drawings bucket so the project can
+    // re-parse it later. Default false (cleanup runs) preserves the
+    // pre-PR behavior for any caller that doesn't ask to keep it.
+    const keepPdf = !!keep_pdf
 
     if (mime_type && mime_type !== 'application/pdf') {
       return NextResponse.json(
         { error: `unsupported mime type: ${mime_type}` },
         { status: 415 }
+      )
+    }
+
+    const caller = await authResolveCaller(req)
+    if (!caller) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const callerFileName: string =
+      typeof file_name === 'string' && file_name.trim().length > 0
+        ? file_name
+        : 'unknown.pdf'
+
+    // Daily cap check — the count of success+rate_limited rows for
+    // today vs orgs.daily_parse_cap. Failed calls don't count, but
+    // hitting the cap logs a 'rate_limited' row so the user-facing
+    // counter stays accurate.
+    const capState = await readCapState(caller.orgId)
+    if (capState.used >= capState.cap) {
+      await logParseCall(
+        caller.orgId,
+        caller.userId,
+        callerFileName,
+        'rate_limited',
+        `Daily cap of ${capState.cap} reached`,
+      )
+      return NextResponse.json(
+        {
+          error: 'Daily parse limit reached',
+          cap: capState.cap,
+          used: capState.used,
+        },
+        { status: 429 },
       )
     }
 
@@ -346,13 +455,25 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fire-and-forget cleanup of the storage object.
-    if (typeof storage_path === 'string' && storage_path.length > 0) {
+    // Fire-and-forget cleanup of the storage object — but only when
+    // the caller didn't ask us to keep the PDF for re-parse. New
+    // multi-file flow records storage_path on intake_context.source_pdf_paths
+    // and re-parse reads from the bucket, so default-keep is the goal
+    // for those callers; legacy callers without keep_pdf land on the
+    // pre-PR cleanup behavior.
+    if (
+      !keepPdf &&
+      typeof storage_path === 'string' &&
+      storage_path.length > 0
+    ) {
       supabaseAdmin.storage
         .from(BUCKET)
         .remove([storage_path])
         .catch((err) => console.warn('parse-drawings: cleanup failed', err))
     }
+
+    // Log successful call.
+    await logParseCall(caller.orgId, caller.userId, callerFileName, 'success')
 
     return NextResponse.json({
       project_name: typeof parsed.project_name === 'string' ? parsed.project_name : null,
@@ -375,6 +496,23 @@ export async function POST(req: NextRequest) {
     })
   } catch (err: any) {
     console.error('parse-drawings error:', err)
+    // Best-effort log of the failure. Reach into req via a closure
+    // isn't possible from the catch block, so we re-resolve the
+    // caller; if auth has rotated mid-flight, skip the log silently.
+    try {
+      const caller = await authResolveCaller(req)
+      if (caller) {
+        await logParseCall(
+          caller.orgId,
+          caller.userId,
+          'unknown.pdf',
+          'failed',
+          err?.message ? String(err.message).slice(0, 500) : null,
+        )
+      }
+    } catch {
+      // swallow — we don't want a logging failure to mask the original error
+    }
     return NextResponse.json(
       { error: err?.message || 'parse failed' },
       { status: 500 }
