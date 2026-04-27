@@ -533,6 +533,16 @@ function buildComposerRow(
     typeof it.linear_feet === 'number' && it.linear_feet > 0
       ? it.linear_feet
       : it.quantity || 1
+  // qty_doors — door-side LF subset. Null = match carcass (composer
+  // falls back to draft.qty). When the parser provides an explicit
+  // value (closet runs with mixed open + door sections), persist it
+  // on the slot. Clamp at carcass to be defensive — never bill more
+  // doors than the cabinet run carries.
+  const lfDoors = it.linear_feet_doors
+  const qtyDoors =
+    typeof lfDoors === 'number' && lfDoors >= 0
+      ? Math.min(lfDoors, quantity)
+      : null
   return {
     subproject_id: subId,
     sort_order: sortOrder,
@@ -540,7 +550,7 @@ function buildComposerRow(
     quantity,
     unit: 'lf',
     product_key: it.product_key,
-    product_slots: slots,
+    product_slots: { ...slots, qty_doors: qtyDoors },
     composer_hours_corrected: true,
     notes:
       [it.source_sheet ? `[${it.source_sheet}]` : null, it.notes || null]

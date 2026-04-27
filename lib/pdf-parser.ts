@@ -78,6 +78,10 @@ export interface ParsedScopeItem {
   item_type?: string | null
   quality?: string
   linear_feet: number | null
+  /** Door-side LF — subset of linear_feet that has doors. Null when
+   *  unknown (seed step falls back to linear_feet). Set to 0 for pure
+   *  open shelving runs. Never billed above linear_feet. */
+  linear_feet_doors?: number | null
   quantity: number
   features?: ParsedItemFeatures | null
   material_specs?: ParsedMaterialSpecs | null
