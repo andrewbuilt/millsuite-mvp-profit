@@ -366,9 +366,9 @@ export default function AddLineComposer({
   }
 
   const pickProduct = useCallback(
-    (key: ProductKey) => {
+    (productId: ProductKey) => {
       if (!rateBook) return
-      const p = PRODUCTS[key]
+      const p = PRODUCTS[productId]
       if (!p.active || p.locked) return
 
       // Walkthrough-gated tiles: when the calibration the product needs
@@ -376,8 +376,8 @@ export default function AddLineComposer({
       // a half-broken form. solidWoodTopWtPendingKey saves the picked
       // tile so handleSolidWoodTopWtComplete can resume the same pick
       // after the walkthrough writes the calibration row.
-      if (key === 'countertop' && !rateBook.solidWoodTopCalibration) {
-        setSolidWoodTopWtPendingKey(key)
+      if (productId === 'countertop' && !rateBook.solidWoodTopCalibration) {
+        setSolidWoodTopWtPendingKey(productId)
         return
       }
 
@@ -388,7 +388,7 @@ export default function AddLineComposer({
       // line, preload from orgs.last_used_slots_by_product on subsequent
       // product picks so the 2nd+ line carries the shop's recent choices.
       const shouldPreload = hasExistingLinesInSubproject
-      const carry = shouldPreload ? lastUsed[key] : null
+      const carry = shouldPreload ? lastUsed[productId] : null
 
       let slots: ComposerDraft['slots']
       let qty: number
@@ -396,7 +396,7 @@ export default function AddLineComposer({
       // Solid Wood Top product — own preload path. Cabinet-side fallbacks
       // are irrelevant; pull dimensions/material/cut method from the
       // calibration row, which by this branch is guaranteed non-null.
-      if (key === 'countertop') {
+      if (productId === 'countertop') {
         const cal = rateBook.solidWoodTopCalibration!
         slots = {
           ...emptySlots(),
@@ -412,7 +412,7 @@ export default function AddLineComposer({
               : rateBook.solidWoodComponents[0]?.id ?? null,
         }
         qty = 1
-        setDraft({ productId: key, qty, slots })
+        setDraft({ productId, qty, slots })
         setView('composer')
         return
       }
@@ -446,7 +446,7 @@ export default function AddLineComposer({
         qty = 8
       }
 
-      setDraft({ productId: key, qty, slots })
+      setDraft({ productId, qty, slots })
       setView('composer')
     },
     [rateBook, lastUsed, hasExistingLinesInSubproject]
@@ -1317,6 +1317,7 @@ function Composer(p: {
           exterior finish is chosen. */}
       {breakdown && hasAnyPricingSlotV2(draft.slots) ? (
         <BreakdownPanel
+          draft={draft}
           breakdown={breakdown}
           defaults={defaults}
           qty={draft.qty}
@@ -1662,6 +1663,7 @@ function BreakdownSection({ label }: { label: string }) {
 }
 
 function BreakdownPanel({
+  draft,
   breakdown,
   defaults,
   qty,
@@ -1669,6 +1671,7 @@ function BreakdownPanel({
   onDefaultsPct,
   onPersistDefaults,
 }: {
+  draft: ComposerDraft
   breakdown: ComposerBreakdown
   defaults: ComposerDefaults
   qty: number
@@ -1685,26 +1688,122 @@ function BreakdownPanel({
     detail,
     value,
     zero = false,
+    bold = false,
+    showDash = false,
   }: {
     label: string
     detail?: string | null
-    value: number
+    value: number | null
     zero?: boolean
+    bold?: boolean
+    showDash?: boolean
   }) {
-    const isZero = zero || !value || Math.abs(value) < 0.01
+    const numericValue = typeof value === 'number' ? value : 0
+    const isZero =
+      zero ||
+      (value !== null && (!numericValue || Math.abs(numericValue) < 0.01))
     return (
       <div
         className={
           'flex items-start justify-between gap-3 py-2 border-b border-[#F3F4F6] last:border-b-0 ' +
-          (isZero ? 'opacity-55' : '')
+          (isZero && !bold ? 'opacity-55' : '')
         }
       >
-        <div className="text-[12px] text-[#374151]">
+        <div
+          className={
+            (bold ? 'text-[13px] font-semibold ' : 'text-[12px] ') +
+            'text-[#374151]'
+          }
+        >
           {label}
           {detail && <div className="text-[11px] text-[#9CA3AF] mt-0.5">{detail}</div>}
         </div>
-        <div className="text-[12px] font-mono tabular-nums text-[#111] whitespace-nowrap">
-          {money(value)}
+        <div
+          className={
+            (bold ? 'text-[13px] font-semibold ' : 'text-[12px] ') +
+            'font-mono tabular-nums text-[#111] whitespace-nowrap'
+          }
+        >
+          {value === null ? (showDash ? '—' : '') : money(numericValue)}
+        </div>
+      </div>
+    )
+  }
+
+  // Solid Wood Top — own panel layout. Cabinet sections (Carcass /
+  // Exterior / Drawers) don't apply; render Material + per-dept Labor
+  // (skip Install entirely) + edge-profile note + line total.
+  if (draft.productId === 'countertop' && breakdown.solidWoodTop) {
+    const swt = breakdown.solidWoodTop
+    const cncHrs = breakdown.hoursByDept.cnc
+    const cncSawnNote = swt.cutMethod === 'saw' ? 'Sawn — no CNC' : null
+    const edgeNote =
+      swt.edgeProfile === 'hand'
+        ? `Hand-routed +${Math.round((swt.edgeMult - 1) * 100)}%`
+        : swt.edgeProfile === 'cnc'
+          ? `CNC-routed +${Math.round((swt.edgeMult - 1) * 100)}%`
+          : 'None (square edge)'
+    return (
+      <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 lg:sticky lg:top-4 mt-1.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-3">
+          Line breakdown ·{' '}
+          {qty > 1 ? `${qty} pieces` : '1 piece'}
+          {' · '}
+          {`${draft.slots.pieceLengthIn ?? 0} × ${draft.slots.pieceWidthIn ?? 0} × ${draft.slots.pieceThicknessIn ?? 0} in`}
+          {' · '}
+          {`${swt.bdftTotal.toFixed(2)} BdFt`}
+        </div>
+
+        <BreakdownSection label="Material" />
+        <Row
+          label="Solid wood"
+          detail={swt.materialDetail}
+          value={breakdown.materialSubtotal}
+        />
+
+        <BreakdownSection label="Labor" />
+        <Row
+          label="Engineering"
+          detail={`${breakdown.hoursByDept.eng.toFixed(2)} h`}
+          value={swt.laborByDept.eng}
+        />
+        <Row
+          label="CNC"
+          detail={cncHrs > 0 ? `${cncHrs.toFixed(2)} h` : cncSawnNote}
+          value={swt.laborByDept.cnc}
+        />
+        <Row
+          label="Assembly"
+          detail={`${breakdown.hoursByDept.assembly.toFixed(2)} h`}
+          value={swt.laborByDept.assembly}
+        />
+        <Row
+          label="Finish"
+          detail={`${breakdown.hoursByDept.finish.toFixed(2)} h`}
+          value={swt.laborByDept.finish}
+        />
+
+        <Row label="Edge profile" detail={edgeNote} value={null} />
+
+        <PctRow
+          label="Consumables"
+          pctKey="consumablesPct"
+          value={defaults.consumablesPct}
+          amount={breakdown.consumables}
+          onChange={onDefaultsPct}
+          onBlur={onPersistDefaults}
+        />
+        <PctRow
+          label="Waste"
+          pctKey="wastePct"
+          value={defaults.wastePct}
+          amount={breakdown.waste}
+          onChange={onDefaultsPct}
+          onBlur={onPersistDefaults}
+        />
+
+        <div className="mt-3 pt-3 border-t border-[#E5E7EB]">
+          <Row label="Total" value={breakdown.totals.total} bold />
         </div>
       </div>
     )

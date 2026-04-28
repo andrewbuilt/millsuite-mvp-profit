@@ -472,6 +472,26 @@ export interface ComposerBreakdown {
     finish: number
     install: number
   }
+  /** Solid Wood Top — extra fields the right-rail panel renders. Only
+   *  populated when productId === 'countertop'; null otherwise. The
+   *  per-dept labor $ here mirrors hoursByDept × shopRate so the panel
+   *  doesn't need the rate book to render. edgeProfile is the slot
+   *  value passed through so the panel can render a "Hand-routed +X%"
+   *  hint without re-reading slots. */
+  solidWoodTop: {
+    bdftPerPiece: number
+    bdftTotal: number
+    materialDetail: string | null
+    laborByDept: {
+      eng: number
+      cnc: number
+      assembly: number
+      finish: number
+    }
+    edgeProfile: 'none' | 'hand' | 'cnc'
+    edgeMult: number
+    cutMethod: 'saw' | 'cnc'
+  } | null
 }
 
 // ── Hardcoded V1 constants ──
@@ -848,6 +868,7 @@ export function computeBreakdown(
     },
 
     hoursByDept,
+    solidWoodTop: null,
   }
 }
 
@@ -1020,6 +1041,20 @@ function computeBreakdownSolidWoodTop(
     },
 
     hoursByDept,
+    solidWoodTop: {
+      bdftPerPiece,
+      bdftTotal: bdftPerPiece * qty,
+      materialDetail,
+      laborByDept: {
+        eng: hoursByDept.eng * rate,
+        cnc: hoursByDept.cnc * rate,
+        assembly: hoursByDept.assembly * rate,
+        finish: hoursByDept.finish * rate,
+      },
+      edgeProfile,
+      edgeMult,
+      cutMethod,
+    },
   }
 }
 
