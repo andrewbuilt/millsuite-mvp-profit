@@ -1,6 +1,6 @@
 // lib/feature-flags.ts
 // Per-seat pricing with three tiers. Features are cumulative (each tier includes everything below it).
-// Pricing: Starter $12/seat, Pro $24/seat, Pro+AI $32/seat
+// Pricing: Starter $40/seat, Pro $75/seat, Pro+AI $100/seat
 
 export const PLANS = ['starter', 'pro', 'pro-ai'] as const
 export type Plan = typeof PLANS[number]
@@ -12,9 +12,9 @@ export const PLAN_LABELS: Record<Plan, string> = {
 }
 
 export const PLAN_SEAT_PRICE: Record<Plan, number> = {
-  starter: 12,
-  pro: 24,
-  'pro-ai': 32,
+  starter: 40,
+  pro: 75,
+  'pro-ai': 100,
 }
 
 export const PLAN_SEAT_MINIMUM: Record<Plan, number> = {
@@ -106,4 +106,15 @@ function normalizePlan(plan: string | undefined | null): Plan {
   if (p === 'team' || p === 'enterprise') return 'pro-ai'
   if (PLANS.includes(p as Plan)) return p as Plan
   return 'starter'
+}
+
+/** Validate a plan string from an untrusted source (URL query param,
+ *  request body) against the current PLANS list. Returns the typed
+ *  Plan when it matches, null otherwise — caller picks the fallback.
+ *  Use this for signup / API entry points; existing data should keep
+ *  going through normalizePlan so legacy 'team' / 'trial' rows still
+ *  resolve. */
+export function validatePlan(plan: unknown): Plan | null {
+  if (typeof plan !== 'string') return null
+  return PLANS.includes(plan as Plan) ? (plan as Plan) : null
 }

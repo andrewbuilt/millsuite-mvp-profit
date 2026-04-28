@@ -409,7 +409,7 @@ export default function SettingsPage() {
         {/* Plan & Billing */}
         {(() => {
           const currentPlan = ((org?.plan as Plan) || 'starter') as Plan
-          const seatPrice = PLAN_SEAT_PRICE[currentPlan] ?? 12
+          const seatPrice = PLAN_SEAT_PRICE[currentPlan] ?? 40
           const monthlyCost = seatPrice * Math.max(seatCount, PLAN_SEAT_MINIMUM[currentPlan] ?? 1)
           const tiers: { key: Plan; tagline: string; unlocks: string[]; coming?: string[] }[] = [
             {
