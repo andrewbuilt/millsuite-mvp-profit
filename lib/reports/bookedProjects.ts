@@ -1,23 +1,30 @@
 // ============================================================================
 // lib/reports/bookedProjects.ts
 // ============================================================================
-// Reads production / installed projects and rolls them up into the shape
-// the Reports → Outlook section already expects: { name, estimatedHours,
-// startMonth, endMonth }. Hours come from department_allocations
-// (estimated_hours per row); start/end months come from
-// min(scheduled_date) / max(scheduled_date + scheduled_days) across the
-// project's allocations.
+// Reads sold + production + installed projects and rolls them up into the
+// shape Reports → Outlook expects: { name, estimatedHours, startMonth,
+// endMonth }. Hours come from estimate_lines via loadProjectDeptHours
+// (the canonical source — see lib/project-hours.ts). Start/end months
+// come from min(scheduled_date) / max(scheduled_date + scheduled_days)
+// across the project's department_allocations.
 //
-// Projects with zero scheduled allocations or zero estimated hours are
-// dropped — they can't contribute to a utilization projection.
+// Stage gate is ['sold','production','installed'] — anything won counts
+// as booked. Projects with zero hours OR no scheduling data are dropped:
+//   - zero hours: no estimate_lines yet, can't contribute meaningful
+//     load to a utilization projection.
+//   - no scheduling data: no department_allocations rows, so we have
+//     no timeline. (Sold projects pre-production-seed land here; they
+//     show up once seedAllocationsForProduction runs.)
 // ============================================================================
 
 import { supabase } from '../supabase'
+import { loadProjectDeptHours } from '../project-hours'
 import type { BookedProject } from './outlookCalculations'
 
 interface ProjectRow {
   id: string
   name: string
+  org_id: string | null
 }
 
 interface SubprojectRow {
@@ -29,7 +36,6 @@ interface AllocationRow {
   subproject_id: string
   scheduled_date: string | null
   scheduled_days: number | null
-  estimated_hours: number | string
 }
 
 function ymKey(d: Date): string {
@@ -43,9 +49,9 @@ function ymKey(d: Date): string {
 export async function loadBookedProjects(orgId: string): Promise<BookedProject[]> {
   const { data: projData } = await supabase
     .from('projects')
-    .select('id, name')
+    .select('id, name, org_id')
     .eq('org_id', orgId)
-    .in('stage', ['production', 'installed'])
+    .in('stage', ['sold', 'production', 'installed'])
   const projects = (projData || []) as ProjectRow[]
   if (projects.length === 0) return []
 
@@ -55,61 +61,63 @@ export async function loadBookedProjects(orgId: string): Promise<BookedProject[]
     .select('id, project_id')
     .in('project_id', projIds)
   const subs = (subData || []) as SubprojectRow[]
-  if (subs.length === 0) return []
   const subIds = subs.map((s) => s.id)
   const subToProject = new Map(subs.map((s) => [s.id, s.project_id]))
 
-  const { data: allocData } = await supabase
-    .from('department_allocations')
-    .select('subproject_id, scheduled_date, scheduled_days, estimated_hours')
-    .in('subproject_id', subIds)
-  const allocs = (allocData || []) as AllocationRow[]
-  if (allocs.length === 0) return []
+  // Timeline data — still sourced from department_allocations because
+  // that's the only table with scheduled_date / scheduled_days.
+  const allocs: AllocationRow[] = []
+  if (subIds.length > 0) {
+    const { data: allocData } = await supabase
+      .from('department_allocations')
+      .select('subproject_id, scheduled_date, scheduled_days')
+      .in('subproject_id', subIds)
+    allocs.push(...((allocData || []) as AllocationRow[]))
+  }
 
-  // Reduce by project — sum hours, take min start and max end across the
-  // project's allocations.
-  const acc = new Map<
-    string,
-    { hours: number; startMs: number | null; endMs: number | null }
-  >()
+  const timeline = new Map<string, { startMs: number; endMs: number }>()
   for (const a of allocs) {
     const projId = subToProject.get(a.subproject_id)
-    if (!projId) continue
-    const hrs = Number(a.estimated_hours) || 0
+    if (!projId || !a.scheduled_date) continue
+    const start = new Date(a.scheduled_date + 'T12:00:00Z')
+    if (isNaN(start.getTime())) continue
     const days = Math.max(1, Number(a.scheduled_days) || 1)
-    let startMs: number | null = null
-    let endMs: number | null = null
-    if (a.scheduled_date) {
-      const start = new Date(a.scheduled_date + 'T12:00:00Z')
-      if (!isNaN(start.getTime())) {
-        startMs = start.getTime()
-        const end = new Date(startMs)
-        end.setUTCDate(end.getUTCDate() + days)
-        endMs = end.getTime()
-      }
+    const startMs = start.getTime()
+    const end = new Date(startMs)
+    end.setUTCDate(end.getUTCDate() + days)
+    const endMs = end.getTime()
+    const cur = timeline.get(projId)
+    if (!cur) {
+      timeline.set(projId, { startMs, endMs })
+    } else {
+      cur.startMs = Math.min(cur.startMs, startMs)
+      cur.endMs = Math.max(cur.endMs, endMs)
     }
-    const cur = acc.get(projId) ?? { hours: 0, startMs: null, endMs: null }
-    cur.hours += hrs
-    if (startMs != null) {
-      cur.startMs = cur.startMs == null ? startMs : Math.min(cur.startMs, startMs)
-    }
-    if (endMs != null) {
-      cur.endMs = cur.endMs == null ? endMs : Math.max(cur.endMs, endMs)
-    }
-    acc.set(projId, cur)
   }
+
+  // Hours per project — pulled from estimate_lines via the canonical
+  // helper. Loads in parallel since each call hits a few tables; for
+  // typical org sizes (<100 booked projects) this is comfortably fast.
+  const hourPairs = await Promise.all(
+    projects.map(async (p) => {
+      if (!p.org_id) return [p.id, 0] as const
+      const r = await loadProjectDeptHours(p.org_id, p.id)
+      return [p.id, r.totalHours] as const
+    }),
+  )
+  const hoursByProject = new Map(hourPairs)
 
   const out: BookedProject[] = []
   for (const proj of projects) {
-    const r = acc.get(proj.id)
-    if (!r) continue
-    if (r.hours <= 0) continue
-    if (r.startMs == null || r.endMs == null) continue
+    const hrs = hoursByProject.get(proj.id) ?? 0
+    const t = timeline.get(proj.id)
+    if (hrs <= 0) continue
+    if (!t) continue
     out.push({
       name: proj.name,
-      estimatedHours: Math.round(r.hours),
-      startMonth: ymKey(new Date(r.startMs)),
-      endMonth: ymKey(new Date(r.endMs)),
+      estimatedHours: Math.round(hrs),
+      startMonth: ymKey(new Date(t.startMs)),
+      endMonth: ymKey(new Date(t.endMs)),
     })
   }
   // Sort by start month for a stable list rendering.
