@@ -25,7 +25,7 @@ interface Props {
 
 interface OpDef {
   key: SolidWoodTopOpKey
-  dept: 'Engineering' | 'CNC' | 'Assembly' | 'Finish' | 'Install'
+  dept: 'Engineering' | 'CNC' | 'Assembly' | 'Finish'
   heading: string
   prompt: string
 }
@@ -35,7 +35,11 @@ interface OpDef {
 //   cnc_*  → CNC
 //   asy_*  → Assembly
 //   fin_*  → Finish
-//   ins_*  → Install
+// Solid wood tops are typically delivered as a component of a bigger
+// project (kitchen, bar, built-in) so install hours roll into that
+// project's install line — not the per-top calibration. ins_* slugs
+// stay in jsonb storage for backward compatibility but are not
+// surfaced in the walkthrough or the math.
 const OPERATIONS: OpDef[] = [
   {
     key: 'eng_drawing',
@@ -113,12 +117,6 @@ const OPERATIONS: OpDef[] = [
     heading: 'Apply finish',
     prompt:
       'How long to apply your typical finish (oil, varnish, or whatever you use most) to one top, including coats and dry time when a person is tied up?',
-  },
-  {
-    key: 'ins_install_on_site',
-    dept: 'Install',
-    heading: 'Install on site',
-    prompt: 'How long to install one top on site, including transport from the shop?',
   },
 ]
 
@@ -251,6 +249,10 @@ export default function SolidWoodTopWalkthrough({ orgId, onComplete, onCancel }:
 
   // Build the hours_by_op payload — exclude the inactive cut-method
   // op so it stays at 0 in storage when the operator switches methods.
+  // ins_install_on_site is no longer in SOLID_WOOD_TOP_OPS at all
+  // (install rolls into the parent project), so it never gets written;
+  // pre-PR rows still load fine because the math ignores extra jsonb
+  // keys.
   function buildHoursPayload(): Record<string, number> {
     const out: Record<string, number> = {}
     for (const k of SOLID_WOOD_TOP_OPS) {
@@ -714,7 +716,7 @@ function SummaryScreen({
   const totalHrs = visibleOps.reduce((s, op) => s + (Number(hours[op.key]) || 0), 0)
   const bdft = (length * width * thickness) / 144
   const byDept: Record<string, number> = {
-    Engineering: 0, CNC: 0, Assembly: 0, Finish: 0, Install: 0,
+    Engineering: 0, CNC: 0, Assembly: 0, Finish: 0,
   }
   for (const op of visibleOps) byDept[op.dept] += Number(hours[op.key]) || 0
 
@@ -734,8 +736,8 @@ function SummaryScreen({
         <div className="text-[11px] font-semibold uppercase tracking-wider text-[#1E40AF] mb-2">
           Per typical top — by dept
         </div>
-        <div className="grid grid-cols-5 gap-2 text-[12px] font-mono tabular-nums">
-          {(['Engineering', 'CNC', 'Assembly', 'Finish', 'Install'] as const).map((d) => (
+        <div className="grid grid-cols-4 gap-2 text-[12px] font-mono tabular-nums">
+          {(['Engineering', 'CNC', 'Assembly', 'Finish'] as const).map((d) => (
             <div key={d}>
               <div className="text-[#9CA3AF] text-[10px]">{d}</div>
               <div>{byDept[d].toFixed(2)} h</div>

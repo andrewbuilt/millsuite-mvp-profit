@@ -180,7 +180,11 @@ export interface SolidWoodTopCalibration {
   default_material_id: string | null
 }
 
-/** Solid Wood Top — sub-op slugs the walkthrough writes into hours_by_op. */
+/** Solid Wood Top — sub-op slugs the walkthrough writes into hours_by_op.
+ *  ins_install_on_site is intentionally absent: install rolls into the
+ *  parent project's install line, not the per-top calibration. Pre-PR
+ *  rows may still carry that key in jsonb storage; the math ignores
+ *  any extra keys, so backward-compat is maintained without a migration. */
 export type SolidWoodTopOpKey =
   | 'eng_drawing'
   | 'cnc_cut_to_size'
@@ -194,7 +198,6 @@ export type SolidWoodTopOpKey =
   | 'asy_saw_cut_to_size'
   | 'fin_sanding'
   | 'fin_apply'
-  | 'ins_install_on_site'
 
 export const SOLID_WOOD_TOP_OPS: SolidWoodTopOpKey[] = [
   'eng_drawing',
@@ -209,7 +212,6 @@ export const SOLID_WOOD_TOP_OPS: SolidWoodTopOpKey[] = [
   'asy_saw_cut_to_size',
   'fin_sanding',
   'fin_apply',
-  'ins_install_on_site',
 ]
 
 /** Trimmed-down SolidWoodComponent for the composer's purposes. */
@@ -458,8 +460,11 @@ export interface ComposerBreakdown {
    *  dept_hour_overrides so the existing subproject rollup compute
    *  (lib/estimate-lines.computeSubprojectRollup) renders the composer
    *  line correctly without knowing about composer internals.
-   *  install is zero for cabinet products; only Solid Wood Top sets it
-   *  (per ins_install_on_site in the calibration). */
+   *  install is always 0 from the composer — both cabinet products and
+   *  Solid Wood Top intentionally leave install to the parent project's
+   *  install line. Kept on the dept hash to match the canonical
+   *  LaborDept set and to give a place for future products that want
+   *  to book install per-line. */
   hoursByDept: {
     eng: number
     cnc: number
@@ -913,7 +918,11 @@ function computeBreakdownSolidWoodTop(
     scale *
     edgeMult
   const finHrPiece = (get('fin_sanding') + get('fin_apply')) * scale * edgeMult
-  const insHrPiece = get('ins_install_on_site') * scale * edgeMult
+  // Install hours intentionally excluded — solid wood tops are
+  // delivered as a component of a bigger project (kitchen, bar,
+  // built-in) and install rolls into the parent project's install
+  // line, not the per-top calibration. ins_install_on_site stays in
+  // hours_by_op storage for backward compat but is never read.
 
   // Line totals = per-piece × qty.
   const hoursByDept = {
@@ -921,7 +930,7 @@ function computeBreakdownSolidWoodTop(
     cnc: cncHrPiece * qty,
     assembly: asmHrPiece * qty,
     finish: finHrPiece * qty,
-    install: insHrPiece * qty,
+    install: 0,
   }
   const totalHours =
     hoursByDept.eng + hoursByDept.cnc + hoursByDept.assembly +

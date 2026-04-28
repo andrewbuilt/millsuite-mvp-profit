@@ -35,7 +35,7 @@
 //     the newly-calibrated finish from the dropdown.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import {
@@ -94,6 +94,7 @@ import DrawerStyleWalkthrough, {
   type DrawerStyleWalkthroughExistingStyle,
 } from '@/components/walkthroughs/DrawerStyleWalkthrough'
 import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
+import SolidWoodTopWalkthrough from '@/components/walkthroughs/SolidWoodTopWalkthrough'
 
 interface Props {
   subprojectId: string
@@ -239,6 +240,11 @@ export default function AddLineComposer({
   // the application the user was calibrating for (drives the row-type
   // the walkthrough writes).
   const [finishWtApp, setFinishWtApp] = useState<'interior' | 'exterior' | null>(null)
+  // Solid Wood Top walkthrough auto-open — when the operator clicks the
+  // tile and the org has no solid_wood_top_calibrations row, we open the
+  // walkthrough first; on complete we resume the original tile pick so
+  // they land in the composer ready to compose.
+  const [solidWoodTopWtPendingKey, setSolidWoodTopWtPendingKey] = useState<ProductKey | null>(null)
 
   function resetState() {
     setView('picker')
@@ -346,11 +352,34 @@ export default function AddLineComposer({
     // combos; they pick from the dropdown after the walkthrough closes.
   }
 
+  // SolidWoodTopWalkthrough complete: refresh the rate book so the new
+  // calibration row is visible to pickProduct, then re-invoke the
+  // original tile pick to drop the operator into the composer with
+  // dimensions / material / cut method preloaded from the calibration.
+  async function handleSolidWoodTopWtComplete() {
+    const key = solidWoodTopWtPendingKey
+    setSolidWoodTopWtPendingKey(null)
+    if (!key) return
+    await refreshRateBook()
+    // Defer one tick so refreshRateBook's setState lands before the pick.
+    setTimeout(() => pickProductRef.current?.(key), 0)
+  }
+
   const pickProduct = useCallback(
     (key: ProductKey) => {
       if (!rateBook) return
       const p = PRODUCTS[key]
       if (!p.active || p.locked) return
+
+      // Walkthrough-gated tiles: when the calibration the product needs
+      // is missing, open the walkthrough first instead of dropping into
+      // a half-broken form. solidWoodTopWtPendingKey saves the picked
+      // tile so handleSolidWoodTopWtComplete can resume the same pick
+      // after the walkthrough writes the calibration row.
+      if (key === 'countertop' && !rateBook.solidWoodTopCalibration) {
+        setSolidWoodTopWtPendingKey(key)
+        return
+      }
 
       // First line of a fresh subproject opens empty — no pre-selected
       // materials, no hard fallbacks, no carry-over. Prefinished is still
@@ -366,18 +395,18 @@ export default function AddLineComposer({
 
       // Solid Wood Top product — own preload path. Cabinet-side fallbacks
       // are irrelevant; pull dimensions/material/cut method from the
-      // calibration row when present, otherwise emptySlots defaults.
+      // calibration row, which by this branch is guaranteed non-null.
       if (key === 'countertop') {
-        const cal = rateBook.solidWoodTopCalibration
+        const cal = rateBook.solidWoodTopCalibration!
         slots = {
           ...emptySlots(),
-          pieceLengthIn: cal?.calib_length_in ?? 96,
-          pieceWidthIn: cal?.calib_width_in ?? 24,
-          pieceThicknessIn: cal?.calib_thickness_in ?? 1.5,
+          pieceLengthIn: cal.calib_length_in,
+          pieceWidthIn: cal.calib_width_in,
+          pieceThicknessIn: cal.calib_thickness_in,
           edgeProfile: 'none',
-          cutMethod: cal?.default_cut_method ?? 'saw',
+          cutMethod: cal.default_cut_method,
           solidWoodMaterialId:
-            cal?.default_material_id &&
+            cal.default_material_id &&
             rateBook.solidWoodComponents.some((c) => c.id === cal.default_material_id)
               ? cal.default_material_id
               : rateBook.solidWoodComponents[0]?.id ?? null,
@@ -422,6 +451,14 @@ export default function AddLineComposer({
     },
     [rateBook, lastUsed, hasExistingLinesInSubproject]
   )
+
+  // Sync the latest pickProduct into a ref so handleSolidWoodTopWtComplete
+  // (which fires after refreshRateBook updates state) can re-invoke the
+  // pick without closing over the stale pre-refresh function.
+  const pickProductRef = useRef<typeof pickProduct | null>(null)
+  useEffect(() => {
+    pickProductRef.current = pickProduct
+  }, [pickProduct])
 
   // Reset everything on cancel per spec.
   const handleCancel = useCallback(() => {
@@ -754,6 +791,19 @@ export default function AddLineComposer({
           application={finishWtApp}
           onCancel={() => setFinishWtApp(null)}
           onComplete={handleFinishWalkthroughComplete}
+        />
+      )}
+
+      {/* Solid Wood Top walkthrough overlay — fires when the operator
+          clicks the tile and no calibration row exists. On complete,
+          handleSolidWoodTopWtComplete refreshes the rate book and
+          resumes the original pick so the operator lands in the
+          composer ready to enter dimensions. */}
+      {solidWoodTopWtPendingKey && (
+        <SolidWoodTopWalkthrough
+          orgId={orgId}
+          onCancel={() => setSolidWoodTopWtPendingKey(null)}
+          onComplete={handleSolidWoodTopWtComplete}
         />
       )}
     </div>
