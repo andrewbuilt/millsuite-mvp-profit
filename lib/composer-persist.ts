@@ -20,7 +20,7 @@ import type {
   ComposerSlots,
 } from './composer'
 import { productLabelFromKey, summarizeSlots } from './composer'
-import type { ProductKey } from './products'
+import { PRODUCTS, type ProductKey } from './products'
 import {
   recomputeProjectBidTotalForLine,
   recomputeProjectBidTotalForSubproject,
@@ -218,7 +218,10 @@ export async function saveComposerLine(input: {
       description,
       rate_book_item_id: null,
       quantity: draft.qty,
-      unit: 'lf',
+      // Per-product unit from lib/products.ts. Cabinet products are 'lf'
+      // (linear-foot runs); Solid Wood Top is 'piece' so the line list's
+      // Unit column reads correctly.
+      unit: PRODUCTS[draft.productId].unit,
       product_key: draft.productId,
       product_slots: draft.slots,
       material_mode_override: 'lump',
@@ -271,6 +274,10 @@ export async function updateComposerLine(input: {
     .update({
       description,
       quantity: draft.qty,
+      // Re-stamp unit on edit so a stale 'lf' from before the unit-fix
+      // gets corrected to 'piece' the next time a Solid Wood Top line
+      // round-trips through the composer.
+      unit: PRODUCTS[draft.productId].unit,
       product_slots: draft.slots,
       material_mode_override: 'lump',
       lump_cost_override: storage.lumpCostOverride,

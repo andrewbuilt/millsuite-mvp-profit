@@ -477,11 +477,24 @@ export interface ComposerBreakdown {
    *  per-dept labor $ here mirrors hoursByDept × shopRate so the panel
    *  doesn't need the rate book to render. edgeProfile is the slot
    *  value passed through so the panel can render a "Hand-routed +X%"
-   *  hint without re-reading slots. */
+   *  hint without re-reading slots.
+   *
+   *  hoursByDept here mirrors the flat breakdown.hoursByDept (whole-line
+   *  totals, install always 0). It's redundant with the flat shape but
+   *  gives a namespaced read path for future code that wants to scope
+   *  to solid-wood-top concerns. The flat shape is still the canonical
+   *  interface that breakdownToStorageValues + checkLineStaleness
+   *  consume — keep both in lockstep. */
   solidWoodTop: {
     bdftPerPiece: number
     bdftTotal: number
     materialDetail: string | null
+    hoursByDept: {
+      eng: number
+      cnc: number
+      assembly: number
+      finish: number
+    }
     laborByDept: {
       eng: number
       cnc: number
@@ -908,6 +921,16 @@ function computeBreakdownSolidWoodTop(
     ? (cal.calib_length_in * cal.calib_width_in * cal.calib_thickness_in) / 144
     : 0
   const scale = cal && calBdft > 0 && bdftPerPiece > 0 ? bdftPerPiece / calBdft : 0
+  // Diagnostic: if a saved Solid Wood Top line lands here with no cal
+  // (e.g. PGRST schema cache lag right after migration 046), every dept
+  // hour collapses to 0 and the staleness refresh would silently wipe
+  // stored hours. Log loudly so operators can spot the issue and the
+  // calling page can decide whether to skip refresh until cal loads.
+  if (!cal && typeof console !== 'undefined') {
+    console.warn(
+      'computeBreakdownSolidWoodTop: solidWoodTopCalibration missing — hours will be 0',
+    )
+  }
 
   const cutMethod: 'saw' | 'cnc' = s.cutMethod || cal?.default_cut_method || 'saw'
   const edgeProfile: 'none' | 'hand' | 'cnc' = s.edgeProfile || 'none'
@@ -1045,6 +1068,16 @@ function computeBreakdownSolidWoodTop(
       bdftPerPiece,
       bdftTotal: bdftPerPiece * qty,
       materialDetail,
+      // Mirror of the flat hoursByDept above. Both shapes carry the
+      // same dept totals so the panel and storage paths can each read
+      // from whichever shape they expect without coupling. install is
+      // intentionally absent here — solid wood tops never book install.
+      hoursByDept: {
+        eng: hoursByDept.eng,
+        cnc: hoursByDept.cnc,
+        assembly: hoursByDept.assembly,
+        finish: hoursByDept.finish,
+      },
       laborByDept: {
         eng: hoursByDept.eng * rate,
         cnc: hoursByDept.cnc * rate,
