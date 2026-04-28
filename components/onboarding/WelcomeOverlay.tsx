@@ -29,8 +29,10 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus'
+import { hasAccess } from '@/lib/feature-flags'
 import ShopRateWalkthrough from '@/components/walkthroughs/ShopRateWalkthrough'
 import BaseCabinetWalkthrough from '@/components/walkthroughs/BaseCabinetWalkthrough'
 
@@ -38,6 +40,7 @@ const DASHBOARD_TOAST_KEY = 'millsuite.welcomeJustCompleted'
 
 export default function WelcomeOverlay() {
   const { user, org } = useAuth()
+  const router = useRouter()
   const { loading, onboardedAt, step, advance, complete } = useOnboardingStatus()
   // Brief save-confirmation toast that appears between walkthroughs.
   // Doesn't block — auto-dismisses after 3s.
@@ -90,11 +93,20 @@ export default function WelcomeOverlay() {
               setToast('Base cabinet calibrated. Slab door style ready to use.')
               // Stash a one-shot flag the dashboard reads on its next mount
               // so the user gets a final completion toast there. Cleared
-              // by the dashboard after rendering.
+              // by the dashboard after rendering. (Toast still fires if
+              // the user navigates back to /dashboard later.)
               if (typeof window !== 'undefined') {
                 window.localStorage.setItem(DASHBOARD_TOAST_KEY, '1')
               }
               complete()
+              // Land the freshly-onboarded user on /sales — that's the
+              // surface that does what MillSuite actually does (intake
+              // new work). /dashboard for a brand-new account is mostly
+              // empty rollups; users got confused thinking the app
+              // wasn't doing anything. Pro and Pro+AI plans have sales
+              // gated; Starter falls back to /projects.
+              const target = hasAccess(org.plan, 'sales') ? '/sales' : '/projects'
+              router.push(target)
             }}
             onCancel={() => advance('shop_rate')}
           />
