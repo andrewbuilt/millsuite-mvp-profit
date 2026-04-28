@@ -26,7 +26,7 @@
 // here is the complete product space.
 // ============================================================================
 
-export type ProductUnit = 'lf' | 'each'
+export type ProductUnit = 'lf' | 'each' | 'piece'
 
 export type ProductKey =
   | 'base'
@@ -180,13 +180,19 @@ export const PRODUCT_LED: Product = make({
   active: false,
 })
 
+// Solid Wood Top — tabletops, bar tops, glue-ups, panels. Anything the
+// shop fabricates from solid stock priced via solid_wood_components.
+// Calibrated via SolidWoodTopWalkthrough; line math scales the per-piece
+// hours by BdFt against the calibration's "typical top" dimensions.
+// Key stays 'countertop' so existing freeform lines + parser data keep
+// working — only the label flipped.
 export const PRODUCT_COUNTERTOP: Product = make({
   key: 'countertop',
-  label: 'Countertop',
-  descriptor: '—',
-  unit: 'lf',
-  active: false,
-  locked: true,
+  label: 'Solid Wood Top',
+  descriptor: 'Tabletops, bar tops, glue-ups, panels',
+  unit: 'piece',
+  active: true,
+  locked: false,
 })
 
 // ── Lookups ──

@@ -524,6 +524,35 @@ export default function SubprojectEditorPage() {
   const showStaleBanner =
     staleLines.length > 0 && !!project?.stage && isPresold(project.stage)
 
+  // Banner copy hint — does ANY stale line carry door slots? Drives the
+  // third sentence so non-door staleness (material cost edits, Solid
+  // Wood Top calibration changes) doesn't get told to "re-pick door type
+  // / material / finish" when there are no doors involved.
+  const staleHasDoorSlots = useMemo(() => {
+    if (staleLines.length === 0) return false
+    const staleIds = new Set(staleLines.map((s) => s.lineId))
+    return lines.some((l) => {
+      if (!staleIds.has(l.id)) return false
+      const slots = (l.product_slots ?? null) as
+        | { doorTypeId?: string | null; doorMaterialId?: string | null; doorFinishId?: string | null }
+        | null
+      if (!slots) return false
+      return !!(slots.doorTypeId || slots.doorMaterialId || slots.doorFinishId)
+    })
+  }, [staleLines, lines])
+  const staleHasNonDoor = useMemo(() => {
+    if (staleLines.length === 0) return false
+    const staleIds = new Set(staleLines.map((s) => s.lineId))
+    return lines.some((l) => {
+      if (!staleIds.has(l.id)) return false
+      const slots = (l.product_slots ?? null) as
+        | { doorTypeId?: string | null; doorMaterialId?: string | null; doorFinishId?: string | null }
+        | null
+      if (!slots) return true
+      return !(slots.doorTypeId || slots.doorMaterialId || slots.doorFinishId)
+    })
+  }, [staleLines, lines])
+
   async function handleRefreshStale() {
     if (staleLines.length === 0) return
     setRefreshingStale(true)
@@ -677,7 +706,11 @@ export default function SubprojectEditorPage() {
                   Recompute against the current rate book to push the new numbers into the lines.
                 </div>
                 <div className="text-[11px] text-[#78350F] mt-1 italic">
-                  Door pricing updated — re-pick door type, material, and finish on each line.
+                  {staleHasDoorSlots && staleHasNonDoor
+                    ? 'Cabinet door pricing also changed — re-pick door type/material/finish on those lines.'
+                    : staleHasDoorSlots
+                      ? 'Door pricing updated — re-pick door type, material, and finish on each line.'
+                      : 'Click Update to latest rates to push the new numbers in.'}
                 </div>
               </div>
               <button

@@ -26,6 +26,8 @@ import type {
   ComposerDoorStyle,
   ComposerFinish,
   ComposerFinishProductRow,
+  ComposerSolidWoodComponent,
+  SolidWoodTopCalibration,
 } from './composer'
 import {
   listCarcassMaterials,
@@ -53,6 +55,8 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     doorTypeMaterialFinishes,
     drawerStyles,
     finishes,
+    solidWoodTopCalibration,
+    solidWoodComponents,
   ] = await Promise.all([
     loadShopRate(orgId),
     loadCarcassLaborFromBaseCab(orgId),
@@ -64,6 +68,8 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     listDoorTypeMaterialFinishes(orgId),
     loadDrawerStyles(orgId),
     loadFinishes(orgId),
+    loadSolidWoodTopCalibration(orgId),
+    loadSolidWoodComponentsForComposer(orgId),
   ])
 
   const carcassCalibrated =
@@ -96,7 +102,53 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     doorFinishesByMaterialId: indexDoorTypeMaterialFinishes(doorTypeMaterialFinishes),
     drawerStyles,
     finishes,
+    solidWoodTopCalibration,
+    solidWoodComponents,
   }
+}
+
+// ── Solid Wood Top calibration + materials ──
+
+async function loadSolidWoodTopCalibration(
+  orgId: string,
+): Promise<SolidWoodTopCalibration | null> {
+  const { data, error } = await supabase
+    .from('solid_wood_top_calibrations')
+    .select(
+      'calib_length_in, calib_width_in, calib_thickness_in, hours_by_op, edge_mult_hand, edge_mult_cnc, default_cut_method, default_material_id',
+    )
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (error || !data) return null
+  return {
+    calib_length_in: Number((data as any).calib_length_in) || 0,
+    calib_width_in: Number((data as any).calib_width_in) || 0,
+    calib_thickness_in: Number((data as any).calib_thickness_in) || 0,
+    hours_by_op: ((data as any).hours_by_op || {}) as SolidWoodTopCalibration['hours_by_op'],
+    edge_mult_hand: Number((data as any).edge_mult_hand) || 1,
+    edge_mult_cnc: Number((data as any).edge_mult_cnc) || 1,
+    default_cut_method:
+      ((data as any).default_cut_method as 'saw' | 'cnc') || 'saw',
+    default_material_id: (data as any).default_material_id ?? null,
+  }
+}
+
+async function loadSolidWoodComponentsForComposer(
+  orgId: string,
+): Promise<ComposerSolidWoodComponent[]> {
+  const { data, error } = await supabase
+    .from('solid_wood_components')
+    .select('id, name, cost_per_bdft, waste_pct')
+    .eq('org_id', orgId)
+    .eq('active', true)
+    .order('name')
+  if (error || !data) return []
+  return (data as any[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    cost_per_bdft: Number(r.cost_per_bdft) || 0,
+    waste_pct: Number(r.waste_pct) || 0,
+  }))
 }
 
 // ── Shop rate ──

@@ -62,7 +62,7 @@ visible.
 - full_height      — pantries, floor-to-ceiling towers, tall built-ins
 - vanity           — bathroom vanities
 - drawer_box       — standalone drawer boxes (rare)
-- countertop       — wood countertops / bench tops / table tops the shop fabricates (NOT stone)
+- countertop       — solid wood top: tabletops, bar tops, bench tops, glue-ups, panels (NOT stone)
 - panel            — end panels, appliance panels, refrigerator panels, decorative skins
 - scribe           — scribe strips
 - led              — integrated LED lighting

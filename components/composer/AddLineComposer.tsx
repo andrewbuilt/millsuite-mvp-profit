@@ -35,7 +35,7 @@
 //     the newly-calibrated finish from the dropdown.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import {
@@ -94,6 +94,7 @@ import DrawerStyleWalkthrough, {
   type DrawerStyleWalkthroughExistingStyle,
 } from '@/components/walkthroughs/DrawerStyleWalkthrough'
 import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
+import SolidWoodTopWalkthrough from '@/components/walkthroughs/SolidWoodTopWalkthrough'
 
 interface Props {
   subprojectId: string
@@ -239,6 +240,11 @@ export default function AddLineComposer({
   // the application the user was calibrating for (drives the row-type
   // the walkthrough writes).
   const [finishWtApp, setFinishWtApp] = useState<'interior' | 'exterior' | null>(null)
+  // Solid Wood Top walkthrough auto-open — when the operator clicks the
+  // tile and the org has no solid_wood_top_calibrations row, we open the
+  // walkthrough first; on complete we resume the original tile pick so
+  // they land in the composer ready to compose.
+  const [solidWoodTopWtPendingKey, setSolidWoodTopWtPendingKey] = useState<ProductKey | null>(null)
 
   function resetState() {
     setView('picker')
@@ -346,11 +352,34 @@ export default function AddLineComposer({
     // combos; they pick from the dropdown after the walkthrough closes.
   }
 
+  // SolidWoodTopWalkthrough complete: refresh the rate book so the new
+  // calibration row is visible to pickProduct, then re-invoke the
+  // original tile pick to drop the operator into the composer with
+  // dimensions / material / cut method preloaded from the calibration.
+  async function handleSolidWoodTopWtComplete() {
+    const key = solidWoodTopWtPendingKey
+    setSolidWoodTopWtPendingKey(null)
+    if (!key) return
+    await refreshRateBook()
+    // Defer one tick so refreshRateBook's setState lands before the pick.
+    setTimeout(() => pickProductRef.current?.(key), 0)
+  }
+
   const pickProduct = useCallback(
-    (key: ProductKey) => {
+    (productId: ProductKey) => {
       if (!rateBook) return
-      const p = PRODUCTS[key]
+      const p = PRODUCTS[productId]
       if (!p.active || p.locked) return
+
+      // Walkthrough-gated tiles: when the calibration the product needs
+      // is missing, open the walkthrough first instead of dropping into
+      // a half-broken form. solidWoodTopWtPendingKey saves the picked
+      // tile so handleSolidWoodTopWtComplete can resume the same pick
+      // after the walkthrough writes the calibration row.
+      if (productId === 'countertop' && !rateBook.solidWoodTopCalibration) {
+        setSolidWoodTopWtPendingKey(productId)
+        return
+      }
 
       // First line of a fresh subproject opens empty — no pre-selected
       // materials, no hard fallbacks, no carry-over. Prefinished is still
@@ -359,10 +388,34 @@ export default function AddLineComposer({
       // line, preload from orgs.last_used_slots_by_product on subsequent
       // product picks so the 2nd+ line carries the shop's recent choices.
       const shouldPreload = hasExistingLinesInSubproject
-      const carry = shouldPreload ? lastUsed[key] : null
+      const carry = shouldPreload ? lastUsed[productId] : null
 
       let slots: ComposerDraft['slots']
       let qty: number
+
+      // Solid Wood Top product — own preload path. Cabinet-side fallbacks
+      // are irrelevant; pull dimensions/material/cut method from the
+      // calibration row, which by this branch is guaranteed non-null.
+      if (productId === 'countertop') {
+        const cal = rateBook.solidWoodTopCalibration!
+        slots = {
+          ...emptySlots(),
+          pieceLengthIn: cal.calib_length_in,
+          pieceWidthIn: cal.calib_width_in,
+          pieceThicknessIn: cal.calib_thickness_in,
+          edgeProfile: 'none',
+          cutMethod: cal.default_cut_method,
+          solidWoodMaterialId:
+            cal.default_material_id &&
+            rateBook.solidWoodComponents.some((c) => c.id === cal.default_material_id)
+              ? cal.default_material_id
+              : rateBook.solidWoodComponents[0]?.id ?? null,
+        }
+        qty = 1
+        setDraft({ productId, qty, slots })
+        setView('composer')
+        return
+      }
 
       if (carry) {
         // Door pricing v2: only seed door fields if the legacy carry-over
@@ -393,11 +446,19 @@ export default function AddLineComposer({
         qty = 8
       }
 
-      setDraft({ productId: key, qty, slots })
+      setDraft({ productId, qty, slots })
       setView('composer')
     },
     [rateBook, lastUsed, hasExistingLinesInSubproject]
   )
+
+  // Sync the latest pickProduct into a ref so handleSolidWoodTopWtComplete
+  // (which fires after refreshRateBook updates state) can re-invoke the
+  // pick without closing over the stale pre-refresh function.
+  const pickProductRef = useRef<typeof pickProduct | null>(null)
+  useEffect(() => {
+    pickProductRef.current = pickProduct
+  }, [pickProduct])
 
   // Reset everything on cancel per spec.
   const handleCancel = useCallback(() => {
@@ -732,6 +793,19 @@ export default function AddLineComposer({
           onComplete={handleFinishWalkthroughComplete}
         />
       )}
+
+      {/* Solid Wood Top walkthrough overlay — fires when the operator
+          clicks the tile and no calibration row exists. On complete,
+          handleSolidWoodTopWtComplete refreshes the rate book and
+          resumes the original pick so the operator lands in the
+          composer ready to enter dimensions. */}
+      {solidWoodTopWtPendingKey && (
+        <SolidWoodTopWalkthrough
+          orgId={orgId}
+          onCancel={() => setSolidWoodTopWtPendingKey(null)}
+          onComplete={handleSolidWoodTopWtComplete}
+        />
+      )}
     </div>
   )
 }
@@ -870,6 +944,14 @@ function Composer(p: {
           </button>
         )}
 
+        {draft.productId === 'countertop' ? (
+          <SolidWoodTopFormBody
+            draft={draft}
+            rateBook={rateBook}
+            setDraftPatch={p.setDraftPatch}
+            setSlot={p.setSlot}
+          />
+        ) : (
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
           <QuantityFields
             qty={draft.qty}
@@ -1199,6 +1281,7 @@ function Composer(p: {
             />
           </Field>
         </div>
+        )}
 
         {p.saveError && (
           <div className="mt-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
@@ -1234,6 +1317,7 @@ function Composer(p: {
           exterior finish is chosen. */}
       {breakdown && hasAnyPricingSlotV2(draft.slots) ? (
         <BreakdownPanel
+          draft={draft}
           breakdown={breakdown}
           defaults={defaults}
           qty={draft.qty}
@@ -1249,6 +1333,16 @@ function Composer(p: {
 }
 
 function hasAnyPricingSlotV2(s: ComposerDraft['slots']): boolean {
+  // Countertop uses dimensions + solid-wood material as its "pricing slot"
+  // gate so the breakdown panel renders alongside the form.
+  if (
+    (s.pieceLengthIn || 0) > 0 ||
+    (s.pieceWidthIn || 0) > 0 ||
+    (s.pieceThicknessIn || 0) > 0 ||
+    s.solidWoodMaterialId
+  ) {
+    return true
+  }
   return !!(s.carcassMaterial || s.doorTypeId || s.doorMaterialId || s.doorFinishId)
 }
 
@@ -1569,6 +1663,7 @@ function BreakdownSection({ label }: { label: string }) {
 }
 
 function BreakdownPanel({
+  draft,
   breakdown,
   defaults,
   qty,
@@ -1576,6 +1671,7 @@ function BreakdownPanel({
   onDefaultsPct,
   onPersistDefaults,
 }: {
+  draft: ComposerDraft
   breakdown: ComposerBreakdown
   defaults: ComposerDefaults
   qty: number
@@ -1592,26 +1688,122 @@ function BreakdownPanel({
     detail,
     value,
     zero = false,
+    bold = false,
+    showDash = false,
   }: {
     label: string
     detail?: string | null
-    value: number
+    value: number | null
     zero?: boolean
+    bold?: boolean
+    showDash?: boolean
   }) {
-    const isZero = zero || !value || Math.abs(value) < 0.01
+    const numericValue = typeof value === 'number' ? value : 0
+    const isZero =
+      zero ||
+      (value !== null && (!numericValue || Math.abs(numericValue) < 0.01))
     return (
       <div
         className={
           'flex items-start justify-between gap-3 py-2 border-b border-[#F3F4F6] last:border-b-0 ' +
-          (isZero ? 'opacity-55' : '')
+          (isZero && !bold ? 'opacity-55' : '')
         }
       >
-        <div className="text-[12px] text-[#374151]">
+        <div
+          className={
+            (bold ? 'text-[13px] font-semibold ' : 'text-[12px] ') +
+            'text-[#374151]'
+          }
+        >
           {label}
           {detail && <div className="text-[11px] text-[#9CA3AF] mt-0.5">{detail}</div>}
         </div>
-        <div className="text-[12px] font-mono tabular-nums text-[#111] whitespace-nowrap">
-          {money(value)}
+        <div
+          className={
+            (bold ? 'text-[13px] font-semibold ' : 'text-[12px] ') +
+            'font-mono tabular-nums text-[#111] whitespace-nowrap'
+          }
+        >
+          {value === null ? (showDash ? '—' : '') : money(numericValue)}
+        </div>
+      </div>
+    )
+  }
+
+  // Solid Wood Top — own panel layout. Cabinet sections (Carcass /
+  // Exterior / Drawers) don't apply; render Material + per-dept Labor
+  // (skip Install entirely) + edge-profile note + line total.
+  if (draft.productId === 'countertop' && breakdown.solidWoodTop) {
+    const swt = breakdown.solidWoodTop
+    const cncHrs = breakdown.hoursByDept.cnc
+    const cncSawnNote = swt.cutMethod === 'saw' ? 'Sawn — no CNC' : null
+    const edgeNote =
+      swt.edgeProfile === 'hand'
+        ? `Hand-routed +${Math.round((swt.edgeMult - 1) * 100)}%`
+        : swt.edgeProfile === 'cnc'
+          ? `CNC-routed +${Math.round((swt.edgeMult - 1) * 100)}%`
+          : 'None (square edge)'
+    return (
+      <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 lg:sticky lg:top-4 mt-1.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-3">
+          Line breakdown ·{' '}
+          {qty > 1 ? `${qty} pieces` : '1 piece'}
+          {' · '}
+          {`${draft.slots.pieceLengthIn ?? 0} × ${draft.slots.pieceWidthIn ?? 0} × ${draft.slots.pieceThicknessIn ?? 0} in`}
+          {' · '}
+          {`${swt.bdftTotal.toFixed(2)} BdFt`}
+        </div>
+
+        <BreakdownSection label="Material" />
+        <Row
+          label="Solid wood"
+          detail={swt.materialDetail}
+          value={breakdown.materialSubtotal}
+        />
+
+        <BreakdownSection label="Labor" />
+        <Row
+          label="Engineering"
+          detail={`${breakdown.hoursByDept.eng.toFixed(2)} h`}
+          value={swt.laborByDept.eng}
+        />
+        <Row
+          label="CNC"
+          detail={cncHrs > 0 ? `${cncHrs.toFixed(2)} h` : cncSawnNote}
+          value={swt.laborByDept.cnc}
+        />
+        <Row
+          label="Assembly"
+          detail={`${breakdown.hoursByDept.assembly.toFixed(2)} h`}
+          value={swt.laborByDept.assembly}
+        />
+        <Row
+          label="Finish"
+          detail={`${breakdown.hoursByDept.finish.toFixed(2)} h`}
+          value={swt.laborByDept.finish}
+        />
+
+        <Row label="Edge profile" detail={edgeNote} value={null} />
+
+        <PctRow
+          label="Consumables"
+          pctKey="consumablesPct"
+          value={defaults.consumablesPct}
+          amount={breakdown.consumables}
+          onChange={onDefaultsPct}
+          onBlur={onPersistDefaults}
+        />
+        <PctRow
+          label="Waste"
+          pctKey="wastePct"
+          value={defaults.wastePct}
+          amount={breakdown.waste}
+          onChange={onDefaultsPct}
+          onBlur={onPersistDefaults}
+        />
+
+        <div className="mt-3 pt-3 border-t border-[#E5E7EB]">
+          <Row label="Total" value={breakdown.totals.total} bold />
         </div>
       </div>
     )
@@ -2272,6 +2464,181 @@ function AddDoorFinishModal(p: {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Solid Wood Top form body ──────────────────────────────────────────
+// Replaces the cabinet form sections (carcass / doors / drawers) when
+// productId === 'countertop'. Inputs map 1:1 to the new ComposerSlots
+// fields. When the calibration row is missing, the body shows a
+// "Calibrate first" CTA in place of the dimension fields.
+
+function SolidWoodTopFormBody({
+  draft,
+  rateBook,
+  setDraftPatch,
+  setSlot,
+}: {
+  draft: ComposerDraft
+  rateBook: ComposerRateBook
+  setDraftPatch: (patch: Partial<ComposerDraft>) => void
+  setSlot: (key: string, value: any) => void
+}) {
+  const cal = rateBook.solidWoodTopCalibration
+  const s = draft.slots
+  if (!cal) {
+    return (
+      <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
+        <SectionHeader>Solid wood top</SectionHeader>
+        <div className="mt-4 px-4 py-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-sm text-[#78350F]">
+          You haven't calibrated your solid wood top labor yet. Open
+          Settings → Solid Wood Top calibration to walk through the
+          per-op timings; we'll scale every line by BdFt against that
+          calibration.
+        </div>
+      </div>
+    )
+  }
+
+  const noComponents = rateBook.solidWoodComponents.length === 0
+  const bdft = (Number(s.pieceLengthIn) || 0) * (Number(s.pieceWidthIn) || 0) *
+    (Number(s.pieceThicknessIn) || 0) / 144
+
+  return (
+    <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
+      <Field label="Quantity (pieces)">
+        <Stepper
+          value={draft.qty}
+          step={1}
+          onChange={(v) => setDraftPatch({ qty: Math.max(1, Math.round(v)) })}
+          unit="each"
+        />
+      </Field>
+
+      <section className="space-y-4">
+        <SectionHeader>Dimensions (per piece)</SectionHeader>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Length (in)">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.5"
+              min="0"
+              value={s.pieceLengthIn ?? ''}
+              onChange={(e) =>
+                setSlot('pieceLengthIn', e.target.value === '' ? null : Number(e.target.value))
+              }
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm font-mono tabular-nums text-[#111] outline-none focus:border-[#2563EB]"
+            />
+          </Field>
+          <Field label="Width (in)">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.5"
+              min="0"
+              value={s.pieceWidthIn ?? ''}
+              onChange={(e) =>
+                setSlot('pieceWidthIn', e.target.value === '' ? null : Number(e.target.value))
+              }
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm font-mono tabular-nums text-[#111] outline-none focus:border-[#2563EB]"
+            />
+          </Field>
+          <Field label="Thickness (in)">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.25"
+              min="0"
+              value={s.pieceThicknessIn ?? ''}
+              onChange={(e) =>
+                setSlot('pieceThicknessIn', e.target.value === '' ? null : Number(e.target.value))
+              }
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm font-mono tabular-nums text-[#111] outline-none focus:border-[#2563EB]"
+            />
+          </Field>
+        </div>
+        <div className="text-[11px] text-[#6B7280] font-mono tabular-nums">
+          {bdft > 0
+            ? `${bdft.toFixed(2)} BdFt per piece · ${(bdft * draft.qty).toFixed(2)} BdFt total`
+            : 'Enter dimensions to see BdFt.'}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader>Material</SectionHeader>
+        <Field label="Solid-wood component">
+          {noComponents ? (
+            <div className="px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-md text-[12px] text-[#78350F]">
+              No solid-wood components yet. Add them in the rate book first.
+            </div>
+          ) : (
+            <select
+              value={s.solidWoodMaterialId ?? ''}
+              onChange={(e) => setSlot('solidWoodMaterialId', e.target.value || null)}
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
+            >
+              <option value="">Choose…</option>
+              {rateBook.solidWoodComponents.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} · ${c.cost_per_bdft}/BdFt
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader>Labor knobs</SectionHeader>
+        <Field label="Edge profile">
+          <div className="grid grid-cols-3 gap-2">
+            {(['none', 'hand', 'cnc'] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setSlot('edgeProfile', opt)}
+                className={`px-3 py-2 text-[12px] font-medium rounded-md border ${
+                  s.edgeProfile === opt
+                    ? 'border-[#2563EB] bg-[#EFF6FF] text-[#1E40AF]'
+                    : 'border-[#E5E7EB] bg-white text-[#374151] hover:bg-[#F9FAFB]'
+                }`}
+              >
+                {opt === 'none' ? 'Square' : opt === 'hand' ? `Hand +${Math.round((cal.edge_mult_hand - 1) * 100)}%` : `CNC +${Math.round((cal.edge_mult_cnc - 1) * 100)}%`}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Cut method">
+          <div className="grid grid-cols-2 gap-2">
+            {(['saw', 'cnc'] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setSlot('cutMethod', opt)}
+                className={`px-3 py-2 text-[12px] font-medium rounded-md border ${
+                  (s.cutMethod ?? cal.default_cut_method) === opt
+                    ? 'border-[#2563EB] bg-[#EFF6FF] text-[#1E40AF]'
+                    : 'border-[#E5E7EB] bg-white text-[#374151] hover:bg-[#F9FAFB]'
+                }`}
+              >
+                {opt === 'saw' ? 'Saw' : 'CNC'}
+              </button>
+            ))}
+          </div>
+        </Field>
+      </section>
+
+      <Field label="Notes">
+        <input
+          type="text"
+          value={s.notes}
+          onChange={(e) => setSlot('notes', e.target.value)}
+          placeholder="Anything unusual about this top…"
+          className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
+        />
+      </Field>
     </div>
   )
 }
