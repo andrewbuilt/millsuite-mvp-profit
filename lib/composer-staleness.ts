@@ -87,11 +87,11 @@ export interface StaleLineInfo {
    *  writes back into estimate_lines. */
   freshStorage: ComposerStorageValues
   /** Stored values, normalized to the same shape, for diff display. */
-  storedHoursByDept: { eng: number; cnc: number; assembly: number; finish: number }
+  storedHoursByDept: { eng: number; cnc: number; assembly: number; finish: number; install: number }
   storedMaterial: number
   /** Recomputed PER-UNIT values mirrored as plain numbers, for diff
    *  display alongside storedHoursByDept / storedMaterial. */
-  freshHoursByDept: { eng: number; cnc: number; assembly: number; finish: number }
+  freshHoursByDept: { eng: number; cnc: number; assembly: number; finish: number; install: number }
   freshMaterial: number
 }
 
@@ -122,6 +122,7 @@ export function checkLineStaleness(
     cnc: Number(freshStorage.deptHourOverrides?.cnc) || 0,
     assembly: Number(freshStorage.deptHourOverrides?.assembly) || 0,
     finish: Number(freshStorage.deptHourOverrides?.finish) || 0,
+    install: Number(freshStorage.deptHourOverrides?.install) || 0,
   }
 
   const stored = {
@@ -129,6 +130,7 @@ export function checkLineStaleness(
     cnc: Number((line.dept_hour_overrides as any)?.cnc) || 0,
     assembly: Number((line.dept_hour_overrides as any)?.assembly) || 0,
     finish: Number((line.dept_hour_overrides as any)?.finish) || 0,
+    install: Number((line.dept_hour_overrides as any)?.install) || 0,
   }
   const storedMat = Number(line.lump_cost_override) || 0
 
@@ -136,7 +138,8 @@ export function checkLineStaleness(
     Math.abs(stored.eng - freshHoursByDept.eng) > EPS_HR ||
     Math.abs(stored.cnc - freshHoursByDept.cnc) > EPS_HR ||
     Math.abs(stored.assembly - freshHoursByDept.assembly) > EPS_HR ||
-    Math.abs(stored.finish - freshHoursByDept.finish) > EPS_HR
+    Math.abs(stored.finish - freshHoursByDept.finish) > EPS_HR ||
+    Math.abs(stored.install - freshHoursByDept.install) > EPS_HR
   const matDrift = Math.abs(storedMat - freshStorage.lumpCostOverride) > EPS_DOLLARS
 
   if (!hoursDrift && !matDrift) return null
@@ -156,6 +159,7 @@ export function checkLineStaleness(
         cnc: stored.cnc - freshHoursByDept.cnc,
         assembly: stored.assembly - freshHoursByDept.assembly,
         finish: stored.finish - freshHoursByDept.finish,
+        install: stored.install - freshHoursByDept.install,
       },
       storedMat,
       freshMat: freshStorage.lumpCostOverride,

@@ -120,7 +120,7 @@ export function initialSubprojectDefaults(
 
 /**
  * The estimate_lines storage contract for composer lines:
- *   - dept_hour_overrides   keys: eng/cnc/assembly/finish, PER-UNIT hours
+ *   - dept_hour_overrides   keys: eng/cnc/assembly/finish/install, PER-UNIT hours
  *                           (computeLineBuildup multiplies by quantity at
  *                           read time). Only positive entries written;
  *                           null when every dept is zero.
@@ -157,6 +157,7 @@ export function breakdownToStorageValues(
     if (breakdown.hoursByDept.cnc > 0)      deptHourOverrides.cnc      = breakdown.hoursByDept.cnc      / qty
     if (breakdown.hoursByDept.assembly > 0) deptHourOverrides.assembly = breakdown.hoursByDept.assembly / qty
     if (breakdown.hoursByDept.finish > 0)   deptHourOverrides.finish   = breakdown.hoursByDept.finish   / qty
+    if (breakdown.hoursByDept.install > 0)  deptHourOverrides.install  = breakdown.hoursByDept.install  / qty
   }
   const lumpCostOverride =
     qty > 0 ? (breakdown.materialSubtotal + breakdown.waste) / qty : 0

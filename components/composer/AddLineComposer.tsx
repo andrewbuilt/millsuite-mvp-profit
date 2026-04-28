@@ -364,6 +364,30 @@ export default function AddLineComposer({
       let slots: ComposerDraft['slots']
       let qty: number
 
+      // Solid Wood Top product — own preload path. Cabinet-side fallbacks
+      // are irrelevant; pull dimensions/material/cut method from the
+      // calibration row when present, otherwise emptySlots defaults.
+      if (key === 'countertop') {
+        const cal = rateBook.solidWoodTopCalibration
+        slots = {
+          ...emptySlots(),
+          pieceLengthIn: cal?.calib_length_in ?? 96,
+          pieceWidthIn: cal?.calib_width_in ?? 24,
+          pieceThicknessIn: cal?.calib_thickness_in ?? 1.5,
+          edgeProfile: 'none',
+          cutMethod: cal?.default_cut_method ?? 'saw',
+          solidWoodMaterialId:
+            cal?.default_material_id &&
+            rateBook.solidWoodComponents.some((c) => c.id === cal.default_material_id)
+              ? cal.default_material_id
+              : rateBook.solidWoodComponents[0]?.id ?? null,
+        }
+        qty = 1
+        setDraft({ productId: key, qty, slots })
+        setView('composer')
+        return
+      }
+
       if (carry) {
         // Door pricing v2: only seed door fields if the legacy carry-over
         // payload happens to carry the new keys. Composer-saved lines
@@ -870,6 +894,14 @@ function Composer(p: {
           </button>
         )}
 
+        {draft.productId === 'countertop' ? (
+          <SolidWoodTopFormBody
+            draft={draft}
+            rateBook={rateBook}
+            setDraftPatch={p.setDraftPatch}
+            setSlot={p.setSlot}
+          />
+        ) : (
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
           <QuantityFields
             qty={draft.qty}
@@ -1199,6 +1231,7 @@ function Composer(p: {
             />
           </Field>
         </div>
+        )}
 
         {p.saveError && (
           <div className="mt-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
@@ -1249,6 +1282,16 @@ function Composer(p: {
 }
 
 function hasAnyPricingSlotV2(s: ComposerDraft['slots']): boolean {
+  // Countertop uses dimensions + solid-wood material as its "pricing slot"
+  // gate so the breakdown panel renders alongside the form.
+  if (
+    (s.pieceLengthIn || 0) > 0 ||
+    (s.pieceWidthIn || 0) > 0 ||
+    (s.pieceThicknessIn || 0) > 0 ||
+    s.solidWoodMaterialId
+  ) {
+    return true
+  }
   return !!(s.carcassMaterial || s.doorTypeId || s.doorMaterialId || s.doorFinishId)
 }
 
@@ -2272,6 +2315,181 @@ function AddDoorFinishModal(p: {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Solid Wood Top form body ──────────────────────────────────────────
+// Replaces the cabinet form sections (carcass / doors / drawers) when
+// productId === 'countertop'. Inputs map 1:1 to the new ComposerSlots
+// fields. When the calibration row is missing, the body shows a
+// "Calibrate first" CTA in place of the dimension fields.
+
+function SolidWoodTopFormBody({
+  draft,
+  rateBook,
+  setDraftPatch,
+  setSlot,
+}: {
+  draft: ComposerDraft
+  rateBook: ComposerRateBook
+  setDraftPatch: (patch: Partial<ComposerDraft>) => void
+  setSlot: (key: string, value: any) => void
+}) {
+  const cal = rateBook.solidWoodTopCalibration
+  const s = draft.slots
+  if (!cal) {
+    return (
+      <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
+        <SectionHeader>Solid wood top</SectionHeader>
+        <div className="mt-4 px-4 py-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-sm text-[#78350F]">
+          You haven't calibrated your solid wood top labor yet. Open
+          Settings → Solid Wood Top calibration to walk through the
+          per-op timings; we'll scale every line by BdFt against that
+          calibration.
+        </div>
+      </div>
+    )
+  }
+
+  const noComponents = rateBook.solidWoodComponents.length === 0
+  const bdft = (Number(s.pieceLengthIn) || 0) * (Number(s.pieceWidthIn) || 0) *
+    (Number(s.pieceThicknessIn) || 0) / 144
+
+  return (
+    <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
+      <Field label="Quantity (pieces)">
+        <Stepper
+          value={draft.qty}
+          step={1}
+          onChange={(v) => setDraftPatch({ qty: Math.max(1, Math.round(v)) })}
+          unit="each"
+        />
+      </Field>
+
+      <section className="space-y-4">
+        <SectionHeader>Dimensions (per piece)</SectionHeader>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Length (in)">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.5"
+              min="0"
+              value={s.pieceLengthIn ?? ''}
+              onChange={(e) =>
+                setSlot('pieceLengthIn', e.target.value === '' ? null : Number(e.target.value))
+              }
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm font-mono tabular-nums text-[#111] outline-none focus:border-[#2563EB]"
+            />
+          </Field>
+          <Field label="Width (in)">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.5"
+              min="0"
+              value={s.pieceWidthIn ?? ''}
+              onChange={(e) =>
+                setSlot('pieceWidthIn', e.target.value === '' ? null : Number(e.target.value))
+              }
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm font-mono tabular-nums text-[#111] outline-none focus:border-[#2563EB]"
+            />
+          </Field>
+          <Field label="Thickness (in)">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.25"
+              min="0"
+              value={s.pieceThicknessIn ?? ''}
+              onChange={(e) =>
+                setSlot('pieceThicknessIn', e.target.value === '' ? null : Number(e.target.value))
+              }
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm font-mono tabular-nums text-[#111] outline-none focus:border-[#2563EB]"
+            />
+          </Field>
+        </div>
+        <div className="text-[11px] text-[#6B7280] font-mono tabular-nums">
+          {bdft > 0
+            ? `${bdft.toFixed(2)} BdFt per piece · ${(bdft * draft.qty).toFixed(2)} BdFt total`
+            : 'Enter dimensions to see BdFt.'}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader>Material</SectionHeader>
+        <Field label="Solid-wood component">
+          {noComponents ? (
+            <div className="px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-md text-[12px] text-[#78350F]">
+              No solid-wood components yet. Add them in the rate book first.
+            </div>
+          ) : (
+            <select
+              value={s.solidWoodMaterialId ?? ''}
+              onChange={(e) => setSlot('solidWoodMaterialId', e.target.value || null)}
+              className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
+            >
+              <option value="">Choose…</option>
+              {rateBook.solidWoodComponents.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} · ${c.cost_per_bdft}/BdFt
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader>Labor knobs</SectionHeader>
+        <Field label="Edge profile">
+          <div className="grid grid-cols-3 gap-2">
+            {(['none', 'hand', 'cnc'] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setSlot('edgeProfile', opt)}
+                className={`px-3 py-2 text-[12px] font-medium rounded-md border ${
+                  s.edgeProfile === opt
+                    ? 'border-[#2563EB] bg-[#EFF6FF] text-[#1E40AF]'
+                    : 'border-[#E5E7EB] bg-white text-[#374151] hover:bg-[#F9FAFB]'
+                }`}
+              >
+                {opt === 'none' ? 'Square' : opt === 'hand' ? `Hand +${Math.round((cal.edge_mult_hand - 1) * 100)}%` : `CNC +${Math.round((cal.edge_mult_cnc - 1) * 100)}%`}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Cut method">
+          <div className="grid grid-cols-2 gap-2">
+            {(['saw', 'cnc'] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setSlot('cutMethod', opt)}
+                className={`px-3 py-2 text-[12px] font-medium rounded-md border ${
+                  (s.cutMethod ?? cal.default_cut_method) === opt
+                    ? 'border-[#2563EB] bg-[#EFF6FF] text-[#1E40AF]'
+                    : 'border-[#E5E7EB] bg-white text-[#374151] hover:bg-[#F9FAFB]'
+                }`}
+              >
+                {opt === 'saw' ? 'Saw' : 'CNC'}
+              </button>
+            ))}
+          </div>
+        </Field>
+      </section>
+
+      <Field label="Notes">
+        <input
+          type="text"
+          value={s.notes}
+          onChange={(e) => setSlot('notes', e.target.value)}
+          placeholder="Anything unusual about this top…"
+          className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
+        />
+      </Field>
     </div>
   )
 }

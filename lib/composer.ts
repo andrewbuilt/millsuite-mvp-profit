@@ -155,6 +155,69 @@ export interface ComposerRateBook {
    *  labor stored on rate_book_items.drawer_labor_hours_*. Base-only. */
   drawerStyles: ComposerDoorStyle[]
   finishes: ComposerFinish[]
+  /** Solid Wood Top calibration — one row per org, written by
+   *  SolidWoodTopWalkthrough. null when the operator hasn't run the
+   *  walkthrough yet (composer surfaces a "Calibrate first" CTA). */
+  solidWoodTopCalibration: SolidWoodTopCalibration | null
+  /** Solid wood components (rate_book_items proxy table from
+   *  lib/solid-wood.ts). Used by the Solid Wood Top product line for
+   *  material picker + BdFt cost. Composer copies just what it needs
+   *  so loaders don't have to import the full SolidWoodComponent
+   *  shape. */
+  solidWoodComponents: ComposerSolidWoodComponent[]
+}
+
+/** Composer view of a solid_wood_top_calibrations row. Math reads from
+ *  here directly. */
+export interface SolidWoodTopCalibration {
+  calib_length_in: number
+  calib_width_in: number
+  calib_thickness_in: number
+  hours_by_op: Partial<Record<SolidWoodTopOpKey, number>>
+  edge_mult_hand: number
+  edge_mult_cnc: number
+  default_cut_method: 'saw' | 'cnc'
+  default_material_id: string | null
+}
+
+/** Solid Wood Top — sub-op slugs the walkthrough writes into hours_by_op. */
+export type SolidWoodTopOpKey =
+  | 'eng_drawing'
+  | 'cnc_cut_to_size'
+  | 'asy_wood_selection'
+  | 'asy_jointing'
+  | 'asy_planing'
+  | 'asy_ripping'
+  | 'asy_chopping'
+  | 'asy_glueup'
+  | 'asy_calib_sanding'
+  | 'asy_saw_cut_to_size'
+  | 'fin_sanding'
+  | 'fin_apply'
+  | 'ins_install_on_site'
+
+export const SOLID_WOOD_TOP_OPS: SolidWoodTopOpKey[] = [
+  'eng_drawing',
+  'cnc_cut_to_size',
+  'asy_wood_selection',
+  'asy_jointing',
+  'asy_planing',
+  'asy_ripping',
+  'asy_chopping',
+  'asy_glueup',
+  'asy_calib_sanding',
+  'asy_saw_cut_to_size',
+  'fin_sanding',
+  'fin_apply',
+  'ins_install_on_site',
+]
+
+/** Trimmed-down SolidWoodComponent for the composer's purposes. */
+export interface ComposerSolidWoodComponent {
+  id: string
+  name: string
+  cost_per_bdft: number
+  waste_pct: number
 }
 
 /** Per-subproject markup inputs — editable inline on the breakdown panel,
@@ -198,6 +261,25 @@ export interface ComposerSlots {
    *  draft.qty in the composer; values > draft.qty are operator
    *  errors caught at the input. */
   qty_doors?: number | null
+
+  // ── Solid Wood Top slots — used only when productId === 'countertop' ──
+  // Cabinet products leave these at the defaults (0 / 'none' / 'saw');
+  // the math for cabinets ignores them. Existing pre-PR lines have these
+  // missing on the jsonb and read undefined — handled with `?? defaults`
+  // in computeBreakdown.
+  /** Long edge dimension in inches. */
+  pieceLengthIn?: number | null
+  /** Short edge dimension in inches. */
+  pieceWidthIn?: number | null
+  /** Stock thickness in inches (e.g. 1.5 for 8/4 dressed). */
+  pieceThicknessIn?: number | null
+  /** 'none' = square edge (no extra labor). 'hand' / 'cnc' apply the
+   *  edgeMult multiplier from the calibration row. */
+  edgeProfile?: 'none' | 'hand' | 'cnc' | null
+  /** Per-line override of the calibration's default_cut_method. */
+  cutMethod?: 'saw' | 'cnc' | null
+  /** Solid wood component (species/grade) priced per BdFt. */
+  solidWoodMaterialId?: string | null
 }
 
 export interface ComposerDraft {
@@ -220,6 +302,14 @@ export function emptySlots(): ComposerSlots {
     drawerStyle: null,
     notes: '',
     qty_doors: null,
+    // Solid Wood Top defaults — composer overlays these from the
+    // calibration row + lastUsed when the operator picks the tile.
+    pieceLengthIn: null,
+    pieceWidthIn: null,
+    pieceThicknessIn: null,
+    edgeProfile: 'none',
+    cutMethod: null,
+    solidWoodMaterialId: null,
   }
 }
 
@@ -233,6 +323,7 @@ export function productLabelFromKey(key: ProductKey): string {
   if (key === 'base') return 'Base cabinet'
   if (key === 'upper') return 'Upper cabinet'
   if (key === 'full') return 'Full height'
+  if (key === 'countertop') return 'Solid wood top'
   return key
 }
 
@@ -366,12 +457,15 @@ export interface ComposerBreakdown {
   /** Per-dept labor hours — used to populate estimate_lines.
    *  dept_hour_overrides so the existing subproject rollup compute
    *  (lib/estimate-lines.computeSubprojectRollup) renders the composer
-   *  line correctly without knowing about composer internals. */
+   *  line correctly without knowing about composer internals.
+   *  install is zero for cabinet products; only Solid Wood Top sets it
+   *  (per ins_install_on_site in the calibration). */
   hoursByDept: {
     eng: number
     cnc: number
     assembly: number
     finish: number
+    install: number
   }
 }
 
@@ -389,6 +483,14 @@ export function computeBreakdown(
   rb: ComposerRateBook,
   defaults: ComposerDefaults
 ): ComposerBreakdown {
+  // Solid Wood Top — completely different math (BdFt × per-piece hours
+  // scaled by calibration). Cabinet slots are unused on this product;
+  // bail out to a dedicated computer that returns the same
+  // ComposerBreakdown shape with cabinet-side fields zeroed.
+  if (draft.productId === 'countertop') {
+    return computeBreakdownSolidWoodTop(draft, rb, defaults)
+  }
+
   const prod: Product = PRODUCTS[draft.productId]
   // Two LF inputs: qtyCarcass is the cabinet box run (everything that
   // gets a back, sides, and shelves); qtyDoors is the subset of that
@@ -648,6 +750,7 @@ export function computeBreakdown(
       finishHoursTotal +
       endPanelDoorFin +
       endPanelFinishHoursTotal,
+    install: 0, // Cabinet products don't book install hours via the composer.
   }
 
   const totalLabor =
@@ -743,6 +846,174 @@ export function computeBreakdown(
   }
 }
 
+// ── Solid Wood Top compute ──
+
+/**
+ * Per-piece hours scaled to the operator's typical-top calibration:
+ *
+ *   bdft        = (L × W × T) / 144
+ *   calBdft     = (calib L × calib W × calib T) / 144
+ *   scale       = bdft / calBdft
+ *   edgeMult    = 1.0 (none) | edge_mult_hand | edge_mult_cnc
+ *   pieceHours  = sum_of_relevant_op_hours × scale × edgeMult
+ *   lineHours   = pieceHours × qty
+ *
+ * Material:  bdft × cost_per_bdft × (1 + waste_pct/100), per piece × qty.
+ *
+ * Cabinet-side fields on ComposerBreakdown all zero out — the breakdown
+ * panel renders the totals + the per-dept line-up only.
+ */
+function computeBreakdownSolidWoodTop(
+  draft: ComposerDraft,
+  rb: ComposerRateBook,
+  defaults: ComposerDefaults,
+): ComposerBreakdown {
+  const s = draft.slots
+  const qty = Number.isFinite(draft.qty) && draft.qty > 0 ? draft.qty : 0
+  const rate = Number(rb.shopRate) || 0
+
+  const L = Number(s.pieceLengthIn) || 0
+  const W = Number(s.pieceWidthIn) || 0
+  const T = Number(s.pieceThicknessIn) || 0
+  const bdftPerPiece = (L * W * T) / 144
+
+  const cal = rb.solidWoodTopCalibration
+  const calBdft = cal
+    ? (cal.calib_length_in * cal.calib_width_in * cal.calib_thickness_in) / 144
+    : 0
+  const scale = cal && calBdft > 0 && bdftPerPiece > 0 ? bdftPerPiece / calBdft : 0
+
+  const cutMethod: 'saw' | 'cnc' = s.cutMethod || cal?.default_cut_method || 'saw'
+  const edgeProfile: 'none' | 'hand' | 'cnc' = s.edgeProfile || 'none'
+  const edgeMult =
+    cal && edgeProfile === 'hand'
+      ? Number(cal.edge_mult_hand) || 1
+      : cal && edgeProfile === 'cnc'
+        ? Number(cal.edge_mult_cnc) || 1
+        : 1
+
+  // Per-piece hours by dept. Each op slug folds into one dept bucket.
+  // assy_saw_cut_to_size + cnc_cut_to_size are exclusive — only one
+  // contributes based on cutMethod.
+  const ops = (cal?.hours_by_op || {}) as Partial<Record<SolidWoodTopOpKey, number>>
+  const get = (k: SolidWoodTopOpKey): number => Number(ops[k]) || 0
+
+  const engHrPiece = get('eng_drawing') * scale * edgeMult
+  const cncHrPiece =
+    cutMethod === 'cnc' ? get('cnc_cut_to_size') * scale * edgeMult : 0
+  const asmHrPiece =
+    (get('asy_wood_selection') +
+      get('asy_jointing') +
+      get('asy_planing') +
+      get('asy_ripping') +
+      get('asy_chopping') +
+      get('asy_glueup') +
+      get('asy_calib_sanding') +
+      (cutMethod === 'saw' ? get('asy_saw_cut_to_size') : 0)) *
+    scale *
+    edgeMult
+  const finHrPiece = (get('fin_sanding') + get('fin_apply')) * scale * edgeMult
+  const insHrPiece = get('ins_install_on_site') * scale * edgeMult
+
+  // Line totals = per-piece × qty.
+  const hoursByDept = {
+    eng: engHrPiece * qty,
+    cnc: cncHrPiece * qty,
+    assembly: asmHrPiece * qty,
+    finish: finHrPiece * qty,
+    install: insHrPiece * qty,
+  }
+  const totalHours =
+    hoursByDept.eng + hoursByDept.cnc + hoursByDept.assembly +
+    hoursByDept.finish + hoursByDept.install
+  const totalLabor = totalHours * rate
+
+  // Material — solid wood component, BdFt × $/bdft × (1 + waste/100).
+  const mat = s.solidWoodMaterialId
+    ? rb.solidWoodComponents.find((c) => c.id === s.solidWoodMaterialId) || null
+    : null
+  const wasteMult = mat ? 1 + (Number(mat.waste_pct) || 0) / 100 : 1
+  const materialPerPiece = mat
+    ? bdftPerPiece * (Number(mat.cost_per_bdft) || 0) * wasteMult
+    : 0
+  const materialSubtotal = materialPerPiece * qty
+  const materialDetail = mat
+    ? `${(bdftPerPiece * qty).toFixed(2)} BdFt × $${mat.cost_per_bdft}/BdFt` +
+      (mat.waste_pct ? ` × ${(wasteMult).toFixed(2)} waste` : '')
+    : null
+
+  const consumablesPct = Number(defaults.consumablesPct) || 0
+  const wastePct = Number(defaults.wastePct) || 0
+  const consumables = materialSubtotal * (consumablesPct / 100)
+  const waste = materialSubtotal * (wastePct / 100)
+  const totalMaterial = materialSubtotal + consumables + waste
+
+  return {
+    qtyCarcass: qty,
+    qtyDoors: 0,
+    carcassLabor: 0,
+    carcassLaborPerLf: 0,
+    // Reuse the carcassMaterial slot as the solid-wood material rollup
+    // so the breakdown panel's existing material row renders without a
+    // dedicated countertop-aware path (chunk-e-solid-wood-top-2).
+    carcassMaterial: materialSubtotal,
+    carcassMaterialDetail: materialDetail,
+    backPanelMaterial: 0,
+    backPanelMaterialDetail: null,
+
+    doorLabor: 0,
+    doorLaborPerLf: 0,
+    doorLaborWarn: false,
+    doorMaterial: 0,
+    doorMaterialDetail: null,
+    doorMaterialMissing: false,
+    doorFinishMissing: false,
+    doorHardware: 0,
+    doorsPerLine: 0,
+    doorLaborPerDoor: 0,
+    doorMaterialPerDoor: 0,
+    doorFinishLaborPerDoor: 0,
+    doorFinishMaterialPerDoor: 0,
+    doorHardwarePerDoor: 0,
+    avgPerDoor: 0,
+
+    drawerLabor: 0,
+    drawerLaborWarn: false,
+    drawerLaborDetail: null,
+    drawerMaterial: 0,
+    drawerMaterialDetail: null,
+    drawerHardware: 0,
+
+    interiorFinishLabor: 0,
+    interiorFinishMaterial: 0,
+    interiorFinishDetail: null,
+    exteriorFinishLabor: 0,
+    exteriorFinishMaterial: 0,
+    exteriorFinishDetail: null,
+
+    endPanelsLabor: 0,
+    endPanelsMaterial: 0,
+    endPanelsCount: 0,
+    fillersLabor: 0,
+    fillersMaterial: 0,
+    fillersCount: 0,
+
+    materialSubtotal,
+    consumablesPct,
+    consumables,
+    wastePct,
+    waste,
+
+    totals: {
+      labor: totalLabor,
+      material: totalMaterial,
+      total: totalLabor + totalMaterial,
+    },
+
+    hoursByDept,
+  }
+}
+
 // ── Save-gate check ──
 
 export interface SaveGate {
@@ -757,6 +1028,30 @@ export function checkSaveGate(
   draft: ComposerDraft,
   rb: ComposerRateBook
 ): SaveGate {
+  // Solid Wood Top — completely separate gate. Carcass calibration is
+  // irrelevant; we need the SolidWoodTop calibration row + dimensions
+  // + a material pick.
+  if (draft.productId === 'countertop') {
+    if (!rb.solidWoodTopCalibration) {
+      return {
+        ok: false,
+        reason:
+          'Run the Solid Wood Top calibration from Settings before saving — per-piece labor is uncalibrated.',
+      }
+    }
+    if (!draft.qty || draft.qty <= 0) {
+      return { ok: false, reason: 'Set a quantity first.' }
+    }
+    const s = draft.slots
+    if (!s.pieceLengthIn || !s.pieceWidthIn || !s.pieceThicknessIn) {
+      return { ok: false, reason: 'Enter length, width, and thickness in inches.' }
+    }
+    if (!s.solidWoodMaterialId) {
+      return { ok: false, reason: 'Pick a solid-wood material.' }
+    }
+    return { ok: true, reason: null }
+  }
+
   if (!rb.carcassCalibrated) {
     return {
       ok: false,
@@ -798,6 +1093,19 @@ export function summarizeSlots(
   draft: ComposerDraft,
   rb: ComposerRateBook
 ): string {
+  // Solid Wood Top — own summary shape: dimensions + material + edge.
+  if (draft.productId === 'countertop') {
+    const bits: string[] = []
+    const s = draft.slots
+    if (s.pieceLengthIn && s.pieceWidthIn && s.pieceThicknessIn) {
+      bits.push(`${s.pieceLengthIn}×${s.pieceWidthIn}×${s.pieceThicknessIn}"`)
+    }
+    const mat = rb.solidWoodComponents.find((c) => c.id === s.solidWoodMaterialId)
+    if (mat) bits.push(mat.name)
+    if (s.edgeProfile && s.edgeProfile !== 'none') bits.push(`${s.edgeProfile}-edge`)
+    return bits.join(' · ')
+  }
+
   const bits: string[] = []
   const cm = rb.carcassMaterials.find((m) => m.id === draft.slots.carcassMaterial)
   if (cm) bits.push(cm.name)
