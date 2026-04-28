@@ -36,6 +36,7 @@ interface PmaRow {
   id: string
   month_date: string
   source: 'auto' | 'manual'
+  created_at: string | null
 }
 
 /** Count Mon–Fri days in [startISO, startISO + days). */
@@ -120,55 +121,88 @@ export async function autoSeedProjectMonthAllocations(
   // Reconcile against existing project_month_allocations.
   const { data: existingRows } = await supabase
     .from('project_month_allocations')
-    .select('id, month_date, source')
+    .select('id, month_date, source, created_at')
     .eq('project_id', projectId)
   const existing = (existingRows || []) as PmaRow[]
+
+  // Defensive in-memory dedupe. Migration 049 added a unique index on
+  // (project_id, month_date, source), but a freshly-restored DB or a
+  // very-narrow race (insert + read overlap before the index commit)
+  // could still surface duplicates here. Collapse them: keep the
+  // newest row per (month, source), delete the rest. With the index in
+  // place this is a no-op in steady state.
+  const groupKey = (r: PmaRow) => `${r.month_date.slice(0, 7)}::${r.source}`
+  const byKey = new Map<string, PmaRow[]>()
+  for (const r of existing) {
+    const k = groupKey(r)
+    const arr = byKey.get(k) || []
+    arr.push(r)
+    byKey.set(k, arr)
+  }
+  const dedupedExisting: PmaRow[] = []
+  const stragglerIds: string[] = []
+  Array.from(byKey.values()).forEach((rows) => {
+    if (rows.length === 1) {
+      dedupedExisting.push(rows[0])
+      return
+    }
+    rows.sort((a: PmaRow, b: PmaRow) => {
+      const aT = a.created_at ? new Date(a.created_at).getTime() : 0
+      const bT = b.created_at ? new Date(b.created_at).getTime() : 0
+      if (aT !== bT) return bT - aT
+      return b.id.localeCompare(a.id)
+    })
+    const survivor = rows[0]
+    dedupedExisting.push(survivor)
+    for (let i = 1; i < rows.length; i++) stragglerIds.push(rows[i].id)
+  })
+  if (stragglerIds.length > 0) {
+    console.warn(
+      'autoSeedProjectMonthAllocations: collapsing',
+      stragglerIds.length,
+      'duplicate row(s) in-memory',
+    )
+    await supabase.from('project_month_allocations').delete().in('id', stragglerIds)
+  }
+
   const manualMonths = new Set(
-    existing.filter((r) => r.source === 'manual').map((r) => r.month_date.slice(0, 7)),
+    dedupedExisting.filter((r) => r.source === 'manual').map((r) => r.month_date.slice(0, 7)),
   )
   const autoByMonth = new Map<string, PmaRow>()
-  for (const r of existing) {
+  for (const r of dedupedExisting) {
     if (r.source === 'auto') autoByMonth.set(r.month_date.slice(0, 7), r)
   }
 
   let touched = 0
 
-  // Upsert / insert for every month with schedule hours that isn't
-  // pinned manually.
+  // Single upsert per month — race-proof now that migration 049 added
+  // the (project_id, month_date, source) unique index. Two concurrent
+  // calls collide on the conflict key; the second becomes an UPDATE
+  // instead of a duplicate INSERT.
   for (const ym of Object.keys(monthHours)) {
     if (manualMonths.has(ym)) continue
     const monthDate = `${ym}-01`
     const totalHours = Math.round(monthHours[ym])
     if (totalHours <= 0) continue
     const deptHours = roundDeptHours(monthDeptHours[ym] || {})
-    const existingAuto = autoByMonth.get(ym)
-    if (existingAuto) {
-      const { error } = await supabase
-        .from('project_month_allocations')
-        .update({
+    const { error } = await supabase
+      .from('project_month_allocations')
+      .upsert(
+        {
+          org_id: orgId,
+          project_id: projectId,
+          month_date: monthDate,
           hours_allocated: totalHours,
-          department_hours: Object.keys(deptHours).length > 0 ? deptHours : null,
-        })
-        .eq('id', existingAuto.id)
-      if (error) {
-        console.warn('autoSeedProjectMonthAllocations update', error)
-      } else {
-        touched++
-      }
+          department_hours:
+            Object.keys(deptHours).length > 0 ? deptHours : null,
+          source: 'auto',
+        },
+        { onConflict: 'project_id,month_date,source' },
+      )
+    if (error) {
+      console.warn('autoSeedProjectMonthAllocations upsert', error)
     } else {
-      const { error } = await supabase.from('project_month_allocations').insert({
-        org_id: orgId,
-        project_id: projectId,
-        month_date: monthDate,
-        hours_allocated: totalHours,
-        department_hours: Object.keys(deptHours).length > 0 ? deptHours : null,
-        source: 'auto',
-      })
-      if (error) {
-        console.warn('autoSeedProjectMonthAllocations insert', error)
-      } else {
-        touched++
-      }
+      touched++
     }
     autoByMonth.delete(ym)
   }
