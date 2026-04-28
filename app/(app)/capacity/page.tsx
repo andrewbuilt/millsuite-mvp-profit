@@ -7,11 +7,12 @@ import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { loadProjectDeptHours } from '@/lib/project-hours'
 
 interface Department { id: string; name: string; color: string; hours_per_day: number }
 interface DeptMember { department_id: string; user_id: string }
 interface Project { id: string; name: string; client_name: string | null; status: string; bid_total: number }
-interface Subproject { id: string; project_id: string; name: string; labor_hours: number }
+interface Subproject { id: string; project_id: string; name: string }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
 interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number; split_index?: number; split_total?: number; split_group_id?: string }
 // capacity_overrides row shape — see db/migrations/045_capacity_overrides.sql
@@ -100,7 +101,7 @@ function CapacityContent() {
         .select('id, name, client_name, stage, bid_total')
         .eq('org_id', org!.id)
         .in('stage', ['new_lead', 'fifty_fifty', 'ninety_percent', 'sold', 'production', 'installed']),
-      supabase.from('subprojects').select('id, project_id, name, labor_hours').eq('org_id', org!.id),
+      supabase.from('subprojects').select('id, project_id, name').eq('org_id', org!.id),
       supabase.from('department_allocations').select('id, subproject_id, department_id, estimated_hours').eq('org_id', org!.id),
       supabase.from('project_month_allocations').select('*').eq('org_id', org!.id).gte('month_date', `${year}-01-01`).lte('month_date', `${year}-12-31`),
       supabase
@@ -120,18 +121,10 @@ function CapacityContent() {
     setLoading(false)
   }
 
-  // Build department hours for a project
-  function buildDeptHours(projectId: string): Record<string, number> {
-    const projSubs = subprojects.filter(s => s.project_id === projectId)
-    const deptHours: Record<string, number> = {}
-    for (const sub of projSubs) {
-      const allocs = deptAllocations.filter(a => a.subproject_id === sub.id)
-      for (const alloc of allocs) {
-        deptHours[alloc.department_id] = (deptHours[alloc.department_id] || 0) + alloc.estimated_hours
-      }
-    }
-    return deptHours
-  }
+  // Hours per project come from estimate_lines via loadProjectDeptHours
+  // (lib/project-hours.ts). The legacy sources (the subprojects hours
+  // column + department_allocations) are stage-locked and silently zero
+  // for sold projects, so any drop-from-unscheduled wrote 0h.
 
   // Capacity per department per month
   const months = useMemo(() => {
@@ -230,7 +223,9 @@ function CapacityContent() {
 
       // Check if this allocation belongs to a split group
       if (oldAlloc.split_group_id && (oldAlloc.split_total || 1) > 1) {
-        // Move ALL allocations in the same split group by the same month offset
+        // Move ALL allocations in the same split group by the same
+        // month offset. Per-month hours / dept_hours are an intentional
+        // distribution from the split — preserve them.
         const groupAllocs = monthAllocations.filter(a => a.split_group_id === oldAlloc.split_group_id)
         for (const alloc of groupAllocs) {
           const allocDate = new Date(alloc.month_date + 'T00:00:00')
@@ -239,28 +234,30 @@ function CapacityContent() {
           await supabase.from('project_month_allocations').update({ month_date: newMonthStr }).eq('id', alloc.id)
         }
       } else {
-        // Single allocation move
+        // Single allocation move — refresh hours from estimate_lines so
+        // moving doesn't propagate a stale zero from an older drop.
+        const fresh = await loadProjectDeptHours(org.id, dragProjectId)
         await supabase.from('project_month_allocations').delete().eq('id', dragSourceAllocationId)
         await supabase.from('project_month_allocations').insert({
           org_id: org.id,
           project_id: dragProjectId,
           month_date: `${targetMonth}-01`,
-          hours_allocated: oldAlloc.hours_allocated,
-          department_hours: oldAlloc.department_hours,
+          hours_allocated: fresh.totalHours,
+          department_hours:
+            Object.keys(fresh.deptHours).length > 0 ? fresh.deptHours : null,
         })
       }
     } else {
-      // New allocation from unscheduled
-      const projSubs = subprojects.filter(s => s.project_id === dragProjectId)
-      const totalHours = projSubs.reduce((sum, s) => sum + (s.labor_hours || 0), 0)
-      const deptHours = buildDeptHours(dragProjectId)
+      // New allocation from unscheduled — pull hours from estimate_lines.
+      const fresh = await loadProjectDeptHours(org.id, dragProjectId)
 
       await supabase.from('project_month_allocations').insert({
         org_id: org.id,
         project_id: dragProjectId,
         month_date: `${targetMonth}-01`,
-        hours_allocated: totalHours,
-        department_hours: Object.keys(deptHours).length > 0 ? deptHours : null,
+        hours_allocated: fresh.totalHours,
+        department_hours:
+          Object.keys(fresh.deptHours).length > 0 ? fresh.deptHours : null,
       })
     }
 
