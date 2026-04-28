@@ -10,10 +10,16 @@ import { ChevronLeft, ChevronRight, X, RefreshCw, ExternalLink } from 'lucide-re
 import Link from 'next/link'
 import { loadProjectDeptHours } from '@/lib/project-hours'
 import { loadShopRateSetup, type TeamMember } from '@/lib/shop-rate-setup'
+import {
+  STAGE_WEIGHT,
+  isPipelineStage,
+  pipelinePercent,
+} from '@/lib/pipeline-weights'
+import type { ProjectStage } from '@/lib/types'
 
 interface Department { id: string; name: string; color: string; hours_per_day: number }
 interface DeptMember { department_id: string; user_id: string }
-interface Project { id: string; name: string; client_name: string | null; status: string; bid_total: number }
+interface Project { id: string; name: string; client_name: string | null; stage: ProjectStage; bid_total: number }
 interface Subproject { id: string; project_id: string; name: string }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
 interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number; split_index?: number; split_total?: number; split_group_id?: string; hours_refreshed_at?: string | null; source?: 'auto' | 'manual' }
@@ -87,6 +93,20 @@ function CapacityContent() {
   // loadData() refreshes.
   const [selectedCard, setSelectedCard] = useState<{ projectId: string; allocationId: string } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+
+  // Pipeline overlay toggle. ON by default; sticky across reloads via
+  // localStorage. Hidden state is local to this page — pipeline weights
+  // never persist back into the DB; they're a render-time annotation.
+  const [showPipeline, setShowPipeline] = useState(true)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const v = window.localStorage.getItem('capacity.showPipeline')
+    if (v === '0') setShowPipeline(false)
+  }, [])
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('capacity.showPipeline', showPipeline ? '1' : '0')
+  }, [showPipeline])
 
   useEffect(() => { if (org?.id) loadData() }, [org?.id, year])
 
@@ -230,44 +250,99 @@ function CapacityContent() {
       const effectiveWorkingDays = Math.max(0, workingDays - holidayCount)
 
       const monthAllocs = monthAllocations.filter((a) => a.month_date.startsWith(month))
-      let totalAllocated = 0
-      const deptAllocated: Record<string, number> = {}
+
+      // Pipeline-aware roll-up. Each month tracks two parallel totals:
+      //   sold    — hours from sold/production/installed projects (1.0×)
+      //   pipeline — raw hours from pipeline projects, plus a weighted
+      //              version that scales by STAGE_WEIGHT.
+      // The header bar renders sold as the solid utilization, and stacks
+      // the weighted-pipeline number on top as a translucent / dashed
+      // extension. Lost projects fall through both at weight=0.
+      let soldHours = 0
+      let pipelineHours = 0
+      let weightedPipelineHours = 0
+      const deptAllocatedSold: Record<string, number> = {}
+      const deptWeightedPipeline: Record<string, number> = {}
       for (const alloc of monthAllocs) {
-        totalAllocated += alloc.hours_allocated
-        if (alloc.department_hours) {
-          for (const [deptId, hrs] of Object.entries(alloc.department_hours)) {
-            deptAllocated[deptId] = (deptAllocated[deptId] || 0) + (hrs as number)
+        const proj = projects.find((p) => p.id === alloc.project_id)
+        const stage = (proj?.stage ?? 'sold') as ProjectStage
+        const weight = STAGE_WEIGHT[stage] ?? 1
+        const isPipe = isPipelineStage(stage)
+        const h = Number(alloc.hours_allocated) || 0
+        if (isPipe) {
+          pipelineHours += h
+          weightedPipelineHours += h * weight
+          if (alloc.department_hours) {
+            for (const [deptId, hrs] of Object.entries(alloc.department_hours)) {
+              deptWeightedPipeline[deptId] =
+                (deptWeightedPipeline[deptId] || 0) + (hrs as number) * weight
+            }
+          }
+        } else {
+          soldHours += h * weight
+          if (alloc.department_hours) {
+            for (const [deptId, hrs] of Object.entries(alloc.department_hours)) {
+              deptAllocatedSold[deptId] =
+                (deptAllocatedSold[deptId] || 0) + (hrs as number) * weight
+            }
           }
         }
       }
 
+      // Header reads sold-only ("X/Y h · N%") regardless of toggle. When
+      // pipeline is on, a "+pipeline N%" line appears beneath. The dept-
+      // stacked bar mirrors deptAllocated (sold by default; pipeline
+      // overlay rendered as a translucent extension when the toggle is
+      // on).
+      const totalAllocated = soldHours
+      const deptAllocated: Record<string, number> = { ...deptAllocatedSold }
+
       const utilization = totalCapacity > 0 ? (totalAllocated / totalCapacity) * 100 : 0
+      const utilSold = utilization
+      const utilWeightedPipelineDelta =
+        showPipeline && totalCapacity > 0
+          ? (weightedPipelineHours / totalCapacity) * 100
+          : 0
+
       const projectCards = monthAllocs.map((a) => {
         const proj = projects.find((p) => p.id === a.project_id)
-        return proj
-          ? {
-              ...proj,
-              allocationId: a.id,
-              hours: a.hours_allocated,
-              departmentHours: a.department_hours,
-              splitIndex: a.split_index || 0,
-              splitTotal: a.split_total || 0,
-              splitGroupId: a.split_group_id || null,
-              source: (a.source ?? 'manual') as 'auto' | 'manual',
-            }
-          : null
-      }).filter(Boolean) as (Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null; source: 'auto' | 'manual' })[]
+        if (!proj) return null
+        const stage = (proj.stage ?? 'sold') as ProjectStage
+        const weight = STAGE_WEIGHT[stage] ?? 1
+        return {
+          ...proj,
+          allocationId: a.id,
+          hours: a.hours_allocated,
+          weightedHours: a.hours_allocated * weight,
+          stage,
+          isPipeline: isPipelineStage(stage),
+          stageWeight: weight,
+          departmentHours: a.department_hours,
+          splitIndex: a.split_index || 0,
+          splitTotal: a.split_total || 0,
+          splitGroupId: a.split_group_id || null,
+          source: (a.source ?? 'manual') as 'auto' | 'manual',
+        }
+      }).filter(Boolean) as (Project & { allocationId: string; hours: number; weightedHours: number; stage: ProjectStage; isPipeline: boolean; stageWeight: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null; source: 'auto' | 'manual' })[]
+
+      // Pipeline cards hide entirely when the overlay is off (still
+      // available in the Unscheduled rail as faded entries).
+      const visibleProjectCards = showPipeline
+        ? projectCards
+        : projectCards.filter((c) => !c.isPipeline)
 
       return {
         month, label, longLabel,
         totalCapacity, totalAllocated, utilization,
-        deptCapacity, deptAllocated, projectCards,
+        soldHours, pipelineHours, weightedPipelineHours,
+        utilSold, utilWeightedPipelineDelta,
+        deptCapacity, deptAllocated, projectCards: visibleProjectCards,
         holidayCount, ptoHours, ptoDayCount, ptoPersonCount,
         workingDays, effectiveWorkingDays,
         daySummaries,
       }
     })
-  }, [departments, deptMembers, monthAllocations, capacityOverrides, projects, year, memberNameById])
+  }, [departments, deptMembers, monthAllocations, capacityOverrides, projects, year, memberNameById, showPipeline])
 
   // Unscheduled projects (not in any month)
   const scheduledProjectIds = new Set(monthAllocations.map(a => a.project_id))
@@ -489,6 +564,21 @@ function CapacityContent() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Capacity</h1>
         <div className="flex items-center gap-4">
+          {/* Pipeline overlay toggle. Default ON; sticky via localStorage.
+              When OFF, pipeline cards hide from the calendar and the
+              utilization math reverts to sold-only. */}
+          <button
+            onClick={() => setShowPipeline((v) => !v)}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+              showPipeline
+                ? 'bg-[#EDE9FE] text-[#5B21B6] border border-[#C4B5FD]'
+                : 'bg-[#F3F4F6] text-[#6B7280] border border-[#E5E7EB]'
+            }`}
+            title="Toggle the pipeline overlay (probability-weighted hours from new_lead / 50/50 / 90% projects)"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${showPipeline ? 'bg-[#7C3AED]' : 'bg-[#9CA3AF]'}`} />
+            Pipeline {showPipeline ? 'on' : 'off'}
+          </button>
           {/* Zoom buttons */}
           <div className="flex items-center bg-[#F3F4F6] rounded-lg p-0.5">
             {zoomButtons.map(z => (
@@ -555,18 +645,57 @@ function CapacityContent() {
                       <div className={`text-[#9CA3AF] font-mono tabular-nums ${zoom === 'quarter' ? 'text-xs mt-0.5' : 'text-[9px]'}`}>
                         {Math.round(m.totalAllocated)}/{Math.round(m.totalCapacity)}h
                       </div>
-                      {/* Utilization bar */}
-                      <div className={`bg-[#E5E7EB] rounded-full overflow-hidden ${zoom === 'quarter' ? 'h-2 mt-2' : 'h-1 mt-1'}`}>
+                      {/* Utilization bar — solid sold portion + dashed
+                          weighted-pipeline extension. The extension only
+                          renders when the toggle is on AND there's pipeline
+                          to show; total visible width clamps at 100%. */}
+                      <div className={`bg-[#E5E7EB] rounded-full overflow-hidden flex ${zoom === 'quarter' ? 'h-2 mt-2' : 'h-1 mt-1'}`}>
                         <div
-                          className={`h-full rounded-full ${m.utilization > 100 ? 'bg-[#DC2626]' : m.utilization > 80 ? 'bg-[#F59E0B]' : 'bg-[#2563EB]'}`}
+                          className={`h-full ${m.utilization > 100 ? 'bg-[#DC2626]' : m.utilization > 80 ? 'bg-[#F59E0B]' : 'bg-[#2563EB]'}`}
                           style={{ width: `${Math.min(m.utilization, 100)}%` }}
                         />
+                        {m.utilWeightedPipelineDelta > 0 && (
+                          <div
+                            className={`h-full ${
+                              m.utilSold + m.utilWeightedPipelineDelta > 100
+                                ? 'bg-[#DC2626]/40'
+                                : m.utilSold + m.utilWeightedPipelineDelta > 80
+                                  ? 'bg-[#F59E0B]/40'
+                                  : 'bg-[#2563EB]/40'
+                            }`}
+                            style={{
+                              width: `${Math.max(
+                                0,
+                                Math.min(m.utilWeightedPipelineDelta, 100 - Math.min(m.utilSold, 100)),
+                              )}%`,
+                              backgroundImage:
+                                'repeating-linear-gradient(135deg, rgba(255,255,255,0.6) 0 2px, transparent 2px 4px)',
+                            }}
+                          />
+                        )}
                       </div>
                       <div className={`font-mono tabular-nums font-medium mt-0.5 ${
                         zoom === 'quarter' ? 'text-xs' : 'text-[9px]'
                       } ${
                         m.utilization > 100 ? 'text-[#DC2626]' : m.utilization > 80 ? 'text-[#F59E0B]' : 'text-[#6B7280]'
                       }`}>{Math.round(m.utilization)}%</div>
+
+                      {/* +pipeline N% — additional weighted utilization
+                          if the pipeline projects in this month land. */}
+                      {m.utilWeightedPipelineDelta > 0 && (
+                        <div
+                          title={`${Math.round(m.weightedPipelineHours)}h weighted pipeline (${Math.round(m.pipelineHours)}h raw). Total weighted util: ${Math.round(m.utilSold + m.utilWeightedPipelineDelta)}%.`}
+                          className={`font-mono tabular-nums mt-0.5 ${zoom === 'quarter' ? 'text-[11px]' : 'text-[9px]'} ${
+                            m.utilSold + m.utilWeightedPipelineDelta > 100
+                              ? 'text-[#F87171]'
+                              : m.utilSold + m.utilWeightedPipelineDelta > 80
+                                ? 'text-[#FBBF24]'
+                                : 'text-[#7C3AED]'
+                          }`}
+                        >
+                          +pipeline {Math.round(m.utilWeightedPipelineDelta)}%
+                        </div>
+                      )}
 
                       {/* Holiday + PTO summary chips. Compact rollup that
                           stays even at year zoom. The per-day flag strip
@@ -735,7 +864,7 @@ function ProjectCard({
   onDragStart,
   onDragEnd,
 }: {
-  card: Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null; source: 'auto' | 'manual' }
+  card: Project & { allocationId: string; hours: number; weightedHours: number; stage: ProjectStage; isPipeline: boolean; stageWeight: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null; source: 'auto' | 'manual' }
   zoom: ZoomLevel
   departments: Department[]
   subprojectNames: string[]
@@ -757,23 +886,47 @@ function ProjectCard({
     </span>
   ) : null
 
+  // Pipeline visual layer — dashed border + reduced opacity + a stage
+  // pill in the top-right showing the close-probability percent. Sold /
+  // production / installed cards get the today's solid look.
+  const isPipeline = card.isPipeline
+  const stagePct = pipelinePercent(card.stage)
+  const cardBorderClass = isPipeline
+    ? 'border-2 border-dashed border-[#9CA3AF]'
+    : 'border border-[#E5E7EB]'
+  const cardOpacityClass = isPipeline ? 'opacity-90' : ''
+  const pipelineBadge =
+    isPipeline && stagePct != null ? (
+      <span
+        title={`Pipeline · weighted at ${stagePct}%`}
+        className="absolute top-0.5 right-0.5 px-1 py-px text-[8px] font-semibold uppercase tracking-wider text-[#5B21B6] bg-[#EDE9FE] border border-[#C4B5FD] rounded font-mono tabular-nums"
+      >
+        {stagePct}%
+      </span>
+    ) : null
+  const weightedHoursLine = isPipeline
+    ? `${Math.round(card.hours)}h · ${Math.round(card.weightedHours)}h weighted (${stagePct}%)`
+    : `${Math.round(card.hours)}h`
+  const namePadRight = isPipeline ? 'pr-9' : ''
+
   if (zoom === 'year') {
     return (
       <div
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
-        className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
+        className={`bg-white ${cardBorderClass} ${cardOpacityClass} rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative`}
         onClick={onSelect}
       >
         {autoBadge}
+        {pipelineBadge}
         <button
           onClick={onRemove}
           className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
         >
           <X className="w-2 h-2 text-[#6B7280] hover:text-[#DC2626]" />
         </button>
-        <div className={`text-[10px] font-medium text-[#111] truncate ${isAuto ? 'pl-7' : ''}`}>{card.name}</div>
+        <div className={`text-[10px] font-medium text-[#111] truncate ${isAuto ? 'pl-7' : ''} ${namePadRight}`}>{card.name}</div>
         {subprojectNames.length > 0 && <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>}
         {splitLabel && <div className="text-[8px] font-mono text-[#9CA3AF]">{splitLabel}</div>}
       </div>
@@ -786,20 +939,21 @@ function ProjectCard({
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
-        className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
+        className={`bg-white ${cardBorderClass} ${cardOpacityClass} rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative`}
         onClick={onSelect}
       >
         {autoBadge}
+        {pipelineBadge}
         <button
           onClick={onRemove}
           className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
         >
           <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
         </button>
-        <div className={`text-[10px] font-medium text-[#111] truncate ${isAuto ? 'pl-7' : ''}`}>{card.name}</div>
+        <div className={`text-[10px] font-medium text-[#111] truncate ${isAuto ? 'pl-7' : ''} ${namePadRight}`}>{card.name}</div>
         {subprojectNames.length > 0 && <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>}
         <div className="flex items-center gap-1">
-          <span className="text-[9px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
+          <span className="text-[9px] font-mono tabular-nums text-[#6B7280]">{weightedHoursLine}</span>
           {splitLabel && <span className="text-[8px] font-mono text-[#9CA3AF]">{splitLabel}</span>}
         </div>
       </div>
@@ -812,24 +966,25 @@ function ProjectCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className="bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
+      className={`bg-white ${cardBorderClass} ${cardOpacityClass} rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative`}
       onClick={onSelect}
     >
       {autoBadge}
+      {pipelineBadge}
       <button
         onClick={onRemove}
         className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
       >
         <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
       </button>
-      <div className={`text-xs font-medium text-[#111] truncate ${isAuto ? 'pl-8' : ''}`}>{card.name}</div>
+      <div className={`text-xs font-medium text-[#111] truncate ${isAuto ? 'pl-8' : ''} ${namePadRight}`}>{card.name}</div>
       {subprojectNames.length > 0 && (
         <div className="text-[10px] text-[#6B7280] mt-0.5">{subprojectNames.join(' · ')}</div>
       )}
       {card.client_name && <div className="text-[9px] text-[#9CA3AF] truncate">{card.client_name}</div>}
       {splitLabel && <div className="text-[9px] font-mono text-[#2563EB] mt-0.5">{splitLabel}</div>}
       <div className="flex items-center gap-2 mt-1">
-        <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
+        <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{weightedHoursLine}</span>
         <span className="text-[10px] font-mono tabular-nums text-[#9CA3AF]">{fmtMoney(card.bid_total)}</span>
       </div>
       {card.departmentHours && Object.keys(card.departmentHours).length > 0 && (
@@ -995,6 +1150,9 @@ function ProjectSidePane({
 }) {
   const isSplit = !!groupAllocations && groupAllocations.length > 1
   const isAuto = (allocation.source ?? 'manual') === 'auto'
+  const stage = (project.stage ?? 'sold') as ProjectStage
+  const isPipe = isPipelineStage(stage)
+  const stagePct = pipelinePercent(stage)
   const hours = allocation.hours_allocated
   const monthLabel = (iso: string) =>
     new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', {
@@ -1078,6 +1236,12 @@ function ProjectSidePane({
                   })}
                 </div>
               )}
+            {isPipe && stagePct != null && (
+              <div className="mt-2 px-2.5 py-1.5 bg-[#EDE9FE] border border-[#C4B5FD] rounded-md text-[11px] text-[#5B21B6]">
+                Pipeline · weighted at {stagePct}% (
+                {Math.round(hours * (stagePct / 100))}h counts toward util)
+              </div>
+            )}
           </div>
 
           {/* Placement */}
