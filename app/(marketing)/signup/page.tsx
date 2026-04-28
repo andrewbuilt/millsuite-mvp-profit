@@ -1,10 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { MLogo } from '@/components/logo'
+import {
+  PLAN_LABELS,
+  PLAN_SEAT_PRICE,
+  validatePlan,
+  type Plan,
+} from '@/lib/feature-flags'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -13,6 +19,18 @@ export default function SignupPage() {
   const [shopName, setShopName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // Plan picked on /pricing — read from ?plan= on mount via the
+  // browser-side URL so we don't need a Suspense boundary around
+  // useSearchParams. validatePlan returns null on anything outside
+  // the live PLANS list (incl. legacy 'trial'); 'starter' is the
+  // documented fallback.
+  const [plan, setPlan] = useState<Plan>('starter')
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const param = new URLSearchParams(window.location.search).get('plan')
+    const v = validatePlan(param)
+    if (v) setPlan(v)
+  }, [])
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
@@ -46,6 +64,7 @@ export default function SignupPage() {
           auth_user_id: authData.user.id,
           email: email.trim().toLowerCase(),
           shop_name: shopName.trim(),
+          plan,
         }),
       })
 
@@ -61,6 +80,9 @@ export default function SignupPage() {
     }
   }
 
+  const planLabel = PLAN_LABELS[plan]
+  const planPrice = PLAN_SEAT_PRICE[plan]
+
   return (
     <>
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06]" style={{ background: 'rgba(13,13,15,0.8)', backdropFilter: 'blur(20px)' }}>
@@ -74,7 +96,18 @@ export default function SignupPage() {
         <div className="w-full max-w-sm">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-white mb-2">Create your account</h1>
-            <p className="text-sm text-[#8B8B96]">Free trial. No credit card required.</p>
+            <p className="text-sm text-[#8B8B96]">
+              Signing up for{' '}
+              <span className="text-[#D4956A] font-semibold">{planLabel}</span>
+              {' · '}
+              <span className="font-mono">${planPrice}/seat/mo</span>
+            </p>
+            <p className="text-xs text-[#555] mt-1">
+              Not the right tier?{' '}
+              <Link href="/pricing" className="text-[#D4956A] hover:text-[#C4855A]">
+                See pricing →
+              </Link>
+            </p>
           </div>
 
           <form onSubmit={handleSignup} className="space-y-4">
@@ -121,7 +154,7 @@ export default function SignupPage() {
               disabled={loading}
               className="w-full px-6 py-3 bg-[#D4956A] text-white font-medium rounded-xl hover:bg-[#C4855A] transition-colors disabled:opacity-50"
             >
-              {loading ? 'Creating account...' : 'Start free trial'}
+              {loading ? 'Creating account...' : `Create ${planLabel} account`}
             </button>
           </form>
 

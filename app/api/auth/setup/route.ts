@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { validatePlan } from '@/lib/feature-flags'
 
 // Called after Supabase auth signup — creates org + user + default settings
 
 export async function POST(req: NextRequest) {
   try {
-    const { auth_user_id, email, shop_name } = await req.json()
+    const body = await req.json()
+    const { auth_user_id, email, shop_name } = body
 
     if (!auth_user_id || !email || !shop_name) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
+
+    // The signup form passes ?plan= through. Anything outside the live
+    // PLANS list (incl. legacy 'trial') falls back to 'starter' — we
+    // don't ship a free tier anymore, but a stale URL shouldn't reject
+    // the signup.
+    const plan = validatePlan(body.plan) ?? 'starter'
 
     // Check if user already has an org
     const { data: existingUser } = await supabaseAdmin
@@ -34,7 +42,7 @@ export async function POST(req: NextRequest) {
       .insert({
         name: shop_name,
         slug,
-        plan: 'trial',
+        plan,
       })
       .select()
       .single()

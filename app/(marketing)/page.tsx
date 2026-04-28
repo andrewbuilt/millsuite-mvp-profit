@@ -20,9 +20,10 @@ function MarketingNav() {
 
         {/* Desktop nav */}
         <div className="hidden sm:flex items-center gap-6">
+          <Link href="/pricing" className="text-sm text-[#8B8B96] hover:text-white transition-colors">Pricing</Link>
           <Link href="/login" className="text-sm text-[#8B8B96] hover:text-white transition-colors">Log in</Link>
           <Link href="/signup" className="px-4 py-2 bg-[#D4956A] text-white text-sm font-medium rounded-lg hover:bg-[#C4855A] transition-colors">
-            Start Free Trial
+            Sign up
           </Link>
         </div>
 
@@ -35,9 +36,10 @@ function MarketingNav() {
       {/* Mobile dropdown */}
       {menuOpen && (
         <div className="sm:hidden border-t border-white/[0.06] px-5 py-4 space-y-3" style={{ background: 'rgba(13,13,15,0.95)' }}>
+          <Link href="/pricing" onClick={() => setMenuOpen(false)} className="block text-sm text-[#8B8B96] py-2">Pricing</Link>
           <Link href="/login" onClick={() => setMenuOpen(false)} className="block text-sm text-[#8B8B96] py-2">Log in</Link>
           <Link href="/signup" onClick={() => setMenuOpen(false)} className="block w-full text-center px-4 py-2.5 bg-[#D4956A] text-white text-sm font-medium rounded-lg">
-            Start Free Trial
+            Sign up
           </Link>
         </div>
       )}
@@ -113,15 +115,15 @@ export default function LandingPage() {
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
-            <Link href="/signup" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-[#D4956A] text-white font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
-              Start your free trial <ArrowRight className="w-4 h-4" />
+            <Link href="/pricing" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-[#D4956A] text-white font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
+              See pricing <ArrowRight className="w-4 h-4" />
             </Link>
             <a href="https://tools.millsuite.com" className="w-full sm:w-auto text-center px-6 py-3 text-[#8B8B96] font-medium rounded-xl border border-white/[0.08] hover:border-white/[0.15] hover:text-white transition-colors">
               Calculate your shop rate (free)
             </a>
           </div>
 
-          <p className="text-xs text-[#555] mt-4">No credit card required. No sales call. Cancel anytime.</p>
+          <p className="text-xs text-[#555] mt-4">Per seat. Three tiers. No sales call.</p>
         </div>
 
         {/* Product UI Preview */}
@@ -289,7 +291,7 @@ export default function LandingPage() {
             <FAQItem question="What if MillSuite goes away? You're a small company." answer="Fair question. Your data is yours and you can export it anytime. But also: I've been running a millwork shop for 14 years. I built this software because I need it to run my own business. It's not going anywhere." />
             <FAQItem question="We already use QuickBooks. Does this replace it?" answer="No, and we're not trying to. MillSuite tracks project profitability, which is what QuickBooks can't do well. They're complementary. QuickBooks integration is on our roadmap." />
             <FAQItem question="I've bought software before that nobody ended up using." answer="Most shop software is built by people who've never run a shop. We built MillSuite inside a real millwork operation to solve problems we were living with every day. If your crew won't use it, that's our problem to fix." />
-            <FAQItem question="Can I get a demo?" answer="You can. Email us at info@millsuite.com. But honestly, just start the trial. It's faster, and you'll learn more in 10 minutes of using it than 30 minutes of watching someone else use it." />
+            <FAQItem question="Can I get a demo?" answer="You can. Email us at info@millsuite.com. But honestly, just sign up for Starter — it's faster, and you'll learn more in 10 minutes of using it than 30 minutes of watching someone else use it." />
           </div>
         </div>
       </section>
@@ -302,12 +304,12 @@ export default function LandingPage() {
             <span className="text-[#8B8B96]">Do you know if it's making money?</span>
           </h2>
           <div className="mt-8">
-            <Link href="/signup" className="inline-flex items-center gap-2 px-6 sm:px-8 py-3 sm:py-4 bg-[#D4956A] text-white text-base sm:text-lg font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
-              Start your free trial <ArrowRight className="w-5 h-5" />
+            <Link href="/pricing" className="inline-flex items-center gap-2 px-6 sm:px-8 py-3 sm:py-4 bg-[#D4956A] text-white text-base sm:text-lg font-medium rounded-xl hover:bg-[#C4855A] transition-colors">
+              See pricing <ArrowRight className="w-5 h-5" />
             </Link>
           </div>
           <p className="text-sm text-[#8B8B96] mt-4">Join the shop owners who stopped guessing and started knowing.</p>
-          <p className="text-xs text-[#555] mt-2">No credit card. No contract. No BS.</p>
+          <p className="text-xs text-[#555] mt-2">Per seat. Three tiers. No BS.</p>
         </div>
       </section>
 
@@ -321,6 +323,7 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-6 text-xs text-[#555]">
             <a href="mailto:info@millsuite.com" className="hover:text-[#8B8B96] transition-colors">info@millsuite.com</a>
+            <Link href="/pricing" className="hover:text-[#8B8B96] transition-colors">Pricing</Link>
             <Link href="/login" className="hover:text-[#8B8B96] transition-colors">Log in</Link>
           </div>
         </div>
