@@ -16,7 +16,7 @@ interface DeptMember { department_id: string; user_id: string }
 interface Project { id: string; name: string; client_name: string | null; status: string; bid_total: number }
 interface Subproject { id: string; project_id: string; name: string }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
-interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number; split_index?: number; split_total?: number; split_group_id?: string; hours_refreshed_at?: string | null }
+interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number; split_index?: number; split_total?: number; split_group_id?: string; hours_refreshed_at?: string | null; source?: 'auto' | 'manual' }
 // capacity_overrides row shape — see db/migrations/045_capacity_overrides.sql
 // team_member_id NULL = company holiday; non-null = individual PTO.
 // hours_reduction = 0 falls back to the team member's default day length
@@ -244,8 +244,19 @@ function CapacityContent() {
       const utilization = totalCapacity > 0 ? (totalAllocated / totalCapacity) * 100 : 0
       const projectCards = monthAllocs.map((a) => {
         const proj = projects.find((p) => p.id === a.project_id)
-        return proj ? { ...proj, allocationId: a.id, hours: a.hours_allocated, departmentHours: a.department_hours, splitIndex: a.split_index || 0, splitTotal: a.split_total || 0, splitGroupId: a.split_group_id || null } : null
-      }).filter(Boolean) as (Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null })[]
+        return proj
+          ? {
+              ...proj,
+              allocationId: a.id,
+              hours: a.hours_allocated,
+              departmentHours: a.department_hours,
+              splitIndex: a.split_index || 0,
+              splitTotal: a.split_total || 0,
+              splitGroupId: a.split_group_id || null,
+              source: (a.source ?? 'manual') as 'auto' | 'manual',
+            }
+          : null
+      }).filter(Boolean) as (Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null; source: 'auto' | 'manual' })[]
 
       return {
         month, label, longLabel,
@@ -286,13 +297,17 @@ function CapacityContent() {
       if (oldAlloc.split_group_id && (oldAlloc.split_total || 1) > 1) {
         // Move ALL allocations in the same split group by the same
         // month offset. Per-month hours / dept_hours are an intentional
-        // distribution from the split — preserve them.
+        // distribution from the split — preserve them. Source flips to
+        // 'manual' so the auto-seed treats the new placement as pinned.
         const groupAllocs = monthAllocations.filter(a => a.split_group_id === oldAlloc.split_group_id)
         for (const alloc of groupAllocs) {
           const allocDate = new Date(alloc.month_date + 'T00:00:00')
           const newMonth = new Date(allocDate.getFullYear(), allocDate.getMonth() + monthOffset, 1)
           const newMonthStr = `${newMonth.getFullYear()}-${String(newMonth.getMonth() + 1).padStart(2, '0')}-01`
-          await supabase.from('project_month_allocations').update({ month_date: newMonthStr }).eq('id', alloc.id)
+          await supabase
+            .from('project_month_allocations')
+            .update({ month_date: newMonthStr, source: 'manual' })
+            .eq('id', alloc.id)
         }
       } else {
         // Single allocation move — refresh hours from estimate_lines so
@@ -306,6 +321,7 @@ function CapacityContent() {
           hours_allocated: fresh.totalHours,
           department_hours:
             Object.keys(fresh.deptHours).length > 0 ? fresh.deptHours : null,
+          source: 'manual',
         })
       }
     } else {
@@ -319,6 +335,7 @@ function CapacityContent() {
         hours_allocated: fresh.totalHours,
         department_hours:
           Object.keys(fresh.deptHours).length > 0 ? fresh.deptHours : null,
+        source: 'manual',
       })
     }
 
@@ -358,6 +375,7 @@ function CapacityContent() {
           split_group_id: groupId,
           split_index: i + 1,
           split_total: numMonths,
+          source: 'manual',
         })
         .select('id')
         .single()
@@ -393,6 +411,7 @@ function CapacityContent() {
         split_group_id: null,
         split_index: null,
         split_total: null,
+        source: 'manual',
       })
       .eq('id', survivor.id)
     const toDelete = groupAllocs.filter((a) => a.id !== survivor.id).map((a) => a.id)
@@ -400,6 +419,19 @@ function CapacityContent() {
       await supabase.from('project_month_allocations').delete().in('id', toDelete)
     }
     setSelectedCard({ projectId: alloc.project_id, allocationId: survivor.id })
+    await loadData()
+  }
+
+  // Flip an auto row to manual without changing its placement. Used
+  // from the side pane's "Pin to this month" button to declare an
+  // operator's intent that this row should not be re-rolled by the
+  // auto-seed pass.
+  async function pinAllocation(allocationId: string) {
+    if (!org?.id) return
+    await supabase
+      .from('project_month_allocations')
+      .update({ source: 'manual' })
+      .eq('id', allocationId)
     await loadData()
   }
 
@@ -682,6 +714,7 @@ function CapacityContent() {
             onSplit={(n) => handleSplit(alloc.id, n)}
             onRemoveSplit={() => handleRemoveSplit(alloc.id)}
             onRefresh={() => refreshAllocationHours(alloc.id, alloc.project_id)}
+            onPin={() => pinAllocation(alloc.id)}
           />
         )
       })()}
@@ -702,7 +735,7 @@ function ProjectCard({
   onDragStart,
   onDragEnd,
 }: {
-  card: Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null }
+  card: Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null; source: 'auto' | 'manual' }
   zoom: ZoomLevel
   departments: Department[]
   subprojectNames: string[]
@@ -714,6 +747,16 @@ function ProjectCard({
   const isSplit = card.splitTotal > 1
   const splitLabel = isSplit ? `Part ${card.splitIndex} of ${card.splitTotal}` : null
 
+  const isAuto = card.source === 'auto'
+  const autoBadge = isAuto ? (
+    <span
+      title="Placed automatically from schedule. Drag or pin to override."
+      className="absolute top-0.5 left-0.5 px-1 py-px text-[8px] font-semibold uppercase tracking-wider text-[#1E40AF] bg-[#DBEAFE] border border-[#BFDBFE] rounded"
+    >
+      auto
+    </span>
+  ) : null
+
   if (zoom === 'year') {
     return (
       <div
@@ -723,13 +766,14 @@ function ProjectCard({
         className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
         onClick={onSelect}
       >
+        {autoBadge}
         <button
           onClick={onRemove}
           className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
         >
           <X className="w-2 h-2 text-[#6B7280] hover:text-[#DC2626]" />
         </button>
-        <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
+        <div className={`text-[10px] font-medium text-[#111] truncate ${isAuto ? 'pl-7' : ''}`}>{card.name}</div>
         {subprojectNames.length > 0 && <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>}
         {splitLabel && <div className="text-[8px] font-mono text-[#9CA3AF]">{splitLabel}</div>}
       </div>
@@ -745,13 +789,14 @@ function ProjectCard({
         className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
         onClick={onSelect}
       >
+        {autoBadge}
         <button
           onClick={onRemove}
           className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
         >
           <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
         </button>
-        <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
+        <div className={`text-[10px] font-medium text-[#111] truncate ${isAuto ? 'pl-7' : ''}`}>{card.name}</div>
         {subprojectNames.length > 0 && <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>}
         <div className="flex items-center gap-1">
           <span className="text-[9px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
@@ -770,13 +815,14 @@ function ProjectCard({
       className="bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
       onClick={onSelect}
     >
+      {autoBadge}
       <button
         onClick={onRemove}
         className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
       >
         <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
       </button>
-      <div className="text-xs font-medium text-[#111] truncate">{card.name}</div>
+      <div className={`text-xs font-medium text-[#111] truncate ${isAuto ? 'pl-8' : ''}`}>{card.name}</div>
       {subprojectNames.length > 0 && (
         <div className="text-[10px] text-[#6B7280] mt-0.5">{subprojectNames.join(' · ')}</div>
       )}
@@ -934,6 +980,7 @@ function ProjectSidePane({
   onSplit,
   onRemoveSplit,
   onRefresh,
+  onPin,
 }: {
   project: Project
   allocation: MonthAllocation
@@ -944,8 +991,10 @@ function ProjectSidePane({
   onSplit: (n: number) => void
   onRemoveSplit: () => void
   onRefresh: () => void
+  onPin: () => void
 }) {
   const isSplit = !!groupAllocations && groupAllocations.length > 1
+  const isAuto = (allocation.source ?? 'manual') === 'auto'
   const hours = allocation.hours_allocated
   const monthLabel = (iso: string) =>
     new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', {
@@ -1043,6 +1092,25 @@ function ProjectSidePane({
               </div>
             )}
           </div>
+
+          {/* Auto-placement note + pin */}
+          {isAuto && (
+            <div className="px-3 py-2.5 bg-[#EFF6FF] border border-[#DBEAFE] rounded-md">
+              <div className="text-[11px] font-semibold text-[#1E40AF] mb-0.5">
+                Placed automatically from schedule
+              </div>
+              <p className="text-[11px] text-[#374151] leading-snug mb-2">
+                The schedule timeline drives this row. Re-scheduling this
+                project will rewrite it. Pin to keep it where it is.
+              </p>
+              <button
+                onClick={onPin}
+                className="px-2.5 py-1 text-[11.5px] font-medium text-white bg-[#2563EB] rounded-md hover:bg-[#1D4ED8]"
+              >
+                Pin to this month
+              </button>
+            </div>
+          )}
 
           {/* Split */}
           {!isSplit && (
