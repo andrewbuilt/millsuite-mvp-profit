@@ -5,16 +5,18 @@
 // shape Reports → Outlook expects: { name, estimatedHours, startMonth,
 // endMonth }. Hours come from estimate_lines via loadProjectDeptHours
 // (the canonical source — see lib/project-hours.ts). Start/end months
-// come from min(scheduled_date) / max(scheduled_date + scheduled_days)
-// across the project's department_allocations.
+// come from project_month_allocations — the persistence behind the
+// /capacity calendar, which is the canonical surface for "where is this
+// booked work landing in time."
 //
 // Stage gate is ['sold','production','installed'] — anything won counts
-// as booked. Projects with zero hours OR no scheduling data are dropped:
+// as booked. Projects with zero hours OR no slot on the capacity calendar
+// are dropped:
 //   - zero hours: no estimate_lines yet, can't contribute meaningful
 //     load to a utilization projection.
-//   - no scheduling data: no department_allocations rows, so we have
-//     no timeline. (Sold projects pre-production-seed land here; they
-//     show up once seedAllocationsForProduction runs.)
+//   - no calendar slot: nothing in project_month_allocations, so we
+//     don't know when the project lands. The operator hasn't placed it
+//     on the calendar yet.
 // ============================================================================
 
 import { supabase } from '../supabase'
@@ -27,15 +29,9 @@ interface ProjectRow {
   org_id: string | null
 }
 
-interface SubprojectRow {
-  id: string
+interface MonthAllocationRow {
   project_id: string
-}
-
-interface AllocationRow {
-  subproject_id: string
-  scheduled_date: string | null
-  scheduled_days: number | null
+  month_date: string
 }
 
 function ymKey(d: Date): string {
@@ -56,39 +52,30 @@ export async function loadBookedProjects(orgId: string): Promise<BookedProject[]
   if (projects.length === 0) return []
 
   const projIds = projects.map((p) => p.id)
-  const { data: subData } = await supabase
-    .from('subprojects')
-    .select('id, project_id')
-    .in('project_id', projIds)
-  const subs = (subData || []) as SubprojectRow[]
-  const subIds = subs.map((s) => s.id)
-  const subToProject = new Map(subs.map((s) => [s.id, s.project_id]))
 
-  // Timeline data — still sourced from department_allocations because
-  // that's the only table with scheduled_date / scheduled_days.
-  const allocs: AllocationRow[] = []
-  if (subIds.length > 0) {
-    const { data: allocData } = await supabase
-      .from('department_allocations')
-      .select('subproject_id, scheduled_date, scheduled_days')
-      .in('subproject_id', subIds)
-    allocs.push(...((allocData || []) as AllocationRow[]))
-  }
+  // Timeline — sourced from project_month_allocations (the /capacity
+  // calendar's persistence). Each row places one project into one
+  // calendar month; a project with rows in Apr + May spans Apr→Jun
+  // (max month + 1 month, exclusive end), matching how the chart's
+  // month-bucket math already counts boundaries.
+  const { data: monthData } = await supabase
+    .from('project_month_allocations')
+    .select('project_id, month_date')
+    .in('project_id', projIds)
+  const monthRows = (monthData || []) as MonthAllocationRow[]
 
   const timeline = new Map<string, { startMs: number; endMs: number }>()
-  for (const a of allocs) {
-    const projId = subToProject.get(a.subproject_id)
-    if (!projId || !a.scheduled_date) continue
-    const start = new Date(a.scheduled_date + 'T12:00:00Z')
+  for (const row of monthRows) {
+    if (!row.month_date) continue
+    const start = new Date(row.month_date + 'T12:00:00Z')
     if (isNaN(start.getTime())) continue
-    const days = Math.max(1, Number(a.scheduled_days) || 1)
     const startMs = start.getTime()
-    const end = new Date(startMs)
-    end.setUTCDate(end.getUTCDate() + days)
+    const end = new Date(start)
+    end.setUTCMonth(end.getUTCMonth() + 1)
     const endMs = end.getTime()
-    const cur = timeline.get(projId)
+    const cur = timeline.get(row.project_id)
     if (!cur) {
-      timeline.set(projId, { startMs, endMs })
+      timeline.set(row.project_id, { startMs, endMs })
     } else {
       cur.startMs = Math.min(cur.startMs, startMs)
       cur.endMs = Math.max(cur.endMs, endMs)
