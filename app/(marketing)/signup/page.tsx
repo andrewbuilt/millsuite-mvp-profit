@@ -56,7 +56,9 @@ export default function SignupPage() {
       if (authError) throw authError
       if (!authData.user) throw new Error('Signup failed')
 
-      // 2. Create org + user via API (uses service role key)
+      // 2. Create org + user via API (uses service role key). The org
+      // lands in plan_status='pending' — they get access only after
+      // Stripe confirms payment.
       const res = await fetch('/api/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,11 +70,36 @@ export default function SignupPage() {
         }),
       })
 
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error || 'Failed to create account')
+      const setup = await res.json()
+      if (!res.ok) throw new Error(setup.error || 'Failed to create account')
 
-      // 3. Redirect to dashboard
-      router.push('/dashboard?welcome=true')
+      // 3. Hand off to Stripe Checkout. On success, Stripe redirects to
+      // /dashboard?welcome=true; the webhook will have already flipped
+      // plan_status to 'active' by then. On cancel, Stripe redirects to
+      // /settings?canceled=1 — but they'll hit the BillingGate first
+      // since plan_status is still 'pending'.
+      const checkoutRes = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: setup.org_id,
+          plan: setup.plan ?? plan,
+          seats: setup.seats,
+        }),
+      })
+
+      const checkout = await checkoutRes.json()
+      if (!checkoutRes.ok || !checkout.url) {
+        // Account was created but checkout failed — send them to
+        // settings so they can retry. They'll hit the BillingGate's
+        // "Complete payment" screen because plan_status='pending'.
+        console.error('Checkout failed after signup:', checkout)
+        router.push('/settings?error=checkout-failed')
+        return
+      }
+
+      // Full-page navigation to the Stripe-hosted Checkout page.
+      window.location.href = checkout.url
     } catch (err: any) {
       setError(err.message || 'Something went wrong')
     } finally {

@@ -118,3 +118,29 @@ export function validatePlan(plan: unknown): Plan | null {
   if (typeof plan !== 'string') return null
   return PLANS.includes(plan as Plan) ? (plan as Plan) : null
 }
+
+// ── Subscription status (from orgs.plan_status, set by stripe-webhook) ──
+//
+// Two separate questions the app needs to answer:
+//   1. Does this PLAN allow this FEATURE? → hasAccess()
+//   2. Is the subscription paid up? → hasActiveSubscription()
+// Components combine the two (e.g. PlanGate checks both before rendering).
+
+export const PLAN_STATUSES = [
+  'pending',     // signed up, hasn't paid yet
+  'active',      // subscription in good standing
+  'past_due',    // recurring charge failed; grace period before downgrade
+  'canceled',    // canceled and period ended
+  'incomplete',  // initial payment failed or 3DS pending
+] as const
+export type PlanStatus = typeof PLAN_STATUSES[number]
+
+/** Subscription is in good standing — full access granted.
+ *  past_due is a soft state — Stripe will retry. We treat it as still-
+ *  active to avoid yanking access during a transient card failure;
+ *  the billing banner nudges them to update their card. If the dunning
+ *  cycle exhausts, Stripe sends customer.subscription.deleted and we
+ *  flip to 'canceled'. */
+export function hasActiveSubscription(planStatus: string | undefined | null): boolean {
+  return planStatus === 'active' || planStatus === 'past_due'
+}

@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { validatePlan } from '@/lib/feature-flags'
+import { PLAN_SEAT_MINIMUM, validatePlan } from '@/lib/feature-flags'
 
-// Called after Supabase auth signup — creates org + user + default settings
+// Called after Supabase auth signup — creates org + user + default settings.
+//
+// New orgs land in plan_status='pending'. The signup page immediately
+// redirects to /api/checkout, where Stripe collects payment; the
+// stripe-webhook then flips plan_status='active'. Until that flip,
+// /app pages show a "complete payment" gate.
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,6 +23,7 @@ export async function POST(req: NextRequest) {
     // don't ship a free tier anymore, but a stale URL shouldn't reject
     // the signup.
     const plan = validatePlan(body.plan) ?? 'starter'
+    const seats = PLAN_SEAT_MINIMUM[plan]
 
     // Check if user already has an org
     const { data: existingUser } = await supabaseAdmin
@@ -27,7 +33,12 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (existingUser) {
-      return NextResponse.json({ org_id: existingUser.org_id, user_id: existingUser.id })
+      return NextResponse.json({
+        org_id: existingUser.org_id,
+        user_id: existingUser.id,
+        plan,
+        seats,
+      })
     }
 
     // Create org
@@ -43,6 +54,11 @@ export async function POST(req: NextRequest) {
         name: shop_name,
         slug,
         plan,
+        // Override the migration's 'active' default — new signups must
+        // pay before they get access. The webhook flips this to 'active'
+        // when Stripe confirms payment.
+        plan_status: 'pending',
+        seats,
       })
       .select()
       .single()
@@ -111,6 +127,8 @@ export async function POST(req: NextRequest) {
       org_id: org.id,
       user_id: user.id,
       slug: org.slug,
+      plan,
+      seats,
     })
   } catch (err: any) {
     console.error('Auth setup error:', err)

@@ -26,6 +26,7 @@ import {
   type TeamMember,
 } from '@/lib/shop-rate-setup'
 import SolidWoodTopWalkthrough from '@/components/walkthroughs/SolidWoodTopWalkthrough'
+import BillingSection from '@/components/billing-section'
 
 const inputClass =
   'w-32 text-right px-3 py-2 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors'
@@ -528,21 +529,11 @@ export default function SettingsPage() {
                             </ul>
                           </div>
                         )}
-                        {isUpgrade && (
-                          <a
-                            href={`/api/checkout?plan=${t.key}&seats=${seatCount}`}
-                            className="mt-3 w-full block text-center px-3 py-1.5 bg-[#111] text-white text-xs font-medium rounded-lg hover:bg-[#2563EB] transition-colors"
-                          >
-                            Upgrade
-                          </a>
-                        )}
-                        {isDowngrade && (
-                          <a
-                            href={`mailto:hello@millsuite.com?subject=Downgrade%20to%20${encodeURIComponent(PLAN_LABELS[t.key])}`}
-                            className="mt-3 w-full block text-center px-3 py-1.5 bg-white border border-[#E5E7EB] text-[#6B7280] text-xs font-medium rounded-lg hover:bg-[#F9FAFB] transition-colors"
-                          >
-                            Downgrade
-                          </a>
+                        {(isUpgrade || isDowngrade) && (
+                          <p className="mt-3 text-[10px] text-[#9CA3AF] text-center leading-snug">
+                            Use <span className="font-medium text-[#6B7280]">Manage subscription</span> in the
+                            Subscription card above to switch plans (Stripe handles proration).
+                          </p>
                         )}
                       </div>
                     )
@@ -824,6 +815,9 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+        {/* Subscription / Billing */}
+        <BillingSection />
 
         {/* Business Info */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">

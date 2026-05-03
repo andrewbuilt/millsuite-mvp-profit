@@ -19,10 +19,23 @@ interface Org {
   name: string
   slug: string
   plan: string
+  // Subscription state — populated by the stripe-webhook. Existing rows
+  // pre-billing landed at plan_status='active' via the migration default
+  // so they don't get gated; new signups land at 'pending' until Stripe
+  // confirms payment.
+  plan_status: string
+  seats: number
+  current_period_end: string | null
+  cancel_at_period_end: boolean
+  stripe_customer_id: string | null
+  stripe_subscription_id: string | null
   shop_rate: number
   consumable_markup_pct: number
   profit_margin_pct: number
 }
+
+const ORG_SELECT =
+  'id, name, slug, plan, plan_status, seats, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, shop_rate, consumable_markup_pct, profit_margin_pct, business_address, business_city, business_state, business_zip, business_phone, business_email'
 
 interface AuthContextType {
   user: AppUser | null
@@ -54,7 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
 
-  const publicPaths = ['/', '/pricing', '/login', '/signup']
+  const publicPaths = ['/', '/pricing', '/login', '/signup', '/cancellation-policy']
   const isPublicPath = publicPaths.includes(pathname) || pathname.startsWith('/api') || pathname.startsWith('/join')
 
   const loadUserData = useCallback(async (authId: string) => {
@@ -69,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data: orgData } = await supabase
         .from('orgs')
-        .select('id, name, slug, plan, shop_rate, consumable_markup_pct, profit_margin_pct, business_address, business_city, business_state, business_zip, business_phone, business_email')
+        .select(ORG_SELECT)
         .eq('id', userData.org_id)
         .single()
 
@@ -115,7 +128,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user?.org_id) return
     const { data: orgData } = await supabase
       .from('orgs')
-      .select('id, name, slug, plan, shop_rate, consumable_markup_pct, profit_margin_pct, business_address, business_city, business_state, business_zip, business_phone, business_email')
+      .select(ORG_SELECT)
       .eq('id', user.org_id)
       .single()
     if (orgData) setOrg(orgData)

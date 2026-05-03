@@ -1,7 +1,6 @@
 # MillSuite estimating — system map
 
-Plain-English map of the whole estimating module, built from the 8 HTML mockups.
-Nothing in code yet. Read this first. Tell me where I'm wrong before I propose a build order.
+Plain-English map of the whole estimating module. Originally written from the 8 HTML mockups before any code existed; the architecture described below is now mostly built. Read this first to understand the model — the loop, the responsibilities, the seams. For ground truth on *what's currently shipped vs in-flight*, see CURRENT-STATE.md.
 
 ---
 

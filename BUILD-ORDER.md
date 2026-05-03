@@ -272,18 +272,12 @@ Instead, Phase 11 became the dogfooding pass: open the software end-to-end as a 
 - [~] **Item 3 — ShopRateWalkthrough (per-dept).** SUPERSEDED by Item 12.
 - [x] **Item 4 — BaseCabinetWalkthrough.** `components/walkthroughs/BaseCabinetWalkthrough.tsx` live, 9 operations, one question per screen, outputs 4 per-LF dept values. Light mode, correct palette. **Open bug:** first save path hit an RLS error on `rate_book_categories` because migration 001 never shipped the RLS policies in the repo (the dashboard had a SELECT-only policy). Fixed in **migration 024** (`db/migrations/024_rate_book_rls.sql`). Re-test the save path once 024 is applied; keep this checked.
 - [x] **Item 5 — WelcomeOverlay + useOnboardingStatus.** `components/onboarding/WelcomeOverlay.tsx` + `hooks/useOnboardingStatus.ts`, mounted in `app/(app)/layout.tsx:20`. Null `onboarded_at` renders full-screen non-dismissible overlay with welcome → shop_rate → base_cabinet. Stamps `onboarded_at = NOW()` on completion. Mid-flow tab close re-mounts at `onboarding_step`. _This phase is the ONE place dark mode is allowed — welcome sequence only, and only until the overlay closes._
-- [ ] **Item 6 — AddLineComposer.** `components/composer/AddLineComposer.tsx` built from the prototype. Product-tile grid (Base/Upper/Full active; Drawer/LED/Countertop stubs; Countertop locked). Slot UI: carcass material, door style, door/drawer material, **interior finish**, **exterior finish**, end panels count, filler count, notes. Live breakdown panel on the right with consumables % and waste % editable inline. Last-used carry-over via the `orgs.last_used_slots_by_product` jsonb. Replaces Phase 2 inline line entry on `app/(app)/projects/[id]/subprojects/[subId]/page.tsx`. **Open items before close-out:**
-  1. **Light-mode reskin.** Currently `bg-[#0D0D0D]` / `bg-[#0F172A]/85` backdrop / `text-white` / `bg-[#141414]` inputs. Reskin to match the rest of the app: white panels, `#E5E7EB` borders, `#111` primary text, `#2563EB` accents, `#F9FAFB` side-panel background.
-  2. **Drop the sheets-per-LF prompt on carcass material add.** `askSheetsPerLf` is hardcoded `true` at line 615. The system already knows sheets-per-LF from `lib/products.ts` constants (Base 1/12, Upper 1/8, Full 1/4) — the composer should compute and display, not ask. Remove the input; show the derived number as read-only context.
-  3. **Separate interior finish from exterior finish at the data level.** Today both dropdowns read from `rateBook.finishes` (lines 711 + 727). Shipped exterior finishes are auto-appearing as interior options, which is wrong — same recipe name on interior vs. exterior means different surface area, different labor, different material consumption, and operators want them as distinct rate-book rows. **Fix:** finish rate-book items gain an `application` discriminator (`interior` | `exterior`). Interior dropdown filters to `application = 'interior'`, exterior to `application = 'exterior'`. "+ Add new finish" in each dropdown opens FinishWalkthrough with the `application` preset. Duplicating a finish across applications is an explicit act, not automatic.
-  4. **`Prefinished` sentinel option at the top of the Interior finish dropdown.** Built-in, not a rate-book row. Zero cost, zero labor. Default selection when the operator picks a pre-finished carcass material (melamine, prefinished ply) — but always available on anything. No conditional show/hide on the Interior field; the field is always rendered, `Prefinished` is the first choice.
-- [ ] **Item 7 — DoorStyleWalkthrough.** `components/walkthroughs/DoorStyleWalkthrough.tsx` ported from the prototype modal. 5 guided steps (Eng / CNC / Machining / Assembly / Finish) × 4 doors at 24"×30". Machining folds into Assembly on save. Fires from the composer hatch when an uncalibrated door style is picked or via "+ Add new door style." Mini-card mode for small gaps, full modal for new styles — decided by how many fields are empty. **Light-mode reskin required** — currently `bg-[#0D0D0D]` / `bg-[#0F172A]/85` backdrop. Same palette swap as Item 6.
-- [ ] **Item 8 — FinishWalkthrough.** One walkthrough with collapsible combo rows (stain+clear on slab, paint on slab, stain+clear on shaker, paint on shaker). Each combo has Base 8' / Upper 8' / Full 8' cards. Each card captures labor hours + material breakdown (primer / paint / stain / lacquer, any can be zero). Partial calibration is a supported state. Fires from the composer hatch. **Open items before close-out:**
-  1. **Light-mode reskin** — same palette swap as Items 6/7.
-  2. **`application` field.** The walkthrough must now ask (or accept via preset) whether this finish is for `interior` or `exterior`, write it onto the rate-book row, and offer a "Duplicate for the other application" affordance on save.
+- [x] **Item 6 — AddLineComposer.** Shipped. Light-mode reskin, sheets-per-LF prompt removed, interior/exterior finish split with `application` discriminator on rate-book rows, `Prefinished` sentinel in Interior dropdown. Door pricing v2 + drawer reskin landed in subsequent PRs. Two-LF split (`qty_carcass` + `qty_doors`) added in PR #100 for runs where doors don't span the full carcass.
+- [x] **Item 7 — DoorStyleWalkthrough.** Shipped (light mode, fires from composer hatch). Subsequently rebuilt as door pricing v2 (`door_types` + `door_type_materials` + `door_type_material_finishes` cascade).
+- [x] **Item 8 — FinishWalkthrough.** Shipped with `application` field + light-mode reskin.
 - [x] **Item 9 — Install prefill.** Subproject-header `(guys × days × shop install rate) × (1 + complexity %)`. Single % input, example reasons listed. Rolls up alongside cabinet cost. Reads `orgs.shop_rate` (post-Item-12).
 - [x] **Item 10 — Per-line staleness.** `lib/composer-staleness.ts` exports `findStaleLines` + `bulkRefreshStaleLines`. Banner rendered in subproject editor (`app/(app)/projects/[id]/subprojects/[subId]/page.tsx` lines 479–622), gated on `isPresold(project.stage)` so sold subprojects stay locked.
-- [ ] **Item 11 — Dogfood one estimate end-to-end.** Price a real customer estimate through the new flow: shop rate change propagates, door walkthrough fires in context, finish walkthrough partial-calibration works, line computes match the prototype's math. Log the run in `docs/dogfood-<project-slug>.md` with a per-step note (what clicked, what broke, what's missing). This is the close-out gate.
+- [x] **Item 11 — Dogfood one estimate end-to-end.** Done across four rounds (Apr 2026). 21 issues surfaced and shipped in batches; the four `CLAUDE-CODE-HANDOFF-DOGFOOD*-2026-04-24.md` files in `docs/archive/2026-04-historical/` are the running log. Critical fixes included the 8x labor bug (per-unit storage), staleness-banner per-unit comparison, and pricing architecture single-source-of-margin-truth.
 - [x] **Item 12 — First-principles shop rate walkthrough (supersedes Item 3).** Four screens inside the welcome overlay: Overhead (categorized $ inputs, monthly/annual toggle) → Team (name + annual comp, hourly conversion) → Billable hours (hrs/wk × weeks/yr × utilization%) → Result (derived `shop_rate`, override allowed, Update/Keep on re-entry). Three jsonb columns on `orgs` per **migration 022** (`overhead_inputs`, `team_members`, `billable_hours_inputs`). Composer math uses `total_hours × orgs.shop_rate`; `shop_labor_rates` deprecated. InstallPrefill reads `orgs.shop_rate`.
 
 **Follow-on tasks surfaced during dogfooding (not full items, but needed before Phase 12 closes):**
@@ -292,6 +286,47 @@ Instead, Phase 11 became the dogfooding pass: open the software end-to-end as a 
 - [ ] **Task 16 — Drop activity picker on `/subprojects/new`.** `app/(app)/projects/[id]/subprojects/new/page.tsx` lines 19–26 + 136–153. The 6-tile `ACTIVITY_TYPES` grid (Cabinets / Millwork / Island / Vanity / Install / Custom) is a Phase-0 relic — `activity_type` is no longer read by anything downstream since the composer tiles carry the product discriminator. Remove the picker, stop writing `activity_type`, keep the name field + Continue button. Do the same column drop on `subprojects.activity_type` in a follow-up migration after confirming no readers.
 - [ ] **Task 17 — Clean up retired Phase 11 surfaces.** Delete `app/(app)/onboarding/` routes and the orphan helpers in `lib/onboarding.ts` (`STEP_META`, `computeShopBurden`, `REFERENCE_DEPT_RATES`, `acceptStashedItemBaseline`). Drop the `onboarding_stashed_baselines` table in a migration. Keep `bumpItemConfidence` — it's still wired into `regenerateSuggestions`.
 - [ ] **Task 18 — Migration 024 verification.** `db/migrations/024_rate_book_rls.sql` adds authenticated + EXISTS-on-orgs policies for `rate_book_categories` and `rate_book_items` (both were missing in-repo policies; the dashboard had SELECT-only, so INSERTs from `seedStarterRateBook` and the base-cabinet walkthrough were silently 403'ing). Apply in Supabase; verify by re-running the base-cabinet walkthrough from a fresh org and watching for a clean save.
+
+---
+
+## Phase 13 — Post-dogfood, capacity, tiers, beta
+
+**Prerequisite:** Phase 12 effectively closed (Item 11 multi-round dogfood done).
+
+**Scope:** Whatever surfaced during dogfood + early beta. Less a phase, more a running log of post-MVP work organized by area. Update `CURRENT-STATE.md` after each batch of merges.
+
+### Shipped
+
+- [x] **Capacity calendar foundation.** Holidays + PTO via `capacity_overrides` (PR #102). Hours derived from `estimate_lines` via `loadProjectDeptHours` so sold-but-not-yet-production projects show real numbers (PR #103). Outlook chart honors won + production work via `project_month_allocations` timeline (PR #104).
+- [x] **Capacity calendar visual polish.** Per-day flag strip, dept-stacked bar inside cards, project side pane with split / merge / refresh hours, refresh-hours-from-estimate button (PR #106).
+- [x] **Capacity calendar auto-allocate.** Production projects auto-populate from schedule blocks via `lib/capacity-seed.ts`. Manual placements win via `source = 'manual'` column (PRs #107 + #108 — dedupe fix for the auto-row race condition).
+- [x] **Schedule timeline header dots + sticky capacity row** (PR #96).
+- [x] **Solid Wood Top product** (formerly the locked Countertop tile). 14-screen walkthrough, BdFt-scaled material + labor, hand/CNC edge multipliers, auto-opens walkthrough from tile when uncalibrated, dedicated breakdown panel. Reuses `solid_wood_components` for materials (PR #105 + follow-up commits).
+- [x] **Pricing architecture cleanup** — single source of margin truth. Subprojects always margin=0; project applies markup once at the rollup. Migration 030 dropped `subprojects.profit_margin_pct`.
+- [x] **Three-tier pricing productionization.** Restored `/pricing` page with $40 / $75 / $100 tiers, three Sign Up CTAs that route to `/signup?plan=<key>`, auth setup persists the picked plan. No Stripe involvement (free signup at chosen tier; payment out-of-band) — PR #110.
+- [x] **Welcome flow lands on /sales** (or /projects for Starter) after onboarding completes (PR #111).
+- [x] **Marketing pricing strip removed from MVP** (PR #99).
+
+### Open / dropped
+
+- **Pipeline overlay (PR #109)** — closed without merging. Per-card probability weighting didn't model reality. Branch preserved for future revival with portfolio-level math instead of per-card weighting.
+
+### Known queue (priorities not committed)
+
+- [ ] **Capacity PR-C-3 — hire/fire signal on the page header.** Without pipeline overlay, scope is sold + production work only. "+1.2 hc in Aug" type signal. Math reuses `lib/reports/outlookCalculations.ts`.
+- [ ] **Beta tester bug reports.** Two testers signed up; handle as feedback comes in (fresh chat per report).
+- [ ] **Tier billing productionization** — Stripe checkout, real billing, trial periods. Today: signup is free, plan is set on signup, no payment.
+- [ ] **Auto-place pipeline projects from `target_production_month`** — column exists but is unused. Adds a UI to set it (kanban card edit, project page) and an auto-allocate hook.
+- [ ] Welcome sequence copy + UX polish.
+- [ ] Demo / seeded report data cleanup.
+- [ ] "i" info tooltips throughout the site.
+- [ ] LED walkthrough.
+- [ ] Drawing parser improvements.
+- [ ] Improve project list (dashboard view).
+- [ ] Invoice email integration.
+- [ ] Overdue invoice reminders + auto status flip.
+- [ ] Port API routes from `shop_rate_settings` to `orgs.overhead_inputs` jsonb.
+- [ ] Staleness banner copy: distinguish "needs initial slots" from "rates moved."
 
 ---
 
