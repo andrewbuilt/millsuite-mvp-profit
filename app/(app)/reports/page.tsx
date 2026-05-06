@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { hasAccess } from '@/lib/feature-flags'
 import {
   computeShopGradeV2,
   type CompletedProject,
@@ -222,10 +223,14 @@ export default function ReportsPage() {
             )}
           </div>
 
+          {/* Diagnostics drawer is Pro+ only — gate the click handler so
+              Profit/Pro users see the table but can't open the margin
+              waterfall drawer. The 'diagnostics' feature key is in
+              PRO_AI_FEATURES per PR #113. */}
           <CompletedProjects
             projects={completedProjects}
             marginTarget={shopConfig.marginTarget}
-            onProjectClick={setSelectedProject}
+            onProjectClick={hasAccess(org?.plan, 'diagnostics') ? setSelectedProject : undefined}
           />
 
           {/* ═══ DIVIDER ═══ */}

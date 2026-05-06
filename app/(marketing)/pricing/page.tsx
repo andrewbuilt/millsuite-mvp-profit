@@ -23,42 +23,45 @@ interface TierCard {
 const TIERS: TierCard[] = [
   {
     key: 'starter',
-    name: 'Starter',
-    tagline: 'Profit-first basics',
+    name: 'Profit',
+    tagline: 'Track every job, know your margin',
     features: [
+      'Dashboard + project outcomes',
+      'Projects (sold + active)',
+      'Time tracking (multi-user)',
+      'Team management',
       'Shop rate calculator',
-      'Projects + subproject pricing',
-      'Time tracking (desktop + mobile)',
-      'Printable estimates',
-      'Invoice parsing',
-      '2 AI shop reports / seat / mo',
+      'Invoices + payments',
+      'Shop reports +AI insights · 1/mo',
     ],
   },
   {
     key: 'pro',
     name: 'Pro',
-    tagline: 'Run the whole shop',
+    tagline: 'Run the whole shop with AI in your corner',
     features: [
-      'Everything in Starter',
-      'Leads Kanban + sold handoff',
-      'Pre-production selections',
-      'Client portal w/ sign-off',
-      'Department scheduling + capacity',
-      'Team roles + rate book',
+      'Everything in Profit',
+      'Sales pipeline (Leads kanban)',
+      'Rate book',
+      'AI Learning loop',
+      'Pre-production approvals',
+      'Capacity calendar (12-month, PTO/holidays)',
+      'QuickBooks integration (optional)',
+      'Shop reports +AI insights · 2/mo',
     ],
     highlight: true,
   },
   {
     key: 'pro-ai',
-    name: 'Pro + AI',
-    tagline: 'Early access to AI',
+    name: 'Pro+',
+    tagline: 'Drop drawings, schedule departments, let AI do the heavy lifting',
     features: [
       'Everything in Pro',
-      'Unlimited AI shop reports',
+      'Drawing parser +AI estimating',
+      'Department Scheduling +AI assistant',
+      'Diagnostics drawer (margin waterfall)',
+      'Shop reports +AI insights · 4/mo',
       'Priority support',
-      'AI estimating (drawing parser)',
-      'Learning loop',
-      'Custom AI reports',
     ],
   },
 ]
@@ -166,16 +169,16 @@ export default function PricingPage() {
             Not sure which tier?
           </h2>
           <p className="text-sm text-[#8B8B96] leading-relaxed mb-6 max-w-xl mx-auto">
-            Most one- or two-person shops start on Starter. Once you're
-            scheduling work across departments or running a Kanban for
-            leads, you've grown into Pro. Add AI when the drawing volume
-            justifies it.
+            Most one- or two-person shops start on Profit — track jobs,
+            know your margin. Once you're running a sales pipeline and
+            planning capacity months out, you've grown into Pro. Add Pro+
+            when you want AI parsing drawings and scheduling departments.
           </p>
           <Link
             href="/signup?plan=starter"
             className="inline-flex items-center gap-2 px-6 py-3 bg-[#D4956A] text-white font-medium rounded-xl hover:bg-[#C4855A] transition-colors"
           >
-            Start with Starter <ArrowRight className="w-4 h-4" />
+            Start with Profit <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
       </section>
