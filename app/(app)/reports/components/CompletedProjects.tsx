@@ -48,11 +48,19 @@ export default function CompletedProjects({
           const barWidth = Math.max((Math.abs(project.marginPct) / maxMargin) * 100, 2)
           const barColor = marginBarColor(project.marginPct, marginTarget)
 
+          // Click affordance only when onProjectClick is wired up. The
+          // diagnostics drawer is gated to Pro+ in /reports/page.tsx —
+          // Profit/Pro users see the same table but rows aren't clickable
+          // (no cursor pointer, no hover state) so we don't tease a feature
+          // that won't fire.
+          const clickable = !!onProjectClick
           return (
             <div
               key={project.id}
-              onClick={() => onProjectClick?.(project)}
-              className="flex items-center gap-3 py-2.5 cursor-pointer hover:bg-[#F9FAFB] -mx-2 px-2 rounded-lg transition-colors"
+              onClick={clickable ? () => onProjectClick(project) : undefined}
+              className={`flex items-center gap-3 py-2.5 -mx-2 px-2 rounded-lg transition-colors ${
+                clickable ? 'cursor-pointer hover:bg-[#F9FAFB]' : ''
+              }`}
             >
               {/* Name + date */}
               <div className="w-[140px] sm:w-[180px] flex-shrink-0">

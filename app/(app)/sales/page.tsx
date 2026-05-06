@@ -18,6 +18,7 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
+import { hasAccess } from '@/lib/feature-flags'
 import {
   SALES_STAGES,
   STAGE_LABEL,
@@ -118,6 +119,10 @@ export default function SalesPage() {
 function SalesInner() {
   const router = useRouter()
   const { org, user } = useAuth()
+  // Drawing parser is Pro+ only (PR #113). Profit and Pro tiers can still
+  // use the leads kanban — they just can't drop drawings to auto-extract.
+  // Manual lead creation via the blank form remains available everywhere.
+  const canParse = hasAccess(org?.plan, 'ai-estimating')
   const { confirm } = useConfirm()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -484,7 +489,10 @@ function SalesInner() {
           </p>
         </div>
 
-        {/* HERO: parser drop zone */}
+        {/* HERO: parser drop zone (Pro+) OR new-lead CTA (Pro). Same shell,
+            different content — Pro+ gets the drawing parser as the primary
+            entry point; Pro still has the leads kanban but creates leads
+            manually via the blank form below. */}
         <div
           className={`relative bg-white border border-[#E5E7EB] rounded-2xl p-8 mb-8 overflow-hidden transition-colors ${
             dragOver ? 'border-[#2563EB] bg-[#F5F9FF]' : ''
@@ -492,16 +500,33 @@ function SalesInner() {
         >
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-[#F5F9FF] via-transparent to-transparent" />
           <div className="relative">
-            <div className="text-[11px] font-semibold uppercase tracking-widest text-[#2563EB] mb-2">
-              ◆ Start with drawings
-            </div>
-            <h2 className="text-xl font-semibold text-[#111] mb-2">
-              Drop a PDF. We'll start the project for you.
-            </h2>
-            <p className="text-sm text-[#6B7280] max-w-xl mb-6">
-              Parser pulls the client, address, and dollar amounts off the drawings.
-              Confirm the chips, assign roles, and we create the project.
-            </p>
+            {canParse ? (
+              <>
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-[#2563EB] mb-2">
+                  ◆ Start with drawings
+                </div>
+                <h2 className="text-xl font-semibold text-[#111] mb-2">
+                  Drop a PDF. We'll start the project for you.
+                </h2>
+                <p className="text-sm text-[#6B7280] max-w-xl mb-6">
+                  Parser pulls the client, address, and dollar amounts off the drawings.
+                  Confirm the chips, assign roles, and we create the project.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-[#2563EB] mb-2">
+                  ◆ Add a new lead
+                </div>
+                <h2 className="text-xl font-semibold text-[#111] mb-2">
+                  Capture a new lead.
+                </h2>
+                <p className="text-sm text-[#6B7280] max-w-xl mb-6">
+                  Add a project name and client to start tracking. Drawings auto-parsing
+                  is available on Pro+ — <Link href="/settings" className="text-[#2563EB] hover:underline">upgrade in Settings</Link>.
+                </p>
+              </>
+            )}
 
             {createError && (
               <div className="mb-4 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B] flex items-start gap-2">
@@ -517,7 +542,7 @@ function SalesInner() {
               </div>
             )}
 
-            {usage && usage.used >= usage.cap && !parsed && !parsing && !showBlankForm && (
+            {canParse && usage && usage.used >= usage.cap && !parsed && !parsing && !showBlankForm && (
               <div className="mb-4 px-4 py-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg flex items-center justify-between gap-3">
                 <div className="text-[12.5px] text-[#991B1B]">
                   <span className="font-semibold">
@@ -536,7 +561,7 @@ function SalesInner() {
               </div>
             )}
 
-            {!parsed && !parsing && !showBlankForm && (
+            {canParse && !parsed && !parsing && !showBlankForm && (
               <div
                 onClick={() => fileInputRef.current?.click()}
                 onDragEnter={(e) => { e.preventDefault(); setDragOver(true) }}
@@ -572,10 +597,23 @@ function SalesInner() {
               </div>
             )}
 
-            {usage && !parsed && !parsing && !showBlankForm && (
+            {canParse && usage && !parsed && !parsing && !showBlankForm && (
               <div className="mt-2 text-center text-[11px] text-[#9CA3AF]">
                 {usage.used} / {usage.cap} parses used today
               </div>
+            )}
+
+            {/* Pro tier (no parser): show a primary "+ Start a new lead" button
+                that opens the blank form. The "No drawings yet?" link below
+                is parser-specific and only renders for Pro+. */}
+            {!canParse && !showBlankForm && (
+              <button
+                onClick={() => setShowBlankForm(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Start a new lead
+              </button>
             )}
 
             {parsing && (
@@ -609,7 +647,7 @@ function SalesInner() {
               />
             )}
 
-            {!parsed && !parsing && (
+            {canParse && !parsed && !parsing && (
               <div className="mt-5 text-center text-xs text-[#6B7280]">
                 No drawings yet?{' '}
                 <button

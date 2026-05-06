@@ -1,20 +1,25 @@
 // lib/feature-flags.ts
 // Per-seat pricing with three tiers. Features are cumulative (each tier includes everything below it).
-// Pricing: Starter $40/seat, Pro $75/seat, Pro+AI $100/seat
+// Pricing: Profit $49/seat, Pro $99/seat, Pro+ $119/seat
+//
+// Internal plan keys (database, Stripe metadata) stay as 'starter' | 'pro' |
+// 'pro-ai' so we don't have to migrate orgs.plan or rewrite Stripe metadata.
+// Display names are the only thing that changed in the rebrand: Profit / Pro
+// / Pro+. Plan keys are stable identifiers; PLAN_LABELS is what users see.
 
 export const PLANS = ['starter', 'pro', 'pro-ai'] as const
 export type Plan = typeof PLANS[number]
 
 export const PLAN_LABELS: Record<Plan, string> = {
-  starter: 'Starter',
+  starter: 'Profit',
   pro: 'Pro',
-  'pro-ai': 'Pro + AI',
+  'pro-ai': 'Pro+',
 }
 
 export const PLAN_SEAT_PRICE: Record<Plan, number> = {
-  starter: 40,
-  pro: 75,
-  'pro-ai': 100,
+  starter: 49,
+  pro: 99,
+  'pro-ai': 119,
 }
 
 export const PLAN_SEAT_MINIMUM: Record<Plan, number> = {
@@ -23,14 +28,34 @@ export const PLAN_SEAT_MINIMUM: Record<Plan, number> = {
   'pro-ai': 5,
 }
 
-// ── Usage limits (per seat, per month) ──
+// ── Usage limits ──
+// aiReports is per-org per-month (NOT multiplied by seat count). The
+// Profit tier gets a monthly report, Pro gets bi-weekly (2/mo), Pro+
+// gets weekly (4/mo). Caps stay deliberately small so the AI report
+// feels like a deliverable rather than a throwaway.
+//
+// takeoffParses applies only to Pro+ since the drawing parser is gated
+// behind the 'ai-estimating' feature flag — Profit and Pro never reach
+// the limit check at all. Kept at -1 (unlimited) for Pro+, 0 elsewhere
+// so a stray code path can't run a parse without a feature gate.
 export const PLAN_LIMITS: Record<Plan, { takeoffParses: number; aiReports: number }> = {
-  starter: { takeoffParses: 3, aiReports: 2 },
-  pro: { takeoffParses: -1, aiReports: 10 },       // -1 = unlimited
-  'pro-ai': { takeoffParses: -1, aiReports: -1 },
+  starter: { takeoffParses: 0, aiReports: 1 },
+  pro: { takeoffParses: 0, aiReports: 2 },
+  'pro-ai': { takeoffParses: -1, aiReports: 4 },
 }
 
 // ── Feature access per tier ──
+//
+// Hybrid breakdown (PR #113):
+//   Profit (Tier 1): bare-bones for 1-3 person shops. Track work, time,
+//     invoices, project outcomes. Team management included so a small
+//     shop can add their helper.
+//   Pro   (Tier 2): full operational package without AI bells. Sales
+//     pipeline (manual leads), rate book, learning loop, pre-production,
+//     QuickBooks (optional), capacity calendar.
+//   Pro+  (Tier 3): everything in Pro plus the AI extras — drawing
+//     parser, week-by-week schedule with AI assistant, diagnostics
+//     drawer (margin waterfall on /reports).
 
 const STARTER_FEATURES = [
   'dashboard',
@@ -39,32 +64,32 @@ const STARTER_FEATURES = [
   'settings',
   'invoices',
   'shop-rate',
-  'ai-report',       // gated by usage limit, not feature flag
+  'ai-report',       // gated by usage limit (1/mo), not feature flag
   'outcomes',
+  'team',            // moved down from Pro — small shops need to add a helper
 ] as const
 
 const PRO_FEATURES = [
   ...STARTER_FEATURES,
-  'team',
   'departments',
-  'capacity',
-  'schedule',
-  'production-calendar',
-  'diagnostics',
-  'sales',
+  'capacity',           // 12-month planning view (PTO + holidays)
+  'sales',              // Leads kanban — drop zone gated by 'ai-estimating' inside the page
   'pre-production',
-  'quickbooks',
-  'google-drive',
+  'quickbooks',         // optional integration
   'rate-book',
+  'learning-loop',      // moved down from Pro+AI — Suggestions feed the rate book
 ] as const
 
 const PRO_AI_FEATURES = [
   ...PRO_FEATURES,
-  'ai-estimating',
-  'learning-loop',
-  'financials',
-  'custom-reporting',
+  'schedule',           // week-by-week department dispatch + AI chat assistant
+  'production-calendar',// merged with /schedule (no separate page)
+  'diagnostics',        // margin waterfall drawer on /reports
+  'ai-estimating',      // drawing parser drop zone on /sales
 ] as const
+
+// NOTE: removed 'financials', 'custom-reporting', 'google-drive' — they
+// were flag stubs with no UI. Don't sell what's not built.
 
 const PLAN_FEATURES: Record<Plan, readonly string[]> = {
   starter: STARTER_FEATURES,
@@ -95,8 +120,14 @@ export function getSeatPrice(plan: string): number {
 export function getUsageLimits(plan: string, seatCount: number) {
   const limits = PLAN_LIMITS[normalizePlan(plan)]
   return {
+    // Drawing parser (takeoffs) — Pro+ only, unlimited. seatCount irrelevant
+    // because the feature is route-gated, but kept multiplied for legacy
+    // callers in case anything still passes it through.
     takeoffParses: limits.takeoffParses === -1 ? -1 : limits.takeoffParses * seatCount,
-    aiReports: limits.aiReports === -1 ? -1 : limits.aiReports * seatCount,
+    // AI shop reports — per ORG per month (NOT per seat). The cap should
+    // feel like a deliverable, not a per-head allowance: 1/mo on Profit,
+    // 2/mo on Pro, 4/mo on Pro+. Keeping it small makes it feel special.
+    aiReports: limits.aiReports,
   }
 }
 
