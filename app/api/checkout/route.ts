@@ -109,6 +109,17 @@ export async function POST(req: NextRequest) {
         {
           price: priceId,
           quantity,
+          // Stripe Checkout renders +/- buttons next to the quantity so
+          // a customer signing up for Pro+ at the 5-seat minimum can bump
+          // to 7 right on the Checkout page. The webhook fires with the
+          // actual selected quantity (we don't need to trust the client).
+          // Min mirrors PLAN_SEAT_MINIMUM; max is set high (100) so we
+          // don't gate adoption — bigger shops can self-serve.
+          adjustable_quantity: {
+            enabled: true,
+            minimum: PLAN_SEAT_MINIMUM[plan],
+            maximum: 100,
+          },
         },
       ],
       // No trial — Andrew chose to charge immediately for the first
