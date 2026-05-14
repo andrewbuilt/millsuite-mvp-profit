@@ -74,7 +74,17 @@ export default function JoinPage() {
       })
 
       const result = await res.json()
-      if (!res.ok) throw new Error(result.error || 'Failed to join')
+      if (!res.ok) {
+        // PR #115 — seat enforcement. /api/auth/join returns 402 with
+        // structured payload {error: 'no_seats_available', message, used,
+        // limit} when the org is full. Surface that message verbatim
+        // (it already names the org and tells the user what to do)
+        // instead of the generic catch-all.
+        if (result.error === 'no_seats_available') {
+          throw new Error(result.message)
+        }
+        throw new Error(result.error || 'Failed to join')
+      }
 
       // 3. Redirect to time tracking (most relevant for shop floor)
       router.push('/time')

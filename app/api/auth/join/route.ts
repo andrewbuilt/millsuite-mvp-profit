@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { getSeatStatus } from '@/lib/seats'
 
-// Called when a team member signs up via /join/[slug] — adds them to an existing org
+// Called when a team member signs up via /join/[slug] — adds them to an
+// existing org. PR #115 hard-gates this on seat availability: if the
+// org is at its seat limit, the join fails with a 402 (Payment Required)
+// and the front-end /join/[slug] page surfaces a "ask the owner to add
+// seats" message. Owners add seats via Settings → Subscription →
+// Manage subscription → Customer Portal.
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,6 +37,23 @@ export async function POST(req: NextRequest) {
 
     if (orgError || !org) {
       return NextResponse.json({ error: 'Shop not found' }, { status: 404 })
+    }
+
+    // Seat enforcement (PR #115). If the org is already at its seat
+    // limit, refuse the join. Returns 402 with structured error so the
+    // join page can show a clear "no seats available — ask the owner
+    // to add seats" message instead of a generic 500.
+    const seatStatus = await getSeatStatus(org.id)
+    if (seatStatus.atLimit) {
+      return NextResponse.json(
+        {
+          error: 'no_seats_available',
+          message: `${org.name} has used all ${seatStatus.limit} of its seats. Ask the shop owner to add more seats from Settings → Subscription before joining.`,
+          used: seatStatus.used,
+          limit: seatStatus.limit,
+        },
+        { status: 402 },
+      )
     }
 
     // Create user linked to this org as a member

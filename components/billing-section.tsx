@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import { supabase } from '@/lib/supabase'
 import { PLAN_LABELS, PLAN_SEAT_PRICE } from '@/lib/feature-flags'
 
 // BillingSection — the Subscription card on the Settings page. Shows
@@ -19,6 +20,26 @@ export default function BillingSection() {
   const { org } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [usedSeats, setUsedSeats] = useState<number | null>(null)
+
+  // Count active users in the org. Used to show "X of Y seats used"
+  // and to surface "add seats" CTA when the org is at its limit.
+  // PR #115 — seat enforcement runs server-side at /api/auth/join, this
+  // is just the customer-facing display.
+  useEffect(() => {
+    if (!org?.id) return
+    let cancelled = false
+    ;(async () => {
+      const { count } = await supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', org.id)
+      if (!cancelled) setUsedSeats(count ?? 0)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [org?.id])
 
   if (!org) return null
 
@@ -113,7 +134,41 @@ export default function BillingSection() {
           <span className="text-sm font-medium text-[#111]">{planLabel}</span>
         </Row>
         <Row label="Seats" border>
-          <span className="text-sm font-mono tabular-nums text-[#111]">{org.seats}</span>
+          <div className="text-right">
+            <div className="text-sm font-mono tabular-nums text-[#111]">
+              {usedSeats !== null ? (
+                <>
+                  <span className={usedSeats >= org.seats ? 'text-amber-700 font-semibold' : ''}>
+                    {usedSeats}
+                  </span>
+                  <span className="text-[#9CA3AF]"> of {org.seats} used</span>
+                </>
+              ) : (
+                <span className="text-[#9CA3AF]">{org.seats} total</span>
+              )}
+            </div>
+            {/* Visual usage bar — fills as seats fill, turns amber at
+                limit. Only show once we've loaded the count. */}
+            {usedSeats !== null && (
+              <div className="mt-1.5 h-1 w-32 bg-[#F3F4F6] rounded-full overflow-hidden ml-auto">
+                <div
+                  className={`h-full transition-all ${
+                    usedSeats >= org.seats
+                      ? 'bg-amber-500'
+                      : usedSeats >= org.seats * 0.8
+                        ? 'bg-amber-400'
+                        : 'bg-[#2563EB]'
+                  }`}
+                  style={{ width: `${Math.min(100, (usedSeats / Math.max(1, org.seats)) * 100)}%` }}
+                />
+              </div>
+            )}
+            {usedSeats !== null && usedSeats >= org.seats && (
+              <div className="text-[11px] text-amber-700 mt-1">
+                At seat limit — add more to invite team members.
+              </div>
+            )}
+          </div>
         </Row>
         <Row label="Per seat" border>
           <span className="text-sm font-mono tabular-nums text-[#111]">${planPrice}/mo</span>

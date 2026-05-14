@@ -127,6 +127,9 @@ async function handleCheckoutCompleted(stripe: Stripe, session: Stripe.Checkout.
       seats,
       current_period_end: periodEnd,
       cancel_at_period_end: subscription.cancel_at_period_end,
+      // Clear the saved session ID — the next /api/checkout call should
+      // be able to create a fresh session (e.g. for a future re-subscribe).
+      pending_checkout_session_id: null,
     })
     .eq('id', orgId)
 
@@ -198,6 +201,47 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
         : subscription.status === 'canceled'
           ? 'canceled'
           : 'incomplete'
+
+  // Find the org tied to this subscription so we can check seat usage
+  // before applying a downgrade. If a customer drops from 7 seats to 5
+  // via the Customer Portal but their org has 7 active users, we'd
+  // orphan 2 of them — better to block the change at sync time and let
+  // the org owner resolve it (remove users in /team, then retry the
+  // downgrade in Customer Portal).
+  const { data: org } = await supabaseAdmin
+    .from('orgs')
+    .select('id, seats')
+    .eq('stripe_subscription_id', subscription.id)
+    .single()
+
+  if (org && seats < org.seats) {
+    const { count: userCount } = await supabaseAdmin
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', org.id)
+
+    if ((userCount ?? 0) > seats) {
+      console.warn(
+        `Refusing seat downgrade for org ${org.id}: ${userCount} users currently exist but new seat count is ${seats}. Owner must remove users in /team before reducing seats.`,
+      )
+      // Don't 4xx the webhook (Stripe would retry forever) — accept the
+      // event but DON'T apply the seat reduction. We still update the
+      // other fields (period_end, status) so payment state stays in
+      // sync. Next time the customer revisits Customer Portal, they'll
+      // see their previous seat count and can try again after cleanup.
+      const { error } = await supabaseAdmin
+        .from('orgs')
+        .update({
+          plan_status: planStatus,
+          // seats: NOT updated — stays at current value
+          current_period_end: periodEnd,
+          cancel_at_period_end: subscription.cancel_at_period_end,
+        })
+        .eq('stripe_subscription_id', subscription.id)
+      if (error) throw error
+      return
+    }
+  }
 
   const { error } = await supabaseAdmin
     .from('orgs')

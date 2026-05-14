@@ -8,6 +8,7 @@ import { MLogo } from '@/components/logo'
 import {
   PLAN_LABELS,
   PLAN_SEAT_PRICE,
+  PLAN_SEAT_MINIMUM,
   validatePlan,
   type Plan,
 } from '@/lib/feature-flags'
@@ -25,11 +26,22 @@ export default function SignupPage() {
   // the live PLANS list (incl. legacy 'trial'); 'starter' is the
   // documented fallback.
   const [plan, setPlan] = useState<Plan>('starter')
+  // Seats — initialized to the tier minimum on mount, customer can
+  // bump it via the +/- stepper. Stripe Checkout has its own
+  // adjustable_quantity stepper too (PR #113-followup), so a customer
+  // can change seats either here or on the Stripe side; either way
+  // the webhook reads the actual subscription quantity from Stripe
+  // and writes it to org.seats — this state is just for the live
+  // price preview on the signup form.
+  const [seats, setSeats] = useState<number>(PLAN_SEAT_MINIMUM.starter)
   useEffect(() => {
     if (typeof window === 'undefined') return
     const param = new URLSearchParams(window.location.search).get('plan')
     const v = validatePlan(param)
-    if (v) setPlan(v)
+    if (v) {
+      setPlan(v)
+      setSeats(PLAN_SEAT_MINIMUM[v])
+    }
   }, [])
 
   async function handleSignup(e: React.FormEvent) {
@@ -67,6 +79,7 @@ export default function SignupPage() {
           email: email.trim().toLowerCase(),
           shop_name: shopName.trim(),
           plan,
+          seats,
         }),
       })
 
@@ -109,6 +122,8 @@ export default function SignupPage() {
 
   const planLabel = PLAN_LABELS[plan]
   const planPrice = PLAN_SEAT_PRICE[plan]
+  const minSeats = PLAN_SEAT_MINIMUM[plan]
+  const monthlyTotal = planPrice * seats
 
   return (
     <>
@@ -168,6 +183,50 @@ export default function SignupPage() {
                 placeholder="At least 6 characters"
                 className="w-full px-4 py-3 bg-white/[0.05] border border-white/[0.1] rounded-xl text-sm text-white placeholder:text-[#555] outline-none focus:border-[#D4956A]/50 focus:ring-1 focus:ring-[#D4956A]/20 transition-colors"
               />
+            </div>
+
+            {/* Seat picker — defaults to PLAN_SEAT_MINIMUM, customer can
+                bump it. Live total updates as seats change. Customer can
+                ALSO change quantity on Stripe Checkout via the
+                adjustable_quantity stepper there; webhook reads the
+                actual subscription quantity from Stripe so either path
+                ends up at the right number. */}
+            <div>
+              <label className="block text-xs font-medium text-[#8B8B96] mb-1.5">
+                Seats <span className="text-[#555] font-normal">(min {minSeats})</span>
+              </label>
+              <div className="flex items-center gap-3 px-3 py-3 bg-white/[0.05] border border-white/[0.1] rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setSeats(s => Math.max(minSeats, s - 1))}
+                  disabled={seats <= minSeats}
+                  aria-label="Remove seat"
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/[0.05] border border-white/[0.1] text-white text-lg leading-none hover:bg-white/[0.1] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  −
+                </button>
+                <span className="text-xl font-mono tabular-nums font-semibold text-white w-10 text-center">
+                  {seats}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSeats(s => Math.min(100, s + 1))}
+                  disabled={seats >= 100}
+                  aria-label="Add seat"
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/[0.05] border border-white/[0.1] text-white text-lg leading-none hover:bg-white/[0.1] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  +
+                </button>
+                <div className="flex-1 text-right">
+                  <div className="text-[10px] text-[#8B8B96] uppercase tracking-wider">Monthly</div>
+                  <div className="text-base font-mono tabular-nums font-semibold text-[#D4956A]">
+                    ${monthlyTotal.toLocaleString()}/mo
+                  </div>
+                </div>
+              </div>
+              <p className="text-[11px] text-[#555] mt-1.5">
+                You can change seat count anytime from Settings → Subscription.
+              </p>
             </div>
 
             {error && (

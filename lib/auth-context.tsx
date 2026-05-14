@@ -29,13 +29,14 @@ interface Org {
   cancel_at_period_end: boolean
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
+  pending_checkout_session_id: string | null
   shop_rate: number
   consumable_markup_pct: number
   profit_margin_pct: number
 }
 
 const ORG_SELECT =
-  'id, name, slug, plan, plan_status, seats, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, shop_rate, consumable_markup_pct, profit_margin_pct, business_address, business_city, business_state, business_zip, business_phone, business_email'
+  'id, name, slug, plan, plan_status, seats, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, pending_checkout_session_id, shop_rate, consumable_markup_pct, profit_margin_pct, business_address, business_city, business_state, business_zip, business_phone, business_email'
 
 interface AuthContextType {
   user: AppUser | null

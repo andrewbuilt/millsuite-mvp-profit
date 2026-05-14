@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
   // meaningful attack.
   const { data: org, error: orgErr } = await supabaseAdmin
     .from('orgs')
-    .select('id, name, plan, plan_status, stripe_customer_id')
+    .select('id, name, plan, plan_status, stripe_customer_id, pending_checkout_session_id')
     .eq('id', org_id)
     .single()
 
@@ -78,6 +78,39 @@ export async function POST(req: NextRequest) {
       },
       { status: 409 },
     )
+  }
+
+  // ── Idempotency (PR #116) ──
+  // If we previously created a checkout session for this org and it's
+  // still open, reuse it. Stops a customer from racking up duplicate
+  // subscriptions by clicking "Continue to payment" multiple times.
+  // (Stripe sessions are 'open' for 24 hours by default; after that
+  // we fall through and create a fresh one.)
+  if (org.pending_checkout_session_id) {
+    try {
+      const existing = await stripe.checkout.sessions.retrieve(
+        org.pending_checkout_session_id,
+      )
+      if (existing.status === 'open' && existing.url) {
+        return NextResponse.json({ url: existing.url })
+      }
+      if (existing.status === 'complete') {
+        // Already paid — webhook should activate any moment. Tell the
+        // client to chill and refresh; don't let them create another one.
+        return NextResponse.json(
+          {
+            error:
+              'Payment is being processed. Refresh the page in a moment — you should land on the dashboard.',
+          },
+          { status: 409 },
+        )
+      }
+      // 'expired' falls through and we'll create a new session below.
+    } catch (err) {
+      // If Stripe doesn't find the session (deleted, bad ID, etc.) just
+      // log and proceed to create a new one. Don't break the flow.
+      console.warn('Could not retrieve pending session, creating new:', err)
+    }
   }
 
   const minSeats = PLAN_SEAT_MINIMUM[plan]
@@ -101,6 +134,40 @@ export async function POST(req: NextRequest) {
   }
 
   const origin = req.nextUrl.origin
+
+  // ── Stripe customer reuse by email (PR #116) ──
+  // If the org has no stripe_customer_id but the owner's email already
+  // exists in Stripe (e.g. a previous failed signup attempt created a
+  // customer that never got linked back), reuse it. Without this, every
+  // /api/checkout call on a pending org creates a brand new Stripe
+  // customer — which is what produced Bam Woodworks' 5 separate
+  // customer records on May 10.
+  let customerIdToUse = org.stripe_customer_id
+  if (!customerIdToUse) {
+    const { data: ownerUser } = await supabaseAdmin
+      .from('users')
+      .select('email')
+      .eq('org_id', org.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
+    const ownerEmail = ownerUser?.email
+    if (ownerEmail) {
+      try {
+        const existingCustomers = await stripe.customers.list({
+          email: ownerEmail,
+          limit: 1,
+        })
+        if (existingCustomers.data.length > 0) {
+          customerIdToUse = existingCustomers.data[0].id
+        }
+      } catch (err) {
+        // Non-fatal — Stripe will create a new customer if we don't
+        // pass one. Log and continue.
+        console.warn('Could not list customers by email:', err)
+      }
+    }
+  }
 
   try {
     const session = await stripe.checkout.sessions.create({
@@ -140,13 +207,12 @@ export async function POST(req: NextRequest) {
         plan,
         seats: String(quantity),
       },
-      // If we already have a Stripe customer for this org (e.g. they
-      // canceled and are re-subscribing), reuse it so all their billing
-      // history stays under one customer record. Otherwise let Stripe
-      // create one and we'll capture customer_id in the webhook.
-      ...(org.stripe_customer_id
-        ? { customer: org.stripe_customer_id }
-        : {}),
+      // Reuse the existing Stripe customer when we have one — either
+      // because the org row already has stripe_customer_id (re-subscribe
+      // after cancellation) OR because we found a customer record by
+      // email above (failed previous signup attempt). Otherwise Stripe
+      // creates a fresh customer and the webhook captures the ID.
+      ...(customerIdToUse ? { customer: customerIdToUse } : {}),
       allow_promotion_codes: true,
       success_url: `${origin}/dashboard?welcome=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/settings?canceled=1`,
@@ -158,6 +224,20 @@ export async function POST(req: NextRequest) {
         { error: 'Stripe did not return a checkout URL.' },
         { status: 502 },
       )
+    }
+
+    // Save the session ID so the next /api/checkout call on this org
+    // reuses this same session instead of creating a new one. The
+    // webhook clears this column when payment succeeds and activation
+    // completes (see /api/stripe-webhook handleCheckoutCompleted).
+    const { error: saveErr } = await supabaseAdmin
+      .from('orgs')
+      .update({ pending_checkout_session_id: session.id })
+      .eq('id', org.id)
+    if (saveErr) {
+      // Non-fatal — the session URL is still being returned, customer
+      // can still pay. We just lose idempotency on this one click.
+      console.warn('Could not save pending_checkout_session_id:', saveErr)
     }
 
     return NextResponse.json({ url: session.url })

@@ -23,7 +23,14 @@ export async function POST(req: NextRequest) {
     // don't ship a free tier anymore, but a stale URL shouldn't reject
     // the signup.
     const plan = validatePlan(body.plan) ?? 'starter'
-    const seats = PLAN_SEAT_MINIMUM[plan]
+    // Seats — signup form passes the customer's selection (defaults to
+    // tier minimum, customer can bump via the +/- stepper). Floor to
+    // the minimum so a stale form or URL hack can't undercut. The
+    // checkout session may still bump this on Stripe's side via
+    // adjustable_quantity; the webhook re-reads the actual subscription
+    // quantity and overwrites org.seats when payment succeeds.
+    const requestedSeats = Number(body.seats) || PLAN_SEAT_MINIMUM[plan]
+    const seats = Math.max(requestedSeats, PLAN_SEAT_MINIMUM[plan])
 
     // Check if user already has an org
     const { data: existingUser } = await supabaseAdmin
