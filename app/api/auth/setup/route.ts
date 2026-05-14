@@ -48,31 +48,65 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Create org
-    const slug = shop_name
+    // Create org. Slug needs to be unique — orgs.slug has a unique
+    // index that we use for /join/[slug] routing. Common shop names
+    // ("Built", "Cabinet Shop") will collide with seed data or with
+    // existing customers, which used to surface as a generic "Failed
+    // to create organization" error and stall the signup. PR #117:
+    // try the clean slug first, fall back to appending a short random
+    // suffix on collision. Five attempts is plenty.
+    const baseSlug = shop_name
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, '')
       .replace(/\s+/g, '-')
-      .slice(0, 40)
+      .slice(0, 40) || 'shop'
 
-    const { data: org, error: orgError } = await supabaseAdmin
-      .from('orgs')
-      .insert({
-        name: shop_name,
-        slug,
-        plan,
-        // Override the migration's 'active' default — new signups must
-        // pay before they get access. The webhook flips this to 'active'
-        // when Stripe confirms payment.
-        plan_status: 'pending',
-        seats,
-      })
-      .select()
-      .single()
+    let slug = baseSlug
+    let org: any = null
+    let orgError: any = null
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const result = await supabaseAdmin
+        .from('orgs')
+        .insert({
+          name: shop_name,
+          slug,
+          plan,
+          // Override the migration's 'active' default — new signups
+          // must pay before they get access. The webhook flips this
+          // to 'active' when Stripe confirms payment.
+          plan_status: 'pending',
+          seats,
+        })
+        .select()
+        .single()
+      if (result.data) {
+        org = result.data
+        orgError = null
+        break
+      }
+      orgError = result.error
+      // Postgres uniqueness violation: error code '23505'. Append a
+      // short random suffix and retry. Anything else is a real error
+      // — bail out so we don't loop on a constraint we can't recover
+      // from (e.g. a missing required column).
+      const isUniqueViolation =
+        orgError?.code === '23505' ||
+        (typeof orgError?.message === 'string' &&
+          /duplicate key|unique constraint|already exists/i.test(orgError.message))
+      if (!isUniqueViolation) break
+      slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`.slice(0, 50)
+    }
 
     if (orgError || !org) {
       console.error('Org creation error:', orgError)
-      return NextResponse.json({ error: 'Failed to create organization' }, { status: 500 })
+      return NextResponse.json(
+        {
+          error: orgError?.message
+            ? `Failed to create organization: ${orgError.message}`
+            : 'Failed to create organization',
+        },
+        { status: 500 },
+      )
     }
 
     // Create user linked to auth + org
