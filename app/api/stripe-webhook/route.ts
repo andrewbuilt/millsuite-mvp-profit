@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import type Stripe from 'stripe'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getStripe } from '@/lib/stripe'
-import { validatePlan } from '@/lib/feature-flags'
+import { validatePlan, PLAN_LABELS } from '@/lib/feature-flags'
+import { upsertProfile, trackActivation } from '@/lib/klaviyo'
 
 // Stripe webhook — single source of truth for subscription state.
 //
@@ -139,6 +140,47 @@ async function handleCheckoutCompleted(stripe: Stripe, session: Stripe.Checkout.
   }
 
   console.log(`✅ Activated org ${orgId} with subscription ${subscriptionId} (${plan}, ${seats} seats)`)
+
+  // ── Klaviyo welcome flow (PR #118) ──
+  // Push the activated customer into Klaviyo as a profile + fire the
+  // "MillSuite Activation" event. The welcome flow in Klaviyo listens
+  // for that event and branches on profile.plan to deliver the
+  // tier-aware emails (see docs/welcome-sequence.md). Errors here are
+  // logged but never thrown — a Klaviyo outage shouldn't make the
+  // webhook 500 and trigger Stripe retries.
+  try {
+    const { data: orgRow } = await supabaseAdmin
+      .from('orgs')
+      .select('name')
+      .eq('id', orgId)
+      .single()
+    const { data: ownerUser } = await supabaseAdmin
+      .from('users')
+      .select('email, name')
+      .eq('org_id', orgId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
+
+    if (ownerUser?.email) {
+      const klaviyoInput = {
+        email: ownerUser.email,
+        firstName: ownerUser.name ?? null,
+        shopName: orgRow?.name ?? null,
+        plan,
+        planLabel: PLAN_LABELS[plan],
+        seats,
+        orgId,
+        stripeCustomerId: customerId,
+      }
+      await upsertProfile(klaviyoInput)
+      await trackActivation(klaviyoInput)
+    } else {
+      console.warn(`No owner email found for org ${orgId}, skipping Klaviyo sync`)
+    }
+  } catch (err) {
+    console.error('Klaviyo sync failed (non-fatal):', err)
+  }
 }
 
 async function handleInvoicePaid(invoice: Stripe.Invoice) {
