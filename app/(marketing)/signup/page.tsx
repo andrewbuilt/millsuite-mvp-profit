@@ -68,15 +68,24 @@ export default function SignupPage() {
       if (authError) throw authError
       if (!authData.user) throw new Error('Signup failed')
 
-      // 2. Create org + user via API (uses service role key). The org
-      // lands in plan_status='pending' — they get access only after
-      // Stripe confirms payment.
+      // 2. Create org + user via API (uses service role key + an atomic
+      // SQL function). The route now derives the user identity from the
+      // access token (L4), so ship the session token; shop_name / plan /
+      // seats are the only body fields. The org lands in
+      // plan_status='pending' — access only after Stripe confirms payment.
+      const accessToken = authData.session?.access_token
+      if (!accessToken) {
+        throw new Error(
+          'Signup session not established. Please confirm your email or try signing in.',
+        )
+      }
       const res = await fetch('/api/auth/setup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
-          auth_user_id: authData.user.id,
-          email: email.trim().toLowerCase(),
           shop_name: shopName.trim(),
           plan,
           seats,
