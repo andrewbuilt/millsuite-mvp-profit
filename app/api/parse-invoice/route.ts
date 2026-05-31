@@ -1,7 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  resolveApiCaller,
+  unauthorized,
+  paymentRequired,
+  forbidden,
+} from '@/lib/api-auth'
+import { hasAccess, hasActiveSubscription } from '@/lib/feature-flags'
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Auth + entitlement gate (H1) ──
+    // Forwards uploaded documents to Claude on our API key — must be
+    // authenticated. Invoice handling is available on every paid tier
+    // ('invoices' is a Profit-tier feature), so gate on an active
+    // subscription plus the 'invoices' feature rather than a single tier.
+    const caller = await resolveApiCaller(req)
+    if (!caller) return unauthorized()
+    if (!hasActiveSubscription(caller.planStatus)) return paymentRequired()
+    if (!hasAccess(caller.plan, 'invoices')) return forbidden('invoices')
+
     const { file_url, base64_content, mime_type } = await req.json()
 
     const apiKey = process.env.ANTHROPIC_API_KEY
