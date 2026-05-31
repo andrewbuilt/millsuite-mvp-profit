@@ -195,6 +195,23 @@ export default function BillingSection() {
           </div>
         )}
 
+        {/* Seat-downgrade gap (L1): you lowered seats in Stripe below your
+            active user count, so billing dropped but everyone keeps access.
+            Surface it so the owner can finish the downgrade. */}
+        {org.pending_seat_downgrade != null &&
+          usedSeats !== null &&
+          usedSeats > org.pending_seat_downgrade && (
+            <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 mt-2">
+              You reduced your subscription to{' '}
+              <span className="font-semibold">{org.pending_seat_downgrade} seats</span>, but
+              your team has <span className="font-semibold">{usedSeats} users</span>. Everyone
+              still has access, but you're only being billed for{' '}
+              {org.pending_seat_downgrade}. Remove{' '}
+              <span className="font-semibold">{usedSeats - org.pending_seat_downgrade}</span> from
+              the Team page to finish the downgrade.
+            </div>
+          )}
+
         {error && (
           <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
             {error}

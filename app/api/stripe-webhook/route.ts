@@ -49,6 +49,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Invalid signature: ${err.message}` }, { status: 400 })
   }
 
+  // ── Idempotency (L2) ──
+  // Stripe delivers at-least-once. If we've already processed this event
+  // id, ack and skip — otherwise a redelivery re-fires side effects like
+  // the Klaviyo welcome flow. We record the id only AFTER successful
+  // processing below, so a transient failure (500) still lets Stripe retry.
+  const { data: alreadySeen } = await supabaseAdmin
+    .from('stripe_events')
+    .select('event_id')
+    .eq('event_id', event.id)
+    .maybeSingle()
+  if (alreadySeen) {
+    return NextResponse.json({ received: true, duplicate: true })
+  }
+
   try {
     switch (event.type) {
       case 'checkout.session.completed':
@@ -72,6 +86,17 @@ export async function POST(req: NextRequest) {
         break
     }
 
+    // Mark processed (L2). Ignore a duplicate-key race from a concurrent
+    // redelivery — the work is already done either way.
+    await supabaseAdmin
+      .from('stripe_events')
+      .insert({ event_id: event.id, type: event.type })
+      .then(({ error }) => {
+        if (error && error.code !== '23505') {
+          console.warn('Could not record stripe_event', event.id, error)
+        }
+      })
+
     return NextResponse.json({ received: true })
   } catch (err: any) {
     console.error(`Error handling webhook ${event.type}:`, err)
@@ -82,6 +107,27 @@ export async function POST(req: NextRequest) {
 }
 
 // ── Event handlers ──────────────────────────────────────────────────────────
+
+// L3: `current_period_end` sits at the top level of the Subscription in the
+// pinned API version (2024-12-18.acacia). In the 2025 "basil" versions it
+// moved onto subscription items. Read defensively from both so a future
+// apiVersion bump (lib/stripe.ts) can't turn the value into `undefined` and
+// throw "Invalid time value" on toISOString() — which would 500 the webhook
+// and silently stall activations. Returns null only if neither is present;
+// callers omit the column rather than overwrite a good value with null.
+function periodEndISO(sub: Stripe.Subscription): string | null {
+  const top = (sub as { current_period_end?: number }).current_period_end
+  const itemLevel = (
+    sub.items?.data?.[0] as { current_period_end?: number } | undefined
+  )?.current_period_end
+  const epoch =
+    typeof top === 'number'
+      ? top
+      : typeof itemLevel === 'number'
+        ? itemLevel
+        : null
+  return epoch != null ? new Date(epoch * 1000).toISOString() : null
+}
 
 async function handleCheckoutCompleted(stripe: Stripe, session: Stripe.Checkout.Session) {
   const orgId = session.metadata?.org_id
@@ -114,7 +160,7 @@ async function handleCheckoutCompleted(stripe: Stripe, session: Stripe.Checkout.
   // quantity (in case Stripe adjusted it).
   const subscription = await stripe.subscriptions.retrieve(subscriptionId)
   const seats = subscription.items.data[0]?.quantity ?? 1
-  const periodEnd = new Date(subscription.current_period_end * 1000).toISOString()
+  const periodEnd = periodEndISO(subscription)
 
   const { error } = await supabaseAdmin
     .from('orgs')
@@ -126,7 +172,7 @@ async function handleCheckoutCompleted(stripe: Stripe, session: Stripe.Checkout.
         ? 'active'
         : 'incomplete',
       seats,
-      current_period_end: periodEnd,
+      ...(periodEnd ? { current_period_end: periodEnd } : {}),
       cancel_at_period_end: subscription.cancel_at_period_end,
       // Clear the saved session ID — the next /api/checkout call should
       // be able to create a fresh session (e.g. for a future re-subscribe).
@@ -231,7 +277,8 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   // Catches: customer canceled (cancel_at_period_end=true), seat count
   // changed via the Customer Portal, plan changed, etc.
   const seats = subscription.items.data[0]?.quantity ?? 1
-  const periodEnd = new Date(subscription.current_period_end * 1000).toISOString()
+  const periodEnd = periodEndISO(subscription)
+  const periodEndPatch = periodEnd ? { current_period_end: periodEnd } : {}
 
   // Map Stripe subscription status to our plan_status. 'trialing' and
   // 'active' both grant access; everything else gates.
@@ -269,14 +316,18 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       // Don't 4xx the webhook (Stripe would retry forever) — accept the
       // event but DON'T apply the seat reduction. We still update the
       // other fields (period_end, status) so payment state stays in
-      // sync. Next time the customer revisits Customer Portal, they'll
-      // see their previous seat count and can try again after cleanup.
+      // sync. We also stash the attempted seat count in
+      // pending_seat_downgrade (L1) so Settings → Billing can show a
+      // "remove N users to finish your downgrade" banner — otherwise the
+      // billing/access mismatch (paying for fewer seats than are active)
+      // is invisible.
       const { error } = await supabaseAdmin
         .from('orgs')
         .update({
           plan_status: planStatus,
           // seats: NOT updated — stays at current value
-          current_period_end: periodEnd,
+          pending_seat_downgrade: seats,
+          ...periodEndPatch,
           cancel_at_period_end: subscription.cancel_at_period_end,
         })
         .eq('stripe_subscription_id', subscription.id)
@@ -290,7 +341,10 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     .update({
       plan_status: planStatus,
       seats,
-      current_period_end: periodEnd,
+      // The seat count applied cleanly (or went up) — clear any pending
+      // downgrade flag we'd set on a previous blocked attempt (L1).
+      pending_seat_downgrade: null,
+      ...periodEndPatch,
       cancel_at_period_end: subscription.cancel_at_period_end,
     })
     .eq('stripe_subscription_id', subscription.id)

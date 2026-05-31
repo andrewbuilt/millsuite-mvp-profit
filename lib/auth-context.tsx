@@ -39,10 +39,14 @@ interface Org {
   labor_margin_pct: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
+  // Set by the stripe-webhook when a seat downgrade is blocked because
+  // active users exceed the new seat count (L1). Drives the Settings →
+  // Billing "finish your downgrade" banner. NULL = nothing pending.
+  pending_seat_downgrade: number | null
 }
 
 const ORG_SELECT =
-  'id, name, slug, plan, plan_status, seats, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, pending_checkout_session_id, shop_rate, consumable_markup_pct, profit_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, business_address, business_city, business_state, business_zip, business_phone, business_email'
+  'id, name, slug, plan, plan_status, seats, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, pending_checkout_session_id, shop_rate, consumable_markup_pct, profit_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, pending_seat_downgrade, business_address, business_city, business_state, business_zip, business_phone, business_email'
 
 interface AuthContextType {
   user: AppUser | null
