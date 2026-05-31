@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       shop_name: org?.name || 'Unknown',
       shop_rate: org?.shop_rate ?? 0,
       profit_margin: org?.profit_margin_pct || 35,
-      consumable_markup: org?.consumable_markup_pct || 15,
+      consumable_markup: org?.consumable_markup_pct ?? 10,
       location: [org?.business_city, org?.business_state].filter(Boolean).join(', ') || 'Unknown',
       active_projects: activeProjects.map(p => {
         const laborMins = (timeEntries || []).filter(t => t.project_id === p.id).reduce((s, t) => s + t.duration_minutes, 0)
