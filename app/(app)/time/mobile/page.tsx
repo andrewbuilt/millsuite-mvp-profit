@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { triggerPhaseAdvance } from '@/lib/phase-client'
 import { useAuth } from '@/lib/auth-context'
 import { MLogo } from '@/components/logo'
 import { Play, Square } from 'lucide-react'
@@ -114,7 +115,7 @@ export default function MobileTimerPage() {
 
     if (projectId) {
       fetch(`/api/projects/${projectId}`, { method: 'POST' }).catch(() => {})
-      fetch(`/api/projects/${projectId}/advance-phase`, { method: 'POST' }).catch(() => {})
+      void triggerPhaseAdvance(projectId)
     }
 
     setTimerActive(false)
