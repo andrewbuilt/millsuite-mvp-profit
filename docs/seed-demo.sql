@@ -1,3 +1,6 @@
+-- ⚠️ UNVERIFIED (audit 2026-05-31): may reference legacy schema (pre
+-- per-bucket margins / Stripe columns / etc.). Review against the latest
+-- db/migrations before running against any real database.
 -- MillSuite MVP — Demo Account Seed Data
 -- $6M/year shop, 27 employees, ~$2M in active production
 --

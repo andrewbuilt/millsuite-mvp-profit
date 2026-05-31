@@ -13,7 +13,7 @@ import { loadShopRateSetup, type TeamMember } from '@/lib/shop-rate-setup'
 
 interface Department { id: string; name: string; color: string; hours_per_day: number }
 interface DeptMember { department_id: string; user_id: string }
-interface Project { id: string; name: string; client_name: string | null; status: string; bid_total: number }
+interface Project { id: string; name: string; client_name: string | null; stage: string; bid_total: number }
 interface Subproject { id: string; project_id: string; name: string }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
 interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number; split_index?: number; split_total?: number; split_group_id?: string; hours_refreshed_at?: string | null; source?: 'auto' | 'manual' }

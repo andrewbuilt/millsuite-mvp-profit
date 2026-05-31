@@ -35,7 +35,7 @@ interface UpsertProfileInput {
   firstName?: string | null
   shopName?: string | null
   plan: 'starter' | 'pro' | 'pro-ai'
-  planLabel: 'Profit' | 'Pro' | 'Pro+'
+  planLabel: string
   seats: number
   orgId: string
   stripeCustomerId?: string | null

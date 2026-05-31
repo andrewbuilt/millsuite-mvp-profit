@@ -1,3 +1,5 @@
+-- ⚠️ UNVERIFIED (audit 2026-05-31): may reference legacy schema. Review
+-- against the latest db/migrations before running against any real database.
 -- MillSuite MVP — Enhanced Demo Seed Data (SUPPLEMENTAL)
 -- Run AFTER seed-demo.sql — adds time entries, invoices, snapshots, etc.
 -- Creates a compelling demo story: shop improving efficiency over 8 weeks,
