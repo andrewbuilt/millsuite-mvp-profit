@@ -21,7 +21,13 @@ export function getStripe(): Stripe | null {
   return new Stripe(STRIPE_SECRET_KEY, {
     // Pin the API version so behavior doesn't shift under us when Stripe
     // releases new versions. Bump deliberately.
-    apiVersion: '2024-12-18.acacia',
+    //
+    // The installed SDK's types are newer than this pinned string, so the
+    // literal doesn't match Stripe.LatestApiVersion. We cast to keep the
+    // RUNTIME version on acacia (stable, what the webhook is written for —
+    // see periodEndISO in stripe-webhook) without bumping the live API.
+    // Bumping to a 2025 version is a deliberate, separately-tested change.
+    apiVersion: '2024-12-18.acacia' as Stripe.StripeConfig['apiVersion'],
     typescript: true,
   })
 }
