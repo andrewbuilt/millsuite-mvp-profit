@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
-import { triggerPhaseAdvance } from '@/lib/phase-client'
+import { triggerPhaseAdvance, triggerProjectRollup } from '@/lib/phase-client'
 import { useAuth } from '@/lib/auth-context'
 import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen, Download } from 'lucide-react'
 
@@ -265,7 +265,7 @@ export default function TimePage() {
 
     // Fire-and-forget: recompute project actuals + try to advance phase.
     if (timerProjectId) {
-      fetch(`/api/projects/${timerProjectId}`, { method: 'POST' }).catch(() => {})
+      void triggerProjectRollup(timerProjectId)
       void triggerPhaseAdvance(timerProjectId)
     }
 
@@ -302,7 +302,7 @@ export default function TimePage() {
     })
 
     if (manualProjectId) {
-      fetch(`/api/projects/${manualProjectId}`, { method: 'POST' }).catch(() => {})
+      void triggerProjectRollup(manualProjectId)
       void triggerPhaseAdvance(manualProjectId)
     }
 
