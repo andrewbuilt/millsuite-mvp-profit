@@ -59,6 +59,11 @@ import {
   type PricingContext,
   type SubprojectRollup,
 } from '@/lib/estimate-lines'
+import {
+  computeBucketedPrice,
+  resolveBucketMargins,
+  type CostBuckets,
+} from '@/lib/pricing'
 import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
 import type { RateBookItemRow, RateBookOptionRow } from '@/lib/rate-book-v2'
 import type { LaborDept } from '@/lib/rate-book-seed'
@@ -92,6 +97,10 @@ interface Project {
   stage: ProjectStage
   bid_total: number
   target_margin_pct: number | null
+  // Per-bucket margin pins (migration 052). NULL = inherit org default.
+  labor_margin_pct: number | null
+  material_margin_pct: number | null
+  consumable_margin_pct: number | null
 }
 
 interface Subproject {
@@ -341,18 +350,37 @@ function HandoffPageInner() {
   // install prefill is folded in per-sub, project margin is applied exactly
   // once at the end. Bidding-page PROJECT PRICE === handoff-page header
   // total; bidding-page subproject card cost === per-sub TOTAL column here.
-  const marginTarget =
-    project?.target_margin_pct ?? org?.profit_margin_pct ?? 35
+  // Migration 052: three per-bucket margins, same shared helper as the
+  // bidding page so the handoff total === the project total exactly.
+  const margins = useMemo(
+    () => resolveBucketMargins(project, org),
+    [
+      project?.labor_margin_pct,
+      project?.material_margin_pct,
+      project?.consumable_margin_pct,
+      org?.labor_margin_pct,
+      org?.material_margin_pct,
+      org?.consumable_margin_pct,
+    ],
+  )
   const projectTotals = useMemo(() => {
     const acc = {
       total: 0,            // project price (cost + margin)
       costTotal: 0,        // pre-margin (cost incl. install prefill)
       marginAmount: 0,     // total - costTotal
-      marginPct: 0,        // = effective project target margin
+      marginPct: 0,        // = blended (effective) project margin
       hoursByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
       totalHours: 0,
       subCount: subs.length,
       linearFeet: 0,
+    }
+    const buckets: CostBuckets = {
+      laborCost: 0,
+      materialCost: 0,
+      hardwareCost: 0,
+      consumablesCost: 0,
+      installCost: 0,
+      optionsCost: 0,
     }
     for (const sub of subs) {
       const r = rollupBySub[sub.id]
@@ -360,7 +388,12 @@ function HandoffPageInner() {
       const installHours = installHoursBySub[sub.id] || 0
       acc.linearFeet += Number(sub.linear_feet) || 0
       if (!r) continue
-      acc.costTotal += r.subtotal + installCost
+      buckets.laborCost += r.laborCost
+      buckets.materialCost += r.materialCost
+      buckets.hardwareCost += r.hardwareCost
+      buckets.consumablesCost += r.consumablesCost
+      buckets.installCost += r.installCost + installCost
+      buckets.optionsCost += r.optionsCost
       acc.hoursByDept.eng += r.hoursByDept.eng
       acc.hoursByDept.cnc += r.hoursByDept.cnc
       acc.hoursByDept.assembly += r.hoursByDept.assembly
@@ -368,13 +401,13 @@ function HandoffPageInner() {
       acc.hoursByDept.install += r.hoursByDept.install + installHours
       acc.totalHours += r.totalHours
     }
-    const marginFraction = Math.min(Math.max(marginTarget / 100, 0), 0.99)
-    const markup = marginFraction > 0 ? 1 / (1 - marginFraction) : 1
-    acc.total = acc.costTotal * markup
-    acc.marginAmount = acc.total - acc.costTotal
-    acc.marginPct = marginTarget
+    const priced = computeBucketedPrice(buckets, margins)
+    acc.costTotal = priced.costTotal
+    acc.total = priced.priceTotal
+    acc.marginAmount = priced.marginAmount
+    acc.marginPct = priced.blendedMarginPct
     return acc
-  }, [subs, rollupBySub, installCostBySub, installHoursBySub, marginTarget])
+  }, [subs, rollupBySub, installCostBySub, installHoursBySub, margins])
 
   const suggested = useMemo(
     () => suggestWindow(projectTotals.totalHours),

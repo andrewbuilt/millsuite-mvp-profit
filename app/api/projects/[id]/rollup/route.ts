@@ -5,11 +5,17 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { rollupProject } from '@/lib/project-rollup'
+import {
+  resolveApiCaller,
+  unauthorized,
+  notFound,
+  projectBelongsToOrg,
+} from '@/lib/api-auth'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
@@ -18,6 +24,13 @@ export async function POST(
     if (!projectId) {
       return NextResponse.json({ error: 'Project id required' }, { status: 400 })
     }
+
+    // ── Auth + tenant isolation (M5) ──
+    // Require a signed-in caller and confirm the project belongs to their
+    // org before recomputing/persisting its financial totals.
+    const caller = await resolveApiCaller(req)
+    if (!caller) return unauthorized()
+    if (!(await projectBelongsToOrg(projectId, caller.orgId))) return notFound()
 
     const totals = await rollupProject(projectId)
     if (!totals) {

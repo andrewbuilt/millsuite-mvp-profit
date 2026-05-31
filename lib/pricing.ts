@@ -1,50 +1,140 @@
 // lib/pricing.ts
-// Subproject pricing math — single source of truth
+// Project pricing math — the single source of truth for turning costs
+// into a customer price.
+//
+// Pricing model (migration 052): three independent TRUE gross-margin
+// knobs applied to three groups of cost buckets:
+//
+//   labor margin      → labor + install        (shop time)
+//   material margin   → material + hardware + options (purchased goods + upcharges)
+//   consumable margin → consumables
+//
+// Each group: groupPrice = groupCost / (1 - margin/100). The project
+// price is the sum of the three group prices. Because true margin is
+// additive across buckets, equal knobs reproduce the old single-knob
+// price exactly — see migration 052.
+//
+// NOTE: computeShopRate (below) still treats its "target profit %" as a
+// MARKUP on cost (cost × (1 + p/100)), which is a different meaning of
+// "profit %" than the project margins here. That's a deliberate, separate
+// decision — changing it would re-price every shop's hourly rate. Don't
+// conflate the two knobs.
 
-export interface SubprojectPricing {
+export interface CostBuckets {
+  laborCost: number
   materialCost: number
-  consumableMarkupPct: number
-  laborHours: number
-  shopRate: number
-  profitMarginPct: number
-  manualPrice?: number | null // if set, overrides computed price
+  hardwareCost: number
+  consumablesCost: number
+  installCost: number
+  optionsCost: number
+}
+
+export interface BucketMargins {
+  laborMarginPct: number
+  materialMarginPct: number
+  consumableMarginPct: number
+}
+
+export interface BucketedPrice {
+  // Group costs (the three knobs' worth of cost)
+  laborGroupCost: number // labor + install
+  materialGroupCost: number // material + hardware + options
+  consumableGroupCost: number // consumables
+  // Group prices (each group's cost marked up by its own true margin)
+  laborPrice: number
+  materialPrice: number
+  consumablePrice: number
+  // Totals
+  costTotal: number
+  priceTotal: number
+  marginAmount: number
+  blendedMarginPct: number // effective margin across the whole project
+}
+
+/** Margin source shape — projects and orgs both expose these nullable
+ *  columns. NULL means "inherit" (project → org → DEFAULT_MARGIN_PCT). */
+export interface MarginSource {
+  labor_margin_pct?: number | null
+  material_margin_pct?: number | null
+  consumable_margin_pct?: number | null
+}
+
+export const DEFAULT_MARGIN_PCT = 35
+
+/**
+ * Resolve the effective per-bucket margins for a project: each bucket
+ * resolves independently as project pin → org default → 35. Centralizes
+ * the inherit/fallback rule so every read path agrees.
+ */
+export function resolveBucketMargins(
+  project: MarginSource | null | undefined,
+  org: MarginSource | null | undefined,
+): BucketMargins {
+  const pick = (p?: number | null, o?: number | null) =>
+    p ?? o ?? DEFAULT_MARGIN_PCT
+  return {
+    laborMarginPct: pick(project?.labor_margin_pct, org?.labor_margin_pct),
+    materialMarginPct: pick(project?.material_margin_pct, org?.material_margin_pct),
+    consumableMarginPct: pick(
+      project?.consumable_margin_pct,
+      org?.consumable_margin_pct,
+    ),
+  }
+}
+
+function marginFraction(pct: number): number {
+  return Math.min(Math.max(pct / 100, 0), 0.99)
+}
+
+/** Mark a cost up to a customer price using a TRUE gross margin. */
+function priceFromMargin(cost: number, pct: number): number {
+  const f = marginFraction(pct)
+  return f > 0 ? cost / (1 - f) : cost
 }
 
 /**
- * Compute subproject financials.
- *
- * material_with_consumables = materialCost × (1 + consumableMarkupPct / 100)
- * laborCost = laborHours × shopRate
- * cost = laborCost + material_with_consumables
- * price = cost × (1 + profitMarginPct / 100)
- *
- * If manualPrice is set, price = manualPrice and margin becomes a computed output.
+ * The canonical cost→price function. Buckets are grouped per the migration-
+ * 052 mapping, each group is marked up by its own true margin, and the
+ * three group prices are summed. Returns every intermediate value so the
+ * UI can show the math transparently (cost → margin → price per group,
+ * plus the blended margin).
  */
-export function computeSubprojectPrice(input: SubprojectPricing) {
-  const materialWithConsumables = input.materialCost * (1 + input.consumableMarkupPct / 100)
-  const laborCost = input.laborHours * input.shopRate
-  const cost = laborCost + materialWithConsumables
+export function computeBucketedPrice(
+  buckets: CostBuckets,
+  margins: BucketMargins,
+): BucketedPrice {
+  const laborGroupCost = buckets.laborCost + buckets.installCost
+  const materialGroupCost =
+    buckets.materialCost + buckets.hardwareCost + buckets.optionsCost
+  const consumableGroupCost = buckets.consumablesCost
 
-  if (input.manualPrice != null && input.manualPrice > 0) {
-    const effectiveMarginPct = cost > 0 ? ((input.manualPrice - cost) / input.manualPrice) * 100 : 0
-    return {
-      materialWithConsumables: round(materialWithConsumables),
-      laborCost: round(laborCost),
-      cost: round(cost),
-      price: round(input.manualPrice),
-      profitMarginPct: round(effectiveMarginPct, 1),
-      isManualPrice: true,
-    }
-  }
+  const laborPrice = priceFromMargin(laborGroupCost, margins.laborMarginPct)
+  const materialPrice = priceFromMargin(
+    materialGroupCost,
+    margins.materialMarginPct,
+  )
+  const consumablePrice = priceFromMargin(
+    consumableGroupCost,
+    margins.consumableMarginPct,
+  )
 
-  const price = cost * (1 + input.profitMarginPct / 100)
+  const costTotal = laborGroupCost + materialGroupCost + consumableGroupCost
+  const priceTotal = laborPrice + materialPrice + consumablePrice
+  const marginAmount = priceTotal - costTotal
+  const blendedMarginPct =
+    priceTotal > 0 ? (marginAmount / priceTotal) * 100 : 0
+
   return {
-    materialWithConsumables: round(materialWithConsumables),
-    laborCost: round(laborCost),
-    cost: round(cost),
-    price: round(price),
-    profitMarginPct: input.profitMarginPct,
-    isManualPrice: false,
+    laborGroupCost: round(laborGroupCost),
+    materialGroupCost: round(materialGroupCost),
+    consumableGroupCost: round(consumableGroupCost),
+    laborPrice: round(laborPrice),
+    materialPrice: round(materialPrice),
+    consumablePrice: round(consumablePrice),
+    costTotal: round(costTotal),
+    priceTotal: round(priceTotal),
+    marginAmount: round(marginAmount),
+    blendedMarginPct: round(blendedMarginPct, 1),
   }
 }
 

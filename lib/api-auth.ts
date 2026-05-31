@@ -87,3 +87,27 @@ export function forbidden(feature: string) {
     { status: 403 },
   )
 }
+
+/** 404 Not Found — used for tenant-isolation failures so we never reveal
+ *  whether a resource ID belongs to another org. */
+export function notFound() {
+  return NextResponse.json({ error: 'Not found' }, { status: 404 })
+}
+
+/**
+ * Tenant-isolation check: does this project belong to the caller's org?
+ * Uses the admin client so it works in routes that don't carry an
+ * RLS-scoped client. Returns false when the project is missing OR owned
+ * by a different org — callers should respond 404 either way.
+ */
+export async function projectBelongsToOrg(
+  projectId: string,
+  orgId: string,
+): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from('projects')
+    .select('org_id')
+    .eq('id', projectId)
+    .single()
+  return !!data && (data as { org_id: string | null }).org_id === orgId
+}

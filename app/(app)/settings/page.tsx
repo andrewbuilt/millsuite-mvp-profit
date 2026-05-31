@@ -89,7 +89,13 @@ export default function SettingsPage() {
 
   const [seatCount, setSeatCount] = useState(1)
   const [consumableMarkup, setConsumableMarkup] = useState('15')
-  const [profitMargin, setProfitMargin] = useState('35')
+  // Per-bucket margin defaults (migration 052). Each applies as a true
+  // gross margin to its cost group on new projects; a project can pin its
+  // own. profit_margin_pct is the legacy single knob, kept only as a
+  // fallback for orgs not yet migrated.
+  const [laborMargin, setLaborMargin] = useState('35')
+  const [materialMargin, setMaterialMargin] = useState('35')
+  const [consumableMargin, setConsumableMargin] = useState('35')
 
   const [businessName, setBusinessName] = useState('')
   const [businessAddress, setBusinessAddress] = useState('')
@@ -161,7 +167,15 @@ export default function SettingsPage() {
 
       if (!cancelled) {
         setConsumableMarkup(org.consumable_markup_pct?.toString() || '15')
-        setProfitMargin(org.profit_margin_pct?.toString() || '35')
+        setLaborMargin(
+          (org.labor_margin_pct ?? org.profit_margin_pct ?? 35).toString(),
+        )
+        setMaterialMargin(
+          (org.material_margin_pct ?? org.profit_margin_pct ?? 35).toString(),
+        )
+        setConsumableMargin(
+          (org.consumable_margin_pct ?? org.profit_margin_pct ?? 35).toString(),
+        )
         setBusinessName(org.name || '')
         setBusinessAddress((org as any).business_address || '')
         setBusinessCity((org as any).business_city || '')
@@ -256,7 +270,9 @@ export default function SettingsPage() {
         .from('orgs')
         .update({
           consumable_markup_pct: parseFloat(consumableMarkup) || 0,
-          profit_margin_pct: parseFloat(profitMargin) || 0,
+          labor_margin_pct: parseFloat(laborMargin) || 0,
+          material_margin_pct: parseFloat(materialMargin) || 0,
+          consumable_margin_pct: parseFloat(consumableMargin) || 0,
           name: businessName.trim() || undefined,
           business_address: businessAddress.trim(),
           business_city: businessCity.trim(),
@@ -272,7 +288,9 @@ export default function SettingsPage() {
     return () => clearTimeout(t)
   }, [
     consumableMarkup,
-    profitMargin,
+    laborMargin,
+    materialMargin,
+    consumableMargin,
     businessName,
     businessAddress,
     businessCity,
@@ -783,19 +801,60 @@ export default function SettingsPage() {
           <div className="px-6 py-4 border-b border-[#E5E7EB]">
             <h2 className="text-base font-semibold">Project defaults</h2>
             <p className="text-xs text-[#9CA3AF] mt-0.5">
-              Applied to new projects. Each project can override its target margin.
+              Applied to new projects. Each project can pin its own margins.
+              Each is a true gross margin (price = cost ÷ (1 − margin)).
             </p>
           </div>
           <div className="px-6 py-4">
             <div className="flex items-center justify-between py-3">
-              <label className="text-sm text-[#6B7280]">Default profit margin</label>
+              <label className="text-sm text-[#6B7280]">
+                Labor margin
+                <span className="block text-[11px] text-[#9CA3AF]">
+                  Labor + install
+                </span>
+              </label>
               <div className="flex items-center gap-1">
                 <input
                   type="text"
                   inputMode="decimal"
-                  value={profitMargin}
+                  value={laborMargin}
                   onChange={(e) =>
-                    setProfitMargin(e.target.value.replace(/[^0-9.]/g, ''))
+                    setLaborMargin(e.target.value.replace(/[^0-9.]/g, ''))
+                  }
+                  className={inputClass}
+                />
+                <span className="text-sm text-[#9CA3AF]">%</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-3 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">
+                Material margin
+                <span className="block text-[11px] text-[#9CA3AF]">
+                  Material + hardware + options
+                </span>
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={materialMargin}
+                  onChange={(e) =>
+                    setMaterialMargin(e.target.value.replace(/[^0-9.]/g, ''))
+                  }
+                  className={inputClass}
+                />
+                <span className="text-sm text-[#9CA3AF]">%</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-3 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">Consumable margin</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={consumableMargin}
+                  onChange={(e) =>
+                    setConsumableMargin(e.target.value.replace(/[^0-9.]/g, ''))
                   }
                   className={inputClass}
                 />
