@@ -59,6 +59,12 @@ import {
   type SubprojectRollup,
   type PricingContext,
 } from '@/lib/estimate-lines'
+import {
+  computeBucketedPrice,
+  resolveBucketMargins,
+  type CostBuckets,
+  type BucketMargins,
+} from '@/lib/pricing'
 import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   loadSubprojectActualHours,
@@ -112,8 +118,13 @@ interface Project {
   created_at: string
   updated_at: string
   // Phase 12 dogfood-2 Issue 12 — pinned target margin override
-  // (NULL = inherit org default).
+  // (NULL = inherit org default). Legacy single-knob field; kept as a
+  // fallback. The live model is the three per-bucket pins below (052).
   target_margin_pct: number | null
+  // Per-bucket margin pins (migration 052). NULL = inherit org default.
+  labor_margin_pct: number | null
+  material_margin_pct: number | null
+  consumable_margin_pct: number | null
 }
 
 interface Subproject {
@@ -174,10 +185,20 @@ interface SubCardData {
 interface ProjectRollup {
   total: number          // alias for priceTotal — DEPRECATED
   subtotal: number       // alias for costTotal — DEPRECATED
-  marginPct: number      // = effective project target margin (input)
+  marginPct: number      // = blended (effective) margin across the project
   costTotal: number
   marginAmount: number
   priceTotal: number
+  // Per-bucket group costs + prices (migration 052) for the transparent
+  // breakdown. labor group = labor+install; material group = material+
+  // hardware+options; consumable group = consumables.
+  laborGroupCost: number
+  materialGroupCost: number
+  consumableGroupCost: number
+  laborPrice: number
+  materialPrice: number
+  consumablePrice: number
+  blendedMarginPct: number
   hoursByDept: { eng: number; cnc: number; assembly: number; finish: number; install: number }
   totalHours: number
   laborCost: number
@@ -254,12 +275,21 @@ export default function ProjectCoverPage() {
   )
 
   const [project, setProject] = useState<Project | null>(null)
-  // Phase 12 dogfood-2 Issue 12: per-project target margin overrides
-  // org default. NULL = inherit. Applied uniformly to every cost bucket
-  // at the project rollup; subproject rollups stay at cost so the
-  // editor UI reads raw numbers.
-  const marginTarget =
-    project?.target_margin_pct ?? org?.profit_margin_pct ?? 35
+  // Migration 052: three per-bucket margins (labor / material / consumables).
+  // Each resolves project pin → org default → 35. Subproject rollups stay
+  // at cost; margin is applied once at the project rollup via
+  // computeBucketedPrice so the editor UI reads raw cost numbers.
+  const margins: BucketMargins = useMemo(
+    () => resolveBucketMargins(project, org),
+    [
+      project?.labor_margin_pct,
+      project?.material_margin_pct,
+      project?.consumable_margin_pct,
+      org?.labor_margin_pct,
+      org?.material_margin_pct,
+      org?.consumable_margin_pct,
+    ],
+  )
   const [cards, setCards] = useState<SubCardData[]>([])
   // Item 1 of post-sale-2: per-sub readiness map from
   // subproject_approval_status. Drives the AttentionStrip banner +
@@ -478,17 +508,26 @@ export default function ProjectCoverPage() {
     // start as "<Name> — custom millwork" (the mockup convention) but the
     // user is expected to edit each one before sending.
     // Pricing-architecture cleanup: subproject rollups are at COST now, so
-    // we apply the project-level markup here to surface customer-facing
-    // prices on each QB line. Install prefill cost gets marked up too.
-    const qbMarginPct =
-      (projRes.data as Project | null)?.target_margin_pct ??
-      org?.profit_margin_pct ??
-      35
-    const qbMarginFrac = Math.min(Math.max(qbMarginPct / 100, 0), 0.99)
-    const qbMarkup = qbMarginFrac > 0 ? 1 / (1 - qbMarginFrac) : 1
+    // we apply the per-bucket margins here (migration 052) to surface
+    // customer-facing prices on each QB line. Because computeBucketedPrice
+    // is linear per bucket, the sum of the QB line prices equals the
+    // project total. Install prefill cost rides in the install bucket.
+    const qbMargins = resolveBucketMargins(projRes.data as Project | null, org)
     setQbLines(
       cardData.map(({ sub, rollup, installPrefillCost }) => {
-        const price = Math.round((rollup.subtotal + installPrefillCost) * qbMarkup)
+        const price = Math.round(
+          computeBucketedPrice(
+            {
+              laborCost: rollup.laborCost,
+              materialCost: rollup.materialCost,
+              hardwareCost: rollup.hardwareCost,
+              consumablesCost: rollup.consumablesCost,
+              installCost: rollup.installCost + installPrefillCost,
+              optionsCost: rollup.optionsCost,
+            },
+            qbMargins,
+          ).priceTotal,
+        )
         return {
           subId: sub.id,
           desc: isInstallSub(sub)
@@ -563,6 +602,13 @@ export default function ProjectCoverPage() {
       costTotal: 0,
       marginAmount: 0,
       priceTotal: 0,
+      laborGroupCost: 0,
+      materialGroupCost: 0,
+      consumableGroupCost: 0,
+      laborPrice: 0,
+      materialPrice: 0,
+      consumablePrice: 0,
+      blendedMarginPct: 0,
       hoursByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
       totalHours: 0,
       laborCost: 0,
@@ -621,26 +667,35 @@ export default function ProjectCoverPage() {
       }
     }
 
-    acc.costTotal =
-      acc.laborCost +
-      acc.materialCost +
-      acc.hardwareCost +
-      acc.installCost +
-      acc.consumablesCost +
-      acc.optionsCost
-
-    const marginFraction = Math.min(Math.max(marginTarget / 100, 0), 0.99)
-    const markup = marginFraction > 0 ? 1 / (1 - marginFraction) : 1
-    acc.priceTotal = acc.costTotal * markup
-    acc.marginAmount = acc.priceTotal - acc.costTotal
-    acc.marginPct = marginTarget
+    // Migration 052: apply the three per-bucket margins via the shared
+    // helper (same code path as lib/project-totals.ts — no divergence).
+    const buckets: CostBuckets = {
+      laborCost: acc.laborCost,
+      materialCost: acc.materialCost,
+      hardwareCost: acc.hardwareCost,
+      consumablesCost: acc.consumablesCost,
+      installCost: acc.installCost,
+      optionsCost: acc.optionsCost,
+    }
+    const priced = computeBucketedPrice(buckets, margins)
+    acc.costTotal = priced.costTotal
+    acc.priceTotal = priced.priceTotal
+    acc.marginAmount = priced.marginAmount
+    acc.marginPct = priced.blendedMarginPct
+    acc.blendedMarginPct = priced.blendedMarginPct
+    acc.laborGroupCost = priced.laborGroupCost
+    acc.materialGroupCost = priced.materialGroupCost
+    acc.consumableGroupCost = priced.consumableGroupCost
+    acc.laborPrice = priced.laborPrice
+    acc.materialPrice = priced.materialPrice
+    acc.consumablePrice = priced.consumablePrice
 
     // Deprecated aliases kept for downstream readers.
     acc.subtotal = acc.costTotal
     acc.total = acc.priceTotal
 
     return acc
-  }, [cards, subActuals, deptKeyById, marginTarget])
+  }, [cards, subActuals, deptKeyById, margins])
 
   // Item 4 of post-sale-3: Sold → Production gate visual. True when:
   //   (a) every subproject reads ready_for_scheduling on the
@@ -779,7 +834,7 @@ export default function ProjectCoverPage() {
               {money(proj.priceTotal)}
             </div>
             <div className="text-xs font-semibold mt-1 text-[#059669] font-mono tabular-nums">
-              {marginTarget.toFixed(0)}% margin · {money(proj.marginAmount)}
+              {proj.blendedMarginPct.toFixed(0)}% margin · {money(proj.marginAmount)}
             </div>
           </div>
         </div>
@@ -1010,19 +1065,27 @@ export default function ProjectCoverPage() {
                   {money(proj.priceTotal)}
                 </div>
                 <div className="text-xs text-[#6B7280] mt-1.5 font-mono tabular-nums">
-                  {marginTarget.toFixed(0)}% margin ·{' '}
+                  {proj.blendedMarginPct.toFixed(0)}% blended margin ·{' '}
                   <span className="text-[#059669]">
                     {money(proj.marginAmount)}
                   </span>
                 </div>
-                <TargetMarginEditor
+                <BucketMarginEditor
                   projectId={projectId}
-                  pinnedTarget={project.target_margin_pct}
-                  orgDefault={org?.profit_margin_pct ?? null}
+                  pins={{
+                    labor: project.labor_margin_pct,
+                    material: project.material_margin_pct,
+                    consumable: project.consumable_margin_pct,
+                  }}
+                  orgDefaults={{
+                    labor: org?.labor_margin_pct ?? null,
+                    material: org?.material_margin_pct ?? null,
+                    consumable: org?.consumable_margin_pct ?? null,
+                  }}
                   locked={!isPresold(project.stage)}
-                  onPinnedChange={(next) =>
+                  onChange={(field, next) =>
                     setProject((prev) =>
-                      prev ? { ...prev, target_margin_pct: next } : prev,
+                      prev ? { ...prev, [field]: next } : prev,
                     )
                   }
                 />
@@ -1058,7 +1121,9 @@ export default function ProjectCoverPage() {
                   value={money(proj.installCost)}
                 />
 
-                {/* Cost-plus summary: cost, margin, price. */}
+                {/* Cost-plus summary (migration 052): cost, then each
+                    bucket group's margin contribution shown transparently,
+                    then the blended total + price. */}
                 <div className="mt-3 pt-3 border-t border-[#E5E7EB] space-y-1.5">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-[#374151]">Project cost</span>
@@ -1066,11 +1131,26 @@ export default function ProjectCoverPage() {
                       {money(proj.costTotal)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
+                  <MarginGroupRow
+                    label="Labor + install"
+                    pct={margins.laborMarginPct}
+                    amount={proj.laborPrice - proj.laborGroupCost}
+                  />
+                  <MarginGroupRow
+                    label="Material + hardware"
+                    pct={margins.materialMarginPct}
+                    amount={proj.materialPrice - proj.materialGroupCost}
+                  />
+                  <MarginGroupRow
+                    label="Consumables"
+                    pct={margins.consumableMarginPct}
+                    amount={proj.consumablePrice - proj.consumableGroupCost}
+                  />
+                  <div className="flex items-center justify-between text-sm pt-1.5 border-t border-[#F3F4F6]">
                     <span className="text-[#374151]">
-                      Project margin
+                      Total margin
                       <span className="text-[10px] text-[#9CA3AF] ml-1">
-                        ({marginTarget.toFixed(0)}%)
+                        ({proj.blendedMarginPct.toFixed(0)}% blended)
                       </span>
                     </span>
                     <span className="font-mono text-[#059669] tabular-nums">
@@ -1516,37 +1596,146 @@ function ProjectHoursSection({
   )
 }
 
-// ── Target margin editor ──
-// Editable input in the project total card. Writes
-// projects.target_margin_pct. NULL = inherit org default; non-NULL = pin.
-// Reset button clears the pin so it falls back to the org default again.
-function TargetMarginEditor({
+// ── Margin group summary row ──
+// Read-only line in the cost-plus summary: one bucket group's margin %
+// and the dollar markup it contributes to the price.
+function MarginGroupRow({
+  label,
+  pct,
+  amount,
+}: {
+  label: string
+  pct: number
+  amount: number
+}) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-[#374151]">
+        {label}
+        <span className="text-[10px] text-[#9CA3AF] ml-1">
+          ({pct.toFixed(0)}% margin)
+        </span>
+      </span>
+      <span className="font-mono text-[#059669] tabular-nums">
+        + {money(amount)}
+      </span>
+    </div>
+  )
+}
+
+// ── Per-bucket margin editor ──
+// Three pinnable TRUE gross-margin knobs (migration 052): labor+install,
+// material+hardware+options, consumables. Each writes its own
+// projects.*_margin_pct column. Blank = inherit the org default; a value
+// pins the project. Read-only once the project leaves bidding — margin
+// changes then belong to a change order.
+type MarginField =
+  | 'labor_margin_pct'
+  | 'material_margin_pct'
+  | 'consumable_margin_pct'
+
+function BucketMarginEditor({
   projectId,
-  pinnedTarget,
-  orgDefault,
+  pins,
+  orgDefaults,
   locked,
-  onPinnedChange,
+  onChange,
 }: {
   projectId: string
-  pinnedTarget: number | null
-  orgDefault: number | null
-  /** When true, render the value read-only with a "(locked)" hint —
-   *  no input, no Reset link. Set whenever the project is past
-   *  bidding (stage !== bidding); the estimate is frozen at that point
-   *  and margin changes belong to a CO, not a free-form input. */
+  pins: { labor: number | null; material: number | null; consumable: number | null }
+  orgDefaults: {
+    labor: number | null
+    material: number | null
+    consumable: number | null
+  }
   locked: boolean
-  onPinnedChange: (next: number | null) => void
+  onChange: (field: MarginField, next: number | null) => void
 }) {
-  const effective = pinnedTarget ?? orgDefault ?? 35
-  const [draft, setDraft] = useState<string>(
-    pinnedTarget == null ? '' : String(pinnedTarget),
+  const rows: {
+    key: MarginField
+    label: string
+    pin: number | null
+    orgDefault: number | null
+  }[] = [
+    {
+      key: 'labor_margin_pct',
+      label: 'Labor + install',
+      pin: pins.labor,
+      orgDefault: orgDefaults.labor,
+    },
+    {
+      key: 'material_margin_pct',
+      label: 'Material + hardware',
+      pin: pins.material,
+      orgDefault: orgDefaults.material,
+    },
+    {
+      key: 'consumable_margin_pct',
+      label: 'Consumables',
+      pin: pins.consumable,
+      orgDefault: orgDefaults.consumable,
+    },
+  ]
+
+  return (
+    <div className="mt-3 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold uppercase tracking-wider text-[10px] text-[#9CA3AF]">
+          Margins
+        </span>
+        {locked && (
+          <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF]">
+            locked
+          </span>
+        )}
+      </div>
+      {rows.map((r) => (
+        <MarginKnob
+          key={r.key}
+          projectId={projectId}
+          field={r.key}
+          label={r.label}
+          pin={r.pin}
+          orgDefault={r.orgDefault}
+          locked={locked}
+          onCommit={(next) => onChange(r.key, next)}
+        />
+      ))}
+      {!locked && (
+        <div className="text-[10.5px] text-[#9CA3AF] leading-tight">
+          True gross margin per bucket — price = cost ÷ (1 − margin). Blank
+          inherits the org default. Subproject views show cost only.
+        </div>
+      )}
+    </div>
   )
+}
+
+// One margin knob. Writes a single projects.*_margin_pct column.
+function MarginKnob({
+  projectId,
+  field,
+  label,
+  pin,
+  orgDefault,
+  locked,
+  onCommit,
+}: {
+  projectId: string
+  field: MarginField
+  label: string
+  pin: number | null
+  orgDefault: number | null
+  locked: boolean
+  onCommit: (next: number | null) => void
+}) {
+  const effective = pin ?? orgDefault ?? 35
+  const [draft, setDraft] = useState<string>(pin == null ? '' : String(pin))
   const [saving, setSaving] = useState(false)
 
-  // Keep the input in sync if the pinned value changes from elsewhere.
   useEffect(() => {
-    setDraft(pinnedTarget == null ? '' : String(pinnedTarget))
-  }, [pinnedTarget])
+    setDraft(pin == null ? '' : String(pin))
+  }, [pin])
 
   async function commit() {
     const trimmed = draft.trim()
@@ -1558,119 +1747,53 @@ function TargetMarginEditor({
       if (!Number.isFinite(n) || n < 0 || n >= 100) return
       next = Math.round(n * 100) / 100
     }
-    if (next === pinnedTarget) return
+    if (next === pin) return
     setSaving(true)
     const { error } = await supabase
       .from('projects')
-      .update({ target_margin_pct: next })
+      .update({ [field]: next })
       .eq('id', projectId)
     setSaving(false)
     if (error) {
-      console.error('target_margin_pct update', error)
+      console.error(`${field} update`, error)
       return
     }
-    onPinnedChange(next)
+    onCommit(next)
   }
-
-  async function reset() {
-    if (pinnedTarget == null) return
-    setSaving(true)
-    const { error } = await supabase
-      .from('projects')
-      .update({ target_margin_pct: null })
-      .eq('id', projectId)
-    setSaving(false)
-    if (error) {
-      console.error('target_margin_pct reset', error)
-      return
-    }
-    setDraft('')
-    onPinnedChange(null)
-  }
-
-  const inheritedHint =
-    pinnedTarget == null
-      ? `Inherited from org default (${orgDefault ?? 35}%)`
-      : null
 
   if (locked) {
     return (
-      <div className="mt-3 space-y-1.5">
-        <div className="flex items-center gap-2 text-[12px] text-[#6B7280]">
-          <span className="font-semibold uppercase tracking-wider text-[10px] text-[#9CA3AF]">
-            Target margin
-          </span>
-          <div className="ml-auto flex items-baseline gap-1.5 font-mono tabular-nums text-[#111]">
-            <span className="text-sm font-semibold">
-              {effective.toFixed(0)}%
-            </span>
-            <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF]">
-              locked
-            </span>
-          </div>
-        </div>
-        <div className="text-[10.5px] text-[#9CA3AF] leading-tight">
-          Margin is locked once the project is sold. Use a change order on a
-          line to adjust pricing.
-        </div>
+      <div className="flex items-center justify-between text-[12px]">
+        <span className="text-[#6B7280]">{label}</span>
+        <span className="font-mono tabular-nums text-sm font-semibold text-[#111]">
+          {effective.toFixed(0)}%
+        </span>
       </div>
     )
   }
 
   return (
-    <div className="mt-3 space-y-1.5">
-      <div className="flex items-center gap-2 text-[12px] text-[#6B7280]">
-        <span className="font-semibold uppercase tracking-wider text-[10px] text-[#9CA3AF]">
-          Target margin
-        </span>
-        <div className="flex items-center gap-1 ml-auto">
-          <input
-            type="number"
-            min="0"
-            max="99"
-            step="0.5"
-            inputMode="decimal"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-            }}
-            placeholder={String(orgDefault ?? 35)}
-            disabled={saving}
-            className="w-16 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
-            aria-label="Target margin percent"
-          />
-          <span className="text-[12px] text-[#6B7280]">%</span>
-        </div>
-      </div>
-      {inheritedHint && (
-        <div className="text-[10.5px] text-[#9CA3AF]">{inheritedHint}</div>
-      )}
-      {pinnedTarget != null && (
-        <button
-          type="button"
-          onClick={reset}
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[12px] text-[#6B7280]">{label}</span>
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          min="0"
+          max="99"
+          step="0.5"
+          inputMode="decimal"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          }}
+          placeholder={String(orgDefault ?? 35)}
           disabled={saving}
-          className="text-[10.5px] text-[#2563EB] hover:text-[#1D4ED8] disabled:opacity-50"
-        >
-          Reset to org default ({orgDefault ?? 35}%)
-        </button>
-      )}
-      <div className="flex items-center gap-2 pt-1">
-        <span
-          className={`text-[12px] font-mono tabular-nums ${
-            Math.round(effective) <= 0
-              ? 'text-[#9CA3AF]'
-              : 'text-[#111] font-semibold'
-          }`}
-        >
-          {effective.toFixed(0)}%
-        </span>
-        <span className="text-[10.5px] text-[#9CA3AF] leading-tight">
-          applied to every cost bucket. Subproject views show cost; this
-          number is the markup at the project level.
-        </span>
+          className="w-16 text-right font-mono tabular-nums text-sm px-2 py-1 bg-white border border-[#E5E7EB] rounded-md focus:border-[#2563EB] focus:outline-none"
+          aria-label={`${label} margin percent`}
+        />
+        <span className="text-[12px] text-[#6B7280]">%</span>
       </div>
     </div>
   )

@@ -30,6 +30,11 @@ import {
   type PricingContext,
 } from './estimate-lines'
 import { computeInstallCost, computeInstallHours } from './install-prefill'
+import {
+  computeBucketedPrice,
+  resolveBucketMargins,
+  type CostBuckets,
+} from './pricing'
 
 const EPSILON_DOLLARS = 1
 
@@ -38,6 +43,9 @@ interface ProjectRow {
   org_id: string | null
   bid_total: number | null
   target_margin_pct: number | null
+  labor_margin_pct: number | null
+  material_margin_pct: number | null
+  consumable_margin_pct: number | null
 }
 
 interface SubRow {
@@ -64,7 +72,9 @@ export async function recomputeProjectBidTotal(
   try {
     const { data: projData, error: projErr } = await supabase
       .from('projects')
-      .select('id, org_id, bid_total, target_margin_pct')
+      .select(
+        'id, org_id, bid_total, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct',
+      )
       .eq('id', projectId)
       .single()
     if (projErr || !projData) {
@@ -74,25 +84,27 @@ export async function recomputeProjectBidTotal(
     const project = projData as ProjectRow
     if (!project.org_id) return Number(project.bid_total) || 0
 
-    // Pull the org's profit_margin_pct + consumable_markup_pct + shop_rate
-    // for the rollup context. Falls back to the same defaults the project
-    // page uses (profit 35, consumables 10).
+    // Pull the org's consumable_markup_pct + shop_rate for the rollup
+    // context, plus the three per-bucket margin defaults (migration 052).
     const { data: orgData } = await supabase
       .from('orgs')
-      .select('profit_margin_pct, consumable_markup_pct, shop_rate')
+      .select(
+        'consumable_markup_pct, shop_rate, labor_margin_pct, material_margin_pct, consumable_margin_pct',
+      )
       .eq('id', project.org_id)
       .single()
-    const orgProfit = Number(
-      (orgData as { profit_margin_pct: number | null } | null)?.profit_margin_pct ??
-        35,
-    )
-    const orgConsumables = Number(
-      (orgData as { consumable_markup_pct: number | null } | null)
-        ?.consumable_markup_pct ?? 10,
-    )
-    const shopRate = Number(
-      (orgData as { shop_rate: number | null } | null)?.shop_rate ?? 0,
-    )
+    const orgRow = orgData as {
+      consumable_markup_pct: number | null
+      shop_rate: number | null
+      labor_margin_pct: number | null
+      material_margin_pct: number | null
+      consumable_margin_pct: number | null
+    } | null
+    const orgConsumables = Number(orgRow?.consumable_markup_pct ?? 10)
+    const shopRate = Number(orgRow?.shop_rate ?? 0)
+
+    // Effective per-bucket margins: project pin → org default → 35.
+    const margins = resolveBucketMargins(project, orgRow)
 
     const { data: subsData } = await supabase
       .from('subprojects')
@@ -111,14 +123,24 @@ export async function recomputeProjectBidTotal(
 
     const rateBook = await loadRateBook(project.org_id)
 
-    let costTotal = 0
+    // Accumulate the six cost buckets across subs (all at COST — margin is
+    // applied once below via computeBucketedPrice). Install prefill dollars
+    // land in the install bucket.
+    const buckets: CostBuckets = {
+      laborCost: 0,
+      materialCost: 0,
+      hardwareCost: 0,
+      consumablesCost: 0,
+      installCost: 0,
+      optionsCost: 0,
+    }
     for (const sub of subs) {
       const lines = await loadEstimateLines(sub.id)
       const ctx: PricingContext = {
         shopRate,
         consumableMarkupPct: sub.consumable_markup_pct ?? orgConsumables,
         // Subproject rollups always run at COST. Margin lives on the
-        // project markup below — same as the project page.
+        // project-level computeBucketedPrice below — same as the project page.
         profitMarginPct: 0,
       }
       const rollup = computeSubprojectRollup(lines, rateBook.itemsById, new Map(), ctx)
@@ -127,18 +149,19 @@ export async function recomputeProjectBidTotal(
         days: sub.install_days,
         complexityPct: sub.install_complexity_pct,
       }
-      const installCost = computeInstallCost(installPrefill, shopRate)
+      const installPrefillCost = computeInstallCost(installPrefill, shopRate)
       // computeInstallHours is read but doesn't affect priceTotal —
-      // hours fold into hoursByDept; dollars come from rollup.subtotal
-      // + installCost.
+      // hours fold into hoursByDept; dollars come from the cost buckets.
       void computeInstallHours(installPrefill)
-      costTotal += rollup.subtotal + installCost
+      buckets.laborCost += rollup.laborCost
+      buckets.materialCost += rollup.materialCost
+      buckets.hardwareCost += rollup.hardwareCost
+      buckets.consumablesCost += rollup.consumablesCost
+      buckets.installCost += rollup.installCost + installPrefillCost
+      buckets.optionsCost += rollup.optionsCost
     }
 
-    const marginTarget = project.target_margin_pct ?? orgProfit
-    const marginFraction = Math.min(Math.max(marginTarget / 100, 0), 0.99)
-    const markup = marginFraction > 0 ? 1 / (1 - marginFraction) : 1
-    const priceTotal = Math.round(costTotal * markup)
+    const priceTotal = Math.round(computeBucketedPrice(buckets, margins).priceTotal)
 
     const stored = Number(project.bid_total) || 0
     if (Math.abs(stored - priceTotal) <= EPSILON_DOLLARS) return stored
