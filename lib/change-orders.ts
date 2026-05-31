@@ -10,6 +10,11 @@
 
 import { supabase } from './supabase'
 import { recomputeProjectBidTotal } from './project-totals'
+import {
+  computeBucketedPrice,
+  type BucketMargins,
+  type CostBuckets,
+} from './pricing'
 
 // ── Types ──
 
@@ -107,61 +112,46 @@ export async function loadChangeOrdersForSubproject(
 export interface PricingInputs {
   /** $/hour shop rate, e.g. org.shop_rate. */
   shopRate: number
-  /** 0–100, applied to material. Matches subproject pricing. */
+  /** 0–100, applied to material to derive consumables. Matches subproject pricing. */
   consumableMarkupPct: number
-  /** 0–100, applied after cost to get price. Matches subproject pricing. */
+  /** 0–100, legacy single margin. Used only when `margins` is absent. */
   profitMarginPct: number
+  /** Per-bucket true gross margins (migration 052). When present, CO
+   *  pricing uses these via computeBucketedPrice so it matches the project
+   *  total. When absent, falls back to profitMarginPct (legacy). */
+  margins?: BucketMargins
 }
 
 /**
- * Compute a line's cost (labor + material + consumables) given a snapshot. If
- * the snapshot doesn't have enough info (e.g. custom slot without baseline),
- * returns null to signal "manual entry required."
+ * Compute a line's cost broken into the buckets the margin model needs:
+ * labor (all dept hours incl. install × shop rate), base material (before
+ * consumables), and consumables (material × markup). Returns null when the
+ * snapshot lacks enough info (e.g. custom slot without baseline) so the
+ * caller can prompt manual entry.
  */
 export function computeSnapshotCost(
   snap: LineSnapshot,
   inputs: PricingInputs
-): { materialCost: number; laborCost: number; totalCost: number } | null {
-  // Custom slot diff path (D7).
-  if (snap.is_custom) {
-    if (
-      snap.material_cost_per_lf == null ||
-      snap.labor_hours_eng == null ||
-      snap.labor_hours_cnc == null ||
-      snap.labor_hours_assembly == null ||
-      snap.labor_hours_finish == null ||
-      snap.labor_hours_install == null
-    ) {
-      return null
-    }
-    const lf = snap.linear_feet ?? 0
-    const matCost =
-      (snap.material_cost_per_lf ?? 0) * lf * (1 + inputs.consumableMarkupPct / 100)
-    const hours =
-      (snap.labor_hours_eng ?? 0) +
-      (snap.labor_hours_cnc ?? 0) +
-      (snap.labor_hours_assembly ?? 0) +
-      (snap.labor_hours_finish ?? 0) +
-      (snap.labor_hours_install ?? 0)
-    const laborCost = hours * inputs.shopRate
-    return { materialCost: matCost, laborCost, totalCost: matCost + laborCost }
-  }
+): {
+  materialCost: number
+  consumablesCost: number
+  laborCost: number
+  totalCost: number
+} | null {
+  const hasNumbers =
+    snap.material_cost_per_lf != null &&
+    snap.labor_hours_eng != null &&
+    snap.labor_hours_cnc != null &&
+    snap.labor_hours_assembly != null &&
+    snap.labor_hours_finish != null &&
+    snap.labor_hours_install != null
+  // Custom (D7) and rate-book paths share the same math once numbers are
+  // present; both require the full set or they're unpriceable.
+  if (!hasNumbers) return null
 
-  // Rate-book path — caller must enrich the snapshot with variant + item
-  // details before calling. Any snapshot missing LF + numbers returns null.
-  if (
-    snap.material_cost_per_lf == null ||
-    snap.labor_hours_eng == null ||
-    snap.labor_hours_cnc == null ||
-    snap.labor_hours_assembly == null ||
-    snap.labor_hours_finish == null ||
-    snap.labor_hours_install == null
-  ) {
-    return null
-  }
   const lf = snap.linear_feet ?? 0
-  const matCost =
-    (snap.material_cost_per_lf ?? 0) * lf * (1 + inputs.consumableMarkupPct / 100)
+  const materialCost = (snap.material_cost_per_lf ?? 0) * lf
+  const consumablesCost = materialCost * (inputs.consumableMarkupPct / 100)
   const hours =
     (snap.labor_hours_eng ?? 0) +
     (snap.labor_hours_cnc ?? 0) +
@@ -169,13 +159,41 @@ export function computeSnapshotCost(
     (snap.labor_hours_finish ?? 0) +
     (snap.labor_hours_install ?? 0)
   const laborCost = hours * inputs.shopRate
-  return { materialCost: matCost, laborCost, totalCost: matCost + laborCost }
+  return {
+    materialCost,
+    consumablesCost,
+    laborCost,
+    totalCost: materialCost + consumablesCost + laborCost,
+  }
+}
+
+/** Price a CO snapshot's cost split into a customer price. Uses the three
+ *  per-bucket margins when available (consistent with the project total),
+ *  else the legacy single margin. CO lines have no hardware/options and
+ *  fold install into labor hours, so those buckets are 0. */
+function priceSnapshot(
+  cost: { materialCost: number; consumablesCost: number; laborCost: number; totalCost: number },
+  inputs: PricingInputs,
+): number {
+  if (inputs.margins) {
+    const buckets: CostBuckets = {
+      laborCost: cost.laborCost,
+      materialCost: cost.materialCost,
+      consumablesCost: cost.consumablesCost,
+      hardwareCost: 0,
+      installCost: 0,
+      optionsCost: 0,
+    }
+    return computeBucketedPrice(buckets, inputs.margins).priceTotal
+  }
+  const m = Math.min(Math.max(inputs.profitMarginPct / 100, 0), 0.99)
+  return m > 0 ? cost.totalCost / (1 - m) : cost.totalCost
 }
 
 /**
  * Net price delta for a CO = (proposed price) − (original price). Applies the
- * same margin the subproject pricer uses so the client-facing number is
- * consistent with the original bid. Returns null when either side is
+ * same per-bucket margins the project pricer uses so the client-facing number
+ * is consistent with the original bid. Returns null when either side is
  * unpriceable (caller should prompt manual entry).
  */
 export function computeNetChange(
@@ -186,10 +204,7 @@ export function computeNetChange(
   const o = computeSnapshotCost(original, inputs)
   const p = computeSnapshotCost(proposed, inputs)
   if (!o || !p) return null
-  const marginMultiplier = 1 / (1 - inputs.profitMarginPct / 100)
-  const originalPrice = o.totalCost * marginMultiplier
-  const proposedPrice = p.totalCost * marginMultiplier
-  return Math.round((proposedPrice - originalPrice) * 100) / 100
+  return Math.round((priceSnapshot(p, inputs) - priceSnapshot(o, inputs)) * 100) / 100
 }
 
 /**

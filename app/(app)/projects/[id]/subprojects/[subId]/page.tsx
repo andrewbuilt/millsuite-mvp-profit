@@ -21,6 +21,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Nav from '@/components/nav'
 import { useAuth } from '@/lib/auth-context'
+import { resolveBucketMargins } from '@/lib/pricing'
 import { useConfirm } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import {
@@ -111,6 +112,10 @@ interface ProjectRow {
   // (NULL = inherit org default). Used for the cost-mode subproject
   // bottom-bar's target readout so it agrees with the project page.
   target_margin_pct: number | null
+  // Per-bucket margin pins (052) — used to price change orders here.
+  labor_margin_pct: number | null
+  material_margin_pct: number | null
+  consumable_margin_pct: number | null
 }
 
 // True when this subproject's activity type is "install" — the install
@@ -193,6 +198,25 @@ export default function SubprojectEditorPage() {
     [org?.shop_rate, subproject, org]
   )
 
+  // Change orders ARE customer-facing, so they get real per-bucket margins
+  // (052) — unlike the cost-only rollup above. Same resolution as the
+  // project page: project pin → org default → 35.
+  const coPricing = useMemo(
+    () => ({
+      ...pricingCtx,
+      margins: resolveBucketMargins(project, org),
+    }),
+    [
+      pricingCtx,
+      project?.labor_margin_pct,
+      project?.material_margin_pct,
+      project?.consumable_margin_pct,
+      org?.labor_margin_pct,
+      org?.material_margin_pct,
+      org?.consumable_margin_pct,
+    ],
+  )
+
   // ── Load ──
   useEffect(() => {
     if (!org?.id) return
@@ -202,7 +226,7 @@ export default function SubprojectEditorPage() {
       const [projRes, subRes, siblingsRes, linesData, rb, opts, lineOpts, subActuals, deptRes, composerRb, composerSubDefaults] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, client_name, stage, target_margin_pct')
+          .select('id, name, client_name, stage, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct')
           .eq('id', projectId)
           .single(),
         supabase
@@ -1247,7 +1271,7 @@ export default function SubprojectEditorPage() {
       {coSeed && subproject && (
         <CreateCoModal
           projectId={projectId}
-          pricing={pricingCtx}
+          pricing={coPricing}
           subprojects={[{ id: subId, name: subproject.name }]}
           seed={coSeed}
           composerRateBook={composerRateBook}
