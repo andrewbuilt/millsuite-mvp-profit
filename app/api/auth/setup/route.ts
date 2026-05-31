@@ -76,6 +76,14 @@ export async function POST(req: NextRequest) {
           // to 'active' when Stripe confirms payment.
           plan_status: 'pending',
           seats,
+          // Seed pricing defaults explicitly so a new org is never NULL
+          // (which would fall back to in-code defaults and drift from
+          // what Settings displays). 10% consumables (M3) + 35% per-bucket
+          // margins (052) — matches the code fallbacks exactly.
+          consumable_markup_pct: 10,
+          labor_margin_pct: 35,
+          material_margin_pct: 35,
+          consumable_margin_pct: 35,
         })
         .select()
         .single()
