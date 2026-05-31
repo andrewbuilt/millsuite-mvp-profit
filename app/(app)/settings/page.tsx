@@ -88,7 +88,7 @@ export default function SettingsPage() {
   )
 
   const [seatCount, setSeatCount] = useState(1)
-  const [consumableMarkup, setConsumableMarkup] = useState('15')
+  const [consumableMarkup, setConsumableMarkup] = useState('10')
   // Per-bucket margin defaults (migration 052). Each applies as a true
   // gross margin to its cost group on new projects; a project can pin its
   // own. profit_margin_pct is the legacy single knob, kept only as a
@@ -166,7 +166,7 @@ export default function SettingsPage() {
       if (!cancelled) setSeatCount(userCount || 1)
 
       if (!cancelled) {
-        setConsumableMarkup(org.consumable_markup_pct?.toString() || '15')
+        setConsumableMarkup(org.consumable_markup_pct?.toString() || '10')
         setLaborMargin(
           (org.labor_margin_pct ?? org.profit_margin_pct ?? 35).toString(),
         )
