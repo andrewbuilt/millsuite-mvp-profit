@@ -2,41 +2,68 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { PLAN_SEAT_MINIMUM, validatePlan } from '@/lib/feature-flags'
 
-// Called after Supabase auth signup — creates org + user + default settings.
+// Called right after Supabase auth signup — creates org + owner user +
+// default settings + departments, atomically (migration 053's
+// create_org_with_owner function runs the whole thing in one transaction,
+// so a partial failure can't orphan an org or let a retry duplicate one).
 //
 // New orgs land in plan_status='pending'. The signup page immediately
 // redirects to /api/checkout, where Stripe collects payment; the
 // stripe-webhook then flips plan_status='active'. Until that flip,
 // /app pages show a "complete payment" gate.
+//
+// AUTH (L4): the caller's identity comes from the verified Supabase
+// access token in the Authorization header — NOT from the request body.
+// auth_user_id and email are read off the token so a client can't mint an
+// org for someone else's user id. The signup page ships the token from
+// the session it just created via supabase.auth.signUp().
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { auth_user_id, email, shop_name } = body
+    // ── Verify the session and derive identity (L4) ──
+    const authHeader = req.headers.get('authorization') || ''
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const { data: authData, error: authErr } =
+      await supabaseAdmin.auth.getUser(token)
+    if (authErr || !authData?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const authUserId = authData.user.id
+    const email = authData.user.email
+    if (!email) {
+      return NextResponse.json(
+        { error: 'Authenticated user has no email' },
+        { status: 400 },
+      )
+    }
 
-    if (!auth_user_id || !email || !shop_name) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    const body = await req.json()
+    const shopName =
+      typeof body.shop_name === 'string' ? body.shop_name.trim() : ''
+    if (!shopName) {
+      return NextResponse.json(
+        { error: 'shop_name is required' },
+        { status: 400 },
+      )
     }
 
     // The signup form passes ?plan= through. Anything outside the live
-    // PLANS list (incl. legacy 'trial') falls back to 'starter' — we
-    // don't ship a free tier anymore, but a stale URL shouldn't reject
-    // the signup.
+    // PLANS list (incl. legacy 'trial') falls back to 'starter'.
     const plan = validatePlan(body.plan) ?? 'starter'
-    // Seats — signup form passes the customer's selection (defaults to
-    // tier minimum, customer can bump via the +/- stepper). Floor to
-    // the minimum so a stale form or URL hack can't undercut. The
-    // checkout session may still bump this on Stripe's side via
-    // adjustable_quantity; the webhook re-reads the actual subscription
-    // quantity and overwrites org.seats when payment succeeds.
+    // Seats — floor to the tier minimum so a stale form or URL hack can't
+    // undercut. The checkout session may bump this via adjustable_quantity;
+    // the webhook re-reads the real subscription quantity on payment.
     const requestedSeats = Number(body.seats) || PLAN_SEAT_MINIMUM[plan]
     const seats = Math.max(requestedSeats, PLAN_SEAT_MINIMUM[plan])
 
-    // Check if user already has an org
+    // Idempotency: if this auth user already has an org, return it.
     const { data: existingUser } = await supabaseAdmin
       .from('users')
       .select('id, org_id')
-      .eq('auth_user_id', auth_user_id)
+      .eq('auth_user_id', authUserId)
       .single()
 
     if (existingUser) {
@@ -48,134 +75,46 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Create org. Slug needs to be unique — orgs.slug has a unique
-    // index that we use for /join/[slug] routing. Common shop names
-    // ("Built", "Cabinet Shop") will collide with seed data or with
-    // existing customers, which used to surface as a generic "Failed
-    // to create organization" error and stall the signup. PR #117:
-    // try the clean slug first, fall back to appending a short random
-    // suffix on collision. Five attempts is plenty.
-    const baseSlug = shop_name
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .slice(0, 40) || 'shop'
+    // Base slug from the shop name; the SQL function retries with a random
+    // suffix on collision (orgs.slug is unique, used for /join/[slug]).
+    const baseSlug =
+      shopName
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .slice(0, 40) || 'shop'
 
-    let slug = baseSlug
-    let org: any = null
-    let orgError: any = null
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const result = await supabaseAdmin
-        .from('orgs')
-        .insert({
-          name: shop_name,
-          slug,
-          plan,
-          // Override the migration's 'active' default — new signups
-          // must pay before they get access. The webhook flips this
-          // to 'active' when Stripe confirms payment.
-          plan_status: 'pending',
-          seats,
-          // Seed pricing defaults explicitly so a new org is never NULL
-          // (which would fall back to in-code defaults and drift from
-          // what Settings displays). 10% consumables (M3) + 35% per-bucket
-          // margins (052) — matches the code fallbacks exactly.
-          consumable_markup_pct: 10,
-          labor_margin_pct: 35,
-          material_margin_pct: 35,
-          consumable_margin_pct: 35,
-        })
-        .select()
-        .single()
-      if (result.data) {
-        org = result.data
-        orgError = null
-        break
-      }
-      orgError = result.error
-      // Postgres uniqueness violation: error code '23505'. Append a
-      // short random suffix and retry. Anything else is a real error
-      // — bail out so we don't loop on a constraint we can't recover
-      // from (e.g. a missing required column).
-      const isUniqueViolation =
-        orgError?.code === '23505' ||
-        (typeof orgError?.message === 'string' &&
-          /duplicate key|unique constraint|already exists/i.test(orgError.message))
-      if (!isUniqueViolation) break
-      slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`.slice(0, 50)
-    }
+    // ── Atomic create (migration 053) ──
+    const { data: created, error: rpcErr } = await supabaseAdmin.rpc(
+      'create_org_with_owner',
+      {
+        p_auth_user_id: authUserId,
+        p_email: email,
+        p_shop_name: shopName,
+        p_plan: plan,
+        p_seats: seats,
+        p_base_slug: baseSlug,
+      },
+    )
 
-    if (orgError || !org) {
-      console.error('Org creation error:', orgError)
+    // rpc() returns the function's TABLE result as an array of rows.
+    const row = Array.isArray(created) ? created[0] : created
+    if (rpcErr || !row?.org_id) {
+      console.error('create_org_with_owner failed:', rpcErr)
       return NextResponse.json(
         {
-          error: orgError?.message
-            ? `Failed to create organization: ${orgError.message}`
+          error: rpcErr?.message
+            ? `Failed to create organization: ${rpcErr.message}`
             : 'Failed to create organization',
         },
         { status: 500 },
       )
     }
 
-    // Create user linked to auth + org
-    const { data: user, error: userError } = await supabaseAdmin
-      .from('users')
-      .insert({
-        org_id: org.id,
-        auth_user_id,
-        email,
-        name: shop_name,
-        role: 'owner',
-      })
-      .select()
-      .single()
-
-    if (userError) {
-      console.error('User creation error:', userError)
-      return NextResponse.json({ error: 'Failed to create user' }, { status: 500 })
-    }
-
-    // Update org owner
-    await supabaseAdmin
-      .from('orgs')
-      .update({ owner_id: user.id })
-      .eq('id', org.id)
-
-    // Create default shop rate settings
-    await supabaseAdmin
-      .from('shop_rate_settings')
-      .insert({ org_id: org.id })
-
-    // Seed the canonical 5 departments. Settings → Active departments
-    // can toggle any of these off later (active=false hides them from
-    // schedule / time clock / capacity without orphaning past time
-    // entries). 8 hours/day default = 40 hours/week.
-    const DEFAULT_DEPARTMENTS = [
-      { name: 'Engineering', display_order: 1 },
-      { name: 'CNC', display_order: 2 },
-      { name: 'Assembly', display_order: 3 },
-      { name: 'Finish', display_order: 4 },
-      { name: 'Install', display_order: 5 },
-    ]
-    const { error: deptErr } = await supabaseAdmin.from('departments').insert(
-      DEFAULT_DEPARTMENTS.map((d) => ({
-        org_id: org.id,
-        name: d.name,
-        display_order: d.display_order,
-        active: true,
-        hours_per_day: 8,
-      })),
-    )
-    if (deptErr) {
-      // Non-fatal — the org is created, the operator can add departments
-      // manually from Settings if the seed insert fails.
-      console.warn('Department seed failed', deptErr)
-    }
-
     return NextResponse.json({
-      org_id: org.id,
-      user_id: user.id,
-      slug: org.slug,
+      org_id: row.org_id,
+      user_id: row.user_id,
+      slug: row.slug,
       plan,
       seats,
     })
