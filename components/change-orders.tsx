@@ -1089,8 +1089,15 @@ function LegacyCoEditor({
                     {computed > 0 ? '+' : ''}
                     {fmtMoney(computed)}
                     <span className="ml-2 text-[10px] text-neutral-500 font-normal">
-                      incl. {pricing.consumableMarkupPct}% consumables,{' '}
-                      {pricing.profitMarginPct}% margin
+                      {pricing.margins
+                        ? `incl. ${pricing.consumableMarkupPct}% consumables · margins ${pricing.margins.laborMarginPct.toFixed(
+                            0,
+                          )}% labor / ${pricing.margins.materialMarginPct.toFixed(
+                            0,
+                          )}% material / ${pricing.margins.consumableMarginPct.toFixed(
+                            0,
+                          )}% consumables`
+                        : `incl. ${pricing.consumableMarkupPct}% consumables, ${pricing.profitMarginPct}% margin`}
                     </span>
                   </div>
                 )}

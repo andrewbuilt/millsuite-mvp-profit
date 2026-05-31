@@ -40,6 +40,7 @@ import {
   type ApprovalItem,
 } from '@/lib/approvals'
 import type { PricingInputs } from '@/lib/change-orders'
+import { resolveBucketMargins } from '@/lib/pricing'
 import type { ProjectStage } from '@/lib/types'
 import { loadComposerRateBook } from '@/lib/composer-loader'
 import {
@@ -57,6 +58,9 @@ interface Project {
   bid_total: number
   sold_at: string | null
   target_start_date: string | null
+  labor_margin_pct: number | null
+  material_margin_pct: number | null
+  consumable_margin_pct: number | null
 }
 
 interface Subproject {
@@ -128,7 +132,7 @@ export default function PreProductionPage() {
     const [projRes, subsRes] = await Promise.all([
       supabase
         .from('projects')
-        .select('id, name, client_name, stage, bid_total, sold_at, target_start_date')
+        .select('id, name, client_name, stage, bid_total, sold_at, target_start_date, labor_margin_pct, material_margin_pct, consumable_margin_pct')
         .eq('id', projectId)
         .single(),
       supabase
@@ -296,6 +300,8 @@ export default function PreProductionPage() {
     shopRate: org?.shop_rate ?? 0,
     consumableMarkupPct: org?.consumable_markup_pct ?? 10,
     profitMarginPct: org?.profit_margin_pct ?? 35,
+    // Per-bucket margins (052) so CO repricing matches the project total.
+    margins: resolveBucketMargins(project, org),
   }
 
   const soldDate = fmtDate(project.sold_at)
