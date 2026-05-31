@@ -1745,8 +1745,15 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
       const apiMessages = recent.map(m => ({ role: m.role === 'assistant' ? 'assistant' as const : 'user' as const, content: m.text }))
 
       const sysPrompt = buildSystemPrompt(blocks, priorities, capacityOverrides)
+      // The route now gates on the caller's session (H1) — ship the access token.
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
       const response = await fetch('/api/schedule-ai', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({ system: sysPrompt, messages: apiMessages }),
       })
       if (!response.ok) {

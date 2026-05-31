@@ -105,9 +105,15 @@ export default function InvoiceParser() {
     reader.onload = async () => {
       const base64 = (reader.result as string).split(',')[1]
       try {
+        // The route now gates on the caller's session (H1) — ship the access token.
+        const { data: sessionData } = await supabase.auth.getSession()
+        const accessToken = sessionData.session?.access_token
         const res = await fetch('/api/parse-invoice', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
           body: JSON.stringify({
             base64_content: base64,
             mime_type: file.type,

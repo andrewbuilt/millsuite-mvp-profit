@@ -1,7 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  resolveApiCaller,
+  unauthorized,
+  paymentRequired,
+  forbidden,
+} from "@/lib/api-auth";
+import { hasAccess, hasActiveSubscription } from "@/lib/feature-flags";
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Auth + entitlement gate (H1) ──
+    // This route forwards arbitrary prompts to Claude on our API key, so
+    // it must never be reachable unauthenticated. Require a signed-in
+    // caller, an active subscription, and the 'schedule' feature (Pro+),
+    // which is the only place the schedule AI assistant is exposed.
+    const caller = await resolveApiCaller(req);
+    if (!caller) return unauthorized();
+    if (!hasActiveSubscription(caller.planStatus)) return paymentRequired();
+    if (!hasAccess(caller.plan, "schedule")) return forbidden("schedule");
+
     const { system, messages } = await req.json();
 
     if (!system || !messages || !Array.isArray(messages)) {
