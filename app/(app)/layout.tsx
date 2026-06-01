@@ -3,6 +3,7 @@ import { ConfirmProvider } from '@/components/confirm-dialog'
 import RoleGate from '@/components/role-gate'
 import BillingGate from '@/components/billing-gate'
 import WelcomeOverlay from '@/components/onboarding/WelcomeOverlay'
+import UpdateBanner from '@/components/update-banner'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -25,6 +26,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               RoleGate — the overlay hook reads useAuth() and renders
               nothing until the user + org are loaded. */}
           <WelcomeOverlay />
+          {/* Gentle "new version available" toast — polls /api/version and
+              nudges (never auto-reloads) when a newer deploy is live. */}
+          <UpdateBanner />
         </BillingGate>
       </RoleGate>
     </ConfirmProvider>
