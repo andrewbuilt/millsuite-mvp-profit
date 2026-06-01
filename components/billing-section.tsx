@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
-import { PLAN_LABELS, PLAN_SEAT_PRICE } from '@/lib/feature-flags'
+import { PLAN_LABELS, PLAN_SEAT_PRICE, isTrialActive, trialDaysLeft } from '@/lib/feature-flags'
 
 // BillingSection — the Subscription card on the Settings page. Shows
 // plan / seats / next billing date / status, and exposes the Stripe
@@ -54,8 +54,12 @@ export default function BillingSection() {
       })
     : null
 
+  const trialing = isTrialActive(org.plan_status, org.trial_ends_at)
+  const daysLeft = trialDaysLeft(org.trial_ends_at)
+
   const statusLabel: Record<string, { label: string; tone: string }> = {
     active: { label: 'Active', tone: 'bg-green-50 border-green-200 text-green-700' },
+    trialing: { label: 'Free trial', tone: 'bg-blue-50 border-blue-200 text-blue-700' },
     pending: { label: 'Awaiting payment', tone: 'bg-amber-50 border-amber-200 text-amber-800' },
     past_due: { label: 'Past due', tone: 'bg-red-50 border-red-200 text-red-700' },
     canceled: { label: 'Canceled', tone: 'bg-gray-100 border-gray-200 text-gray-600' },
@@ -117,9 +121,11 @@ export default function BillingSection() {
   const hasStripe = !!org.stripe_customer_id
   const action = hasStripe
     ? { label: 'Manage subscription', onClick: openPortal }
-    : org.plan_status === 'active'
-      ? { label: 'Set up billing', onClick: startCheckout }
-      : { label: 'Complete payment', onClick: startCheckout }
+    : trialing
+      ? { label: 'Add billing', onClick: startCheckout }
+      : org.plan_status === 'active'
+        ? { label: 'Set up billing', onClick: startCheckout }
+        : { label: 'Complete payment', onClick: startCheckout }
 
   return (
     <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
@@ -188,6 +194,13 @@ export default function BillingSection() {
             <span className="text-sm text-[#111]">{nextBilling}</span>
           </Row>
         )}
+        {trialing && (
+          <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 mt-2">
+            You're on a free trial — <span className="font-semibold">{daysLeft} {daysLeft === 1 ? 'day' : 'days'} left</span>.
+            No card on file yet. Add billing anytime to keep access when the trial ends; your data stays put.
+          </div>
+        )}
+
         {org.cancel_at_period_end && (
           <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 mt-2">
             Your subscription is set to cancel at the end of the current billing period.
