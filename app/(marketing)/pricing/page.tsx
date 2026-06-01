@@ -137,6 +137,11 @@ export default function PricingPage() {
                     ${price}
                   </span>
                   <span className="text-sm text-[#8B8B96] ml-1.5">/seat/mo</span>
+                  {tier.key === 'starter' && (
+                    <p className="mt-1.5 text-xs font-medium text-[#7FB88A]">
+                      30-day free trial · no credit card required
+                    </p>
+                  )}
                 </div>
                 <ul className="space-y-2.5 mb-6">
                   {tier.features.map((f) => (
@@ -154,7 +159,7 @@ export default function PricingPage() {
                       : 'bg-white/[0.06] border border-white/[0.1] text-white hover:bg-white/[0.1]'
                   }`}
                 >
-                  Sign up
+                  {tier.key === 'starter' ? 'Start free trial' : 'Sign up'}
                 </Link>
               </div>
             )
@@ -178,7 +183,7 @@ export default function PricingPage() {
             href="/signup?plan=starter"
             className="inline-flex items-center gap-2 px-6 py-3 bg-[#D4956A] text-white font-medium rounded-xl hover:bg-[#C4855A] transition-colors"
           >
-            Start with Profit <ArrowRight className="w-4 h-4" />
+            Start your free trial <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
       </section>
