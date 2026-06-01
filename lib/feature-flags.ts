@@ -159,12 +159,16 @@ export function validatePlan(plan: unknown): Plan | null {
 
 export const PLAN_STATUSES = [
   'pending',     // signed up, hasn't paid yet
+  'trialing',    // app-managed no-card trial (base tier) — access until trial_ends_at
   'active',      // subscription in good standing
   'past_due',    // recurring charge failed; grace period before downgrade
   'canceled',    // canceled and period ended
   'incomplete',  // initial payment failed or 3DS pending
 ] as const
 export type PlanStatus = typeof PLAN_STATUSES[number]
+
+/** Length of the no-card base-tier trial, in days. */
+export const TRIAL_DAYS = 30
 
 /** Subscription is in good standing — full access granted.
  *  past_due is a soft state — Stripe will retry. We treat it as still-
@@ -174,4 +178,37 @@ export type PlanStatus = typeof PLAN_STATUSES[number]
  *  flip to 'canceled'. */
 export function hasActiveSubscription(planStatus: string | undefined | null): boolean {
   return planStatus === 'active' || planStatus === 'past_due'
+}
+
+/** True while an app-managed (no-card) trial is still running. The trial
+ *  grants full access until trial_ends_at; after that the gate flips to
+ *  "subscribe to continue". */
+export function isTrialActive(
+  planStatus: string | undefined | null,
+  trialEndsAt: string | null | undefined,
+): boolean {
+  return (
+    planStatus === 'trialing' &&
+    !!trialEndsAt &&
+    new Date(trialEndsAt).getTime() > Date.now()
+  )
+}
+
+/** Whole-app access check: a paid-up subscription OR an active trial.
+ *  This is the single gate the app and API routes should use. */
+export function hasAppAccess(o: {
+  plan_status?: string | null
+  trial_ends_at?: string | null
+}): boolean {
+  return (
+    hasActiveSubscription(o.plan_status) ||
+    isTrialActive(o.plan_status, o.trial_ends_at)
+  )
+}
+
+/** Whole days left in an active trial (0 if none / expired). */
+export function trialDaysLeft(trialEndsAt: string | null | undefined): number {
+  if (!trialEndsAt) return 0
+  const ms = new Date(trialEndsAt).getTime() - Date.now()
+  return ms > 0 ? Math.ceil(ms / (1000 * 60 * 60 * 24)) : 0
 }

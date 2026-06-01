@@ -95,11 +95,18 @@ export default function SignupPage() {
       const setup = await res.json()
       if (!res.ok) throw new Error(setup.error || 'Failed to create account')
 
-      // 3. Hand off to Stripe Checkout. On success, Stripe redirects to
-      // /dashboard?welcome=true; the webhook will have already flipped
-      // plan_status to 'active' by then. On cancel, Stripe redirects to
-      // /settings?canceled=1 — but they'll hit the BillingGate first
-      // since plan_status is still 'pending'.
+      // 3a. Base-tier trial (055): no card required. The org is already
+      // 'trialing' with access for 30 days, so skip Stripe Checkout and go
+      // straight into the app. They convert later from Settings → Billing.
+      if (setup.trial) {
+        window.location.href = '/dashboard?welcome=true'
+        return
+      }
+
+      // 3b. Paid tiers — hand off to Stripe Checkout. On success, Stripe
+      // redirects to /dashboard?welcome=true; the webhook will have flipped
+      // plan_status to 'active' by then. On cancel → /settings?canceled=1,
+      // where they hit the BillingGate since plan_status is still 'pending'.
       const checkoutRes = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -153,6 +160,11 @@ export default function SignupPage() {
               {' · '}
               <span className="font-mono">${planPrice}/seat/mo</span>
             </p>
+            {plan === 'starter' && (
+              <p className="text-xs text-[#7FB88A] mt-1.5 font-medium">
+                30-day free trial · no credit card required
+              </p>
+            )}
             <p className="text-xs text-[#555] mt-1">
               Not the right tier?{' '}
               <Link href="/pricing" className="text-[#D4956A] hover:text-[#C4855A]">

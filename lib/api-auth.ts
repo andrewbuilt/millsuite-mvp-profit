@@ -24,6 +24,7 @@ export interface ApiCaller {
   userId: string | null
   plan: string
   planStatus: string
+  trialEndsAt: string | null
 }
 
 /**
@@ -51,7 +52,7 @@ export async function resolveApiCaller(
 
   const { data: org } = await supabaseAdmin
     .from('orgs')
-    .select('plan, plan_status')
+    .select('plan, plan_status, trial_ends_at')
     .eq('id', row.org_id)
     .single()
 
@@ -60,6 +61,7 @@ export async function resolveApiCaller(
     userId: (row as { id?: string }).id ?? null,
     plan: (org?.plan as string) ?? 'starter',
     planStatus: (org?.plan_status as string) ?? 'pending',
+    trialEndsAt: (org?.trial_ends_at as string | null) ?? null,
   }
 }
 

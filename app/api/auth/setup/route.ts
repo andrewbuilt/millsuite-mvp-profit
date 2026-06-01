@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { PLAN_SEAT_MINIMUM, validatePlan } from '@/lib/feature-flags'
+import { PLAN_SEAT_MINIMUM, validatePlan, TRIAL_DAYS } from '@/lib/feature-flags'
 
 // Called right after Supabase auth signup — creates org + owner user +
 // default settings + departments, atomically (migration 053's
@@ -84,7 +84,17 @@ export async function POST(req: NextRequest) {
         .replace(/\s+/g, '-')
         .slice(0, 40) || 'shop'
 
-    // ── Atomic create (migration 053) ──
+    // ── Trial vs pay-immediately (055) ──
+    // The base tier ('starter'/Profit) starts a 30-day no-card trial:
+    // plan_status='trialing' + trial_ends_at grants access right away with
+    // no checkout. Pro / Pro+ stay 'pending' and must pay at signup.
+    const isTrial = plan === 'starter'
+    const trialEndsAt = isTrial
+      ? new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      : null
+    const planStatus = isTrial ? 'trialing' : 'pending'
+
+    // ── Atomic create (migrations 053 + 055) ──
     const { data: created, error: rpcErr } = await supabaseAdmin.rpc(
       'create_org_with_owner',
       {
@@ -94,6 +104,8 @@ export async function POST(req: NextRequest) {
         p_plan: plan,
         p_seats: seats,
         p_base_slug: baseSlug,
+        p_plan_status: planStatus,
+        p_trial_ends_at: trialEndsAt,
       },
     )
 
@@ -117,6 +129,8 @@ export async function POST(req: NextRequest) {
       slug: row.slug,
       plan,
       seats,
+      // Base tier started a trial → the signup page skips Stripe Checkout.
+      trial: isTrial,
     })
   } catch (err: any) {
     console.error('Auth setup error:', err)

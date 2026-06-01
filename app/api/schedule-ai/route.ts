@@ -5,7 +5,7 @@ import {
   paymentRequired,
   forbidden,
 } from "@/lib/api-auth";
-import { hasAccess, hasActiveSubscription } from "@/lib/feature-flags";
+import { hasAccess, hasAppAccess } from "@/lib/feature-flags";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,7 +16,8 @@ export async function POST(req: NextRequest) {
     // which is the only place the schedule AI assistant is exposed.
     const caller = await resolveApiCaller(req);
     if (!caller) return unauthorized();
-    if (!hasActiveSubscription(caller.planStatus)) return paymentRequired();
+    if (!hasAppAccess({ plan_status: caller.planStatus, trial_ends_at: caller.trialEndsAt }))
+      return paymentRequired();
     if (!hasAccess(caller.plan, "schedule")) return forbidden("schedule");
 
     const { system, messages } = await req.json();
