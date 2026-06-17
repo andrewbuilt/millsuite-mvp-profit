@@ -1,0 +1,243 @@
+// lib/quickbooks.ts
+// QuickBooks Online integration for MillSuite — OAuth 2.0 + per-org token
+// storage. Ported from Built OS's single-tenant client and adapted to
+// MillSuite's per-org `qb_connections` table (one row per org; migrations 010 +
+// 058). Tokens are stored raw — MVP posture, same as Built OS; the table is
+// only ever read server-side via the service-role client below.
+//
+// Chunk 2 is the connect/refresh/status half. The push half
+// (findOrCreateCustomer / createEstimate / createInvoice) lands in Chunk 3 and
+// will build on getValidToken() / qboApi() here.
+
+import { supabaseAdmin } from '@/lib/supabase-admin'
+
+const QBO_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
+const QBO_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
+const QBO_API_BASE =
+  process.env.QBO_ENVIRONMENT === 'sandbox'
+    ? 'https://sandbox-quickbooks.api.intuit.com'
+    : 'https://quickbooks.api.intuit.com'
+const QBO_MINOR_VERSION = '73'
+const QBO_SCOPE = 'com.intuit.quickbooks.accounting'
+
+const CLIENT_ID = process.env.QBO_CLIENT_ID!
+const CLIENT_SECRET = process.env.QBO_CLIENT_SECRET!
+const REDIRECT_URI = process.env.QBO_REDIRECT_URI!
+
+export interface QBOTokens {
+  access_token: string
+  refresh_token: string
+  realm_id: string
+  expires_at: string
+  refresh_expires_at: string
+}
+
+/**
+ * Build the Intuit consent URL. `state` round-trips back to our callback
+ * unchanged; we put the org id there so the callback knows which org to store
+ * tokens for. (MVP: plain org id. TODO before multi-tenant GA: HMAC-sign it so
+ * the callback can reject a tampered/forged org id.)
+ */
+export function getAuthUrl(state: string): string {
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    response_type: 'code',
+    scope: QBO_SCOPE,
+    state,
+  })
+  return `${QBO_AUTH_URL}?${params.toString()}`
+}
+
+/** Exchange the authorization code for tokens and store them for this org. */
+export async function exchangeCodeForTokens(
+  code: string,
+  realmId: string,
+  orgId: string,
+): Promise<QBOTokens> {
+  const basicAuth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')
+  const response = await fetch(QBO_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: REDIRECT_URI,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(`Token exchange failed: ${response.status} ${await response.text()}`)
+  }
+  const data = await response.json()
+  const now = Date.now()
+  const tokens: QBOTokens = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    realm_id: realmId,
+    expires_at: new Date(now + data.expires_in * 1000).toISOString(),
+    refresh_expires_at: new Date(
+      now + data.x_refresh_token_expires_in * 1000,
+    ).toISOString(),
+  }
+  // Initial connect (or reconnect): upsert the whole row for this org. A
+  // leftover stub row for the same org is overwritten via onConflict.
+  const { error } = await supabaseAdmin.from('qb_connections').upsert(
+    {
+      org_id: orgId,
+      realm_id: tokens.realm_id,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: tokens.expires_at,
+      refresh_expires_at: tokens.refresh_expires_at,
+      scope: QBO_SCOPE,
+      connected_at: new Date().toISOString(),
+      metadata: {},
+    },
+    { onConflict: 'org_id' },
+  )
+  if (error) throw new Error(`Failed to save QB tokens: ${error.message}`)
+  return tokens
+}
+
+/** Refresh this org's access token using its stored refresh token. */
+export async function refreshAccessToken(orgId: string): Promise<QBOTokens> {
+  const current = await getStoredTokens(orgId)
+  if (!current) throw new Error('QuickBooks not connected for this org')
+  const basicAuth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')
+  const response = await fetch(QBO_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: current.refresh_token,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(`Token refresh failed: ${response.status} ${await response.text()}`)
+  }
+  const data = await response.json()
+  const now = Date.now()
+  const tokens: QBOTokens = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    realm_id: current.realm_id,
+    expires_at: new Date(now + data.expires_in * 1000).toISOString(),
+    refresh_expires_at: new Date(
+      now + data.x_refresh_token_expires_in * 1000,
+    ).toISOString(),
+  }
+  const { error } = await supabaseAdmin
+    .from('qb_connections')
+    .update({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: tokens.expires_at,
+      refresh_expires_at: tokens.refresh_expires_at,
+    })
+    .eq('org_id', orgId)
+  if (error) throw new Error(`Failed to update QB tokens: ${error.message}`)
+  return tokens
+}
+
+/**
+ * The org's stored tokens, or null if it isn't really connected. A row with
+ * null access/refresh tokens (e.g. a leftover from the old stub button) counts
+ * as not-connected.
+ */
+export async function getStoredTokens(orgId: string): Promise<QBOTokens | null> {
+  const { data, error } = await supabaseAdmin
+    .from('qb_connections')
+    .select('realm_id, access_token, refresh_token, expires_at, refresh_expires_at')
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (error || !data) return null
+  if (!data.access_token || !data.refresh_token) return null
+  return data as QBOTokens
+}
+
+/** A valid access token for this org, refreshing if it's within 5 min of expiry. */
+async function getValidToken(
+  orgId: string,
+): Promise<{ accessToken: string; realmId: string }> {
+  let tokens = await getStoredTokens(orgId)
+  if (!tokens) throw new Error('QuickBooks not connected for this org')
+  const msUntilExpiry = new Date(tokens.expires_at).getTime() - Date.now()
+  if (msUntilExpiry < 5 * 60 * 1000) {
+    tokens = await refreshAccessToken(orgId)
+  }
+  return { accessToken: tokens.access_token, realmId: tokens.realm_id }
+}
+
+/** Call the QBO API for an org, auto-refreshing once on a 401. */
+export async function qboApi<T = any>(
+  orgId: string,
+  method: string,
+  endpoint: string,
+  body?: any,
+): Promise<T> {
+  const { accessToken, realmId } = await getValidToken(orgId)
+  const url = `${QBO_API_BASE}/v3/company/${realmId}/${endpoint}?minorversion=${QBO_MINOR_VERSION}`
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  }
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken(orgId)
+    headers.Authorization = `Bearer ${refreshed.access_token}`
+    const retry = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!retry.ok) {
+      throw new Error(`QBO API error after refresh: ${retry.status} ${await retry.text()}`)
+    }
+    return retry.json()
+  }
+  if (!response.ok) {
+    throw new Error(`QBO API error: ${response.status} ${await response.text()}`)
+  }
+  return response.json()
+}
+
+/**
+ * Whether the org is connected, plus the QB company name. The companyinfo call
+ * actually exercises the token, so a `connected: true` here means the
+ * connection genuinely works (not just that a row exists).
+ */
+export async function getConnectionStatus(orgId: string): Promise<{
+  connected: boolean
+  companyName?: string
+  realmId?: string
+  tokenExpiresAt?: string
+  refreshExpiresAt?: string
+}> {
+  const tokens = await getStoredTokens(orgId)
+  if (!tokens) return { connected: false }
+  try {
+    const info = await qboApi<any>(orgId, 'GET', 'companyinfo/' + tokens.realm_id)
+    return {
+      connected: true,
+      companyName: info.CompanyInfo?.CompanyName || 'Connected',
+      realmId: tokens.realm_id,
+      tokenExpiresAt: tokens.expires_at,
+      refreshExpiresAt: tokens.refresh_expires_at,
+    }
+  } catch {
+    return { connected: false, realmId: tokens.realm_id }
+  }
+}

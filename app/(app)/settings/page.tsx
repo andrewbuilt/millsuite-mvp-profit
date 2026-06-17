@@ -1247,72 +1247,87 @@ function BillableInput({
 
 // ── QuickBooks connection panel (Phase 9) ──
 
-interface QbConnection {
-  id: string
-  realm_id: string
-  connected_at: string
-  last_polled_at: string | null
+interface QbStatus {
+  connected: boolean
+  companyName?: string
+  realmId?: string
+  refreshExpiresAt?: string
 }
 
 function QuickBooksPanel({ orgId }: { orgId: string | null }) {
-  const [conn, setConn] = useState<QbConnection | null>(null)
+  const [status, setStatus] = useState<QbStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [realmInput, setRealmInput] = useState('')
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
 
-  const refresh = useCallback(async () => {
+  // Attaches the caller's Supabase access token so the /api/qb routes can
+  // resolve which org is asking.
+  const authedFetch = useCallback(async (path: string) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return fetch(path, {
+      headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+    })
+  }, [])
+
+  const loadStatus = useCallback(async () => {
     if (!orgId) return
     setLoading(true)
-    const { data } = await supabase
-      .from('qb_connections')
-      .select('id, realm_id, connected_at, last_polled_at')
-      .eq('org_id', orgId)
-      .maybeSingle()
-    setConn((data as QbConnection | null) ?? null)
+    try {
+      const res = await authedFetch('/api/qb/status')
+      setStatus(res.ok ? await res.json() : { connected: false })
+    } catch {
+      setStatus({ connected: false })
+    }
     setLoading(false)
-  }, [orgId])
+  }, [orgId, authedFetch])
+
+  // Surface the outcome of an OAuth round-trip (?qb=connected | ?qb=error&reason=)
+  // then strip it from the URL so a refresh doesn't replay the banner.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const qb = params.get('qb')
+    if (qb === 'connected') setNotice({ ok: true, text: 'QuickBooks connected.' })
+    else if (qb === 'error') {
+      setNotice({ ok: false, text: `Couldn't connect: ${params.get('reason') || 'unknown error'}` })
+    }
+    if (qb) window.history.replaceState({}, '', '/settings')
+  }, [])
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    loadStatus()
+  }, [loadStatus])
 
   async function handleConnect() {
     if (!orgId) return
     setBusy(true)
-    const realm = realmInput.trim() || `sim-${Math.random().toString(36).slice(2, 10)}`
-    const { error } = await supabase.from('qb_connections').insert({
-      org_id: orgId,
-      realm_id: realm,
-      access_token: null,
-      refresh_token: null,
-      expires_at: null,
-      scope: 'com.intuit.quickbooks.accounting',
-      metadata: { stub: true, note: 'Synthetic connection — real OAuth lands in follow-up.' },
-    })
-    setBusy(false)
-    if (error) {
-      console.error('QB connect', error)
-      alert(`Failed to save QB connection: ${error.message}`)
-      return
+    try {
+      const res = await authedFetch('/api/qb/connect')
+      const data = await res.json()
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || 'Could not start QuickBooks connect')
+      }
+      window.location.href = data.url // off to Intuit's consent screen
+    } catch (err: any) {
+      setBusy(false)
+      setNotice({ ok: false, text: err?.message || 'Could not start QuickBooks connect' })
     }
-    setRealmInput('')
-    refresh()
   }
 
   async function handleDisconnect() {
-    if (!orgId || !conn) return
+    if (!orgId) return
     if (!window.confirm('Disconnect QuickBooks? Past QB events stay in your audit log; no new events will be accepted until you reconnect.')) {
       return
     }
     setBusy(true)
-    const { error } = await supabase.from('qb_connections').delete().eq('id', conn.id)
+    const { error } = await supabase.from('qb_connections').delete().eq('org_id', orgId)
     setBusy(false)
     if (error) {
-      console.error('QB disconnect', error)
-      alert(`Failed to disconnect: ${error.message}`)
+      setNotice({ ok: false, text: `Failed to disconnect: ${error.message}` })
       return
     }
-    refresh()
+    setNotice({ ok: true, text: 'QuickBooks disconnected.' })
+    loadStatus()
   }
 
   return (
@@ -1321,14 +1336,14 @@ function QuickBooksPanel({ orgId }: { orgId: string | null }) {
         <div>
           <h2 className="text-base font-semibold">QuickBooks</h2>
           <p className="text-xs text-[#9CA3AF] mt-0.5 max-w-md">
-            MillSuite never sends to QuickBooks. It only watches.
-            Connect your Intuit realm and we'll match deposits and invoice
-            payments back to the milestones you already set on each project.
-            Review unmatched events on the{' '}
+            Connect your QuickBooks Online company. When your invoicing backend
+            is set to QuickBooks, MillSuite pushes estimates and invoices here
+            and watches for payments to update your project milestones. Review
+            matched and unmatched payments on the{' '}
             <Link href="/qb-reconciliation" className="text-[#2563EB] underline">reconciliation page</Link>.
           </p>
         </div>
-        {conn && (
+        {status?.connected && (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#DCFCE7] text-[#15803D] text-xs font-semibold uppercase tracking-wide">
             <span className="w-1.5 h-1.5 rounded-full bg-[#15803D]" />
             Connected
@@ -1336,15 +1351,26 @@ function QuickBooksPanel({ orgId }: { orgId: string | null }) {
         )}
       </div>
       <div className="px-6 py-4">
+        {notice && (
+          <div
+            className={`mb-3 text-xs px-3 py-2 rounded-lg ${
+              notice.ok ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEE2E2] text-[#B91C1C]'
+            }`}
+          >
+            {notice.text}
+          </div>
+        )}
         {loading ? (
-          <div className="text-xs text-[#9CA3AF]">Loading connection…</div>
-        ) : conn ? (
+          <div className="text-xs text-[#9CA3AF]">Checking connection…</div>
+        ) : status?.connected ? (
           <div className="flex items-start justify-between gap-4">
             <div className="text-sm">
-              <div className="font-mono text-[#111]">{conn.realm_id}</div>
+              <div className="font-medium text-[#111]">{status.companyName}</div>
               <div className="text-[11px] text-[#9CA3AF] mt-1">
-                Connected {new Date(conn.connected_at).toLocaleString()}
-                {conn.last_polled_at ? ` · last poll ${new Date(conn.last_polled_at).toLocaleString()}` : ' · never polled'}
+                Company ID {status.realmId}
+                {status.refreshExpiresAt
+                  ? ` · reconnect by ${new Date(status.refreshExpiresAt).toLocaleDateString()}`
+                  : ''}
               </div>
             </div>
             <button
@@ -1356,22 +1382,13 @@ function QuickBooksPanel({ orgId }: { orgId: string | null }) {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="Realm ID (optional, leave blank to simulate)"
-              value={realmInput}
-              onChange={(e) => setRealmInput(e.target.value)}
-              className="flex-1 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
-            />
-            <button
-              onClick={handleConnect}
-              disabled={busy || !orgId}
-              className="px-4 py-2 text-sm font-semibold rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50"
-            >
-              {busy ? 'Connecting…' : 'Connect QuickBooks'}
-            </button>
-          </div>
+          <button
+            onClick={handleConnect}
+            disabled={busy || !orgId}
+            className="px-4 py-2 text-sm font-semibold rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50"
+          >
+            {busy ? 'Connecting…' : 'Connect QuickBooks'}
+          </button>
         )}
       </div>
     </div>
