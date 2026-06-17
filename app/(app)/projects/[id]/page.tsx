@@ -87,6 +87,8 @@ import {
   type InvoiceStatus,
 } from '@/lib/invoices'
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
+import QbPushModal from '@/components/QbPushModal'
+import { invoicingMode } from '@/lib/org-settings'
 import ReparseModal from '@/components/reparse/ReparseModal'
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
@@ -334,6 +336,9 @@ export default function ProjectCoverPage() {
   // Ad-hoc invoice modal — opens via the "+ New invoice" button above
   // the Payment Milestones panel. No milestone seed.
   const [adHocInvoiceOpen, setAdHocInvoiceOpen] = useState(false)
+  // Milestone being pushed to QuickBooks as an invoice (QB invoicing mode).
+  // Mutually exclusive with createInvoiceMilestoneId (internal mode).
+  const [qbInvoiceMilestoneId, setQbInvoiceMilestoneId] = useState<string | null>(null)
   // Re-parse drawings modal. Opens when the operator clicks the
   // action-bar button; reads source_pdf_paths from intake_context,
   // re-runs the parser, and surfaces a diff against current scope.
@@ -765,6 +770,64 @@ export default function ProjectCoverPage() {
   }
 
   const qbTotal = qbLines.reduce((s, l) => s + (l.amount || 0), 0)
+
+  // ── QuickBooks push (only when the org's invoicing backend is QuickBooks) ──
+  const qbMode = invoicingMode(org) === 'quickbooks'
+  const qbInvoiceMilestone =
+    milestones.find((m) => m.id === qbInvoiceMilestoneId) || null
+
+  async function qbPost(path: string, payload: unknown) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token ?? ''}`,
+      },
+      body: JSON.stringify(payload),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.error || 'QuickBooks push failed')
+    return data
+  }
+
+  async function pushEstimateToQb() {
+    const data = await qbPost('/api/qb/push-estimate', {
+      projectId,
+      customerName: project?.client_name,
+      lineItems: qbLines.map((l) => ({
+        description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
+        amount: l.amount,
+        qty: Number(l.qty) || 1,
+        unitPrice: l.rate,
+      })),
+      memo: qbTerms,
+    })
+    setQbOpen(false)
+    showToast(`Estimate ${data.docNumber ? `#${data.docNumber} ` : ''}pushed to QuickBooks.`)
+  }
+
+  async function pushInvoiceToQb() {
+    if (!qbInvoiceMilestone) return
+    const amt = Math.round(qbInvoiceMilestone.amount)
+    const data = await qbPost('/api/qb/push-invoice', {
+      projectId,
+      milestoneId: qbInvoiceMilestone.id,
+      customerName: project?.client_name,
+      lineItems: [
+        {
+          description: `${qbInvoiceMilestone.label} — ${project?.name ?? 'Project'}`,
+          amount: amt,
+          qty: 1,
+          unitPrice: amt,
+        },
+      ],
+    })
+    setQbInvoiceMilestoneId(null)
+    showToast(`Invoice ${data.docNumber ? `#${data.docNumber} ` : ''}pushed to QuickBooks.`)
+  }
 
   // ── Render states ──
 
@@ -1199,7 +1262,9 @@ export default function ProjectCoverPage() {
                 milestones={milestones}
                 total={proj.priceTotal}
                 milestoneInvoiceMap={milestoneInvoiceMap}
-                onGenerateInvoice={(id) => setCreateInvoiceMilestoneId(id)}
+                onGenerateInvoice={(id) =>
+                  qbMode ? setQbInvoiceMilestoneId(id) : setCreateInvoiceMilestoneId(id)
+                }
                 onChange={(next) => {
                   setMilestones(next)
                   setMilestonesDirty(true)
@@ -1365,8 +1430,25 @@ export default function ProjectCoverPage() {
         />
       </div>
 
-      {/* QB Preview Modal */}
-      {qbOpen && (
+      {/* QB estimate: real push in QuickBooks mode, clipboard preview otherwise */}
+      {qbOpen && qbMode ? (
+        <QbPushModal
+          kind="estimate"
+          projectName={project.name}
+          clientName={project.client_name}
+          lines={qbLines.map((l) => ({
+            desc: l.desc,
+            spec: l.spec,
+            qty: Number(l.qty) || 1,
+            rate: l.rate,
+            amount: l.amount,
+          }))}
+          total={qbTotal}
+          termsText={qbTerms}
+          onPush={pushEstimateToQb}
+          onClose={() => setQbOpen(false)}
+        />
+      ) : qbOpen ? (
         <QbPreviewModal
           lines={qbLines}
           terms={qbTerms}
@@ -1382,6 +1464,26 @@ export default function ProjectCoverPage() {
               'Copied for QuickBooks. Paste into a new estimate — descriptions, specs, and terms are all there.'
             )
           }}
+        />
+      ) : null}
+
+      {/* QB invoice push modal (QuickBooks mode — milestone billing) */}
+      {qbInvoiceMilestone && (
+        <QbPushModal
+          kind="invoice"
+          projectName={project.name}
+          clientName={project.client_name}
+          lines={[
+            {
+              desc: `${qbInvoiceMilestone.label} — ${project.name}`,
+              qty: 1,
+              rate: Math.round(qbInvoiceMilestone.amount),
+              amount: Math.round(qbInvoiceMilestone.amount),
+            },
+          ]}
+          total={Math.round(qbInvoiceMilestone.amount)}
+          onPush={pushInvoiceToQb}
+          onClose={() => setQbInvoiceMilestoneId(null)}
         />
       )}
 
