@@ -32,6 +32,61 @@ export interface QBOTokens {
   refresh_expires_at: string
 }
 
+export interface QBOCustomer {
+  Id?: string
+  DisplayName: string
+  PrimaryEmailAddr?: { Address: string }
+  PrimaryPhone?: { FreeFormNumber: string }
+  BillAddr?: {
+    Line1?: string
+    City?: string
+    CountrySubDivisionCode?: string
+    PostalCode?: string
+  }
+}
+
+export interface QBOLineItem {
+  DetailType: 'SalesItemLineDetail'
+  Amount: number
+  Description?: string
+  SalesItemLineDetail: {
+    UnitPrice: number
+    Qty: number
+    ItemRef?: { value: string; name: string }
+  }
+}
+
+export interface QBOEstimate {
+  Id?: string
+  DocNumber?: string
+  CustomerRef: { value: string; name?: string }
+  Line: QBOLineItem[]
+  TotalAmt?: number
+  ExpirationDate?: string
+  CustomerMemo?: { value: string }
+  PrivateNote?: string
+}
+
+export interface QBOInvoice {
+  Id?: string
+  DocNumber?: string
+  DueDate?: string
+  CustomerRef: { value: string; name?: string }
+  Line: QBOLineItem[]
+  TotalAmt?: number
+  Balance?: number
+  CustomerMemo?: { value: string }
+  PrivateNote?: string
+  LinkedTxn?: { TxnId: string; TxnType: string }[]
+}
+
+export interface QbLineItemInput {
+  description: string
+  amount: number
+  qty: number
+  unitPrice: number
+}
+
 /**
  * Build the Intuit consent URL. `state` round-trips back to our callback
  * unchanged; we put the org id there so the callback knows which org to store
@@ -239,5 +294,103 @@ export async function getConnectionStatus(orgId: string): Promise<{
     }
   } catch {
     return { connected: false, realmId: tokens.realm_id }
+  }
+}
+
+// ── Push (outbound) — Chunk 3 ───────────────────────────────────────────────
+// Create customers / estimates / invoices in the org's QB company. The inbound
+// half (matching QB payments back to milestones) stays in lib/qb-events.ts.
+
+function toLine(item: QbLineItemInput): QBOLineItem {
+  return {
+    DetailType: 'SalesItemLineDetail',
+    Amount: Math.round(item.amount * 100) / 100,
+    Description: item.description,
+    SalesItemLineDetail: {
+      UnitPrice: Math.round(item.unitPrice * 100) / 100,
+      Qty: item.qty,
+    },
+  }
+}
+
+/** Find a QB customer by exact display name, or create one. Returns its QB id. */
+export async function findOrCreateCustomer(
+  orgId: string,
+  clientName: string,
+  email?: string,
+  phone?: string,
+  address?: { line1?: string; city?: string; state?: string; zip?: string },
+): Promise<string> {
+  const query = `SELECT * FROM Customer WHERE DisplayName = '${clientName.replace(/'/g, "\\'")}'`
+  const result = await qboApi<any>(orgId, 'GET', `query?query=${encodeURIComponent(query)}`)
+  if (result.QueryResponse?.Customer?.length > 0) {
+    return result.QueryResponse.Customer[0].Id
+  }
+  const customer: QBOCustomer = { DisplayName: clientName }
+  if (email) customer.PrimaryEmailAddr = { Address: email }
+  if (phone) customer.PrimaryPhone = { FreeFormNumber: phone }
+  if (address) {
+    customer.BillAddr = {
+      Line1: address.line1,
+      City: address.city,
+      CountrySubDivisionCode: address.state,
+      PostalCode: address.zip,
+    }
+  }
+  const created = await qboApi<any>(orgId, 'POST', 'customer', customer)
+  return created.Customer.Id
+}
+
+/** Create an estimate in the org's QB company. */
+export async function createEstimate(
+  orgId: string,
+  params: {
+    customerQboId: string
+    customerName: string
+    lineItems: QbLineItemInput[]
+    memo?: string
+    privateNote?: string
+    expirationDate?: string
+  },
+): Promise<{ estimateId: string; docNumber: string }> {
+  const estimate: QBOEstimate = {
+    CustomerRef: { value: params.customerQboId, name: params.customerName },
+    Line: params.lineItems.map(toLine),
+    ...(params.memo && { CustomerMemo: { value: params.memo } }),
+    ...(params.privateNote && { PrivateNote: params.privateNote }),
+    ...(params.expirationDate && { ExpirationDate: params.expirationDate }),
+  }
+  const result = await qboApi<any>(orgId, 'POST', 'estimate', estimate)
+  return { estimateId: result.Estimate.Id, docNumber: result.Estimate.DocNumber }
+}
+
+/** Create an invoice in the org's QB company (optionally linked to a QB estimate). */
+export async function createInvoice(
+  orgId: string,
+  params: {
+    customerQboId: string
+    customerName: string
+    lineItems: QbLineItemInput[]
+    dueDate?: string
+    memo?: string
+    privateNote?: string
+    linkedEstimateId?: string
+  },
+): Promise<{ invoiceId: string; docNumber: string; totalAmt: number }> {
+  const invoice: QBOInvoice = {
+    CustomerRef: { value: params.customerQboId, name: params.customerName },
+    Line: params.lineItems.map(toLine),
+    ...(params.dueDate && { DueDate: params.dueDate }),
+    ...(params.memo && { CustomerMemo: { value: params.memo } }),
+    ...(params.privateNote && { PrivateNote: params.privateNote }),
+    ...(params.linkedEstimateId && {
+      LinkedTxn: [{ TxnId: params.linkedEstimateId, TxnType: 'Estimate' }],
+    }),
+  }
+  const result = await qboApi<any>(orgId, 'POST', 'invoice', invoice)
+  return {
+    invoiceId: result.Invoice.Id,
+    docNumber: result.Invoice.DocNumber,
+    totalAmt: result.Invoice.TotalAmt,
   }
 }
