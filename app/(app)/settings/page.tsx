@@ -6,6 +6,7 @@ import { Copy, Check, Sparkles, Trash2, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
+import { invoicingMode, type InvoicingMode } from '@/lib/org-settings'
 import { PLAN_LABELS, PLAN_SEAT_PRICE, PLAN_SEAT_MINIMUM, type Plan } from '@/lib/feature-flags'
 import {
   computeBillableHoursYear,
@@ -115,6 +116,12 @@ export default function SettingsPage() {
   const [invoiceFooterText, setInvoiceFooterText] = useState('')
   const [invoiceEmailTemplate, setInvoiceEmailTemplate] = useState('')
 
+  // Invoicing backend — 'internal' | 'quickbooks' (migration 057). A discrete
+  // toggle, so it saves immediately on change (not debounced) and calls
+  // refreshOrg() so the app-wide org reflects it for later mode-gated surfaces.
+  const [invoicingModeValue, setInvoicingModeValue] =
+    useState<InvoicingMode>('internal')
+
   const [copied, setCopied] = useState(false)
   const [savingRate, setSavingRate] = useState(false)
   const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
@@ -183,6 +190,7 @@ export default function SettingsPage() {
         setBusinessZip((org as any).business_zip || '')
         setBusinessPhone((org as any).business_phone || '')
         setBusinessEmail((org as any).business_email || '')
+        setInvoicingModeValue(invoicingMode(org))
 
         // Invoicing — pulled with a fresh select since the auth Org type
         // doesn't expose these columns yet.
@@ -345,6 +353,22 @@ export default function SettingsPage() {
       .eq('id', org.id)
     if (!error) setNextInvoiceNumber(1)
     else console.warn('reset invoice number', error)
+  }
+
+  async function handleInvoicingModeChange(mode: InvoicingMode) {
+    if (!org?.id || mode === invoicingModeValue) return
+    const prev = invoicingModeValue
+    setInvoicingModeValue(mode) // optimistic
+    const { error } = await supabase
+      .from('orgs')
+      .update({ invoicing_mode: mode })
+      .eq('id', org.id)
+    if (error) {
+      console.warn('invoicing mode save', error)
+      setInvoicingModeValue(prev) // revert on failure
+      return
+    }
+    await refreshOrg() // propagate to the app-wide org (later chunks gate on it)
   }
 
   // ── Mutators for the lists ──
@@ -925,7 +949,40 @@ export default function SettingsPage() {
             </p>
           </div>
           <div className="px-6 py-4 space-y-3">
+            {/* Invoicing backend — Internal vs QuickBooks (migration 057).
+                Governs where estimates/invoices are created; cash flow stays
+                milestone-based in both modes. QB push wiring lands in later
+                chunks. */}
             <div className="flex items-center justify-between py-2">
+              <label className="text-sm text-[#6B7280]">
+                Invoicing backend
+                <span className="block text-[11px] text-[#9CA3AF] font-normal">
+                  {invoicingModeValue === 'quickbooks'
+                    ? 'Estimates & invoices push to QuickBooks. Cash flow stays milestone-based.'
+                    : "MillSuite's built-in invoices (default)."}
+                </span>
+              </label>
+              <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-0.5">
+                {(['internal', 'quickbooks'] as const).map((mode) => {
+                  const active = invoicingModeValue === mode
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => handleInvoicingModeChange(mode)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                        active
+                          ? 'bg-white text-[#111] shadow-sm'
+                          : 'text-[#6B7280] hover:text-[#111]'
+                      }`}
+                    >
+                      {mode === 'internal' ? 'Internal' : 'QuickBooks'}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
               <label className="text-sm text-[#6B7280]">
                 Invoice number prefix
                 <span className="block text-[11px] text-[#9CA3AF] font-normal">

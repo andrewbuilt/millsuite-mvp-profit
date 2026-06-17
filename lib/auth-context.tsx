@@ -46,10 +46,14 @@ interface Org {
   // End of the no-card base-tier trial (055). NULL = not on a trial.
   // plan_status='trialing' grants access until this timestamp.
   trial_ends_at: string | null
+  // Invoicing backend (057): 'internal' = MillSuite's built-in invoices
+  // (default); 'quickbooks' = push estimates/invoices to QB. Read via
+  // invoicingMode(org) from lib/org-settings.
+  invoicing_mode: string
 }
 
 const ORG_SELECT =
-  'id, name, slug, plan, plan_status, seats, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, pending_checkout_session_id, shop_rate, consumable_markup_pct, profit_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, pending_seat_downgrade, trial_ends_at, business_address, business_city, business_state, business_zip, business_phone, business_email'
+  'id, name, slug, plan, plan_status, seats, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, pending_checkout_session_id, shop_rate, consumable_markup_pct, profit_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, pending_seat_downgrade, trial_ends_at, business_address, business_city, business_state, business_zip, business_phone, business_email, invoicing_mode'
 
 interface AuthContextType {
   user: AppUser | null
