@@ -89,6 +89,7 @@ import {
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import QbPushModal from '@/components/QbPushModal'
 import { invoicingMode } from '@/lib/org-settings'
+import { downloadEstimatePdf } from '@/lib/estimate-pdf'
 import ReparseModal from '@/components/reparse/ReparseModal'
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
@@ -771,6 +772,37 @@ export default function ProjectCoverPage() {
 
   const qbTotal = qbLines.reduce((s, l) => s + (l.amount || 0), 0)
 
+  // ── Estimate PDF (MillSuite-native; available in both modes) ──
+  // Sends the same computed lines shown on screen so the PDF total reconciles
+  // with the project price. (Temp action bar button in chunk 3; chunk 4 moves
+  // this into a SendEstimateModal.)
+  async function handleDownloadEstimate() {
+    const taxPct = Number((org as any)?.default_tax_pct) || 0
+    const subtotal = qbTotal
+    const taxAmount = Math.round(subtotal * (taxPct / 100))
+    try {
+      await downloadEstimatePdf(projectId, {
+        lineItems: qbLines.map((l) => ({
+          description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
+          quantity: Number(l.qty) || 1,
+          unit: null,
+          unit_price: l.rate,
+          amount: l.amount,
+        })),
+        schedule: milestones.map((m) => ({
+          label: m.label,
+          pct: m.pct,
+          trigger: TRIGGER_LABEL[m.trigger] ?? m.trigger,
+          amount: Math.round(m.amount),
+        })),
+        totals: { subtotal, taxPct, taxAmount, total: subtotal + taxAmount },
+        terms: qbTerms,
+      })
+    } catch (err: any) {
+      showToast(err?.message || 'Could not generate the estimate PDF.')
+    }
+  }
+
   // ── QuickBooks push (only when the org's invoicing backend is QuickBooks) ──
   const qbMode = invoicingMode(org) === 'quickbooks'
   const qbInvoiceMilestone =
@@ -1421,6 +1453,7 @@ export default function ProjectCoverPage() {
           }
           onReparse={() => setReparseOpen(true)}
           onPreviewQb={() => setQbOpen(true)}
+          onDownloadEstimate={handleDownloadEstimate}
           onMarkSold={handleMarkSold}
           onAdvance={async (toStage) => {
             await updateProjectStage(projectId, toStage)
@@ -2906,6 +2939,7 @@ function StageActionBar({
   hasReparseable,
   onReparse,
   onPreviewQb,
+  onDownloadEstimate,
   onMarkSold,
   onAdvance,
 }: {
@@ -2915,6 +2949,7 @@ function StageActionBar({
   hasReparseable: boolean
   onReparse: () => void
   onPreviewQb: () => void
+  onDownloadEstimate: () => void
   onMarkSold: () => void
   onAdvance: (toStage: ProjectStage) => Promise<void>
 }) {
@@ -2931,6 +2966,10 @@ function StageActionBar({
         <button onClick={onPreviewQb} className={secondary}>
           <Pencil className="w-4 h-4" />
           Preview QB export
+        </button>
+        <button onClick={onDownloadEstimate} className={secondary}>
+          <FileText className="w-4 h-4" />
+          Download estimate (PDF)
         </button>
         {hasReparseable && (
           <button
