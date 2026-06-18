@@ -89,7 +89,8 @@ import {
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import QbPushModal from '@/components/QbPushModal'
 import { invoicingMode } from '@/lib/org-settings'
-import { downloadEstimatePdf } from '@/lib/estimate-pdf'
+import { type EstimatePdfPayload } from '@/lib/estimate-pdf'
+import SendEstimateModal from '@/components/estimates/SendEstimateModal'
 import ReparseModal from '@/components/reparse/ReparseModal'
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectStage } from '@/lib/sales'
@@ -340,6 +341,8 @@ export default function ProjectCoverPage() {
   // Milestone being pushed to QuickBooks as an invoice (QB invoicing mode).
   // Mutually exclusive with createInvoiceMilestoneId (internal mode).
   const [qbInvoiceMilestoneId, setQbInvoiceMilestoneId] = useState<string | null>(null)
+  // Send-estimate modal (MillSuite-native PDF).
+  const [sendEstimateOpen, setSendEstimateOpen] = useState(false)
   // Re-parse drawings modal. Opens when the operator clicks the
   // action-bar button; reads source_pdf_paths from intake_context,
   // re-runs the parser, and surfaces a diff against current scope.
@@ -773,33 +776,28 @@ export default function ProjectCoverPage() {
   const qbTotal = qbLines.reduce((s, l) => s + (l.amount || 0), 0)
 
   // ── Estimate PDF (MillSuite-native; available in both modes) ──
-  // Sends the same computed lines shown on screen so the PDF total reconciles
-  // with the project price. (Temp action bar button in chunk 3; chunk 4 moves
-  // this into a SendEstimateModal.)
-  async function handleDownloadEstimate() {
+  // Builds the same computed lines shown on screen so the PDF total reconciles
+  // with the project price. Consumed by SendEstimateModal (download + email).
+  function buildEstimatePayload(): EstimatePdfPayload {
     const taxPct = Number((org as any)?.default_tax_pct) || 0
     const subtotal = qbTotal
     const taxAmount = Math.round(subtotal * (taxPct / 100))
-    try {
-      await downloadEstimatePdf(projectId, {
-        lineItems: qbLines.map((l) => ({
-          description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
-          quantity: Number(l.qty) || 1,
-          unit: null,
-          unit_price: l.rate,
-          amount: l.amount,
-        })),
-        schedule: milestones.map((m) => ({
-          label: m.label,
-          pct: m.pct,
-          trigger: TRIGGER_LABEL[m.trigger] ?? m.trigger,
-          amount: Math.round(m.amount),
-        })),
-        totals: { subtotal, taxPct, taxAmount, total: subtotal + taxAmount },
-        terms: qbTerms,
-      })
-    } catch (err: any) {
-      showToast(err?.message || 'Could not generate the estimate PDF.')
+    return {
+      lineItems: qbLines.map((l) => ({
+        description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
+        quantity: Number(l.qty) || 1,
+        unit: null,
+        unit_price: l.rate,
+        amount: l.amount,
+      })),
+      schedule: milestones.map((m) => ({
+        label: m.label,
+        pct: m.pct,
+        trigger: TRIGGER_LABEL[m.trigger] ?? m.trigger,
+        amount: Math.round((subtotal * m.pct) / 100),
+      })),
+      totals: { subtotal, taxPct, taxAmount, total: subtotal + taxAmount },
+      terms: qbTerms,
     }
   }
 
@@ -1453,7 +1451,7 @@ export default function ProjectCoverPage() {
           }
           onReparse={() => setReparseOpen(true)}
           onPreviewQb={() => setQbOpen(true)}
-          onDownloadEstimate={handleDownloadEstimate}
+          onDownloadEstimate={() => setSendEstimateOpen(true)}
           onMarkSold={handleMarkSold}
           onAdvance={async (toStage) => {
             await updateProjectStage(projectId, toStage)
@@ -1462,6 +1460,19 @@ export default function ProjectCoverPage() {
           }}
         />
       </div>
+
+      {/* Send estimate (MillSuite-native PDF — both modes) */}
+      {sendEstimateOpen && (
+        <SendEstimateModal
+          projectId={projectId}
+          payload={buildEstimatePayload()}
+          clientName={project.client_name}
+          projectName={project.name}
+          total={qbTotal}
+          orgName={org?.name ?? 'Your Company'}
+          onClose={() => setSendEstimateOpen(false)}
+        />
+      )}
 
       {/* QB estimate: real push in QuickBooks mode, clipboard preview otherwise */}
       {qbOpen && qbMode ? (
@@ -2969,7 +2980,7 @@ function StageActionBar({
         </button>
         <button onClick={onDownloadEstimate} className={secondary}>
           <FileText className="w-4 h-4" />
-          Download estimate (PDF)
+          Send estimate
         </button>
         {hasReparseable && (
           <button
