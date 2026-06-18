@@ -309,9 +309,8 @@ export default function ProjectCoverPage() {
   const [deptKeyById, setDeptKeyById] = useState<Record<string, LaborDept>>({})
   const [loading, setLoading] = useState(true)
   const [historicalOpen, setHistoricalOpen] = useState(false)
-  const [qbOpen, setQbOpen] = useState(false)
   const [qbLines, setQbLines] = useState<QbLine[]>([])
-  const [qbTerms, setQbTerms] = useState(
+  const [qbTerms] = useState(
     'Estimate valid for 30 days. 30% deposit due at contract signing. ' +
       'Remaining balance billed per production milestones. Lead time quoted ' +
       'separately. Change orders in writing only.'
@@ -767,12 +766,6 @@ export default function ProjectCoverPage() {
     setTimeout(() => setToast(null), 2600)
   }
 
-  function updateQbLine(subId: string, patch: Partial<QbLine>) {
-    setQbLines((prev) =>
-      prev.map((l) => (l.subId === subId ? { ...l, ...patch } : l))
-    )
-  }
-
   const qbTotal = qbLines.reduce((s, l) => s + (l.amount || 0), 0)
 
   // ── Estimate PDF (MillSuite-native; available in both modes) ──
@@ -821,22 +814,6 @@ export default function ProjectCoverPage() {
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data?.error || 'QuickBooks push failed')
     return data
-  }
-
-  async function pushEstimateToQb() {
-    const data = await qbPost('/api/qb/push-estimate', {
-      projectId,
-      customerName: project?.client_name,
-      lineItems: qbLines.map((l) => ({
-        description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
-        amount: l.amount,
-        qty: Number(l.qty) || 1,
-        unitPrice: l.rate,
-      })),
-      memo: qbTerms,
-    })
-    setQbOpen(false)
-    showToast(`Estimate ${data.docNumber ? `#${data.docNumber} ` : ''}pushed to QuickBooks.`)
   }
 
   async function pushInvoiceToQb() {
@@ -1450,7 +1427,6 @@ export default function ProjectCoverPage() {
             (((project as any).intake_context as any).source_pdf_paths as string[]).length > 0
           }
           onReparse={() => setReparseOpen(true)}
-          onPreviewQb={() => setQbOpen(true)}
           onDownloadEstimate={() => setSendEstimateOpen(true)}
           onMarkSold={handleMarkSold}
           onAdvance={async (toStage) => {
@@ -1474,42 +1450,6 @@ export default function ProjectCoverPage() {
         />
       )}
 
-      {/* QB estimate: real push in QuickBooks mode, clipboard preview otherwise */}
-      {qbOpen && qbMode ? (
-        <QbPushModal
-          kind="estimate"
-          projectName={project.name}
-          clientName={project.client_name}
-          lines={qbLines.map((l) => ({
-            desc: l.desc,
-            spec: l.spec,
-            qty: Number(l.qty) || 1,
-            rate: l.rate,
-            amount: l.amount,
-          }))}
-          total={qbTotal}
-          termsText={qbTerms}
-          onPush={pushEstimateToQb}
-          onClose={() => setQbOpen(false)}
-        />
-      ) : qbOpen ? (
-        <QbPreviewModal
-          lines={qbLines}
-          terms={qbTerms}
-          total={qbTotal}
-          milestones={milestones}
-          projectName={project.name}
-          clientName={project.client_name}
-          onClose={() => setQbOpen(false)}
-          onUpdateLine={updateQbLine}
-          onUpdateTerms={setQbTerms}
-          onCopied={() => {
-            showToast(
-              'Copied for QuickBooks. Paste into a new estimate — descriptions, specs, and terms are all there.'
-            )
-          }}
-        />
-      ) : null}
 
       {/* QB invoice push modal (QuickBooks mode — milestone billing) */}
       {qbInvoiceMilestone && (
@@ -2949,7 +2889,6 @@ function StageActionBar({
   canSell,
   hasReparseable,
   onReparse,
-  onPreviewQb,
   onDownloadEstimate,
   onMarkSold,
   onAdvance,
@@ -2959,7 +2898,6 @@ function StageActionBar({
   canSell: boolean
   hasReparseable: boolean
   onReparse: () => void
-  onPreviewQb: () => void
   onDownloadEstimate: () => void
   onMarkSold: () => void
   onAdvance: (toStage: ProjectStage) => Promise<void>
@@ -2974,10 +2912,6 @@ function StageActionBar({
   return (
     <div className="max-w-[1240px] mx-auto mt-6 bg-white border border-[#E5E7EB] rounded-xl px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
       <div className="flex gap-2 flex-wrap">
-        <button onClick={onPreviewQb} className={secondary}>
-          <Pencil className="w-4 h-4" />
-          Preview QB export
-        </button>
         <button onClick={onDownloadEstimate} className={secondary}>
           <FileText className="w-4 h-4" />
           Send estimate

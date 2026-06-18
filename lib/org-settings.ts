@@ -5,7 +5,7 @@
 /**
  * Invoicing backend for an org (orgs.invoicing_mode, migration 057):
  *   'internal'   — MillSuite's built-in invoices (default, today's behavior).
- *   'quickbooks' — estimates/invoices are pushed to QuickBooks instead.
+ *   'quickbooks' — invoices are pushed to QuickBooks; estimates stay native PDFs.
  * Cash flow stays milestone-based in both modes.
  */
 export type InvoicingMode = 'internal' | 'quickbooks'
