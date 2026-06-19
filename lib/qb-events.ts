@@ -481,74 +481,35 @@ export async function processIncoming(
     }
   }
 
-  // Score against both projected milestones and open invoices, then
-  // pick the higher-confidence pool. In practice an invoice's
-  // existence flipped the milestone to 'invoiced' (so it's no longer
-  // a milestone candidate), making this an either/or rather than a
-  // race — but pulling both lets us be defensive against drift.
-  const [milestoneCands, invoiceCands] = await Promise.all([
-    findCandidates(input.org_id, {
-      customer_name: input.customer_name || null,
-      amount: input.amount,
-      occurred_at: input.occurred_at,
-    }),
-    findInvoiceCandidates(input.org_id, {
-      customer_name: input.customer_name || null,
-      amount: input.amount,
-      occurred_at: input.occurred_at,
-    }),
-  ])
-  const topMilestone = milestoneCands[0]
+  // One invoice per project = the contract; incoming payments (draws) reconcile
+  // against it. Milestones are a projection/terms schedule only — the watcher no
+  // longer matches or auto-flips them. (findCandidates/confirmMatch stay for the
+  // reconciliation page's manual milestone path.)
+  const invoiceCands = await findInvoiceCandidates(input.org_id, {
+    customer_name: input.customer_name || null,
+    amount: input.amount,
+    occurred_at: input.occurred_at,
+  })
   const topInvoice = invoiceCands[0]
-  const milestoneConf = topMilestone?.confidence ?? 0
-  const invoiceConf = topInvoice?.confidence ?? 0
-
-  if (!topMilestone && !topInvoice) {
+  if (!topInvoice) {
     return { eventId: ins.eventId, status: 'unmatched', autoMatched: false }
   }
 
-  // Prefer invoice match when it scores at least as high — invoices
-  // are more granular (capture the specific payment), and the
-  // recordInvoicePayment cascade reaches the milestone anyway.
-  if (topInvoice && invoiceConf >= milestoneConf) {
-    const second = invoiceCands[1]
-    const gapOk = !second || topInvoice.confidence - second.confidence >= AUTO_MATCH_GAP
-    if (topInvoice.confidence >= AUTO_MATCH_THRESHOLD && gapOk) {
-      await confirmInvoiceMatch(ins.eventId, topInvoice.invoiceId, { auto: true })
-      return { eventId: ins.eventId, status: 'confirmed', autoMatched: true }
-    }
-    // Park as suggestion. matched_receivable_id stays null; the
-    // reconciliation page reads matched_invoice_id (encoded into
-    // match_reasons[0] as `invoice:${id}` so we don't need a
-    // schema change for the parking record).
-    await supabase
-      .from('qb_events')
-      .update({
-        match_status: 'matched',
-        matched_project_id: topInvoice.projectId,
-        matched_receivable_id: null,
-        match_confidence: topInvoice.confidence,
-        match_reasons: [`invoice:${topInvoice.invoiceId}`, ...topInvoice.reasons],
-      })
-      .eq('id', ins.eventId)
-    return { eventId: ins.eventId, status: 'matched', autoMatched: false }
-  }
-
-  // Milestone path — original behavior.
-  const second = milestoneCands[1]
-  const gapOk = !second || topMilestone!.confidence - second.confidence >= AUTO_MATCH_GAP
-  if (topMilestone!.confidence >= AUTO_MATCH_THRESHOLD && gapOk) {
-    await confirmMatch(ins.eventId, topMilestone!.receivableId, { auto: true })
+  const second = invoiceCands[1]
+  const gapOk = !second || topInvoice.confidence - second.confidence >= AUTO_MATCH_GAP
+  if (topInvoice.confidence >= AUTO_MATCH_THRESHOLD && gapOk) {
+    await confirmInvoiceMatch(ins.eventId, topInvoice.invoiceId, { auto: true })
     return { eventId: ins.eventId, status: 'confirmed', autoMatched: true }
   }
+  // Park as a suggestion (matched_invoice_id encoded in match_reasons[0]).
   await supabase
     .from('qb_events')
     .update({
       match_status: 'matched',
-      matched_project_id: topMilestone!.projectId,
-      matched_receivable_id: topMilestone!.receivableId,
-      match_confidence: topMilestone!.confidence,
-      match_reasons: topMilestone!.reasons,
+      matched_project_id: topInvoice.projectId,
+      matched_receivable_id: null,
+      match_confidence: topInvoice.confidence,
+      match_reasons: [`invoice:${topInvoice.invoiceId}`, ...topInvoice.reasons],
     })
     .eq('id', ins.eventId)
   return { eventId: ins.eventId, status: 'matched', autoMatched: false }
