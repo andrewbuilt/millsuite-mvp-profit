@@ -331,15 +331,11 @@ export default function ProjectCoverPage() {
   const [milestoneInvoiceMap, setMilestoneInvoiceMap] = useState<
     Map<string, { id: string; status: InvoiceStatus; invoice_number: string; due_date: string }>
   >(new Map())
-  // Milestone the operator clicked "Generate invoice" on; opens the
-  // CreateInvoiceModal. null when no modal is open.
-  const [createInvoiceMilestoneId, setCreateInvoiceMilestoneId] = useState<string | null>(null)
-  // Ad-hoc invoice modal — opens via the "+ New invoice" button above
-  // the Payment Milestones panel. No milestone seed.
+  // One project invoice = the contract. QB mode pushes it to QB
+  // (projectInvoiceOpen); internal mode builds it via the ad-hoc modal.
+  // Replaces per-milestone invoicing.
+  const [projectInvoiceOpen, setProjectInvoiceOpen] = useState(false)
   const [adHocInvoiceOpen, setAdHocInvoiceOpen] = useState(false)
-  // Milestone being pushed to QuickBooks as an invoice (QB invoicing mode).
-  // Mutually exclusive with createInvoiceMilestoneId (internal mode).
-  const [qbInvoiceMilestoneId, setQbInvoiceMilestoneId] = useState<string | null>(null)
   // Send-estimate modal (MillSuite-native PDF).
   const [sendEstimateOpen, setSendEstimateOpen] = useState(false)
   // Re-parse drawings modal. Opens when the operator clicks the
@@ -796,8 +792,6 @@ export default function ProjectCoverPage() {
 
   // ── QuickBooks push (only when the org's invoicing backend is QuickBooks) ──
   const qbMode = invoicingMode(org) === 'quickbooks'
-  const qbInvoiceMilestone =
-    milestones.find((m) => m.id === qbInvoiceMilestoneId) || null
 
   async function qbPost(path: string, payload: unknown) {
     const {
@@ -816,23 +810,26 @@ export default function ProjectCoverPage() {
     return data
   }
 
-  async function pushInvoiceToQb() {
-    if (!qbInvoiceMilestone) return
-    const amt = Math.round(qbInvoiceMilestone.amount)
+  async function pushProjectInvoiceToQb() {
+    const fmt = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
+    const scheduleNote = milestones
+      .map(
+        (m) =>
+          `${m.label} (${m.pct.toFixed(0)}%): ${fmt((qbTotal * m.pct) / 100)} — ${TRIGGER_LABEL[m.trigger]}`,
+      )
+      .join('\n')
     const data = await qbPost('/api/qb/push-invoice', {
       projectId,
-      milestoneId: qbInvoiceMilestone.id,
       customerName: project?.client_name,
-      lineItems: [
-        {
-          description: `${qbInvoiceMilestone.label} — ${project?.name ?? 'Project'}`,
-          amount: amt,
-          qty: 1,
-          unitPrice: amt,
-        },
-      ],
+      lineItems: qbLines.map((l) => ({
+        description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
+        amount: l.amount,
+        qty: Number(l.qty) || 1,
+        unitPrice: l.rate,
+      })),
+      memo: scheduleNote || undefined,
     })
-    setQbInvoiceMilestoneId(null)
+    setProjectInvoiceOpen(false)
     showToast(`Invoice ${data.docNumber ? `#${data.docNumber} ` : ''}pushed to QuickBooks.`)
   }
 
@@ -1251,16 +1248,15 @@ export default function ProjectCoverPage() {
                 projectId={projectId}
               />
 
-              {/* Top-level invoice action — distinct from the per-milestone
-                  "Generate invoice" pill. Use this for ad-hoc CO billing
-                  or partial scope outside the milestone schedule. */}
+              {/* One project invoice = the contract. QB mode pushes it to QB;
+                  internal mode opens the invoice builder. */}
               <div className="mt-4 pt-4 border-t border-[#F3F4F6] flex items-center justify-end">
                 <button
                   type="button"
-                  onClick={() => setAdHocInvoiceOpen(true)}
+                  onClick={() => (qbMode ? setProjectInvoiceOpen(true) : setAdHocInvoiceOpen(true))}
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] text-[#2563EB] hover:bg-[#EFF6FF] rounded-md"
                 >
-                  + New invoice
+                  + Create project invoice
                 </button>
               </div>
 
@@ -1269,9 +1265,6 @@ export default function ProjectCoverPage() {
                 milestones={milestones}
                 total={proj.priceTotal}
                 milestoneInvoiceMap={milestoneInvoiceMap}
-                onGenerateInvoice={(id) =>
-                  qbMode ? setQbInvoiceMilestoneId(id) : setCreateInvoiceMilestoneId(id)
-                }
                 onChange={(next) => {
                   setMilestones(next)
                   setMilestonesDirty(true)
@@ -1451,23 +1444,27 @@ export default function ProjectCoverPage() {
       )}
 
 
-      {/* QB invoice push modal (QuickBooks mode — milestone billing) */}
-      {qbInvoiceMilestone && (
+      {/* Project invoice push (QuickBooks mode — one invoice = the contract) */}
+      {projectInvoiceOpen && (
         <QbPushModal
           kind="invoice"
           projectName={project.name}
           clientName={project.client_name}
-          lines={[
-            {
-              desc: `${qbInvoiceMilestone.label} — ${project.name}`,
-              qty: 1,
-              rate: Math.round(qbInvoiceMilestone.amount),
-              amount: Math.round(qbInvoiceMilestone.amount),
-            },
-          ]}
-          total={Math.round(qbInvoiceMilestone.amount)}
-          onPush={pushInvoiceToQb}
-          onClose={() => setQbInvoiceMilestoneId(null)}
+          lines={qbLines.map((l) => ({
+            desc: l.desc,
+            spec: l.spec,
+            qty: Number(l.qty) || 1,
+            rate: l.rate,
+            amount: l.amount,
+          }))}
+          scheduleRows={milestones.map((m) => ({
+            label: `${m.label} (${m.pct.toFixed(0)}%)`,
+            sublabel: TRIGGER_LABEL[m.trigger],
+            amount: Math.round((qbTotal * m.pct) / 100),
+          }))}
+          total={qbTotal}
+          onPush={pushProjectInvoiceToQb}
+          onClose={() => setProjectInvoiceOpen(false)}
         />
       )}
 
@@ -1484,23 +1481,6 @@ export default function ProjectCoverPage() {
           orgId={org.id}
           orgConsumablePct={org.consumable_markup_pct ?? null}
           onClose={() => setNewSubOpen(false)}
-        />
-      )}
-
-      {createInvoiceMilestoneId && (
-        <CreateInvoiceModal
-          mode="milestone"
-          milestoneId={createInvoiceMilestoneId}
-          onClose={() => setCreateInvoiceMilestoneId(null)}
-          onCreated={async (inv, action) => {
-            setCreateInvoiceMilestoneId(null)
-            showToast(
-              action === 'sent'
-                ? `Invoice ${inv.invoice_number} sent. Mark received when payment lands.`
-                : `Invoice ${inv.invoice_number} saved as draft.`,
-            )
-            await reload()
-          }}
         />
       )}
 
