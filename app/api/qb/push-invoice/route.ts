@@ -15,9 +15,9 @@ import {
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Push an invoice to the org's QuickBooks company. When a milestone
-// (cash_flow_receivables) is being billed, we stamp the returned QB invoice id
-// on it so the payment watcher can reconcile the payment back to the milestone.
+// Push the project's invoice to the org's QuickBooks company. We stamp the QB
+// invoice id onto the MillSuite invoice row (body.invoiceId) so the inbound
+// watcher can match incoming payments (draws) back to it and lower its balance.
 export async function POST(req: NextRequest) {
   const caller = await resolveApiCaller(req)
   if (!caller) return unauthorized()
@@ -40,24 +40,23 @@ export async function POST(req: NextRequest) {
       body.clientPhone,
       body.clientAddress,
     )
-    const { invoiceId, docNumber, totalAmt } = await createInvoice(caller.orgId, {
+    const { invoiceId: qbInvoiceId, docNumber, totalAmt } = await createInvoice(caller.orgId, {
       customerQboId,
       customerName,
       lineItems: body.lineItems as QbLineItemInput[],
       dueDate: body.dueDate,
       memo: body.memo,
     })
-    // Attach the QB invoice id to the billed milestone so the inbound watcher
-    // can match the eventual payment back to it. (Ad-hoc invoices have no
-    // milestone — they just land in QB.)
-    if (body.milestoneId) {
+    // Link the QB invoice id to the MillSuite invoice row (body.invoiceId) so
+    // the inbound watcher can apply incoming draws to its balance.
+    if (body.invoiceId) {
       await supabaseAdmin
-        .from('cash_flow_receivables')
-        .update({ qbo_invoice_id: invoiceId })
-        .eq('id', body.milestoneId)
-        .eq('project_id', body.projectId)
+        .from('client_invoices')
+        .update({ qbo_invoice_id: qbInvoiceId })
+        .eq('id', body.invoiceId)
+        .eq('org_id', caller.orgId)
     }
-    return NextResponse.json({ ok: true, invoiceId, docNumber, totalAmt })
+    return NextResponse.json({ ok: true, qbInvoiceId, docNumber, totalAmt })
   } catch (err: any) {
     return NextResponse.json(
       { error: err?.message || 'Failed to push invoice to QuickBooks' },

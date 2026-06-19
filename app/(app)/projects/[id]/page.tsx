@@ -83,6 +83,7 @@ import {
 } from '@/lib/milestones'
 import {
   loadInvoicesForProject,
+  createInvoice,
   isOverdue as isInvoiceOverdue,
   type InvoiceStatus,
 } from '@/lib/invoices'
@@ -811,6 +812,7 @@ export default function ProjectCoverPage() {
   }
 
   async function pushProjectInvoiceToQb() {
+    if (!org?.id) return
     const fmt = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
     const scheduleNote = milestones
       .map(
@@ -818,8 +820,34 @@ export default function ProjectCoverPage() {
           `${m.label} (${m.pct.toFixed(0)}%): ${fmt((qbTotal * m.pct) / 100)} — ${TRIGGER_LABEL[m.trigger]}`,
       )
       .join('\n')
+    // 1. Create the MillSuite invoice record (the contract) so AR/balance/draws
+    //    track it; the watcher applies incoming QB payments to its balance.
+    const inv = await createInvoice({
+      invoice: {
+        org_id: org.id,
+        project_id: projectId,
+        client_id: project?.client_id ?? null,
+        invoice_date: new Date().toISOString().slice(0, 10),
+        due_date: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+        tax_pct: Number((org as any)?.default_tax_pct) || 0,
+        notes: scheduleNote || null,
+      },
+      lineItems: qbLines.map((l, i) => ({
+        sort_order: i,
+        description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
+        quantity: Number(l.qty) || 1,
+        unit: null,
+        unit_price: l.rate,
+        amount: l.amount,
+        source_type: 'subproject',
+        source_id: l.subId,
+      })),
+      markSent: true,
+    })
+    // 2. Push to QB + link the QB invoice id back to the MillSuite invoice.
     const data = await qbPost('/api/qb/push-invoice', {
       projectId,
+      invoiceId: inv.id,
       customerName: project?.client_name,
       lineItems: qbLines.map((l) => ({
         description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
@@ -830,7 +858,10 @@ export default function ProjectCoverPage() {
       memo: scheduleNote || undefined,
     })
     setProjectInvoiceOpen(false)
-    showToast(`Invoice ${data.docNumber ? `#${data.docNumber} ` : ''}pushed to QuickBooks.`)
+    showToast(
+      `Invoice ${inv.invoice_number} pushed to QuickBooks${data.docNumber ? ` (QB #${data.docNumber})` : ''}.`,
+    )
+    await reload()
   }
 
   // ── Render states ──
