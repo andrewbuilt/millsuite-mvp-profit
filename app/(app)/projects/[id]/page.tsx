@@ -820,8 +820,20 @@ export default function ProjectCoverPage() {
           `${m.label} (${m.pct.toFixed(0)}%): ${fmt((qbTotal * m.pct) / 100)} — ${TRIGGER_LABEL[m.trigger]}`,
       )
       .join('\n')
-    // 1. Create the MillSuite invoice record (the contract) so AR/balance/draws
-    //    track it; the watcher applies incoming QB payments to its balance.
+    // 1. Push to QB first — if it fails, we don't leave an orphan MillSuite invoice.
+    const data = await qbPost('/api/qb/push-invoice', {
+      projectId,
+      customerName: project?.client_name,
+      lineItems: qbLines.map((l) => ({
+        description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
+        amount: l.amount,
+        qty: Number(l.qty) || 1,
+        unitPrice: l.rate,
+      })),
+      memo: scheduleNote || undefined,
+    })
+    // 2. Record the MillSuite invoice (the contract), linked to the QB invoice,
+    //    so AR/balance/draws track it and the watcher can apply payments.
     const inv = await createInvoice({
       invoice: {
         org_id: org.id,
@@ -844,19 +856,12 @@ export default function ProjectCoverPage() {
       })),
       markSent: true,
     })
-    // 2. Push to QB + link the QB invoice id back to the MillSuite invoice.
-    const data = await qbPost('/api/qb/push-invoice', {
-      projectId,
-      invoiceId: inv.id,
-      customerName: project?.client_name,
-      lineItems: qbLines.map((l) => ({
-        description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
-        amount: l.amount,
-        qty: Number(l.qty) || 1,
-        unitPrice: l.rate,
-      })),
-      memo: scheduleNote || undefined,
-    })
+    if (data?.qbInvoiceId) {
+      await supabase
+        .from('client_invoices')
+        .update({ qbo_invoice_id: data.qbInvoiceId })
+        .eq('id', inv.id)
+    }
     setProjectInvoiceOpen(false)
     showToast(
       `Invoice ${inv.invoice_number} pushed to QuickBooks${data.docNumber ? ` (QB #${data.docNumber})` : ''}.`,

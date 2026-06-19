@@ -239,7 +239,10 @@ export async function qboApi<T = any>(
   body?: any,
 ): Promise<T> {
   const { accessToken, realmId } = await getValidToken(orgId)
-  const url = `${QBO_API_BASE}/v3/company/${realmId}/${endpoint}?minorversion=${QBO_MINOR_VERSION}`
+  // Some endpoints already carry a query string (e.g. `query?query=...`), so
+  // pick the right separator for minorversion — a second `?` breaks QB's parser.
+  const sep = endpoint.includes('?') ? '&' : '?'
+  const url = `${QBO_API_BASE}/v3/company/${realmId}/${endpoint}${sep}minorversion=${QBO_MINOR_VERSION}`
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
     Accept: 'application/json',
