@@ -1,5 +1,5 @@
 import Footer from '@/components/footer'
-import SideNav from '@/components/side-nav'
+import TopNav from '@/components/top-nav'
 import { ConfirmProvider } from '@/components/confirm-dialog'
 import RoleGate from '@/components/role-gate'
 import BillingGate from '@/components/billing-gate'
@@ -17,7 +17,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             the app without paying. */}
         <BillingGate>
           <div className="bg-[#F9FAFB] text-[#111] min-h-screen flex flex-col">
-            <SideNav />
+            <TopNav />
             <div className="flex-1">
               {children}
             </div>
