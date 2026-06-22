@@ -19,11 +19,15 @@ MillSuite is live and in use. Estimating (rate book, composer, project rollup), 
 
 Remaining from this item: **Change Orders** (see "Now").
 
+**Top nav shipped (2026-06-19).** Replaced the top bar with a **hoisted** nav — `components/top-nav.tsx`, rendered once in `app/(app)/layout.tsx`; **text-only (no icons)**, 3 grouped dropdowns: **Sales** (click → /sales; hover → Kanban/Invoices/Clients) · **Projects** (click → /projects; hover → Schedule/Capacity) · **Manage** (dropdown-only: Reports/Suggestions/Rate book/Team/Time). Same `hasAccess` gating; member→Time; Invoices plan-gated only. (We tried a slide-out drawer first — Andrew preferred the top bar.) **Cleanup spun off to a separate task:** old `components/nav.tsx` is a null stub and ~20 pages still import/render `<Nav/>` (renders nothing) — remove those + delete the stub.
+
 ---
 
 ## Now
 
 ### Change Orders — finish the last mile  _(estimates+invoices rebuild landed & live 2026-06-19; this is what's left of the item)_
+
+**⏸ PAUSED — Andrew is getting his team's input before we build this.** The review + plan below are ready to resume when he's back. (Key open question from the review: how COs are created/surfaced — the engine is slot/line-seeded from the pre-production page, not a free-form modal — and how an approved CO bills as its own invoice.)
 
 The estimates-in-MillSuite + invoices-to-QB rebuild is **done and live** (see "Where things stand"). The remaining piece is **Change Orders**, which are **~80% already built** — schema `002_preprod_approval_schema.sql` (+ RLS `018`; `client_invoice_line_items.source_type` includes `'change_order'` in `041`), logic `lib/change-orders.ts` (`loadChangeOrdersForProject`/`createChangeOrder`/`approveCo`/`rejectCo`/`voidCo`/`sumApprovedNetChange`), UI `components/change-orders.tsx`, manual billing via `AddLineItemPicker` "From change order". It's just **not mounted on the main project page**.
 
@@ -52,24 +56,32 @@ Keep simple: internal mark-approved stays (`approveCo()`); don't reuse `lib/appr
 
 ## On deck — scoped, not started _(start after the estimates/CO item lands; both touch the project page + `nav.tsx`)_
 
-### Collapsible side nav  _(scoped 2026-06-17)_
+### ~~Slide-out side nav~~ → shipped as a TOP NAV (2026-06-19)
 
-**Goal:** replace the horizontal top bar with a **collapsible left side pane** — cleaner and mobile-friendly. Keep every current page and its gating; build it **style-neutral** (the aesthetic pass skins it later). **Not** in scope: reorganizing pages into department views — that's the separate `[ongoing]` item below.
+**Shipped as a hoisted top bar, not a drawer** (Andrew preferred the top bar) — see "Where things stand" → "Top nav shipped." The drawer spec below is **superseded**, kept only for reference. Remaining cleanup (remove per-page `<Nav/>` + delete the `nav.tsx` stub) is **spun off to a separate task**.
 
-**Decisions (locked):**
-- Left side pane, **text-only items — no icons** (Andrew wants the icons next to page titles gone). Collapsing shows/hides the pane (no icon-rail, since there are no icons); collapse state remembered (localStorage). Below a breakpoint it's an off-canvas drawer with a hamburger in a slim top bar.
-- Same pages + same grouping as today. No department reorg here.
-- Minimal/neutral styling now; final look comes from the "apply aesthetic" item.
+**Goal:** replace the horizontal top bar with a **left slide-out drawer** — text-only (no icons), mobile-ready. **Modal pattern:** a **solid white panel** slides in while the app behind it **frosts + dims** (backdrop blur). Defaults **closed**; a ☰ button in a slim top bar opens it; tap the dimmed backdrop or × to close. Build **style-neutral** (the aesthetic pass refines visuals).
 
-**Scope:**
-- New `components/side-nav.tsx` (refactor of `components/nav.tsx`): vertical layout, groups as collapsible sections, **text label only (drop the lucide icons)**, active-route highlight, brand/logo → dashboard. _(If any page also renders an icon next to its header title, remove those too — no icons by titles anywhere.)_
-- **Hoist nav into `app/(app)/layout.tsx`** so it renders once (today each page renders its own `<Nav/>`). Layout becomes a flex row: sidebar + main. Remove the per-page nav renders.
-- **Preserve all gating:** `hasAccess(plan, feature)` per item; member role → Time-only; and **carry forward the invoicing-mode gate** on the `/invoices` leaf.
-- Responsive: full pane (desktop) / hidden via toggle (collapsed) / drawer (mobile). Keyboard + aria (`aria-expanded` on groups, focus trap in the mobile drawer).
+**Confirmed structure (approved prototype):**
+- Brand "MillSuite" at the top of the panel → Dashboard. No standalone Dashboard item.
+- **Sales** → Kanban, Clients, Invoices
+- **Projects** → Projects (new leaf → the `/projects` dashboard), Schedule, Capacity
+- **Manage** (new group) → Reports, Suggestions, Rate book, Team, Time
+- **Plain-text**, collapsible group headers; items text-only — no icons anywhere.
+- This is only the menu's organization — **not** the `[ongoing]` department-view reorg (role/dept-scoped views), which stays separate.
 
-**Out of scope:** department-view reorg; final visual design.
+**Build:**
+- New `components/side-nav.tsx` (refactor of `components/nav.tsx`): off-canvas left drawer; **solid panel** (`--color-background-primary`); **frosted + dimmed backdrop** (`backdrop-filter: blur` over a translucent scrim); slide transition; default **closed** (open state in React). Same drawer on desktop + mobile (panel width ~`min(280px, 82%)`).
+- **Slim top bar** in the shell holds the ☰ toggle + brand.
+- **Hoist nav into `app/(app)/layout.tsx`** so it renders once (today each page renders its own `<Nav/>`); remove the per-page renders.
+- **New "Projects" leaf** → `/projects` (point at the current projects list if no dedicated dashboard exists yet; upgrade later).
+- **Preserve all gating:** `hasAccess(plan, feature)` per item (Reports=`outcomes`, Sales=`sales`, Schedule=`schedule`, Capacity=`capacity`, Rate book/Suggestions=`rate-book`, Team=`team`); the **Invoices** leaf also respects the **invoicing-mode gate**; a group header shows only if ≥1 child is accessible. Member role → minimal nav (Time only), as today.
+- **No icons anywhere** — drop the lucide icons; if any page renders an icon beside its header title, remove those too.
+- Accessibility: ☰ has an `aria-label`; `aria-expanded` on group headers; ESC + backdrop click close; focus trap while open.
 
-**Verify:** every current route reachable with identical gating; member sees only Time; collapse/expand persists across reload; mobile drawer opens/closes; grep that pages no longer import/render the old `Nav` (nav now lives in the layout); active highlighting works.
+**Out of scope:** department-view (role/dept) reorg; final visual styling.
+
+**Verify:** every current route reachable from the drawer with identical gating; **Invoices** hidden when invoicing is off; member sees only Time; ☰ opens / backdrop / × / ESC close; groups collapse/expand; works at mobile width; grep that pages no longer import/render the old `Nav` (nav now lives in the layout); active-route highlight works.
 
 ---
 
@@ -82,7 +94,7 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 **Phase 1 — shell / structure** _(one coherent wave; settle structure before skinning it)_
 
 - `[scoped → see "Now"]` Change Orders — last piece of the invoicing rebuild (estimates + one-invoice-to-QB are done & live). Andrew = QB mode.
-- `[scoped → see "On deck"]` Collapsible side nav (replace top bar; hoist into layout; mobile drawer)
+- `[scoped → see "On deck"]` Slide-out side nav (solid panel + frosted backdrop; Sales / Projects / Manage groups; hoist into layout; mobile drawer)
 - `[ongoing]` Department-view reorg — evolving; Andrew refines it as the team uses the app. Not a fixed spec; revisit in a planning pass when there's real usage signal.
 - `[unscoped]` Apply the new aesthetic (design made in Claude design)
 - `[unscoped]` Rethink landing page + reports page content
