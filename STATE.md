@@ -4,7 +4,7 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-06-19 · **Branch:** `main`
+**Last updated:** 2026-06-22 · **Branch:** `main`
 
 ---
 
@@ -19,7 +19,7 @@ MillSuite is live and in use. Estimating (rate book, composer, project rollup), 
 
 Remaining from this item: **Change Orders** (see "Now").
 
-**Top nav shipped (2026-06-19).** Replaced the top bar with a **hoisted** nav — `components/top-nav.tsx`, rendered once in `app/(app)/layout.tsx`; **text-only (no icons)**, 3 grouped dropdowns: **Sales** (click → /sales; hover → Kanban/Invoices/Clients) · **Projects** (click → /projects; hover → Schedule/Capacity) · **Manage** (dropdown-only: Reports/Suggestions/Rate book/Team/Time). Same `hasAccess` gating; member→Time; Invoices plan-gated only. (We tried a slide-out drawer first — Andrew preferred the top bar.) **Cleanup spun off to a separate task:** old `components/nav.tsx` is a null stub and ~20 pages still import/render `<Nav/>` (renders nothing) — remove those + delete the stub.
+**Top nav shipped (2026-06-19).** Replaced the top bar with a **hoisted** nav — `components/top-nav.tsx`, rendered once in `app/(app)/layout.tsx`; **text-only (no icons)**, 3 grouped dropdowns: **Sales** (click → /sales; hover → Kanban/Invoices/Clients) · **Projects** (click → /projects; hover → Schedule/Capacity) · **Manage** (dropdown-only: Reports/Suggestions/Rate book/Team/Time). Same `hasAccess` gating; member→Time; Invoices plan-gated only. (We tried a slide-out drawer first — Andrew preferred the top bar.) **Cleanup done (2026-06-22):** removed the `import Nav`/`<Nav/>` from all 20 pages and deleted the `components/nav.tsx` stub — nav now lives solely in `app/(app)/layout.tsx` via `components/top-nav.tsx`. (tsc clean; grep for `@/components/nav`/`<Nav/>` under `app/` empty.)
 
 ---
 
@@ -58,7 +58,7 @@ Keep simple: internal mark-approved stays (`approveCo()`); don't reuse `lib/appr
 
 ### ~~Slide-out side nav~~ → shipped as a TOP NAV (2026-06-19)
 
-**Shipped as a hoisted top bar, not a drawer** (Andrew preferred the top bar) — see "Where things stand" → "Top nav shipped." The drawer spec below is **superseded**, kept only for reference. Remaining cleanup (remove per-page `<Nav/>` + delete the `nav.tsx` stub) is **spun off to a separate task**.
+**Shipped as a hoisted top bar, not a drawer** (Andrew preferred the top bar) — see "Where things stand" → "Top nav shipped." The drawer spec below is **superseded**, kept only for reference. Remaining cleanup (remove per-page `<Nav/>` + delete the `nav.tsx` stub) is **done (2026-06-22)** — see "Where things stand" → "Top nav shipped."
 
 **Goal:** replace the horizontal top bar with a **left slide-out drawer** — text-only (no icons), mobile-ready. **Modal pattern:** a **solid white panel** slides in while the app behind it **frosts + dims** (backdrop blur). Defaults **closed**; a ☰ button in a slim top bar opens it; tap the dimmed backdrop or × to close. Build **style-neutral** (the aesthetic pass refines visuals).
 
