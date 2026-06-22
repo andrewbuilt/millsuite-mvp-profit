@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
@@ -156,7 +155,6 @@ export default function ReportsPage() {
   if (loading) {
     return (
       <>
-        <Nav />
         <div className="min-h-screen bg-[#F9FAFB]">
           <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
             <div className="h-7 w-24 bg-[#E5E7EB] rounded-lg animate-pulse" />
@@ -175,7 +173,6 @@ export default function ReportsPage() {
 
   return (
     <>
-      <Nav />
       <div className="min-h-screen bg-[#F9FAFB]">
         <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
           {/* Header */}

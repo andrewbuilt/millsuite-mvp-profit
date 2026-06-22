@@ -15,7 +15,6 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { useConfirm } from '@/components/confirm-dialog'
@@ -248,7 +247,6 @@ function ProjectsPageBody() {
 
   return (
     <>
-      <Nav />
       <div className="max-w-[1400px] mx-auto px-6 py-6">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-[#111]">Projects</h1>

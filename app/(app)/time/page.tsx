@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { triggerPhaseAdvance, triggerProjectRollup } from '@/lib/phase-client'
 import { useAuth } from '@/lib/auth-context'
@@ -361,7 +360,6 @@ export default function TimePage() {
   // ── Render ────────────────────────────────────────────────────────
   return (
     <>
-      <Nav />
 
       {/* ═══════ MOBILE TIMER VIEW ═══════ */}
       <div className="md:hidden min-h-[calc(100vh-3.5rem)] bg-[#F9FAFB] flex flex-col">

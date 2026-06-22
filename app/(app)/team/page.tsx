@@ -22,7 +22,6 @@
 // ============================================================================
 
 import { useState, useEffect, useMemo } from 'react'
-import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
@@ -53,7 +52,6 @@ const DEPT_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06
 export default function TeamPage() {
   return (
     <>
-      <Nav />
       <PlanGate requires="team">
         <TeamContent />
       </PlanGate>

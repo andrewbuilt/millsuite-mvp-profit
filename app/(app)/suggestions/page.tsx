@@ -19,7 +19,6 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Nav from '@/components/nav'
 import { useAuth } from '@/lib/auth-context'
 import {
   listActiveSuggestions,
@@ -161,7 +160,6 @@ export default function SuggestionsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <Nav />
       <div className="mx-auto max-w-5xl px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>

@@ -15,7 +15,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
@@ -480,7 +479,6 @@ function SalesInner() {
 
   return (
     <>
-      <Nav />
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight text-[#111]">Sales</h1>

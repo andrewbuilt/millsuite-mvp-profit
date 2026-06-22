@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
@@ -53,7 +52,6 @@ function fmtMoney(n: number) { return `$${n.toLocaleString(undefined, { minimumF
 export default function CapacityPage() {
   return (
     <>
-      <Nav />
       <PlanGate requires="capacity">
         <CapacityContent />
       </PlanGate>

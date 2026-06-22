@@ -105,7 +105,6 @@ import ClientPicker from '@/components/project/ClientPicker'
 import NewSubprojectModal from '@/components/project/NewSubprojectModal'
 import { useConfirm } from '@/components/confirm-dialog'
 import { maybeAdvanceToProduction } from '@/lib/project-stage'
-import Nav from '@/components/nav'
 
 // ── Types ──
 
@@ -874,7 +873,6 @@ export default function ProjectCoverPage() {
   if (loading || !project) {
     return (
       <>
-        <Nav />
         <div className="min-h-[60vh] flex items-center justify-center text-sm text-[#9CA3AF]">
           Loading rollup…
         </div>
@@ -884,7 +882,6 @@ export default function ProjectCoverPage() {
 
   return (
     <>
-      <Nav />
       <div className="min-h-screen bg-[#F9FAFB]">
         {/* Project sub-bar — sticks below the global Nav (Nav is sticky
             top-0 z-50). top-14 = 56px = the Nav's natural height. */}

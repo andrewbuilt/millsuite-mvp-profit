@@ -19,7 +19,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Nav from '@/components/nav'
 import { useAuth } from '@/lib/auth-context'
 import { resolveBucketMargins } from '@/lib/pricing'
 import { useConfirm } from '@/components/confirm-dialog'
@@ -595,7 +594,6 @@ export default function SubprojectEditorPage() {
   if (loading) {
     return (
       <>
-        <Nav />
         <div className="max-w-6xl mx-auto px-6 py-16 text-center text-[#9CA3AF] text-sm">Loading…</div>
       </>
     )
@@ -604,7 +602,6 @@ export default function SubprojectEditorPage() {
   if (!project || !subproject) {
     return (
       <>
-        <Nav />
         <div className="max-w-6xl mx-auto px-6 py-16 text-center text-sm text-[#DC2626]">Subproject not found.</div>
       </>
     )
@@ -612,7 +609,6 @@ export default function SubprojectEditorPage() {
 
   return (
     <>
-      <Nav />
 
       {/* Project strip */}
       <div className="bg-white border-b border-[#E5E7EB] sticky top-14 z-30">

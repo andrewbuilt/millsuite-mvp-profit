@@ -13,13 +13,11 @@
 // ============================================================================
 
 import Link from 'next/link'
-import Nav from '@/components/nav'
 import { ArrowRight } from 'lucide-react'
 
 export default function RateBookSettingsRedirect() {
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
-      <Nav />
       <div className="max-w-2xl mx-auto px-6 py-24 text-center">
         <h1 className="text-2xl font-semibold text-[#111] mb-3">
           Rate book moved

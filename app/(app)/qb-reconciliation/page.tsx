@@ -22,7 +22,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import Nav from '@/components/nav'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import {
@@ -218,7 +217,6 @@ export default function QbReconciliationPage() {
 
   return (
     <>
-      <Nav />
       <div className="max-w-[1200px] mx-auto px-6 py-8">
         <div className="flex items-start justify-between mb-6 gap-4">
           <div>

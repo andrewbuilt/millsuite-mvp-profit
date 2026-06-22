@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { computeProjectPL } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
@@ -284,7 +283,6 @@ function DashboardContent() {
   if (loading) {
     return (
       <>
-        <Nav />
         <div className="max-w-6xl mx-auto px-6 py-16 text-center text-[#9CA3AF] text-sm">Loading...</div>
       </>
     )
@@ -292,7 +290,6 @@ function DashboardContent() {
 
   return (
     <>
-      <Nav />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-4 sm:mb-6">Dashboard</h1>
 

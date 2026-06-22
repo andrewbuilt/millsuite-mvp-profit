@@ -29,7 +29,6 @@ import {
   ChevronRight,
   Trash2,
 } from 'lucide-react'
-import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { useConfirm } from '@/components/confirm-dialog'
@@ -939,7 +938,6 @@ export default function ClientsPage() {
 
   return (
     <>
-      <Nav />
       <div className="min-h-screen bg-[#F9FAFB]">
         <div className="bg-white border-b border-[#E5E7EB] sticky top-14 z-30">
           <div className="max-w-6xl mx-auto px-6 py-6">

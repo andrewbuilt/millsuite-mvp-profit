@@ -26,7 +26,6 @@ import {
   Building2,
   ChevronRight,
 } from 'lucide-react'
-import Nav from '@/components/nav'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { useConfirm } from '@/components/confirm-dialog'
@@ -456,7 +455,6 @@ export default function ClientDetailPage() {
   if (loading) {
     return (
       <>
-        <Nav />
         <div className="max-w-6xl mx-auto px-6 py-10 text-sm text-[#9CA3AF]">
           Loading client…
         </div>
@@ -466,7 +464,6 @@ export default function ClientDetailPage() {
   if (!client) {
     return (
       <>
-        <Nav />
         <div className="max-w-[820px] mx-auto px-6 py-16 text-center">
           <h1 className="text-xl font-semibold text-[#111] mb-2">Client not found</h1>
           <p className="text-sm text-[#6B7280] mb-5">
@@ -485,7 +482,6 @@ export default function ClientDetailPage() {
 
   return (
     <>
-      <Nav />
       <div className="min-h-screen bg-[#F9FAFB]">
         <div className="bg-white border-b border-[#E5E7EB] sticky top-14 z-30">
           <div className="max-w-6xl mx-auto px-6 py-4">

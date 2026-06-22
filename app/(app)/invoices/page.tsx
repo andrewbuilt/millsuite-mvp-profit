@@ -14,7 +14,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, X } from 'lucide-react'
-import Nav from '@/components/nav'
 import { useAuth } from '@/lib/auth-context'
 import {
   loadInvoices,
@@ -174,7 +173,6 @@ export default function InvoicesPage() {
   if (!orgId) {
     return (
       <div className="min-h-screen bg-[#FAFAFA]">
-        <Nav />
         <div className="p-8 text-sm text-[#6B7280]">Loading account…</div>
       </div>
     )
@@ -182,7 +180,6 @@ export default function InvoicesPage() {
 
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
-      <Nav />
       <div className="p-6 max-w-[1200px] mx-auto">
         <div className="flex items-center justify-between mb-5">
           <h1 className="text-[20px] font-semibold text-[#111]">Invoices</h1>

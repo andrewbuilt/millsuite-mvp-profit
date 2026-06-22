@@ -3,7 +3,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import PlanGate from '@/components/plan-gate'
-import Nav from '@/components/nav'
 import GateChip from '@/components/gate-chip'
 import { supabase } from '@/lib/supabase'
 import { loadSubprojectStatusMap, SubprojectStatus } from '@/lib/subproject-status'
@@ -1860,13 +1859,12 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
   // RENDER
   // =====================================================
   if (authLoading || !org) {
-    return <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}><Nav /><LoadingSkeleton /></div>
+    return <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}><LoadingSkeleton /></div>
   }
 
   return (
     <PlanGate requires="schedule">
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      <Nav />
       {!dataLoaded ? (
         <LoadingSkeleton />
       ) : (

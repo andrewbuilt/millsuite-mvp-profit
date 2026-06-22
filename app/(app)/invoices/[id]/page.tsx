@@ -28,7 +28,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import Nav from '@/components/nav'
 import { useAuth } from '@/lib/auth-context'
 import { useConfirm } from '@/components/confirm-dialog'
 import {
@@ -373,7 +372,6 @@ export default function InvoiceDetailPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#FAFAFA]">
-        <Nav />
         <div className="p-8 text-sm text-[#6B7280]">Loading invoice…</div>
       </div>
     )
@@ -382,7 +380,6 @@ export default function InvoiceDetailPage() {
   if (error && !invoice) {
     return (
       <div className="min-h-screen bg-[#FAFAFA]">
-        <Nav />
         <div className="p-8 text-sm text-[#DC2626]">{error}</div>
       </div>
     )
@@ -394,7 +391,6 @@ export default function InvoiceDetailPage() {
 
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
-      <Nav />
       <div className="p-6 max-w-[1100px] mx-auto">
         {/* Header */}
         <div className="flex items-center gap-3 mb-1">

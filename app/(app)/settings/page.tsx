@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import Nav from '@/components/nav'
 import { Copy, Check, Sparkles, Trash2, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
@@ -443,7 +442,6 @@ export default function SettingsPage() {
 
   return (
     <>
-      <Nav />
       <div className="max-w-3xl mx-auto px-6 py-8">
         <div className="flex items-center gap-3 mb-8">
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>

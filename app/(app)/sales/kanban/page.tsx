@@ -12,7 +12,6 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Nav from '@/components/nav'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
 import {
@@ -122,7 +121,6 @@ function KanbanInner() {
 
   return (
     <>
-      <Nav />
       <div className="max-w-[1400px] mx-auto px-6 py-6">
         <div className="flex items-center gap-3 mb-5">
           <Link

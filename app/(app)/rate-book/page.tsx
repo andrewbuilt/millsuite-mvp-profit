@@ -19,7 +19,6 @@
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
-import Nav from '@/components/nav'
 import { useAuth } from '@/lib/auth-context'
 import {
   Search, Settings, Plus, Tag, X, ChevronRight, ChevronDown,
@@ -298,7 +297,6 @@ export default function RateBookPage() {
   if (!orgId) {
     return (
       <div className="min-h-screen bg-[#FAFAFA]">
-        <Nav />
         <div className="p-8 text-sm text-[#6B7280]">Loading account…</div>
       </div>
     )
@@ -306,7 +304,6 @@ export default function RateBookPage() {
 
   return (
     <div className="h-screen flex flex-col bg-white">
-      <Nav />
 
       {/* Context strip */}
       <div className="px-6 py-2 text-[12px] flex items-center gap-3 bg-[#EFF6FF] border-b border-[#DBEAFE]">
