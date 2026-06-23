@@ -164,11 +164,6 @@ export default function PreProductionPage() {
     setTimeout(() => setToast(null), 2600)
   }
 
-  function handleAdvancedToProduction() {
-    showToast('Project advanced to production. Schedule allocations seeded.')
-    void reload()
-  }
-
   // Map an approval-item label to a composer slot key. Mirrors the
   // built-in mapping in lib/approvals.proposeSlotsFromComposerLine.
   // Door pricing v2: door material now lives on doorMaterialId; the
@@ -433,13 +428,11 @@ export default function PreProductionPage() {
                 <div>
                   <ApprovalSlots
                     subprojectId={sub.id}
-                    projectId={projectId}
                     actorUserId={user?.id}
                     onChange={reload}
                     onCreateSpecCo={(approvalItemId) =>
                       void openSpecCo(approvalItemId, sub.id, sub.name)
                     }
-                    onAdvancedToProduction={handleAdvancedToProduction}
                   />
                 </div>
                 <div>
@@ -448,10 +441,8 @@ export default function PreProductionPage() {
                   </div>
                   <DrawingsTrack
                     subprojectId={sub.id}
-                    projectId={projectId}
                     actorUserId={user?.id}
                     onChange={reload}
-                    onAdvancedToProduction={handleAdvancedToProduction}
                   />
                 </div>
               </div>

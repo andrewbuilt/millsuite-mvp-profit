@@ -1151,10 +1151,10 @@ export default function SchedulePage() {
 
     // Schedule shows projects that are actually in the shop. Pre-sold bids
     // (new lead / fifty-fifty / ninety / sold) clutter the swimlane with
-    // jobs that can't be allocated yet — they don't appear until auto-advance
-    // flips stage to 'production' (lib/project-stage.maybeAdvanceToProduction).
-    // 'installed' stays so the schedule still renders the recent install
-    // history; 'complete' is excluded — completed jobs leave the swimlane.
+    // jobs that can't be allocated yet — they don't appear until the operator
+    // starts production (lib/project-stage.startProduction flips stage to
+    // 'production'). 'installed' stays so the schedule still renders the recent
+    // install history; 'complete' is excluded — completed jobs leave the swimlane.
     const { data: projData } = await supabase
       .from('projects')
       .select('id, name, client_name, stage, due_date')

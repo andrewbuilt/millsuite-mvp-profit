@@ -100,8 +100,8 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
 
   // Idempotency: if anything is already allocated against this project's
   // subprojects, treat the seed as already done. The operator may have
-  // hand-rolled an allocation, or maybeAdvanceToProduction may have fired
-  // twice through different call sites — either way, don't overwrite.
+  // hand-rolled an allocation, or startProduction may have fired twice
+  // through different call sites — either way, don't overwrite.
   const { data: existing } = await supabase
     .from('department_allocations')
     .select('id')

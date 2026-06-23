@@ -104,7 +104,7 @@ import {
 import ClientPicker from '@/components/project/ClientPicker'
 import NewSubprojectModal from '@/components/project/NewSubprojectModal'
 import { useConfirm } from '@/components/confirm-dialog'
-import { maybeAdvanceToProduction } from '@/lib/project-stage'
+import { isReadyForProduction, startProduction } from '@/lib/project-stage'
 
 // ── Types ──
 
@@ -250,8 +250,8 @@ type CoverStage = 'bidding' | 'sold' | 'production' | 'installed' | 'complete'
 const COVER_STAGE_ORDER: CoverStage[] = ['bidding', 'sold', 'production', 'installed', 'complete']
 const COVER_STAGE_LABEL: Record<CoverStage, string> = {
   bidding: 'Bidding',
-  sold: 'Sold',
-  production: 'Production',
+  sold: 'Pre-Production',
+  production: 'In Production',
   installed: 'Installed',
   complete: 'Complete',
 }
@@ -322,6 +322,11 @@ export default function ProjectCoverPage() {
   const [milestones, setMilestones] = useState<ProjectMilestone[]>([])
   const [milestonesDirty, setMilestonesDirty] = useState(false)
   const [milestonesSaving, setMilestonesSaving] = useState(false)
+
+  // Derived "ready for production" gate (computed async by the effect
+  // below) + the in-flight flag for the manual Start production action.
+  const [readyForProduction, setReadyForProduction] = useState(false)
+  const [startingProduction, setStartingProduction] = useState(false)
   const [newSubOpen, setNewSubOpen] = useState(false)
   // Milestone id → linked-invoice summary. Drives both the "Generate
   // invoice" button hiding and the read-only status pill that mirrors
@@ -552,26 +557,43 @@ export default function ProjectCoverPage() {
     reload()
   }, [reload])
 
-  // Auto-advance check on every reload. Cheap (3 small queries) and
-  // idempotent — bails immediately when stage isn't 'sold'. Catches the
-  // case where a deposit landed via QB watcher / outside the page since
-  // the gate was last evaluated. On success, refetches local state +
-  // shows the toast. The handler hoisted into a stable ref so the effect
-  // doesn't re-fire on every render.
+  // Recompute the derived "ready for production" gate whenever the project
+  // or its approval / deposit inputs change. Read-only — production starts
+  // manually via the Start production button (no auto-advance).
   useEffect(() => {
-    if (!project || project.stage !== 'sold') return
+    if (!project || project.stage !== 'sold') {
+      setReadyForProduction(false)
+      return
+    }
     let cancelled = false
-    ;(async () => {
-      const advanced = await maybeAdvanceToProduction(projectId)
-      if (cancelled || !advanced) return
-      showToast('Project advanced to production. Schedule allocations seeded.')
-      reload()
-    })()
+    isReadyForProduction(projectId).then((ready) => {
+      if (!cancelled) setReadyForProduction(ready)
+    })
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, project?.stage])
+  }, [projectId, project?.stage, subStatusMap, milestones])
+
+  // Operator-driven sold → production transition — the only writer. Guards
+  // on the readiness gate, flips the stage, and seeds schedule allocations
+  // (the seeding the old auto-advance used to do).
+  async function handleStartProduction() {
+    if (startingProduction) return
+    setStartingProduction(true)
+    try {
+      const ok = await startProduction(projectId)
+      if (!ok) {
+        showToast('Not ready for production yet — check approvals and deposit.')
+        return
+      }
+      setProject((p) => (p ? { ...p, stage: 'production' } : p))
+      showToast('Production started. Schedule allocations seeded.')
+      reload()
+    } finally {
+      setStartingProduction(false)
+    }
+  }
 
   // Item 1: refresh on tab focus / page-show. Pre-prod approve clicks
   // happen on a different page; without this hook the banner + status
@@ -700,27 +722,6 @@ export default function ProjectCoverPage() {
 
     return acc
   }, [cards, subActuals, deptKeyById, margins])
-
-  // Item 4 of post-sale-3: Sold → Production gate visual. True when:
-  //   (a) every subproject reads ready_for_scheduling on the
-  //       subproject_approval_status view (which itself = all approval
-  //       items approved AND drawings approved), AND
-  //   (b) at least the deposit milestone (trigger='signing') is
-  //       received.
-  // The gate doesn't auto-advance the stage — it just decorates the
-  // Sold pip on the strip green-checked so the operator can see at a
-  // glance that they could move to Production now.
-  const soldGateMet = useMemo(() => {
-    if (cards.length === 0) return false
-    const allSubsReady = cards.every(
-      (c) => subStatusMap[c.sub.id]?.ready_for_scheduling === true,
-    )
-    if (!allSubsReady) return false
-    const depositReceived = milestones.some(
-      (m) => m.trigger === 'signing' && m.status === 'received',
-    )
-    return depositReceived
-  }, [cards, subStatusMap, milestones])
 
   // Item 6 + dashboard fix: keep projects.bid_total in sync with the live
   // priceTotal so every list surface that reads it (sales card, kanban,
@@ -941,13 +942,16 @@ export default function ProjectCoverPage() {
       </div>
 
       {/* Stage-aware layer: 5-node stage strip + attention strip */}
-      <StageStrip stage={project.stage} soldGateMet={soldGateMet} />
+      <StageStrip stage={project.stage} soldGateMet={readyForProduction} />
       <AttentionStrip
         projectId={projectId}
         stage={project.stage}
         cards={cards}
         milestones={milestones}
         subStatusMap={subStatusMap}
+        readyForProduction={readyForProduction}
+        onStartProduction={handleStartProduction}
+        starting={startingProduction}
       />
 
       {!isPresold(project.stage) && <SoldLockBanner projectId={projectId} />}
@@ -1339,11 +1343,6 @@ export default function ProjectCoverPage() {
                     ),
                   )
                   showToast('Milestone marked received.')
-                  const advanced = await maybeAdvanceToProduction(projectId)
-                  if (advanced) {
-                    showToast('Project advanced to production. Schedule allocations seeded.')
-                    reload()
-                  }
                 }}
                 dirty={milestonesDirty}
                 saving={milestonesSaving}
@@ -1448,6 +1447,7 @@ export default function ProjectCoverPage() {
           stage={project.stage}
           projectId={projectId}
           canSell={cards.length > 0}
+          canStartProduction={readyForProduction}
           hasReparseable={
             Array.isArray(((project as any).intake_context as any)?.source_pdf_paths) &&
             (((project as any).intake_context as any).source_pdf_paths as string[]).length > 0
@@ -1456,6 +1456,10 @@ export default function ProjectCoverPage() {
           onDownloadEstimate={() => setSendEstimateOpen(true)}
           onMarkSold={handleMarkSold}
           onAdvance={async (toStage) => {
+            if (toStage === 'production') {
+              await handleStartProduction()
+              return
+            }
             await updateProjectStage(projectId, toStage)
             setProject((p) => (p ? { ...p, stage: toStage } : p))
             showToast(`Moved to ${toStage.replace('_', ' ')}.`)
@@ -2798,6 +2802,9 @@ function AttentionStrip({
   cards,
   milestones,
   subStatusMap,
+  readyForProduction,
+  onStartProduction,
+  starting,
 }: {
   projectId: string
   stage: ProjectStage
@@ -2808,11 +2815,42 @@ function AttentionStrip({
    *  when not yet loaded; the banner falls back to a pending message
    *  until the first load completes. */
   subStatusMap: Record<string, SubprojectStatus>
+  /** Derived readiness gate (every sub approved AND the deposit in). When
+   *  true on a sold project, the green Ready banner + Start button shows. */
+  readyForProduction: boolean
+  onStartProduction: () => void
+  starting: boolean
 }) {
   // Per-stage issues that need attention. Short, actionable strings,
   // each optionally with a CTA on the right.
   const items: AttentionItem[] = []
   const cover = coverStageOf(stage)
+
+  // Ready for production: green banner + Start button, overriding the amber
+  // needs-attention treatment. readyForProduction already requires every sub
+  // approved AND the deposit received, so this only fires on a sold project.
+  if (cover === 'sold' && readyForProduction) {
+    return (
+      <div className="px-8 py-2.5 bg-[#ECFDF5] border-b border-[#A7F3D0]">
+        <div className="max-w-[1240px] mx-auto flex items-center gap-3 flex-wrap text-sm">
+          <CheckCircle2 className="w-4 h-4 text-[#059669]" />
+          <span className="text-[12px] font-semibold uppercase tracking-wider text-[#065F46]">
+            Ready for production
+          </span>
+          <div className="flex-1 min-w-0 text-[12px] text-[#065F46]">
+            All approvals complete · deposit received
+          </div>
+          <button
+            onClick={onStartProduction}
+            disabled={starting}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#059669] rounded-md hover:bg-[#047857] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+          >
+            {starting ? 'Starting…' : 'Start production'}
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (cover === 'bidding') {
     const emptySubs = cards.filter((c) => c.lineCount === 0).length
@@ -2838,8 +2876,11 @@ function AttentionStrip({
     const ready = statuses.filter((s) => s.ready_for_scheduling).length
     const total = subIds.length
     if (total > 0 && statuses.length === total && ready === total) {
-      // All ready — no banner. The next stage transition (Mark in
-      // production) lives in the StageActionBar.
+      // Every sub is approved but the gate isn't green (readyForProduction
+      // was false above) → the deposit is the only thing left.
+      items.push({
+        text: 'All approvals complete · awaiting deposit before production can start',
+      })
     } else {
       const remaining = Math.max(0, total - ready)
       items.push({
@@ -2900,6 +2941,7 @@ function StageActionBar({
   stage,
   projectId,
   canSell,
+  canStartProduction,
   hasReparseable,
   onReparse,
   onDownloadEstimate,
@@ -2909,6 +2951,9 @@ function StageActionBar({
   stage: ProjectStage
   projectId: string
   canSell: boolean
+  /** Gates the Start production button — only shown when the project has
+   *  cleared the readiness gate (all approvals + deposit). */
+  canStartProduction: boolean
   hasReparseable: boolean
   onReparse: () => void
   onDownloadEstimate: () => void
@@ -2957,7 +3002,7 @@ function StageActionBar({
             Mark as sold
           </button>
         )}
-        {cover === 'sold' && (
+        {cover === 'sold' && canStartProduction && (
           <button onClick={() => onAdvance('production')} className={primary}>
             Start production
           </button>

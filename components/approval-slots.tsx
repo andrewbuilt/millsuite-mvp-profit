@@ -29,11 +29,9 @@ import {
   revNumber,
   submitSample,
 } from '@/lib/approvals'
-import { maybeAdvanceToProduction } from '@/lib/project-stage'
 
 interface Props {
   subprojectId: string
-  projectId: string
   /** Optional, used as actor_user_id on item_revisions rows. */
   actorUserId?: string
   /** Called after every successful state mutation (approve / reject /
@@ -49,10 +47,6 @@ interface Props {
    *  CreateCoModalSeed with source='spec' + preSelectedSlot, and mounts
    *  the modal. Buttons hide entirely when this prop isn't provided. */
   onCreateSpecCo?: (approvalItemId: string) => void
-  /** Fired after an approval lands the project at the production gate
-   *  and stage auto-advances. Parent shows the toast + refetches any
-   *  stage-aware UI. */
-  onAdvancedToProduction?: () => void
 }
 
 /** Map an approval_items.label to the composer slot key the spec drives.
@@ -66,7 +60,7 @@ function slotKeyForApprovalLabel(label: string): string | null {
   return null
 }
 
-export default function ApprovalSlots({ subprojectId, projectId, actorUserId, onChange, onCreateSpecCo, onAdvancedToProduction }: Props) {
+export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onCreateSpecCo }: Props) {
   const { alert } = useConfirm()
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -104,13 +98,6 @@ export default function ApprovalSlots({ subprojectId, projectId, actorUserId, on
       await fn(itemId, { actorUserId })
       await reload()
       onChange?.()
-      // Approve is the only transition that can close the production gate
-      // — submit / request-change keep state shy of approved. Skip the
-      // network round-trip for the others.
-      if (fn === approve) {
-        const advanced = await maybeAdvanceToProduction(projectId)
-        if (advanced) onAdvancedToProduction?.()
-      }
     } catch (err) {
       console.error(err)
       await alert({
