@@ -4,7 +4,7 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-06-22 · **Branch:** `main`
+**Last updated:** 2026-06-23 · **Branch:** `main`
 
 ---
 
@@ -17,13 +17,23 @@ MillSuite is live and in use. Estimating (rate book, composer, project rollup), 
 - **One invoice per project = the contract** (`bid_total`, estimate line items, milestones as a payment-terms schedule). QB mode pushes it to QB **and** records a matching MillSuite invoice (`client_invoices.qbo_invoice_id` link); internal mode creates it in MillSuite. **Draws** (any amount) lower the balance; the **QB watcher** (`lib/qb-events.ts`) applies incoming payments to the invoice. **Milestones are projection-only** (no longer flip to "received"); dashboard AR reads the invoice balance.
 - **QB OAuth/connect** (per-org tokens) live — Andrew connected to Built LLC. Estimate→QB push retired; per-milestone invoicing replaced by the one invoice.
 
-Remaining from this item: **Change Orders** (see "Now").
+Remaining from this item: **Change Orders** — now **parked** (see "Parked — resume later").
 
 **Top nav shipped (2026-06-19).** Replaced the top bar with a **hoisted** nav — `components/top-nav.tsx`, rendered once in `app/(app)/layout.tsx`; **text-only (no icons)**, 3 grouped dropdowns: **Sales** (click → /sales; hover → Kanban/Invoices/Clients) · **Projects** (click → /projects; hover → Schedule/Capacity) · **Manage** (dropdown-only: Reports/Suggestions/Rate book/Team/Time). Same `hasAccess` gating; member→Time; Invoices plan-gated only. (We tried a slide-out drawer first — Andrew preferred the top bar.) **Cleanup done (2026-06-22):** removed the `import Nav`/`<Nav/>` from all 20 pages and deleted the `components/nav.tsx` stub — nav now lives solely in `app/(app)/layout.tsx` via `components/top-nav.tsx`. (tsc clean; grep for `@/components/nav`/`<Nav/>` under `app/` empty.)
+
+**Projects dashboard + production lifecycle — shipped 2026-06-23.** No schema change. **(A) Lifecycle:** `sold` relabeled **"Pre-Production"**, `production` → **"In Production"**; "Ready for production" is a **derived** sub-state (not a stored stage). Auto-advance is gone — `lib/project-stage.ts` now exposes `isReadyForProduction()` (read-only gate) + `startProduction()` (the sole writer: flips stage + seeds allocations). Production starts **manually** via a readiness-gated "Start production" button + a green Ready banner on the project page; the status-bar Pre-Production pip green-checks when ready. **Deposit signal resolved:** the contract invoice's `amount_received > 0` (post-rebuild, milestones only flip to "received" on full payment, so the old milestone gate was dead). **(B) `/projects` dashboard:** rebuilt as the post-sold view — 5 derived buckets (Pre-production / Ready / In production / Installed / Complete) + client/project search + 3 filter-driven metrics (Value / Est hrs / Tracked hrs). Commits `317d9c9` (A) + `1df7eef` (B). _Made it the main `/projects` index (the open decision). Dropped the old per-card delete (not in the prototype) — say if you want it back. Per-project hours load is N parallel calls (fine at beta scale). End-to-end QA on a real sold project still pending._
 
 ---
 
 ## Now
+
+_Nothing active to build._ Change Orders is **parked** (see below). The remaining Phase 1 items are all `[unscoped]`/`[ongoing]` — bring one back through a Cowork scoping pass before building.
+
+**Just shipped (2026-06-23):** Projects dashboard + production lifecycle — see "Where things stand." Left for Andrew: **end-to-end QA on a real sold project** (Ready chip + green banner + Start → `production` + allocations seeded; dashboard buckets/metrics with live data).
+
+---
+
+## Parked — resume later
 
 ### Change Orders — finish the last mile  _(estimates+invoices rebuild landed & live 2026-06-19; this is what's left of the item)_
 
@@ -93,8 +103,9 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 
 **Phase 1 — shell / structure** _(one coherent wave; settle structure before skinning it)_
 
-- `[scoped → see "Now"]` Change Orders — last piece of the invoicing rebuild (estimates + one-invoice-to-QB are done & live). Andrew = QB mode.
-- `[scoped → see "On deck"]` Slide-out side nav (solid panel + frosted backdrop; Sales / Projects / Manage groups; hoist into layout; mobile drawer)
+- `[shipped]` Projects dashboard + production lifecycle (Pre-Production → Ready → In Production) — shipped 2026-06-23 (see "Where things stand")
+- `[parked]` Change Orders — paused (Andrew getting team input); spec kept under "Parked — resume later"
+- `[shipped]` Top nav (Sales / Projects / Manage) — shipped as a top bar 2026-06-19 (the slide-out drawer was dropped)
 - `[ongoing]` Department-view reorg — evolving; Andrew refines it as the team uses the app. Not a fixed spec; revisit in a planning pass when there's real usage signal.
 - `[unscoped]` Apply the new aesthetic (design made in Claude design)
 - `[unscoped]` Rethink landing page + reports page content
@@ -121,4 +132,5 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 
 - Latest DB migration is `061` (057–061 = the invoicing rebuild; all run on prod). Run any new migration against prod Supabase before deploying.
 - QB mode = **estimates stay in MillSuite (PDF); one project invoice pushes to QB** (estimate→QB push and per-milestone invoicing are retired). If a stray "we never send to QuickBooks" line turns up anywhere, clean it up.
+- **Production is a manual step** (shipped 2026-06-23) — `sold → production` no longer auto-advances; the readiness-gated "Start production" button (project page + Ready banner) is the only path, and it's the only thing that seeds schedule allocations. Existing `production` projects unaffected. "Ready for production" is **derived**, not a stored stage. **Deposit signal** = the contract invoice's `amount_received > 0` (not a milestone flipped to "received").
 - `../built-os` is frozen — don't build features there (but it's the **reference** for the QB port).
