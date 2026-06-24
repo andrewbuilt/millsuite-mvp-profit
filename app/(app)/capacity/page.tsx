@@ -34,6 +34,19 @@ interface CapacityOverride {
 // not yet stored on orgs.team_members jsonb.
 const DEFAULT_DAY_HOURS = 8
 
+// Production sequence used by "Smart" split (ported from Built OS). Each phase
+// groups sequential trades so a split month carries a coherent stage of the
+// build (Eng+CNC → Assembly+Finish → Install) instead of an even hours slice.
+// Departments are matched by normalized name; department_hours on
+// project_month_allocations is keyed by dept id, so handleSplit maps these
+// names → ids at split time. Falls back to the 2-part sequence for any part
+// count not listed.
+const SMART_SPLIT_SEQUENCE: Record<number, string[][]> = {
+  2: [['engineering', 'cnc', 'assembly'], ['finish', 'install']],
+  3: [['engineering', 'cnc'], ['assembly', 'finish'], ['install']],
+  4: [['engineering'], ['cnc', 'assembly'], ['finish'], ['install']],
+}
+
 // Count Mon–Fri days in a given calendar month.
 function weekdaysInMonth(year: number, month0: number): number {
   let count = 0
@@ -346,7 +359,11 @@ function CapacityContent() {
   // current allocation's month. Existing dept_hours distribution is
   // copied across — operator can refresh per-row from estimate via the
   // side pane.
-  async function handleSplit(allocationId: string, numMonths: number) {
+  async function handleSplit(
+    allocationId: string,
+    numMonths: number,
+    mode: 'even' | 'smart' = 'even',
+  ) {
     if (!org?.id) return
     const oldAlloc = monthAllocations.find((a) => a.id === allocationId)
     if (!oldAlloc) return
@@ -356,12 +373,62 @@ function CapacityContent() {
     const groupId = crypto.randomUUID()
     const startDate = new Date(oldAlloc.month_date + 'T00:00:00')
 
+    // Smart mode partitions the project by production sequence: each split
+    // month gets a coherent phase of departments instead of an even hours
+    // slice. Needs a per-dept breakdown to partition; falls back to even
+    // when department_hours is absent.
+    const deptHours = oldAlloc.department_hours
+    const useSmart =
+      mode === 'smart' && !!deptHours && Object.keys(deptHours).length > 0
+
+    // Normalized dept name → dept id, so the name-keyed sequence can address
+    // the id-keyed department_hours map.
+    const idByName: Record<string, string> = {}
+    for (const d of departments) idByName[d.name.trim().toLowerCase()] = d.id
+
+    let smartPhases: Array<{ hours: number; deptHours: Record<string, number> }> = []
+    if (useSmart) {
+      const sequence = SMART_SPLIT_SEQUENCE[numMonths] || SMART_SPLIT_SEQUENCE[2]
+      const assigned = new Set<string>()
+      smartPhases = sequence.map((phaseNames) => {
+        const ph: Record<string, number> = {}
+        let total = 0
+        for (const name of phaseNames) {
+          const id = idByName[name]
+          if (!id) continue
+          const h = Number(deptHours![id]) || 0
+          if (h > 0) {
+            ph[id] = Math.round(h)
+            total += h
+            assigned.add(id)
+          }
+        }
+        return { hours: Math.round(total), deptHours: ph }
+      })
+      // Fold any dept hours not covered by the sequence (non-standard dept
+      // names) into the last phase so no hours are lost.
+      const leftover = Object.entries(deptHours!).filter(([id]) => !assigned.has(id))
+      if (leftover.length > 0 && smartPhases.length > 0) {
+        const last = smartPhases[smartPhases.length - 1]
+        for (const [id, h] of leftover) {
+          const hr = Math.round(Number(h) || 0)
+          if (hr > 0) {
+            last.deptHours[id] = (last.deptHours[id] || 0) + hr
+            last.hours += hr
+          }
+        }
+      }
+    }
+
     await supabase.from('project_month_allocations').delete().eq('id', allocationId)
 
     let firstNewId: string | null = null
     for (let i = 0; i < numMonths; i++) {
       const monthDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1)
-      const hrs = i === numMonths - 1 ? currentHours - hoursPerMonth * (numMonths - 1) : hoursPerMonth
+      const evenHrs =
+        i === numMonths - 1 ? currentHours - hoursPerMonth * (numMonths - 1) : hoursPerMonth
+      const hrs = useSmart ? smartPhases[i]?.hours ?? 0 : evenHrs
+      const deptHrs = useSmart ? smartPhases[i]?.deptHours ?? {} : oldAlloc.department_hours
       const { data } = await supabase
         .from('project_month_allocations')
         .insert({
@@ -369,7 +436,7 @@ function CapacityContent() {
           project_id: oldAlloc.project_id,
           month_date: `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}-01`,
           hours_allocated: hrs,
-          department_hours: oldAlloc.department_hours,
+          department_hours: deptHrs,
           split_group_id: groupId,
           split_index: i + 1,
           split_total: numMonths,
@@ -709,7 +776,7 @@ function CapacityContent() {
             departments={departments}
             refreshing={refreshing}
             onClose={() => setSelectedCard(null)}
-            onSplit={(n) => handleSplit(alloc.id, n)}
+            onSplit={(n, mode) => handleSplit(alloc.id, n, mode)}
             onRemoveSplit={() => handleRemoveSplit(alloc.id)}
             onRefresh={() => refreshAllocationHours(alloc.id, alloc.project_id)}
             onPin={() => pinAllocation(alloc.id)}
@@ -986,11 +1053,12 @@ function ProjectSidePane({
   departments: Department[]
   refreshing: boolean
   onClose: () => void
-  onSplit: (n: number) => void
+  onSplit: (n: number, mode: 'even' | 'smart') => void
   onRemoveSplit: () => void
   onRefresh: () => void
   onPin: () => void
 }) {
+  const [splitMode, setSplitMode] = useState<'even' | 'smart'>('even')
   const isSplit = !!groupAllocations && groupAllocations.length > 1
   const isAuto = (allocation.source ?? 'manual') === 'auto'
   const hours = allocation.hours_allocated
@@ -1116,19 +1184,40 @@ function ProjectSidePane({
               <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] mb-1.5">
                 Split across months
               </div>
+              {/* Even vs Smart mode */}
+              <div className="flex items-center bg-[#F3F4F6] rounded-lg p-0.5 mb-2">
+                {(['even', 'smart'] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setSplitMode(m)}
+                    className={`flex-1 px-2 py-1 text-[11px] font-medium rounded-md capitalize transition-colors ${
+                      splitMode === m
+                        ? 'bg-white text-[#111] shadow-sm'
+                        : 'text-[#6B7280] hover:text-[#111]'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
               <div className="grid grid-cols-3 gap-2">
                 {[2, 3, 4].map((n) => (
                   <button
                     key={n}
-                    onClick={() => onSplit(n)}
+                    onClick={() => onSplit(n, splitMode)}
                     className="px-2 py-2 text-[12px] font-medium text-[#111] bg-[#F9FAFB] border border-[#E5E7EB] rounded-md hover:bg-[#EFF6FF] hover:border-[#2563EB] transition-colors"
                   >
                     <div className="font-semibold">{n} months</div>
                     <div className="text-[10px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
-                      ~{Math.round(hours / n)}h/mo
+                      {splitMode === 'even' ? `~${Math.round(hours / n)}h/mo` : 'by phase'}
                     </div>
                   </button>
                 ))}
+              </div>
+              <div className="text-[10px] text-[#9CA3AF] mt-1.5 leading-snug">
+                {splitMode === 'even'
+                  ? 'Divides hours equally across consecutive months.'
+                  : 'Groups departments by production sequence (Eng+CNC → Assembly+Finish → Install). Needs a per-department hours breakdown.'}
               </div>
             </div>
           )}
