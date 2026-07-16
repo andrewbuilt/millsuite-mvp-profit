@@ -4,7 +4,7 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-06-23 · **Branch:** `main`
+**Last updated:** 2026-07-16 · **Branch:** `main`
 
 ---
 
@@ -23,13 +23,35 @@ Remaining from this item: **Change Orders** — now **parked** (see "Parked — 
 
 **Projects dashboard + production lifecycle — shipped 2026-06-23.** No schema change. **(A) Lifecycle:** `sold` relabeled **"Pre-Production"**, `production` → **"In Production"**; "Ready for production" is a **derived** sub-state (not a stored stage). Auto-advance is gone — `lib/project-stage.ts` now exposes `isReadyForProduction()` (read-only gate) + `startProduction()` (the sole writer: flips stage + seeds allocations). Production starts **manually** via a readiness-gated "Start production" button + a green Ready banner on the project page; the status-bar Pre-Production pip green-checks when ready. **Deposit signal resolved:** the contract invoice's `amount_received > 0` (post-rebuild, milestones only flip to "received" on full payment, so the old milestone gate was dead). **(B) `/projects` dashboard:** rebuilt as the post-sold view — 5 derived buckets (Pre-production / Ready / In production / Installed / Complete) + client/project search + 3 filter-driven metrics (Value / Est hrs / Tracked hrs). Commits `317d9c9` (A) + `1df7eef` (B). _Made it the main `/projects` index (the open decision). Dropped the old per-card delete (not in the prototype) — say if you want it back. Per-project hours load is N parallel calls (fine at beta scale). End-to-end QA on a real sold project still pending._
 
+**Capacity calendar redesign — shipped 2026-07-16.** `/capacity` is now a **standalone birdseye planning tool**, no longer a mirror of `/schedule`. All in `app/(app)/capacity/page.tsx`; the side pane is unchanged. 5 commits on `main`:
+- **Cut the schedule connection fully** (`edd02e7`) — deleted `lib/capacity-seed.ts`; removed every `autoSeedProjectMonthAllocations`/`triggerAutoSeedCapacity` call from `schedule/page.tsx` + `lib/schedule-seed.ts`; stripped the `source` auto/manual concept (auto badge, "Pin to this month" + `pinAllocation`, all `source:'manual'` writes). The `source` DB column stays (defaults `'manual'`, no migration); all rows read as manual.
+- **Rolling 12-month window + layout rebuild** (`a940991`) — replaced the year-picker + quarter/half/year zoom with a rolling window (current month + next 11, arrows page ±1, `Today` jump; crosses the year boundary). Fixed-width 184px month columns in one horizontal scroll row; unscheduled tray moved **above** the months (drop-to-unschedule); 12-cell util heat strip (click scrolls a month into view); header stats (Next opening + lead time / Booked / Staffing signal); month card keeps the tiny 3px dept-stacked bar, the 6-row per-dept mini-bar block deleted; ProjectCard collapsed from 3 zoom variants to one.
+- **Quiet PTO/holiday line** (`56c3e7e`) — replaced the 🏛/🏖 chips + per-day flag strip with one muted "N holidays · N PTO days" line (dates + names in the tooltip); deleted `MonthOverrideFlags`.
+- **Pipeline toggle** (`2b461fb`) — "Sold only" (default) vs "Sold + pipeline". Pipeline (`new_lead`/`fifty_fifty`/`ninety_percent`) cards render dashed + a stage badge; their hours fold into utilization/bars/lead-time/staffing (and a lighter 2nd bar segment) **only when the toggle is on** — off = hidden but persisted. "Booked" stays sold-only in both modes.
+
+Verified: tsc clean; grep `capacity-seed|autoSeed|source.*auto|pinAllocation` under `app/`+`lib/` empty; `/capacity` compiles (200). _**Left for Andrew: interactive QA in the logged-in app** (preview can't auth) — drag sold + pipeline on/off months, confirm the toggle flips the math, the rolling window crosses Dec→Jan, and Even + Smart splits still work (covers the outstanding Smart-split QA)._
+
 ---
 
 ## Now
 
-_Nothing active to build._ Change Orders is **parked** (see below). The remaining Phase 1 items are all `[unscoped]`/`[ongoing]` — bring one back through a Cowork scoping pass before building.
+### Projects dashboard + lifecycle — QA fixes  _(found 2026-06-23 in live QA)_
 
-**Just shipped (2026-06-23):** Projects dashboard + production lifecycle — see "Where things stand." Left for Andrew: **end-to-end QA on a real sold project** (Ready chip + green banner + Start → `production` + allocations seeded; dashboard buckets/metrics with live data).
+**Deposit → Ready: the invoice is the money truth; both QB and manual feed it.** (Andrew's intent: the *correct* path is QB sees the payment → watcher applies it → project goes Ready; plus a *manual* mark for testing / payments taken outside QB. **Keep the deposit gate on the invoice's `amount_received` — do NOT gate on milestone status.**)
+
+1. **Automatic path (correct, primary) — verify it works end-to-end.** QB watcher applies a QB payment to the project's contract invoice → `amount_received` rises → `isReadyForProduction` (deposit gate = invoice `amount_received > 0`, `lib/project-stage.ts`) true → Ready (green banner + status-bar chip + Start-production button). Confirm the full chain: invoice pushed to QB → QB payment → watcher → `amount_received` → Ready UI → Start → `production` + allocations seeded.
+
+2. **Manual path (testing + outside-QB) — the bug + fix.** Today the operator marks payment **milestones** received on the project page, but `markMilestoneReceived` → `syncInvoiceFromMilestoneReceived` **no-ops when no contract invoice exists** (`findInvoiceForMilestone` → null), so `amount_received` stays 0 and the project never goes Ready (Andrew marked Deposit RECEIVED, banner still said "awaiting deposit"). Make the manual mark feed the invoice signal:
+   - **Auto-create the contract invoice when the project is sold** (the one-invoice-per-project; also the existing "auto-seed Create project invoice" follow-up) so there's always an invoice to record against.
+   - **Add a one-click "Mark deposit received" (manual)** on the project page that records a deposit payment on the contract invoice via `recordInvoicePayment` → `amount_received` up → Ready. (Auto-create the invoice if still missing.) This is the manual equivalent of the QB watcher — what Andrew uses to test.
+   - Make the milestone "RECEIVED" toggle consistent — flipping it manually should record the invoice payment, not just set milestone `status`; no dead toggles.
+   - Fix the now-wrong comment in `project-stage.ts` ("the manual `markMilestoneReceived` path raises `amount_received`" — only true once an invoice exists).
+
+3. **Dashboard cards missing the progress bar** from the approved prototype — cards show "X of N subprojects ready" text but no bar (`app/(app)/projects/page.tsx`). Add the thin bar under the context line: pre/ready = readySubs/totalSubs; production/installed = tracked/est; complete = full.
+
+**Verify:** (a) a QB payment on the contract invoice flips the project to Ready automatically; (b) the manual "Mark deposit received" does the same without QB (auto-creating the invoice if needed) — green banner + chip + Start button appear, dashboard moves it to **Ready for production**, Start → In Production + allocations seeded; (c) cards render the progress bar.
+
+_(Capacity calendar redesign — **shipped 2026-07-16**, moved to "Where things stand." Only interactive live-app QA remains, noted there.)_
 
 ---
 
@@ -64,34 +86,11 @@ Keep simple: internal mark-approved stays (`approveCo()`); don't reuse `lib/appr
 
 ---
 
-## On deck — scoped, not started _(start after the estimates/CO item lands; both touch the project page + `nav.tsx`)_
+## On deck — scoped, not started
 
 ### ~~Slide-out side nav~~ → shipped as a TOP NAV (2026-06-19)
 
-**Shipped as a hoisted top bar, not a drawer** (Andrew preferred the top bar) — see "Where things stand" → "Top nav shipped." The drawer spec below is **superseded**, kept only for reference. Remaining cleanup (remove per-page `<Nav/>` + delete the `nav.tsx` stub) is **done (2026-06-22)** — see "Where things stand" → "Top nav shipped."
-
-**Goal:** replace the horizontal top bar with a **left slide-out drawer** — text-only (no icons), mobile-ready. **Modal pattern:** a **solid white panel** slides in while the app behind it **frosts + dims** (backdrop blur). Defaults **closed**; a ☰ button in a slim top bar opens it; tap the dimmed backdrop or × to close. Build **style-neutral** (the aesthetic pass refines visuals).
-
-**Confirmed structure (approved prototype):**
-- Brand "MillSuite" at the top of the panel → Dashboard. No standalone Dashboard item.
-- **Sales** → Kanban, Clients, Invoices
-- **Projects** → Projects (new leaf → the `/projects` dashboard), Schedule, Capacity
-- **Manage** (new group) → Reports, Suggestions, Rate book, Team, Time
-- **Plain-text**, collapsible group headers; items text-only — no icons anywhere.
-- This is only the menu's organization — **not** the `[ongoing]` department-view reorg (role/dept-scoped views), which stays separate.
-
-**Build:**
-- New `components/side-nav.tsx` (refactor of `components/nav.tsx`): off-canvas left drawer; **solid panel** (`--color-background-primary`); **frosted + dimmed backdrop** (`backdrop-filter: blur` over a translucent scrim); slide transition; default **closed** (open state in React). Same drawer on desktop + mobile (panel width ~`min(280px, 82%)`).
-- **Slim top bar** in the shell holds the ☰ toggle + brand.
-- **Hoist nav into `app/(app)/layout.tsx`** so it renders once (today each page renders its own `<Nav/>`); remove the per-page renders.
-- **New "Projects" leaf** → `/projects` (point at the current projects list if no dedicated dashboard exists yet; upgrade later).
-- **Preserve all gating:** `hasAccess(plan, feature)` per item (Reports=`outcomes`, Sales=`sales`, Schedule=`schedule`, Capacity=`capacity`, Rate book/Suggestions=`rate-book`, Team=`team`); the **Invoices** leaf also respects the **invoicing-mode gate**; a group header shows only if ≥1 child is accessible. Member role → minimal nav (Time only), as today.
-- **No icons anywhere** — drop the lucide icons; if any page renders an icon beside its header title, remove those too.
-- Accessibility: ☰ has an `aria-label`; `aria-expanded` on group headers; ESC + backdrop click close; focus trap while open.
-
-**Out of scope:** department-view (role/dept) reorg; final visual styling.
-
-**Verify:** every current route reachable from the drawer with identical gating; **Invoices** hidden when invoicing is off; member sees only Time; ☰ opens / backdrop / × / ESC close; groups collapse/expand; works at mobile width; grep that pages no longer import/render the old `Nav` (nav now lives in the layout); active-route highlight works.
+**Shipped as a hoisted top bar, not a drawer** (Andrew preferred the top bar) — see "Where things stand" → "Top nav shipped." The drawer spec is **superseded**; nothing left here. (Department-view reorg remains the separate `[ongoing]` item in "Next.")
 
 ---
 
@@ -113,7 +112,7 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 **Phase 2 — feature parity with Built OS** _(build into the finished shell; priority order TBD)_
 
 - `[absorbed]` Connect QuickBooks — done as part of the QB invoicing work (OAuth + push shipped, chunks 1–5).
-- `[unscoped]` Capacity calendar — match Built OS + add functionality
+- `[shipped]` Capacity calendar redesign — **shipped 2026-07-16** (see "Where things stand"): standalone planning tool — schedule auto-seed cut, pipeline toggle, rolling 12-month window, layout rebuild, quiet PTO display. Interactive live-app QA still pending Andrew. Still optional for later: 4-day (Mon–Thu) work-week option, and an alerts surface (`computeAlerts` in `lib/schedule-engine.ts` is unwired).
 - `[unscoped]` Employee app — match Built OS look/feel + function, then add features
 - `[unscoped]` Client portal — match Built OS _(note: portal was deleted from MillSuite early as scope creep — this is a rebuild, not a tweak)_
 
@@ -133,4 +132,5 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 - Latest DB migration is `061` (057–061 = the invoicing rebuild; all run on prod). Run any new migration against prod Supabase before deploying.
 - QB mode = **estimates stay in MillSuite (PDF); one project invoice pushes to QB** (estimate→QB push and per-milestone invoicing are retired). If a stray "we never send to QuickBooks" line turns up anywhere, clean it up.
 - **Production is a manual step** (shipped 2026-06-23) — `sold → production` no longer auto-advances; the readiness-gated "Start production" button (project page + Ready banner) is the only path, and it's the only thing that seeds schedule allocations. Existing `production` projects unaffected. "Ready for production" is **derived**, not a stored stage. **Deposit signal** = the contract invoice's `amount_received > 0` (not a milestone flipped to "received").
+- **`/capacity` and `/schedule` are now decoupled** (redesign, 2026-07-16) — editing the schedule no longer writes `project_month_allocations`; the capacity calendar is manual drag-drop only. The `source` column still exists on `project_month_allocations` (defaults `'manual'`) but nothing reads it. `lib/capacity-seed.ts` is gone.
 - `../built-os` is frozen — don't build features there (but it's the **reference** for the QB port).
