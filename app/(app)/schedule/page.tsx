@@ -7,7 +7,6 @@ import GateChip from '@/components/gate-chip'
 import { supabase } from '@/lib/supabase'
 import { loadSubprojectStatusMap, SubprojectStatus } from '@/lib/subproject-status'
 import { seedAllocationsForProduction } from '@/lib/schedule-seed'
-import { autoSeedProjectMonthAllocations } from '@/lib/capacity-seed'
 import DivideBlockModal from '@/components/schedule/DivideBlockModal'
 import { loadShopRateSetup } from '@/lib/shop-rate-setup'
 
@@ -1275,22 +1274,6 @@ export default function SchedulePage() {
     setDataLoaded(true)
   }
 
-  // Resync the /capacity monthly calendar after a schedule edit. Auto
-  // rows reflect the new week placements; manual rows the operator
-  // pinned on /capacity stay put. Best-effort — failures log but
-  // never block the schedule write.
-  const triggerAutoSeedCapacity = useCallback(
-    async (projectId: string | null | undefined) => {
-      if (!org?.id || !projectId) return
-      try {
-        await autoSeedProjectMonthAllocations(org.id, projectId)
-      } catch (err) {
-        console.warn('autoSeedProjectMonthAllocations', err)
-      }
-    },
-    [org?.id],
-  )
-
   // --- Persistence ---
   const persistBlockMove = useCallback(async (blockId: string, newWeek: number) => {
     const dateStr = weekIndexToDate(newWeek)
@@ -1298,12 +1281,7 @@ export default function SchedulePage() {
       .from('department_allocations')
       .update({ scheduled_date: dateStr })
       .eq('id', blockId)
-    // Drag updates the allocation's date on department_allocations;
-    // the /capacity calendar is downstream of that, so push the new
-    // monthly rollup. Block carries its project id.
-    const blk = blocksRef.current.find((b) => b.id === blockId)
-    if (blk) void triggerAutoSeedCapacity(blk.project)
-  }, [weekIndexToDate, triggerAutoSeedCapacity])
+  }, [weekIndexToDate])
 
   // Divide-block save: wipe the source allocation, insert N new rows with
   // explicit scheduled_date + estimated_hours (operator picked the
@@ -1351,12 +1329,8 @@ export default function SchedulePage() {
           return
         }
 
-        const projectIdToReseed = divideBlock.project
         setDivideBlock(null)
         await loadData()
-        // Capacity calendar resync — divide rewrites the schedule for
-        // this project's subproject × dept, so monthly rollups change.
-        if (projectIdToReseed) void triggerAutoSeedCapacity(projectIdToReseed)
       } finally {
         setDividing(false)
       }
@@ -1365,7 +1339,7 @@ export default function SchedulePage() {
     // dep would close over a stale reference. Tracking divideBlock + org
     // is sufficient.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [divideBlock, org?.id, triggerAutoSeedCapacity],
+    [divideBlock, org?.id],
   )
 
   // Merge-with-adjacent: collapse a multi-row dept split (multiple
@@ -1417,13 +1391,9 @@ export default function SchedulePage() {
       }
 
       await loadData()
-      // Capacity calendar resync — merge collapses N rows into 1; the
-      // monthly rollup for this project may have changed even when the
-      // total hours are conserved (block now lands in fewer months).
-      if (block.project) void triggerAutoSeedCapacity(block.project)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [org?.id, triggerAutoSeedCapacity],
+    [org?.id],
   )
 
   // --- FLOW VIEW DRAG ---

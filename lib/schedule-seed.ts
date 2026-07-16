@@ -28,7 +28,6 @@ import {
 import type { LaborDept } from './rate-book-seed'
 import { computeInstallHours } from './install-prefill'
 import { loadShopRateSetup } from './shop-rate-setup'
-import { autoSeedProjectMonthAllocations } from './capacity-seed'
 import {
   autoPlace,
   buildDeptConfig,
@@ -310,11 +309,6 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
       console.error('seedAllocationsForProduction update', u.id, error)
     }
   }
-
-  // Roll up the just-placed weekly blocks into monthly buckets on the
-  // /capacity calendar. Auto rows respect any pre-existing manual
-  // pinning the operator may have already set.
-  await autoSeedProjectMonthAllocations(orgId, projectId)
 }
 
 /**
