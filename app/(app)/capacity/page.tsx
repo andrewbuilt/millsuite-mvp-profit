@@ -75,6 +75,20 @@ function addMonths(d: Date, n: number): Date {
   return new Date(d.getFullYear(), d.getMonth() + n, 1)
 }
 
+// Pre-sale pipeline stages. Everything else the page loads (sold /
+// production / installed) is "sold" work. The toggle decides whether
+// pipeline rows count toward the calendar.
+const PIPELINE_STAGES = ['new_lead', 'fifty_fifty', 'ninety_percent']
+function isPipelineStage(stage: string): boolean {
+  return PIPELINE_STAGES.includes(stage)
+}
+function pipelineStageLabel(stage: string): string {
+  if (stage === 'new_lead') return 'Lead'
+  if (stage === 'fifty_fifty') return '50/50'
+  if (stage === 'ninety_percent') return '90%'
+  return stage
+}
+
 // Utilization heat color: green <80% / amber 80–100% / red >100%.
 function utilColor(util: number): string {
   if (util > 100) return '#DC2626'
@@ -117,6 +131,8 @@ function CapacityContent() {
   const { org } = useAuth()
   const router = useRouter()
   const [windowStart, setWindowStart] = useState<Date>(() => firstOfThisMonth())
+  // Pipeline toggle: false = "Sold only" (default), true = "Sold + pipeline".
+  const [showPipeline, setShowPipeline] = useState(false)
   const [departments, setDepartments] = useState<Department[]>([])
   const [deptMembers, setDeptMembers] = useState<DeptMember[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -295,48 +311,67 @@ function CapacityContent() {
       const ptoPersonCount = new Set(ptos.map((p) => p.team_member_id)).size
       const effectiveWorkingDays = Math.max(0, workingDays - holidayCount)
 
-      const monthAllocs = monthAllocations.filter((a) => a.month_date.startsWith(month))
-      let totalAllocated = 0
+      // Allocations for this month, joined to their project so we can
+      // partition sold vs pipeline. When the pipeline toggle is off,
+      // pipeline rows are dropped from every read (hours, bars, cards) —
+      // the DB rows persist, they just don't count.
+      const monthAllocs = monthAllocations
+        .filter((a) => a.month_date.startsWith(month))
+        .map((a) => ({ alloc: a, proj: projects.find((p) => p.id === a.project_id) }))
+        .filter((x) => !!x.proj) as Array<{ alloc: MonthAllocation; proj: Project }>
+
+      const visibleAllocs = monthAllocs.filter(
+        (x) => showPipeline || !isPipelineStage(x.proj.stage),
+      )
+
+      // Sold vs pipeline hour totals — feed the two-segment utilization bar.
+      let soldAllocated = 0
+      let pipelineAllocated = 0
       const deptAllocated: Record<string, number> = {}
-      for (const alloc of monthAllocs) {
-        totalAllocated += alloc.hours_allocated
+      for (const { alloc, proj } of visibleAllocs) {
+        if (isPipelineStage(proj.stage)) pipelineAllocated += alloc.hours_allocated
+        else soldAllocated += alloc.hours_allocated
         if (alloc.department_hours) {
           for (const [deptId, hrs] of Object.entries(alloc.department_hours)) {
             deptAllocated[deptId] = (deptAllocated[deptId] || 0) + (hrs as number)
           }
         }
       }
+      const totalAllocated = soldAllocated + pipelineAllocated
 
       const utilization = totalCapacity > 0 ? (totalAllocated / totalCapacity) * 100 : 0
-      const projectCards = monthAllocs.map((a) => {
-        const proj = projects.find((p) => p.id === a.project_id)
-        return proj
-          ? {
-              ...proj,
-              allocationId: a.id,
-              hours: a.hours_allocated,
-              departmentHours: a.department_hours,
-              splitIndex: a.split_index || 0,
-              splitTotal: a.split_total || 0,
-              splitGroupId: a.split_group_id || null,
-            }
-          : null
-      }).filter(Boolean) as (Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null })[]
+      const soldUtil = totalCapacity > 0 ? (soldAllocated / totalCapacity) * 100 : 0
+      const pipelineUtil = totalCapacity > 0 ? (pipelineAllocated / totalCapacity) * 100 : 0
+
+      const projectCards = visibleAllocs.map(({ alloc: a, proj }) => ({
+        ...proj,
+        allocationId: a.id,
+        hours: a.hours_allocated,
+        departmentHours: a.department_hours,
+        splitIndex: a.split_index || 0,
+        splitTotal: a.split_total || 0,
+        splitGroupId: a.split_group_id || null,
+      }))
 
       return {
         month, label, longLabel, showYear, year: y,
         totalCapacity, totalAllocated, utilization,
+        soldAllocated, pipelineAllocated, soldUtil, pipelineUtil,
         deptCapacity, deptAllocated, projectCards,
         holidayCount, ptoHours, ptoDayCount, ptoPersonCount,
         workingDays, effectiveWorkingDays,
         daySummaries,
       }
     })
-  }, [departments, deptMembers, monthAllocations, capacityOverrides, projects, windowStart, memberNameById])
+  }, [departments, deptMembers, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById])
 
-  // Unscheduled projects (not in any month)
+  // Unscheduled projects (not in any month). Pipeline-stage projects only
+  // appear in the tray when the toggle is on — so they're only draggable
+  // onto months while pipeline is being counted.
   const scheduledProjectIds = new Set(monthAllocations.map(a => a.project_id))
-  const unscheduled = projects.filter(p => !scheduledProjectIds.has(p.id))
+  const unscheduled = projects.filter(
+    p => !scheduledProjectIds.has(p.id) && (showPipeline || !isPipelineStage(p.stage)),
+  )
 
   // Drop handler — works for both unscheduled and month-to-month moves
   // When dragging a split card, ALL cards in the same split_group_id move together
@@ -594,8 +629,11 @@ function CapacityContent() {
 
   // Header planning stats, derived from the rolling window.
   const totalCap12 = months.reduce((s, m) => s + m.totalCapacity, 0)
-  const totalAlloc12 = months.reduce((s, m) => s + m.totalAllocated, 0)
-  const bookedPct = totalCap12 > 0 ? Math.round((totalAlloc12 / totalCap12) * 100) : 0
+  // Booked = committed (sold) hours only, so it's a stable read regardless
+  // of the pipeline toggle. Next opening / staffing use utilization, which
+  // does fold in pipeline when the toggle is on.
+  const totalSold12 = months.reduce((s, m) => s + m.soldAllocated, 0)
+  const bookedPct = totalCap12 > 0 ? Math.round((totalSold12 / totalCap12) * 100) : 0
   // Next opening = first month under 80% util; lead time = months out from now.
   const nextOpeningIdx = months.findIndex((m) => m.utilization < 80)
   const nextOpening = nextOpeningIdx >= 0 ? months[nextOpeningIdx] : null
@@ -612,18 +650,39 @@ function CapacityContent() {
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Capacity</h1>
           <p className="text-xs text-[#9CA3AF] mt-0.5">Birdseye planning — sold work against team capacity.</p>
         </div>
-        {/* Rolling-window nav */}
-        <div className="flex items-center gap-2">
-          <button onClick={() => setWindowStart(d => addMonths(d, -1))} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]" title="Back one month">
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="text-sm font-medium text-[#111] min-w-[150px] text-center tabular-nums">{windowLabel}</span>
-          <button onClick={() => setWindowStart(d => addMonths(d, 1))} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]" title="Forward one month">
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <button onClick={() => setWindowStart(firstOfThisMonth())} className="ml-1 px-2.5 py-1 text-xs font-medium text-[#6B7280] hover:text-[#111] rounded-lg hover:bg-[#F3F4F6]" title="Jump to this month">
-            Today
-          </button>
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* Sold-only vs Sold + pipeline toggle */}
+          <div className="flex items-center bg-[#F3F4F6] rounded-lg p-0.5">
+            {([
+              { on: false, label: 'Sold only' },
+              { on: true, label: 'Sold + pipeline' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.label}
+                onClick={() => setShowPipeline(opt.on)}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  showPipeline === opt.on
+                    ? 'bg-white text-[#111] shadow-sm'
+                    : 'text-[#6B7280] hover:text-[#111]'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {/* Rolling-window nav */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => setWindowStart(d => addMonths(d, -1))} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]" title="Back one month">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-sm font-medium text-[#111] min-w-[150px] text-center tabular-nums">{windowLabel}</span>
+            <button onClick={() => setWindowStart(d => addMonths(d, 1))} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]" title="Forward one month">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button onClick={() => setWindowStart(firstOfThisMonth())} className="ml-1 px-2.5 py-1 text-xs font-medium text-[#6B7280] hover:text-[#111] rounded-lg hover:bg-[#F3F4F6]" title="Jump to this month">
+              Today
+            </button>
+          </div>
         </div>
       </div>
 
@@ -653,7 +712,7 @@ function CapacityContent() {
               <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1">Booked</div>
               <div className="text-sm font-semibold text-[#111]">
                 {bookedPct}%
-                <span className="ml-1.5 text-xs font-normal text-[#6B7280] font-mono tabular-nums">{Math.round(totalAlloc12)}/{Math.round(totalCap12)}h · 12 mo</span>
+                <span className="ml-1.5 text-xs font-normal text-[#6B7280] font-mono tabular-nums">{Math.round(totalSold12)}/{Math.round(totalCap12)}h sold · 12 mo</span>
               </div>
             </div>
             <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 py-3">
@@ -708,21 +767,35 @@ function CapacityContent() {
               <div className="text-[11px] text-[#9CA3AF] py-1">Everything is scheduled. Drag a month card here to pull it back.</div>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {unscheduled.map(proj => (
-                  <div
-                    key={proj.id}
-                    draggable
-                    onDragStart={() => { setDragProjectId(proj.id); setDragSourceAllocationId(null) }}
-                    onDragEnd={() => { setDragProjectId(null); setDragSourceAllocationId(null); setDragOverMonth(null); setDragOverTray(false) }}
-                    className="bg-white border border-[#E5E7EB] rounded-lg px-3 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#2563EB] transition-colors"
-                  >
-                    <div className="text-xs font-medium text-[#111]">{proj.name}</div>
-                    <div className="flex items-center gap-2">
-                      {proj.client_name && <span className="text-[10px] text-[#9CA3AF] truncate max-w-[120px]">{proj.client_name}</span>}
-                      <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{fmtMoney(proj.bid_total)}</span>
+                {unscheduled.map(proj => {
+                  const isPipe = isPipelineStage(proj.stage)
+                  return (
+                    <div
+                      key={proj.id}
+                      draggable
+                      onDragStart={() => { setDragProjectId(proj.id); setDragSourceAllocationId(null) }}
+                      onDragEnd={() => { setDragProjectId(null); setDragSourceAllocationId(null); setDragOverMonth(null); setDragOverTray(false) }}
+                      className={`rounded-lg px-3 py-1.5 cursor-grab active:cursor-grabbing transition-colors ${
+                        isPipe
+                          ? 'bg-[#FaFaF9] border border-dashed border-[#D1D5DB] hover:border-[#9CA3AF]'
+                          : 'bg-white border border-[#E5E7EB] hover:border-[#2563EB]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {isPipe && (
+                          <span className="px-1 py-px text-[7px] font-semibold uppercase tracking-wider text-[#6B7280] bg-[#F3F4F6] border border-[#E5E7EB] rounded">
+                            {pipelineStageLabel(proj.stage)}
+                          </span>
+                        )}
+                        <span className="text-xs font-medium text-[#111]">{proj.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {proj.client_name && <span className="text-[10px] text-[#9CA3AF] truncate max-w-[120px]">{proj.client_name}</span>}
+                        <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{fmtMoney(proj.bid_total)}</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -756,12 +829,23 @@ function CapacityContent() {
                       <div className="text-[10px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
                         {Math.round(m.totalAllocated)}/{Math.round(m.totalCapacity)}h
                       </div>
-                      {/* Utilization bar */}
-                      <div className="bg-[#E5E7EB] rounded-full overflow-hidden h-1.5 mt-1.5">
+                      {/* Utilization bar — sold solid, pipeline a lighter
+                          second segment stacked after it (toggle on only). */}
+                      <div className="bg-[#E5E7EB] rounded-full overflow-hidden h-1.5 mt-1.5 flex">
                         <div
-                          className="h-full rounded-full"
-                          style={{ width: `${Math.min(m.utilization, 100)}%`, background: utilColor(m.utilization) }}
+                          className="h-full"
+                          style={{ width: `${Math.min(m.soldUtil, 100)}%`, background: utilColor(m.utilization) }}
                         />
+                        {showPipeline && m.pipelineUtil > 0 && (
+                          <div
+                            className="h-full"
+                            style={{
+                              width: `${Math.min(m.pipelineUtil, Math.max(0, 100 - m.soldUtil))}%`,
+                              background: utilColor(m.utilization),
+                              opacity: 0.4,
+                            }}
+                          />
+                        )}
                       </div>
                       <div className="flex items-center justify-between mt-1">
                         <span className="text-[10px] font-mono tabular-nums font-medium" style={{ color: utilColor(m.utilization) }}>
@@ -882,13 +966,18 @@ function ProjectCard({
 }) {
   const isSplit = card.splitTotal > 1
   const splitLabel = isSplit ? `Part ${card.splitIndex} of ${card.splitTotal}` : null
+  const isPipeline = isPipelineStage(card.stage)
 
   return (
     <div
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
+      className={`rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing transition-colors group relative ${
+        isPipeline
+          ? 'bg-[#FaFaF9] border border-dashed border-[#D1D5DB] hover:border-[#9CA3AF]'
+          : 'bg-white border border-[#E5E7EB] hover:border-[#D1D5DB]'
+      }`}
       onClick={onSelect}
     >
       <button
@@ -897,6 +986,11 @@ function ProjectCard({
       >
         <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
       </button>
+      {isPipeline && (
+        <span className="inline-block mb-0.5 px-1 py-px text-[7px] font-semibold uppercase tracking-wider text-[#6B7280] bg-[#F3F4F6] border border-[#E5E7EB] rounded">
+          {pipelineStageLabel(card.stage)}
+        </span>
+      )}
       <div className="text-[11px] font-medium text-[#111] truncate">{card.name}</div>
       {subprojectNames.length > 0 && (
         <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>
