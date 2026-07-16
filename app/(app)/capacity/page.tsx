@@ -58,9 +58,29 @@ function weekdaysInMonth(year: number, month0: number): number {
   return count
 }
 
-type ZoomLevel = 'quarter' | 'half' | 'year'
-
 function fmtMoney(n: number) { return `$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` }
+
+// Rolling-window helpers. The window is 12 fixed-width month columns; the
+// leftmost is `windowStart` (a first-of-month Date) and it runs that month
+// + the next 11. Arrows page ±1 month.
+const WINDOW_MONTHS = 12
+function firstOfThisMonth(): Date {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), 1)
+}
+function ymOf(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+function addMonths(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1)
+}
+
+// Utilization heat color: green <80% / amber 80–100% / red >100%.
+function utilColor(util: number): string {
+  if (util > 100) return '#DC2626'
+  if (util >= 80) return '#F59E0B'
+  return '#16A34A'
+}
 
 export default function CapacityPage() {
   return (
@@ -75,7 +95,7 @@ export default function CapacityPage() {
 function CapacityContent() {
   const { org } = useAuth()
   const router = useRouter()
-  const [year, setYear] = useState(new Date().getFullYear())
+  const [windowStart, setWindowStart] = useState<Date>(() => firstOfThisMonth())
   const [departments, setDepartments] = useState<Department[]>([])
   const [deptMembers, setDeptMembers] = useState<DeptMember[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -85,12 +105,12 @@ function CapacityContent() {
   const [capacityOverrides, setCapacityOverrides] = useState<CapacityOverride[]>([])
   const [team, setTeam] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
-  const [zoom, setZoom] = useState<ZoomLevel>('year')
 
   // Drag state: source can be 'unscheduled' or 'month' (moving between months)
   const [dragProjectId, setDragProjectId] = useState<string | null>(null)
   const [dragSourceAllocationId, setDragSourceAllocationId] = useState<string | null>(null)
   const [dragOverMonth, setDragOverMonth] = useState<string | null>(null)
+  const [dragOverTray, setDragOverTray] = useState(false)
 
   // Side pane state — replaces the legacy split-modal flow. Clicking a
   // project card sets selectedCard; the right-rail pane reads everything
@@ -99,10 +119,19 @@ function CapacityContent() {
   const [selectedCard, setSelectedCard] = useState<{ projectId: string; allocationId: string } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => { if (org?.id) loadData() }, [org?.id, year])
+  useEffect(() => { if (org?.id) loadData() }, [org?.id, windowStart])
 
   async function loadData() {
     setLoading(true)
+    // Rolling window bounds: leftmost month through the 12th month. Month
+    // allocation rows are always first-of-month, so lte the last month's
+    // first day catches it; overrides can fall on any day, so bound them
+    // by the last calendar day of the final month.
+    const startISO = `${ymOf(windowStart)}-01`
+    const endMonth = addMonths(windowStart, WINDOW_MONTHS - 1)
+    const endMonthFirstISO = `${ymOf(endMonth)}-01`
+    const lastDay = new Date(endMonth.getFullYear(), endMonth.getMonth() + 1, 0).getDate()
+    const endMonthLastISO = `${ymOf(endMonth)}-${String(lastDay).padStart(2, '0')}`
     const [
       { data: depts },
       { data: dm },
@@ -122,13 +151,13 @@ function CapacityContent() {
         .in('stage', ['new_lead', 'fifty_fifty', 'ninety_percent', 'sold', 'production', 'installed']),
       supabase.from('subprojects').select('id, project_id, name').eq('org_id', org!.id),
       supabase.from('department_allocations').select('id, subproject_id, department_id, estimated_hours').eq('org_id', org!.id),
-      supabase.from('project_month_allocations').select('*').eq('org_id', org!.id).gte('month_date', `${year}-01-01`).lte('month_date', `${year}-12-31`),
+      supabase.from('project_month_allocations').select('*').eq('org_id', org!.id).gte('month_date', startISO).lte('month_date', endMonthFirstISO),
       supabase
         .from('capacity_overrides')
         .select('id, override_date, team_member_id, department_id, reason, hours_reduction')
         .eq('org_id', org!.id)
-        .gte('override_date', `${year}-01-01`)
-        .lte('override_date', `${year}-12-31`),
+        .gte('override_date', startISO)
+        .lte('override_date', endMonthLastISO),
       // Team roster — needed to resolve PTO names in the per-day flag
       // strip tooltips. orgs.team_members jsonb is the canonical source.
       loadShopRateSetup(org!.id),
@@ -156,13 +185,18 @@ function CapacityContent() {
     return m
   }, [team])
 
-  // Capacity per department per month
+  // Capacity per department per month — one entry per column in the rolling
+  // 12-month window, starting at windowStart (spans the year boundary).
   const months = useMemo(() => {
-    return Array.from({ length: 12 }, (_, i) => {
-      const month = `${year}-${String(i + 1).padStart(2, '0')}`
-      const label = new Date(year, i).toLocaleDateString('en-US', { month: 'short' })
-      const longLabel = new Date(year, i).toLocaleDateString('en-US', { month: 'long' })
-      const workingDays = weekdaysInMonth(year, i)
+    return Array.from({ length: WINDOW_MONTHS }, (_, i) => {
+      const d = addMonths(windowStart, i)
+      const y = d.getFullYear()
+      const mIdx = d.getMonth()
+      const month = ymOf(d)
+      const label = d.toLocaleDateString('en-US', { month: 'short' })
+      const longLabel = d.toLocaleDateString('en-US', { month: 'long' })
+      const showYear = mIdx === 0 || i === 0
+      const workingDays = weekdaysInMonth(y, mIdx)
 
       // Holidays + PTO for this month — partition by team_member_id.
       // NULL team_member_id = company-wide holiday; non-null = individual PTO.
@@ -269,7 +303,7 @@ function CapacityContent() {
       }).filter(Boolean) as (Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null })[]
 
       return {
-        month, label, longLabel,
+        month, label, longLabel, showYear, year: y,
         totalCapacity, totalAllocated, utilization,
         deptCapacity, deptAllocated, projectCards,
         holidayCount, ptoHours, ptoDayCount, ptoPersonCount,
@@ -277,7 +311,7 @@ function CapacityContent() {
         daySummaries,
       }
     })
-  }, [departments, deptMembers, monthAllocations, capacityOverrides, projects, year, memberNameById])
+  }, [departments, deptMembers, monthAllocations, capacityOverrides, projects, windowStart, memberNameById])
 
   // Unscheduled projects (not in any month)
   const scheduledProjectIds = new Set(monthAllocations.map(a => a.project_id))
@@ -512,55 +546,63 @@ function CapacityContent() {
     loadData()
   }
 
-  // Grid config per zoom level
-  const gridConfig = {
-    quarter: { cols: 'grid-cols-3', monthCount: 3 },
-    half: { cols: 'grid-cols-6', monthCount: 6 },
-    year: { cols: 'grid-cols-12', monthCount: 12 },
+  // Drop onto the unscheduled tray = unschedule. Only acts on cards dragged
+  // out of a month (dragSourceAllocationId set); tray-origin drags no-op.
+  async function handleDropToTray() {
+    setDragOverTray(false)
+    if (dragSourceAllocationId) {
+      await supabase.from('project_month_allocations').delete().eq('id', dragSourceAllocationId)
+      if (selectedCard?.allocationId === dragSourceAllocationId) setSelectedCard(null)
+      loadData()
+    }
+    setDragProjectId(null)
+    setDragSourceAllocationId(null)
+  }
+
+  // Scroll a month column into view when its heat cell is clicked.
+  function scrollToMonth(month: string) {
+    if (typeof document === 'undefined') return
+    document
+      .getElementById(`cap-col-${month}`)
+      ?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
   }
 
   if (loading) {
     return <div className="max-w-6xl mx-auto px-6 py-16 text-center text-[#9CA3AF] text-sm">Loading...</div>
   }
 
-  const zoomButtons: { key: ZoomLevel; label: string }[] = [
-    { key: 'quarter', label: 'Quarter' },
-    { key: 'half', label: 'Half' },
-    { key: 'year', label: 'Year' },
-  ]
+  // Header planning stats, derived from the rolling window.
+  const totalCap12 = months.reduce((s, m) => s + m.totalCapacity, 0)
+  const totalAlloc12 = months.reduce((s, m) => s + m.totalAllocated, 0)
+  const bookedPct = totalCap12 > 0 ? Math.round((totalAlloc12 / totalCap12) * 100) : 0
+  // Next opening = first month under 80% util; lead time = months out from now.
+  const nextOpeningIdx = months.findIndex((m) => m.utilization < 80)
+  const nextOpening = nextOpeningIdx >= 0 ? months[nextOpeningIdx] : null
+  // Over-capacity months feed the staffing signal.
+  const overMonths = months.filter((m) => m.utilization > 100)
+
+  const windowLabel = `${months[0].label} ${months[0].year} – ${months[WINDOW_MONTHS - 1].label} ${months[WINDOW_MONTHS - 1].year}`
 
   return (
     <div className="max-w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Capacity</h1>
-        <div className="flex items-center gap-4">
-          {/* Zoom buttons */}
-          <div className="flex items-center bg-[#F3F4F6] rounded-lg p-0.5">
-            {zoomButtons.map(z => (
-              <button
-                key={z.key}
-                onClick={() => setZoom(z.key)}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                  zoom === z.key
-                    ? 'bg-white text-[#111] shadow-sm'
-                    : 'text-[#6B7280] hover:text-[#111]'
-                }`}
-              >
-                {z.label}
-              </button>
-            ))}
-          </div>
-          {/* Year nav */}
-          <div className="flex items-center gap-2">
-            <button onClick={() => setYear(y => y - 1)} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-sm font-medium text-[#111] min-w-[48px] text-center">{year}</span>
-            <button onClick={() => setYear(y => y + 1)} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+      <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Capacity</h1>
+          <p className="text-xs text-[#9CA3AF] mt-0.5">Birdseye planning — sold work against team capacity.</p>
+        </div>
+        {/* Rolling-window nav */}
+        <div className="flex items-center gap-2">
+          <button onClick={() => setWindowStart(d => addMonths(d, -1))} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]" title="Back one month">
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="text-sm font-medium text-[#111] min-w-[150px] text-center tabular-nums">{windowLabel}</span>
+          <button onClick={() => setWindowStart(d => addMonths(d, 1))} className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]" title="Forward one month">
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <button onClick={() => setWindowStart(firstOfThisMonth())} className="ml-1 px-2.5 py-1 text-xs font-medium text-[#6B7280] hover:text-[#111] rounded-lg hover:bg-[#F3F4F6]" title="Jump to this month">
+            Today
+          </button>
         </div>
       </div>
 
@@ -573,122 +615,182 @@ function CapacityContent() {
         </div>
       ) : (
         <>
-          {/* Month columns */}
-          <div className={`overflow-x-auto pb-2`}>
-            <div className={`grid ${gridConfig[zoom].cols} gap-2 mb-6`} style={{ minWidth: zoom === 'year' ? '1200px' : zoom === 'half' ? '900px' : undefined }}>
+          {/* Header stats — the three planning reads. */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+            <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1">Next opening</div>
+              {nextOpening ? (
+                <div className="text-sm font-semibold text-[#111]">
+                  {nextOpening.label} {nextOpening.year}
+                  <span className="ml-1.5 text-xs font-normal text-[#6B7280]">~{nextOpeningIdx} mo lead time</span>
+                </div>
+              ) : (
+                <div className="text-sm font-semibold text-[#DC2626]">Fully booked · 12 mo</div>
+              )}
+            </div>
+            <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1">Booked</div>
+              <div className="text-sm font-semibold text-[#111]">
+                {bookedPct}%
+                <span className="ml-1.5 text-xs font-normal text-[#6B7280] font-mono tabular-nums">{Math.round(totalAlloc12)}/{Math.round(totalCap12)}h · 12 mo</span>
+              </div>
+            </div>
+            <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1">Staffing signal</div>
+              {overMonths.length === 0 ? (
+                <div className="text-sm font-semibold text-[#16A34A]">No months over capacity</div>
+              ) : (
+                <div className="text-sm font-semibold text-[#DC2626] leading-snug">
+                  {overMonths
+                    .map((m) => `${m.label} over by ${Math.round(m.totalAllocated - m.totalCapacity)}h`)
+                    .join(' · ')}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Utilization heat strip — one cell per window month; click to scroll. */}
+          <div className="flex gap-1 mb-4">
+            {months.map((m) => (
+              <button
+                key={m.month}
+                onClick={() => scrollToMonth(m.month)}
+                title={`${m.longLabel} ${m.year} — ${Math.round(m.utilization)}% utilized`}
+                className="flex-1 group"
+              >
+                <div
+                  className="h-6 rounded transition-transform group-hover:scale-y-125"
+                  style={{ background: utilColor(m.utilization) }}
+                />
+                <div className="text-[9px] text-center text-[#9CA3AF] mt-0.5 tabular-nums">{m.label.slice(0, 1)}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* Unscheduled tray — above the months so drag distance stays short.
+              Drop a scheduled card here to unschedule it. */}
+          <div
+            onDragOver={(e) => { if (dragSourceAllocationId) { e.preventDefault(); setDragOverTray(true) } }}
+            onDragLeave={() => setDragOverTray(false)}
+            onDrop={(e) => { e.preventDefault(); handleDropToTray() }}
+            className={`mb-5 rounded-xl border-2 border-dashed transition-colors px-3 py-2.5 ${
+              dragOverTray ? 'border-[#DC2626] bg-[#FEF2F2]' : 'border-[#E5E7EB] bg-[#F9FAFB]'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <h2 className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Unscheduled ({unscheduled.length})</h2>
+              {dragSourceAllocationId && (
+                <span className="text-[10px] text-[#DC2626] font-medium">Drop here to unschedule</span>
+              )}
+            </div>
+            {unscheduled.length === 0 ? (
+              <div className="text-[11px] text-[#9CA3AF] py-1">Everything is scheduled. Drag a month card here to pull it back.</div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {unscheduled.map(proj => (
+                  <div
+                    key={proj.id}
+                    draggable
+                    onDragStart={() => { setDragProjectId(proj.id); setDragSourceAllocationId(null) }}
+                    onDragEnd={() => { setDragProjectId(null); setDragSourceAllocationId(null); setDragOverMonth(null); setDragOverTray(false) }}
+                    className="bg-white border border-[#E5E7EB] rounded-lg px-3 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#2563EB] transition-colors"
+                  >
+                    <div className="text-xs font-medium text-[#111]">{proj.name}</div>
+                    <div className="flex items-center gap-2">
+                      {proj.client_name && <span className="text-[10px] text-[#9CA3AF] truncate max-w-[120px]">{proj.client_name}</span>}
+                      <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{fmtMoney(proj.bid_total)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Month columns — fixed width, one horizontally scrollable row. */}
+          <div className="overflow-x-auto pb-3">
+            <div className="flex gap-2" style={{ minWidth: 'max-content' }}>
               {months.map(m => {
                 const isOver = dragOverMonth === m.month
-                const isCurrentMonth = m.month === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+                const isCurrentMonth = m.month === ymOf(firstOfThisMonth())
+                const overBy = m.totalAllocated - m.totalCapacity
                 return (
                   <div
+                    id={`cap-col-${m.month}`}
                     key={m.month}
                     onDragOver={e => { e.preventDefault(); setDragOverMonth(m.month) }}
                     onDragLeave={() => setDragOverMonth(null)}
                     onDrop={e => { e.preventDefault(); handleDrop(m.month) }}
-                    className={`rounded-xl border-2 transition-colors ${
-                      zoom === 'year' ? 'min-h-[300px]' : zoom === 'half' ? 'min-h-[360px]' : 'min-h-[420px]'
-                    } ${
+                    className={`flex-shrink-0 w-[184px] min-h-[300px] rounded-xl border-2 transition-colors ${
                       isOver ? 'border-[#2563EB] bg-[#EFF6FF]' :
-                      isCurrentMonth ? 'border-[#D4956A]/30 bg-[#FFF7ED]/30' :
+                      isCurrentMonth ? 'border-[#D4956A]/40 bg-[#FFF7ED]/40' :
                       'border-transparent bg-[#F9FAFB]'
                     }`}
                   >
                     {/* Month header */}
-                    <div className={`text-center ${zoom === 'quarter' ? 'px-4 py-3' : 'px-2 py-2'}`}>
-                      <div className={`font-semibold text-[#111] ${zoom === 'quarter' ? 'text-sm' : 'text-xs'}`}>
-                        {zoom === 'quarter' ? m.longLabel : m.label}
+                    <div className="px-3 pt-3 pb-2">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-sm font-semibold text-[#111]">{m.label}</span>
+                        {m.showYear && <span className="text-[10px] text-[#9CA3AF] tabular-nums">{m.year}</span>}
                       </div>
-                      <div className={`text-[#9CA3AF] font-mono tabular-nums ${zoom === 'quarter' ? 'text-xs mt-0.5' : 'text-[9px]'}`}>
+                      <div className="text-[10px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
                         {Math.round(m.totalAllocated)}/{Math.round(m.totalCapacity)}h
                       </div>
                       {/* Utilization bar */}
-                      <div className={`bg-[#E5E7EB] rounded-full overflow-hidden ${zoom === 'quarter' ? 'h-2 mt-2' : 'h-1 mt-1'}`}>
+                      <div className="bg-[#E5E7EB] rounded-full overflow-hidden h-1.5 mt-1.5">
                         <div
-                          className={`h-full rounded-full ${m.utilization > 100 ? 'bg-[#DC2626]' : m.utilization > 80 ? 'bg-[#F59E0B]' : 'bg-[#2563EB]'}`}
-                          style={{ width: `${Math.min(m.utilization, 100)}%` }}
+                          className="h-full rounded-full"
+                          style={{ width: `${Math.min(m.utilization, 100)}%`, background: utilColor(m.utilization) }}
                         />
                       </div>
-                      <div className={`font-mono tabular-nums font-medium mt-0.5 ${
-                        zoom === 'quarter' ? 'text-xs' : 'text-[9px]'
-                      } ${
-                        m.utilization > 100 ? 'text-[#DC2626]' : m.utilization > 80 ? 'text-[#F59E0B]' : 'text-[#6B7280]'
-                      }`}>{Math.round(m.utilization)}%</div>
-
-                      {/* Holiday + PTO summary chips. Compact rollup that
-                          stays even at year zoom. The per-day flag strip
-                          below carries the granular detail. */}
-                      {(m.holidayCount > 0 || m.ptoHours > 0) && (
-                        <div className={`flex items-center justify-center flex-wrap gap-1 mt-1 ${zoom === 'quarter' ? 'text-[10px]' : 'text-[9px]'}`}>
-                          {m.holidayCount > 0 && (
-                            <span
-                              title={`${m.holidayCount} company holiday${m.holidayCount === 1 ? '' : 's'} this month`}
-                              className="inline-flex items-center gap-0.5 font-mono tabular-nums text-[#DC2626]"
-                            >
-                              <span aria-hidden>🏛</span> {m.holidayCount}d
-                            </span>
-                          )}
-                          {m.ptoHours > 0 && (
-                            <span
-                              title={`${m.ptoDayCount} PTO day${m.ptoDayCount === 1 ? '' : 's'} across ${m.ptoPersonCount} ${m.ptoPersonCount === 1 ? 'person' : 'people'} (${Math.round(m.ptoHours)}h)`}
-                              className="inline-flex items-center gap-0.5 font-mono tabular-nums text-[#92400E]"
-                            >
-                              <span aria-hidden>🏖</span>
-                              {m.ptoDayCount}d · {m.ptoPersonCount}p · {Math.round(m.ptoHours)}h
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-[10px] font-mono tabular-nums font-medium" style={{ color: utilColor(m.utilization) }}>
+                          {Math.round(m.utilization)}%
+                        </span>
+                        {overBy > 0 && (
+                          <span className="text-[10px] font-mono tabular-nums font-medium text-[#DC2626]">
+                            over by {Math.round(overBy)}h
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Per-day flag strip — one chip per day in the month
-                        with a holiday or PTO override. */}
-                    <MonthOverrideFlags
-                      daySummaries={m.daySummaries}
-                      zoom={zoom}
-                    />
-
-                    {/* Dept-stacked bar — visualizes how this month's
-                        sold hours split across departments. Hidden when
-                        nothing is allocated yet. */}
+                    {/* Tiny dept-stacked bar — dept mix at a glance for hiring. */}
                     <DeptStackedBar
                       deptHours={m.deptAllocated}
                       totalHours={m.totalAllocated}
                       departments={departments}
-                      zoom={zoom}
                     />
 
-                    {/* Department breakdown */}
-                    <div className={`space-y-0.5 mb-2 ${zoom === 'quarter' ? 'px-3' : 'px-1.5'}`}>
-                      {departments.map(dept => {
-                        const cap = m.deptCapacity[dept.id] || 0
-                        const alloc = m.deptAllocated[dept.id] || 0
-                        const pct = cap > 0 ? (alloc / cap) * 100 : 0
-                        return (
-                          <div key={dept.id} className="flex items-center gap-1">
-                            <div className={`rounded-sm flex-shrink-0 ${zoom === 'quarter' ? 'w-2 h-2' : 'w-1 h-1'}`} style={{ background: dept.color }} />
-                            {zoom === 'quarter' && (
-                              <span className="text-[10px] text-[#6B7280] w-16 truncate">{dept.name}</span>
-                            )}
-                            <div className={`flex-1 bg-[#E5E7EB] rounded-full overflow-hidden ${zoom === 'quarter' ? 'h-1.5' : 'h-1'}`}>
-                              <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: dept.color }} />
-                            </div>
-                            <span className={`font-mono tabular-nums text-[#9CA3AF] text-right ${
-                              zoom === 'quarter' ? 'text-[10px] w-16' : zoom === 'half' ? 'text-[8px] w-10' : 'text-[7px] w-8'
-                            }`}>
-                              {Math.round(alloc)}/{Math.round(cap)}
-                            </span>
-                          </div>
-                        )
-                      })}
-                    </div>
+                    {/* Holiday + PTO — per-day flag strip + rollup chips. */}
+                    {(m.holidayCount > 0 || m.ptoHours > 0) && (
+                      <div className="flex items-center flex-wrap gap-1 px-3 mb-1.5 text-[9px]">
+                        {m.holidayCount > 0 && (
+                          <span
+                            title={`${m.holidayCount} company holiday${m.holidayCount === 1 ? '' : 's'} this month`}
+                            className="inline-flex items-center gap-0.5 font-mono tabular-nums text-[#DC2626]"
+                          >
+                            <span aria-hidden>🏛</span> {m.holidayCount}d
+                          </span>
+                        )}
+                        {m.ptoHours > 0 && (
+                          <span
+                            title={`${m.ptoDayCount} PTO day${m.ptoDayCount === 1 ? '' : 's'} across ${m.ptoPersonCount} ${m.ptoPersonCount === 1 ? 'person' : 'people'} (${Math.round(m.ptoHours)}h)`}
+                            className="inline-flex items-center gap-0.5 font-mono tabular-nums text-[#92400E]"
+                          >
+                            <span aria-hidden>🏖</span>
+                            {m.ptoDayCount}d · {m.ptoPersonCount}p · {Math.round(m.ptoHours)}h
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <MonthOverrideFlags daySummaries={m.daySummaries} />
 
                     {/* Project cards in this month */}
-                    <div className={`space-y-1 ${zoom === 'quarter' ? 'px-3' : 'px-1.5'}`}>
+                    <div className="space-y-1 px-2 pb-2">
                       {m.projectCards.map(card => (
                         <ProjectCard
                           key={card.allocationId}
                           card={card}
-                          zoom={zoom}
                           departments={departments}
                           subprojectNames={subprojects.filter(s => s.project_id === card.id).map(s => s.name)}
                           onRemove={(e) => removeFromMonth(e, card.allocationId)}
@@ -703,6 +805,7 @@ function CapacityContent() {
                             setDragProjectId(null)
                             setDragSourceAllocationId(null)
                             setDragOverMonth(null)
+                            setDragOverTray(false)
                           }}
                         />
                       ))}
@@ -712,28 +815,6 @@ function CapacityContent() {
               })}
             </div>
           </div>
-
-          {/* Unscheduled projects */}
-          {unscheduled.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-[#111] mb-2">Unscheduled ({unscheduled.length})</h2>
-              <div className="flex flex-wrap gap-2">
-                {unscheduled.map(proj => (
-                  <div
-                    key={proj.id}
-                    draggable
-                    onDragStart={() => { setDragProjectId(proj.id); setDragSourceAllocationId(null) }}
-                    onDragEnd={() => { setDragProjectId(null); setDragSourceAllocationId(null); setDragOverMonth(null) }}
-                    className="bg-white border border-[#E5E7EB] rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing hover:border-[#2563EB] transition-colors"
-                  >
-                    <div className="text-xs font-medium text-[#111]">{proj.name}</div>
-                    {proj.client_name && <div className="text-[10px] text-[#9CA3AF]">{proj.client_name}</div>}
-                    <div className="text-[10px] font-mono tabular-nums text-[#6B7280]">{fmtMoney(proj.bid_total)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
 
@@ -768,11 +849,10 @@ function CapacityContent() {
 }
 
 // --------------------------------------------------
-// Project card component — adapts display to zoom level
+// Project card component — one compact card sized for a fixed month column
 // --------------------------------------------------
 function ProjectCard({
   card,
-  zoom,
   departments,
   subprojectNames,
   onRemove,
@@ -781,7 +861,6 @@ function ProjectCard({
   onDragEnd,
 }: {
   card: Project & { allocationId: string; hours: number; departmentHours: Record<string, number> | null; splitIndex: number; splitTotal: number; splitGroupId: string | null }
-  zoom: ZoomLevel
   departments: Department[]
   subprojectNames: string[]
   onRemove: (e: React.MouseEvent) => void
@@ -792,60 +871,12 @@ function ProjectCard({
   const isSplit = card.splitTotal > 1
   const splitLabel = isSplit ? `Part ${card.splitIndex} of ${card.splitTotal}` : null
 
-  if (zoom === 'year') {
-    return (
-      <div
-        draggable
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
-        onClick={onSelect}
-      >
-        <button
-          onClick={onRemove}
-          className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
-        >
-          <X className="w-2 h-2 text-[#6B7280] hover:text-[#DC2626]" />
-        </button>
-        <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
-        {subprojectNames.length > 0 && <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>}
-        {splitLabel && <div className="text-[8px] font-mono text-[#9CA3AF]">{splitLabel}</div>}
-      </div>
-    )
-  }
-
-  if (zoom === 'half') {
-    return (
-      <div
-        draggable
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
-        onClick={onSelect}
-      >
-        <button
-          onClick={onRemove}
-          className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border border-[#E5E7EB] rounded-full items-center justify-center hidden group-hover:flex hover:bg-[#FEE2E2] hover:border-[#FCA5A5] transition-colors"
-        >
-          <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
-        </button>
-        <div className="text-[10px] font-medium text-[#111] truncate">{card.name}</div>
-        {subprojectNames.length > 0 && <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>}
-        <div className="flex items-center gap-1">
-          <span className="text-[9px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
-          {splitLabel && <span className="text-[8px] font-mono text-[#9CA3AF]">{splitLabel}</span>}
-        </div>
-      </div>
-    )
-  }
-
-  // Quarter: full detail
   return (
     <div
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className="bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
+      className="bg-white border border-[#E5E7EB] rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-[#D1D5DB] transition-colors group relative"
       onClick={onSelect}
     >
       <button
@@ -854,40 +885,27 @@ function ProjectCard({
       >
         <X className="w-2.5 h-2.5 text-[#6B7280] hover:text-[#DC2626]" />
       </button>
-      <div className="text-xs font-medium text-[#111] truncate">{card.name}</div>
+      <div className="text-[11px] font-medium text-[#111] truncate">{card.name}</div>
       {subprojectNames.length > 0 && (
-        <div className="text-[10px] text-[#6B7280] mt-0.5">{subprojectNames.join(' · ')}</div>
+        <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>
       )}
-      {card.client_name && <div className="text-[9px] text-[#9CA3AF] truncate">{card.client_name}</div>}
-      {splitLabel && <div className="text-[9px] font-mono text-[#2563EB] mt-0.5">{splitLabel}</div>}
-      <div className="flex items-center gap-2 mt-1">
-        <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{card.hours}h</span>
-        <span className="text-[10px] font-mono tabular-nums text-[#9CA3AF]">{fmtMoney(card.bid_total)}</span>
+      <div className="flex items-center gap-1.5 mt-0.5">
+        <span className="text-[9px] font-mono tabular-nums text-[#6B7280]">{Math.round(card.hours)}h</span>
+        {splitLabel && <span className="text-[8px] font-mono text-[#2563EB]">{splitLabel}</span>}
       </div>
       {card.departmentHours && Object.keys(card.departmentHours).length > 0 && (
-        <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5">
+        <div className="flex flex-wrap gap-x-1.5 gap-y-0.5 mt-1">
           {departments.map(dept => {
             const hrs = card.departmentHours?.[dept.id]
             if (!hrs) return null
             return (
-              <div key={dept.id} className="flex items-center gap-1">
+              <div key={dept.id} className="flex items-center gap-0.5" title={`${dept.name}: ${Math.round(hrs)}h`}>
                 <div className="w-1.5 h-1.5 rounded-sm" style={{ background: dept.color }} />
-                <span className="text-[9px] font-mono tabular-nums text-[#9CA3AF]">{Math.round(hrs)}h</span>
+                <span className="text-[8px] font-mono tabular-nums text-[#9CA3AF]">{Math.round(hrs)}h</span>
               </div>
             )
           })}
         </div>
-      )}
-      {!isSplit && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onSelect()
-          }}
-          className="mt-1.5 text-[9px] text-[#2563EB] hover:text-[#1D4ED8] font-medium transition-colors hidden group-hover:block"
-        >
-          Open details
-        </button>
       )}
     </div>
   )
@@ -903,7 +921,6 @@ function ProjectCard({
 // card stays compact for clear months.
 function MonthOverrideFlags({
   daySummaries,
-  zoom,
 }: {
   daySummaries: Array<{
     date: string
@@ -911,12 +928,11 @@ function MonthOverrideFlags({
     holidayReason: string | null
     ptoEntries: Array<{ teamMemberId: string; name: string; hours: number; reason: string }>
   }>
-  zoom: ZoomLevel
 }) {
   if (daySummaries.length === 0) return null
   const dayNum = (iso: string) => Number(iso.slice(8, 10))
   return (
-    <div className={`flex flex-wrap gap-1 ${zoom === 'quarter' ? 'px-3 mb-2' : 'px-1.5 mb-1.5'}`}>
+    <div className="flex flex-wrap gap-1 px-3 mb-1.5">
       {daySummaries.map((d) => {
         if (d.isHoliday) {
           return (
@@ -964,19 +980,15 @@ function DeptStackedBar({
   deptHours,
   totalHours,
   departments,
-  zoom,
 }: {
   deptHours: Record<string, number>
   totalHours: number
   departments: Department[]
-  zoom: ZoomLevel
 }) {
   if (totalHours <= 0) return null
   return (
     <div
-      className={`flex h-[3px] rounded-full overflow-hidden bg-[#E5E7EB] ${
-        zoom === 'quarter' ? 'mx-3 mb-2' : 'mx-1.5 mb-1.5'
-      }`}
+      className="flex h-[3px] rounded-full overflow-hidden bg-[#E5E7EB] mx-3 mb-1.5"
       title={`${Math.round(totalHours)}h allocated this month`}
     >
       {departments.map((d) => {
