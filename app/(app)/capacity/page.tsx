@@ -82,6 +82,27 @@ function utilColor(util: number): string {
   return '#16A34A'
 }
 
+// Tooltip for the quiet PTO/holiday line: one dated row per override day,
+// listing the holiday name or the people on PTO.
+function overrideTooltip(
+  daySummaries: Array<{
+    date: string
+    isHoliday: boolean
+    holidayReason: string | null
+    ptoEntries: Array<{ name: string }>
+  }>,
+): string {
+  const fmt = (iso: string) =>
+    new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const lines: string[] = []
+  for (const d of daySummaries) {
+    if (d.isHoliday) lines.push(`${fmt(d.date)} — ${d.holidayReason || 'Holiday'}`)
+    if (d.ptoEntries.length > 0)
+      lines.push(`${fmt(d.date)} — ${d.ptoEntries.map((e) => e.name).join(', ')} (PTO)`)
+  }
+  return lines.join('\n')
+}
+
 export default function CapacityPage() {
   return (
     <>
@@ -761,29 +782,20 @@ function CapacityContent() {
                       departments={departments}
                     />
 
-                    {/* Holiday + PTO — per-day flag strip + rollup chips. */}
-                    {(m.holidayCount > 0 || m.ptoHours > 0) && (
-                      <div className="flex items-center flex-wrap gap-1 px-3 mb-1.5 text-[9px]">
-                        {m.holidayCount > 0 && (
-                          <span
-                            title={`${m.holidayCount} company holiday${m.holidayCount === 1 ? '' : 's'} this month`}
-                            className="inline-flex items-center gap-0.5 font-mono tabular-nums text-[#DC2626]"
-                          >
-                            <span aria-hidden>🏛</span> {m.holidayCount}d
-                          </span>
-                        )}
-                        {m.ptoHours > 0 && (
-                          <span
-                            title={`${m.ptoDayCount} PTO day${m.ptoDayCount === 1 ? '' : 's'} across ${m.ptoPersonCount} ${m.ptoPersonCount === 1 ? 'person' : 'people'} (${Math.round(m.ptoHours)}h)`}
-                            className="inline-flex items-center gap-0.5 font-mono tabular-nums text-[#92400E]"
-                          >
-                            <span aria-hidden>🏖</span>
-                            {m.ptoDayCount}d · {m.ptoPersonCount}p · {Math.round(m.ptoHours)}h
-                          </span>
-                        )}
+                    {/* Holiday + PTO — one quiet line; tooltip carries dates + names. */}
+                    {(m.holidayCount > 0 || m.ptoDayCount > 0) && (
+                      <div
+                        className="px-3 mb-1.5 text-[10px] text-[#9CA3AF] truncate"
+                        title={overrideTooltip(m.daySummaries)}
+                      >
+                        {[
+                          m.holidayCount > 0 ? `${m.holidayCount} holiday${m.holidayCount === 1 ? '' : 's'}` : null,
+                          m.ptoDayCount > 0 ? `${m.ptoDayCount} PTO day${m.ptoDayCount === 1 ? '' : 's'}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </div>
                     )}
-                    <MonthOverrideFlags daySummaries={m.daySummaries} />
 
                     {/* Project cards in this month */}
                     <div className="space-y-1 px-2 pb-2">
@@ -907,64 +919,6 @@ function ProjectCard({
           })}
         </div>
       )}
-    </div>
-  )
-}
-
-// --------------------------------------------------
-// MonthOverrideFlags — per-day chip strip
-// --------------------------------------------------
-// One chip per day with a holiday or PTO override. Holidays render with a
-// red bg/border + 🏛; PTO days render amber + 🏖 with an ×N count when
-// multiple people are off. Tooltip surfaces the day's reason and the
-// people on PTO. Renders nothing when daySummaries is empty so the month
-// card stays compact for clear months.
-function MonthOverrideFlags({
-  daySummaries,
-}: {
-  daySummaries: Array<{
-    date: string
-    isHoliday: boolean
-    holidayReason: string | null
-    ptoEntries: Array<{ teamMemberId: string; name: string; hours: number; reason: string }>
-  }>
-}) {
-  if (daySummaries.length === 0) return null
-  const dayNum = (iso: string) => Number(iso.slice(8, 10))
-  return (
-    <div className="flex flex-wrap gap-1 px-3 mb-1.5">
-      {daySummaries.map((d) => {
-        if (d.isHoliday) {
-          return (
-            <span
-              key={d.date}
-              title={`Company holiday — ${d.holidayReason || d.date}`}
-              className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-[#FEE2E2] border border-[#FCA5A5] text-[#991B1B] text-[9px] font-mono tabular-nums whitespace-nowrap"
-            >
-              <span aria-hidden>🏛</span>
-              <span>{dayNum(d.date)}</span>
-            </span>
-          )
-        }
-        const count = d.ptoEntries.length
-        const namesPreview = d.ptoEntries
-          .slice(0, 4)
-          .map((e) => e.name)
-          .join(', ')
-        const more = count > 4 ? ` +${count - 4}` : ''
-        const title = `${count} on PTO: ${namesPreview}${more}`
-        return (
-          <span
-            key={d.date}
-            title={title}
-            className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-[#FEF3C7] border border-[#FDE68A] text-[#92400E] text-[9px] font-mono tabular-nums whitespace-nowrap"
-          >
-            <span aria-hidden>🏖</span>
-            <span>{dayNum(d.date)}</span>
-            {count > 1 && <span className="text-[#B45309]">×{count}</span>}
-          </span>
-        )
-      })}
     </div>
   )
 }
