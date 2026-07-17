@@ -4,7 +4,7 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-07-16 · **Branch:** `main`
+**Last updated:** 2026-07-17 · **Branch:** `main`
 
 ---
 
@@ -31,6 +31,8 @@ Remaining from this item: **Change Orders** — now **parked** (see "Parked — 
 
 Verified: tsc clean; grep `capacity-seed|autoSeed|source.*auto|pinAllocation` under `app/`+`lib/` empty; `/capacity` compiles (200). _**Left for Andrew: interactive QA in the logged-in app** (preview can't auth) — drag sold + pipeline on/off months, confirm the toggle flips the math, the rolling window crosses Dec→Jan, and Even + Smart splits still work (covers the outstanding Smart-split QA)._
 
+**Capacity 0h-capacity bug — fixed 2026-07-17** (`95135dd`). Every month read **0h capacity** because `/capacity` still queried the legacy dept-members join table, which `/team` stopped writing in the shop-rate PR — assignments now live on `team_members.dept_assignments` (jsonb), the source `/schedule` already reads. Fix: derive per-dept billable headcount from `loadShopRateSetup().team` (billable members whose `dept_assignments` include the dept), dropping the dept-members query + `deptMembers` state. Hardened the zero-capacity case so cap=0 never reads as a healthy 0%: a month with hours but no capacity is treated as "over" (heat red, staffing counts it, next-opening skips it, bar clamps to 100%); an empty month reads neutral gray, not green; and a whole window with no capacity shows a warning banner (→ /team, page not gated) + a "No team capacity set up" staffing signal. tsc clean; grep `department_members` under `app/(app)/capacity/` empty; `/capacity` compiles (200). _Still wants Andrew's live-app confirm that real numbers show (≈ billable × 8h × ~21d per dept)._
+
 ---
 
 ## Now
@@ -51,7 +53,7 @@ Verified: tsc clean; grep `capacity-seed|autoSeed|source.*auto|pinAllocation` un
 
 **Verify:** (a) a QB payment on the contract invoice flips the project to Ready automatically; (b) the manual "Mark deposit received" does the same without QB (auto-creating the invoice if needed) — green banner + chip + Start button appear, dashboard moves it to **Ready for production**, Start → In Production + allocations seeded; (c) cards render the progress bar.
 
-_(Capacity calendar redesign — **shipped 2026-07-16**, moved to "Where things stand." Only interactive live-app QA remains, noted there.)_
+_(Capacity 0h-capacity bug — **fixed 2026-07-17** (`95135dd`), moved to "Where things stand." Rest of the capacity redesign shipped 2026-07-16; interactive drag/split/toggle QA still pending Andrew, noted there.)_
 
 ---
 
