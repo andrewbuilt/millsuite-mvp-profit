@@ -234,6 +234,65 @@ function TeamContent() {
     }
   }
 
+  // ── Accounts (chunk A2) — the one explicit bridge to a login ──
+  async function callAdminUsers(body: Record<string, unknown>) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    const res = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token ?? ''}`,
+      },
+      body: JSON.stringify(body),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(json.message || json.error || 'Request failed')
+    return json as Record<string, string>
+  }
+
+  // Immediate persist (account actions are important enough not to wait on
+  // the 600ms debounce). Writes the user_id bridge onto team_members.
+  async function persistTeamNow(next: TeamMember[]) {
+    setTeam(next)
+    if (org?.id) {
+      await saveShopRateInputs(org.id, { team: next }).catch((e) => console.warn('team save', e))
+    }
+  }
+
+  async function createLogin(member: TeamMember, email: string, password: string) {
+    const json = await callAdminUsers({
+      action: 'create_login',
+      email,
+      name: member.name,
+      password,
+    })
+    const next = team.map((m) =>
+      m.id === member.id ? { ...m, user_id: json.user_id, email: json.email } : m,
+    )
+    await persistTeamNow(next)
+  }
+
+  async function resetPassword(member: TeamMember, password: string) {
+    if (!member.user_id) return
+    await callAdminUsers({ action: 'reset_password', user_id: member.user_id, password })
+  }
+
+  async function removeLogin(member: TeamMember) {
+    if (!member.user_id) return
+    const ok = await confirm({
+      title: 'Remove login?',
+      message: `${member.name || 'This member'} will lose access to the worker app. Their roster entry and time entries stay.`,
+      confirmLabel: 'Remove login',
+      variant: 'danger',
+    })
+    if (!ok) return
+    await callAdminUsers({ action: 'unlink', user_id: member.user_id })
+    const next = team.map((m) => (m.id === member.id ? { ...m, user_id: null } : m))
+    await persistTeamNow(next)
+  }
+
   if (!loaded) {
     return (
       <div className="max-w-6xl mx-auto px-6 py-16 text-center text-[#9CA3AF] text-sm">
@@ -562,6 +621,13 @@ function TeamContent() {
                     })}
                   </div>
                 )}
+
+                <AccountControls
+                  member={member}
+                  onCreate={(email, password) => createLogin(member, email, password)}
+                  onReset={(password) => resetPassword(member, password)}
+                  onRemove={() => removeLogin(member)}
+                />
               </div>
             ))}
             {team.length === 0 && !addingMember && (
@@ -623,5 +689,157 @@ function FieldInput({
         }`}
       />
     </label>
+  )
+}
+
+// Random 10-char starter password the owner can copy and hand to the worker.
+function generatePassword(): string {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+  let out = ''
+  const rand =
+    typeof crypto !== 'undefined' && crypto.getRandomValues
+      ? Array.from(crypto.getRandomValues(new Uint32Array(10)))
+      : Array.from({ length: 10 }, (_, i) => i * 2654435761)
+  for (const n of rand) out += chars[n % chars.length]
+  return out
+}
+
+// Per-member login controls (chunk A2). Unlinked → "Create login" form
+// (email + starter password). Linked → reset password / remove login.
+function AccountControls({
+  member,
+  onCreate,
+  onReset,
+  onRemove,
+}: {
+  member: TeamMember
+  onCreate: (email: string, password: string) => Promise<void>
+  onReset: (password: string) => Promise<void>
+  onRemove: () => Promise<void>
+}) {
+  const linked = !!member.user_id
+  const [mode, setMode] = useState<null | 'create' | 'reset'>(null)
+  const [email, setEmail] = useState(member.email ?? '')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [okMsg, setOkMsg] = useState<string | null>(null)
+
+  function reset() {
+    setMode(null)
+    setPassword('')
+    setErr(null)
+  }
+
+  async function submit() {
+    setBusy(true)
+    setErr(null)
+    try {
+      if (mode === 'create') {
+        await onCreate(email.trim(), password)
+        setOkMsg('Login created')
+      } else if (mode === 'reset') {
+        await onReset(password)
+        setOkMsg('Password updated')
+      }
+      reset()
+      setTimeout(() => setOkMsg(null), 2400)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Something went wrong')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-[#F3F4F6]">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs">
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${linked ? 'bg-[#10B981]' : 'bg-[#D1D5DB]'}`}
+          />
+          <span className="text-[#6B7280]">{linked ? 'Login active' : 'No login'}</span>
+          {okMsg && <span className="text-[#065F46]">· {okMsg}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          {!linked && mode !== 'create' && (
+            <button
+              onClick={() => {
+                setMode('create')
+                setPassword(generatePassword())
+              }}
+              className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+            >
+              Create login
+            </button>
+          )}
+          {linked && mode !== 'reset' && (
+            <>
+              <button
+                onClick={() => {
+                  setMode('reset')
+                  setPassword(generatePassword())
+                }}
+                className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+              >
+                Reset password
+              </button>
+              <button
+                onClick={onRemove}
+                className="text-xs text-[#DC2626] hover:text-[#B91C1C] font-medium"
+              >
+                Remove
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {mode && (
+        <div className="mt-2 flex flex-col gap-2">
+          {mode === 'create' && (
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@shop.com"
+              className="px-2 py-1.5 text-xs border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+            />
+          )}
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Starter password (8+ chars)"
+              className="flex-1 px-2 py-1.5 text-xs font-mono border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+            />
+            <button
+              onClick={() => setPassword(generatePassword())}
+              className="text-[11px] text-[#6B7280] hover:text-[#111] px-1"
+              title="Generate a password"
+            >
+              Generate
+            </button>
+          </div>
+          {err && <div className="text-[11px] text-[#DC2626]">{err}</div>}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={submit}
+              disabled={busy || password.length < 8 || (mode === 'create' && !email.trim())}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50"
+            >
+              {busy ? 'Saving…' : mode === 'create' ? 'Create login' : 'Save password'}
+            </button>
+            <button onClick={reset} className="text-xs text-[#6B7280] hover:text-[#111]">
+              Cancel
+            </button>
+            <span className="text-[11px] text-[#9CA3AF]">
+              Share this password with {member.name || 'the worker'} — they can change it later.
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
