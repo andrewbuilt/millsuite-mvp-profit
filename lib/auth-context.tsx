@@ -86,12 +86,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
 
   const publicPaths = ['/', '/pricing', '/login', '/signup', '/cancellation-policy']
+  // Real top-level app/marketing routes. Any OTHER first segment is treated
+  // as an org slug — the shop-branded login pages (/{shop} + /{shop}/portal),
+  // which are public so a logged-out manager/worker can sign in there.
+  const RESERVED_TOP_LEVEL = new Set([
+    'api', 'join', 'login', 'signup', 'pricing', 'cancellation-policy',
+    'capacity', 'clients', 'dashboard', 'invoices', 'me', 'projects',
+    'qb-reconciliation', 'rate-book', 'reports', 'sales', 'schedule',
+    'settings', 'suggestions', 'team', 'time',
+  ])
+  const firstSegment = pathname.split('/')[1] || ''
+  const isShopLoginPath = firstSegment !== '' && !RESERVED_TOP_LEVEL.has(firstSegment)
   const isPublicPath =
     publicPaths.includes(pathname) ||
     pathname.startsWith('/api') ||
     pathname.startsWith('/join') ||
-    // Shop-branded employee login: /{shop}/portal
-    pathname.endsWith('/portal')
+    isShopLoginPath
 
   const loadUserData = useCallback(async (authId: string) => {
     const { data: userData } = await supabase
