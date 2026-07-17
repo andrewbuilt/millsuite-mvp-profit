@@ -86,7 +86,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
 
   const publicPaths = ['/', '/pricing', '/login', '/signup', '/cancellation-policy']
-  const isPublicPath = publicPaths.includes(pathname) || pathname.startsWith('/api') || pathname.startsWith('/join')
+  const isPublicPath =
+    publicPaths.includes(pathname) ||
+    pathname.startsWith('/api') ||
+    pathname.startsWith('/join') ||
+    // Shop-branded employee login: /{shop}/portal
+    pathname.endsWith('/portal')
 
   const loadUserData = useCallback(async (authId: string) => {
     const { data: userData } = await supabase
