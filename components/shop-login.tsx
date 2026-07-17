@@ -104,7 +104,7 @@ export default function ShopLogin({ variant }: { variant: 'manager' | 'employee'
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Email"
                 autoComplete="email"
-                className="w-full px-3 py-2.5 text-sm border border-[#E5E7EB] rounded-xl outline-none focus:border-[#2563EB]"
+                className="w-full px-3 py-2.5 text-sm text-[#111] placeholder:text-[#9CA3AF] border border-[#E5E7EB] rounded-xl outline-none focus:border-[#2563EB]"
               />
               <input
                 type="password"
@@ -112,7 +112,7 @@ export default function ShopLogin({ variant }: { variant: 'manager' | 'employee'
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
                 autoComplete="current-password"
-                className="w-full px-3 py-2.5 text-sm border border-[#E5E7EB] rounded-xl outline-none focus:border-[#2563EB]"
+                className="w-full px-3 py-2.5 text-sm text-[#111] placeholder:text-[#9CA3AF] border border-[#E5E7EB] rounded-xl outline-none focus:border-[#2563EB]"
               />
               {error && <div className="text-xs text-[#DC2626]">{error}</div>}
               <button
