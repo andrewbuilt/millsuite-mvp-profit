@@ -33,6 +33,16 @@ Verified: tsc clean; grep `capacity-seed|autoSeed|source.*auto|pinAllocation` un
 
 **Capacity 0h-capacity bug — fixed 2026-07-17** (`95135dd`). Every month read **0h capacity** because `/capacity` still queried the legacy dept-members join table, which `/team` stopped writing in the shop-rate PR — assignments now live on `team_members.dept_assignments` (jsonb), the source `/schedule` already reads. Fix: derive per-dept billable headcount from `loadShopRateSetup().team` (billable members whose `dept_assignments` include the dept), dropping the dept-members query + `deptMembers` state. Hardened the zero-capacity case so cap=0 never reads as a healthy 0%: a month with hours but no capacity is treated as "over" (heat red, staffing counts it, next-opening skips it, bar clamps to 100%); an empty month reads neutral gray, not green; and a whole window with no capacity shows a warning banner (→ /team, page not gated) + a "No team capacity set up" staffing signal. tsc clean; grep `department_members` under `app/(app)/capacity/` empty; `/capacity` compiles (200). _Still wants Andrew's live-app confirm that real numbers show (≈ billable × 8h × ~21d per dept)._
 
+**Team + shop rate + worker time app — built 2026-07-17 (chunks A–D).** All tsc-clean; every route compiles (200). 8 commits on `main`:
+- **A1 member depth + per-person hours** (`b8eca02`) — extended `orgs.team_members` jsonb (email/phone/title/start_date/hours_per_week/active, all backfilled) + /team edit pane. Per-person `hours_per_week` now drives the shop-rate denominator (`sumBillableHoursYear`) and per-dept capacity (`deptDailyHoursByTeam` = Σ hours_per_week/5); `/capacity` + `/schedule` read it in place of headcount × dept.hours_per_day (40h/wk = 8h/day, so seeded depts unchanged). Inactive members drop out of both. _The onboarding walkthrough + settings still show the uniform `computeBillableHoursYear` figure (equal at default) — fold to per-person later._
+- **A2 accounts** (`14021d6`) — owner-only `POST /api/admin/users` (service-role, Bearer-verified, org-scoped): create_login (seat-checked, creates auth user + users row, rollback on failure) / reset_password / unlink. /team AccountControls write the returned `user_id` onto `team_members` — the one explicit roster→login bridge.
+- **A3 role landing** (`befc515`) — RoleGate confines members to `/me` (was `/time`); top-nav "My work" → /me; minimal `/me` skeleton (D filled it).
+- **B PTO** (`74e1e3a`) — **migration `062_pto.sql` (idempotent) MUST run on prod before deploy** (pto_requests + pto_policies, org-scoped RLS). `lib/pto.ts` + /team Time-off section (approve/deny queue, tenure-band policy editor, per-member balance bar). Approve writes one `capacity_overrides` row per weekday (hours_reduction = member's daily hours); deny/delete clears them. /team load is guarded so it renders even if 062 hasn't run.
+- **C shop-rate extras** (`7ac13cb`) — no migration (reuses `shop_rate_snapshots` from 001). /team margin ladder (break-even + 15/20/25/30%), snapshot on "Save…", margin alert strip (active jobs under break-even × 1.15).
+- **D worker app** (`0a60940`) — no new migration (running timer = `time_entries` with null `ended_at`). `lib/worker-time.ts` + `/me` bottom-tab app: Today (tap-to-clock-in/switch/out, live timer, other-work picker), My week, Time off (request form → /team), History (edit/delete). Admin `/time` already reads the same rows.
+
+_**Left for Andrew:** (1) **run migration `062_pto.sql` on prod Supabase** before/with deploy; (2) end-to-end QA in the logged-in app — create a worker login on /team, sign in on a phone, land on /me, clock in/switch/out, request PTO → approve on /team → day blocks on /capacity + /schedule, confirm per-person hours move the derived shop rate. Note: a worker login consumes a seat (same gate as /join)._
+
 ---
 
 ## Now
@@ -54,6 +64,8 @@ Verified: tsc clean; grep `capacity-seed|autoSeed|source.*auto|pinAllocation` un
 **Verify:** (a) a QB payment on the contract invoice flips the project to Ready automatically; (b) the manual "Mark deposit received" does the same without QB (auto-creating the invoice if needed) — green banner + chip + Start button appear, dashboard moves it to **Ready for production**, Start → In Production + allocations seeded; (c) cards render the progress bar.
 
 _(Capacity 0h-capacity bug — **fixed 2026-07-17** (`95135dd`), moved to "Where things stand." Rest of the capacity redesign shipped 2026-07-16; interactive drag/split/toggle QA still pending Andrew, noted there.)_
+
+_(Team + shop rate + worker time app — **built 2026-07-17** (chunks A–D, 8 commits), moved to "Where things stand." **Migration `062_pto.sql` still needs to run on prod**, plus live-app QA — noted there.)_
 
 ---
 
@@ -115,7 +127,7 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 
 - `[absorbed]` Connect QuickBooks — done as part of the QB invoicing work (OAuth + push shipped, chunks 1–5).
 - `[shipped]` Capacity calendar redesign — **shipped 2026-07-16** (see "Where things stand"): standalone planning tool — schedule auto-seed cut, pipeline toggle, rolling 12-month window, layout rebuild, quiet PTO display. Interactive live-app QA still pending Andrew. Still optional for later: 4-day (Mon–Thu) work-week option, and an alerts surface (`computeAlerts` in `lib/schedule-engine.ts` is unwired).
-- `[unscoped]` Employee app — match Built OS look/feel + function, then add features
+- `[built]` Employee app → **built 2026-07-17 as "Team + shop rate + worker time app" (chunks A–D; see "Where things stand")** — worker phone app `/me`, team-page depth + accounts + per-person hours, PTO requests/approve, shop-rate extras. **Pending: run migration `062_pto.sql` on prod + live-app QA.** Learning loop (actuals → rate book) deliberately deferred. Built's benefits directory + handbook tabs also deferred (nice-to-have). PWA: manifest is already `standalone`; a worker-specific `start_url`/top-nav-hide is optional polish.
 - `[unscoped]` Client portal — match Built OS _(note: portal was deleted from MillSuite early as scope creep — this is a rebuild, not a tweak)_
 
 **Phase 3**
@@ -134,5 +146,8 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 - Latest DB migration is `061` (057–061 = the invoicing rebuild; all run on prod). Run any new migration against prod Supabase before deploying.
 - QB mode = **estimates stay in MillSuite (PDF); one project invoice pushes to QB** (estimate→QB push and per-milestone invoicing are retired). If a stray "we never send to QuickBooks" line turns up anywhere, clean it up.
 - **Production is a manual step** (shipped 2026-06-23) — `sold → production` no longer auto-advances; the readiness-gated "Start production" button (project page + Ready banner) is the only path, and it's the only thing that seeds schedule allocations. Existing `production` projects unaffected. "Ready for production" is **derived**, not a stored stage. **Deposit signal** = the contract invoice's `amount_received > 0` (not a milestone flipped to "received").
+- **Migration `062_pto.sql` is written but NOT yet run on prod** (chunk B). Run it against prod Supabase before/with the deploy — the /team Time-off load and the /me PTO tab are guarded so the app still renders without it, but PTO won't work until it runs. Latest migration is now `062`.
+- **Per-person `hours_per_week` drives capacity + the shop rate now** (chunk A1) — `deptDailyHoursByTeam` (Σ members' hours_per_week/5) replaced headcount × dept.hours_per_day in `/capacity` + `/schedule`; `sumBillableHoursYear` replaced the uniform denominator in `computeDerivedShopRate`. 40h/wk = 8h/day so seeded 8h depts are unchanged; `dept.hours_per_day` is no longer the capacity multiplier. Inactive members drop out of both.
+- **Worker logins consume a seat** (chunk A2) — creating a login on /team hits the same seat gate as /join; if at the limit it 402s. Members (role='member') are confined to `/me` by RoleGate.
 - **`/capacity` and `/schedule` are now decoupled** (redesign, 2026-07-16) — editing the schedule no longer writes `project_month_allocations`; the capacity calendar is manual drag-drop only. The `source` column still exists on `project_month_allocations` (defaults `'manual'`) but nothing reads it. `lib/capacity-seed.ts` is gone.
 - `../built-os` is frozen — don't build features there (but it's the **reference** for the QB port).
