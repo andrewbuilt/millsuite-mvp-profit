@@ -38,6 +38,18 @@ import {
   type OverheadInputs,
   type BillableHoursInputs,
 } from '@/lib/shop-rate-setup'
+import {
+  loadPtoRequests,
+  loadOrCreateDefaultPolicy,
+  savePolicyRules,
+  approvePtoRequest,
+  denyPtoRequest,
+  deletePtoRequest,
+  computeBalance,
+  type PtoRequest,
+  type PtoPolicy,
+  type PtoBand,
+} from '@/lib/pto'
 
 interface Department {
   id: string
@@ -60,10 +72,15 @@ export default function TeamPage() {
 }
 
 function TeamContent() {
-  const { org } = useAuth()
+  const { org, user } = useAuth()
   const { confirm } = useConfirm()
   const [departments, setDepartments] = useState<Department[]>([])
   const [team, setTeam] = useState<TeamMember[]>([])
+  const [ptoRequests, setPtoRequests] = useState<PtoRequest[]>([])
+  const [ptoPolicy, setPtoPolicy] = useState<PtoPolicy | null>(null)
+  // false once the PTO tables are confirmed missing (migration 062 not run
+  // yet) so we hide the section instead of erroring the whole page.
+  const [ptoReady, setPtoReady] = useState(true)
   const [overhead, setOverhead] = useState<OverheadInputs>({})
   const [billable, setBillable] = useState<BillableHoursInputs>({
     hrs_per_week: 40,
@@ -98,11 +115,85 @@ function TeamContent() {
       setShopRate(setup.shopRate)
       setDepartments(depts || [])
       setLoaded(true)
+
+      // PTO (chunk B). Guarded: if migration 062 hasn't run yet the tables
+      // are missing — hide the section rather than erroring the page.
+      try {
+        const [reqs, policy] = await Promise.all([
+          loadPtoRequests(org.id),
+          loadOrCreateDefaultPolicy(org.id),
+        ])
+        if (cancelled) return
+        setPtoRequests(reqs)
+        setPtoPolicy(policy)
+        setPtoReady(true)
+      } catch (e) {
+        if (!cancelled) setPtoReady(false)
+        console.warn('PTO load skipped (migration 062 not run?)', e)
+      }
     })()
     return () => {
       cancelled = true
     }
   }, [org?.id])
+
+  const todayISO = useMemo(() => new Date().toISOString().slice(0, 10), [])
+
+  async function reloadPto() {
+    if (!org?.id) return
+    try {
+      setPtoRequests(await loadPtoRequests(org.id))
+    } catch (e) {
+      console.warn('PTO reload', e)
+    }
+  }
+
+  async function approveRequest(req: PtoRequest) {
+    if (!user?.id) return
+    const member = team.find((m) => m.id === req.team_member_id)
+    try {
+      await approvePtoRequest(req, user.id, member, Number(billable.hrs_per_week) || 40)
+      await reloadPto()
+    } catch (e) {
+      console.error('approve PTO', e)
+    }
+  }
+
+  async function denyRequest(req: PtoRequest) {
+    if (!user?.id) return
+    try {
+      await denyPtoRequest(req, user.id)
+      await reloadPto()
+    } catch (e) {
+      console.error('deny PTO', e)
+    }
+  }
+
+  async function removeRequest(req: PtoRequest) {
+    const ok = await confirm({
+      title: 'Delete request?',
+      message: 'This removes the request and any capacity it blocked.',
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })
+    if (!ok) return
+    try {
+      await deletePtoRequest(req)
+      await reloadPto()
+    } catch (e) {
+      console.error('delete PTO', e)
+    }
+  }
+
+  async function updatePolicyBands(rules: PtoBand[]) {
+    if (!ptoPolicy) return
+    setPtoPolicy({ ...ptoPolicy, rules })
+    try {
+      await savePolicyRules(ptoPolicy.id, rules)
+    } catch (e) {
+      console.error('save policy', e)
+    }
+  }
 
   // Debounced persist of team_members on any change. Mirrors the
   // /settings page's auto-save shape so the two surfaces stay in sync.
@@ -622,6 +713,12 @@ function TeamContent() {
                   </div>
                 )}
 
+                {ptoReady && ptoPolicy && (
+                  <PtoBalanceLine
+                    balance={computeBalance(member, ptoPolicy, ptoRequests, todayISO)}
+                  />
+                )}
+
                 <AccountControls
                   member={member}
                   onCreate={(email, password) => createLogin(member, email, password)}
@@ -649,7 +746,249 @@ function TeamContent() {
           )}
         </div>
       </div>
+
+      {ptoReady && (
+        <PtoSection
+          requests={ptoRequests}
+          policy={ptoPolicy}
+          team={team}
+          todayISO={todayISO}
+          onApprove={approveRequest}
+          onDeny={denyRequest}
+          onDelete={removeRequest}
+          onSaveBands={updatePolicyBands}
+        />
+      )}
     </div>
+  )
+}
+
+// Compact per-member PTO balance line + mini bar.
+function PtoBalanceLine({
+  balance,
+}: {
+  balance: { allowed: number; used: number; pending: number; remaining: number }
+}) {
+  const pct = balance.allowed > 0 ? Math.min(100, (balance.used / balance.allowed) * 100) : 0
+  return (
+    <div className="mt-3 pt-3 border-t border-[#F3F4F6]">
+      <div className="flex items-center justify-between text-[11px] text-[#6B7280] mb-1">
+        <span>Time off</span>
+        <span className="font-mono tabular-nums">
+          {balance.used}/{balance.allowed} days
+          {balance.pending > 0 && (
+            <span className="text-[#B45309]"> · {balance.pending} pending</span>
+          )}
+        </span>
+      </div>
+      <div className="h-1.5 bg-[#E5E7EB] rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${balance.used > balance.allowed ? 'bg-[#DC2626]' : 'bg-[#10B981]'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+// PTO section — pending queue (approve/deny) + the tenure-band policy editor.
+function PtoSection({
+  requests,
+  policy,
+  team,
+  todayISO,
+  onApprove,
+  onDeny,
+  onDelete,
+  onSaveBands,
+}: {
+  requests: PtoRequest[]
+  policy: PtoPolicy | null
+  team: TeamMember[]
+  todayISO: string
+  onApprove: (r: PtoRequest) => void
+  onDeny: (r: PtoRequest) => void
+  onDelete: (r: PtoRequest) => void
+  onSaveBands: (rules: PtoBand[]) => void
+}) {
+  const nameById = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const t of team) m[t.id] = t.name || 'Team member'
+    return m
+  }, [team])
+
+  const pending = requests.filter((r) => r.status === 'pending')
+  const recent = requests.filter((r) => r.status !== 'pending').slice(0, 8)
+  const fmt = (iso: string) =>
+    new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const range = (r: PtoRequest) =>
+    r.start_date === r.end_date ? fmt(r.start_date) : `${fmt(r.start_date)} – ${fmt(r.end_date)}`
+
+  return (
+    <div className="mt-8 pt-6 border-t border-[#E5E7EB]">
+      <h2 className="text-sm font-semibold text-[#111] mb-3">Time off</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Requests */}
+        <div>
+          <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
+            Pending ({pending.length})
+          </div>
+          {pending.length === 0 ? (
+            <div className="text-xs text-[#9CA3AF] py-2">No requests waiting.</div>
+          ) : (
+            <div className="space-y-2">
+              {pending.map((r) => (
+                <div
+                  key={r.id}
+                  className="bg-white border border-[#E5E7EB] rounded-xl p-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[#111] truncate">
+                      {nameById[r.team_member_id] || 'Team member'}
+                    </div>
+                    <div className="text-[11px] text-[#6B7280]">
+                      {range(r)} · {r.reason}
+                      {r.notes ? ` · ${r.notes}` : ''}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => onApprove(r)}
+                      className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0] hover:bg-[#D1FAE5]"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => onDeny(r)}
+                      className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-[#FEF2F2] text-[#991B1B] border border-[#FECACA] hover:bg-[#FEE2E2]"
+                    >
+                      Deny
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {recent.length > 0 && (
+            <>
+              <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide mt-4 mb-2">
+                Recent
+              </div>
+              <div className="space-y-1">
+                {recent.map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between text-[11px] text-[#6B7280] px-1"
+                  >
+                    <span className="truncate">
+                      {nameById[r.team_member_id] || 'Team member'} · {range(r)}
+                    </span>
+                    <span className="flex items-center gap-2 flex-shrink-0">
+                      <span
+                        className={
+                          r.status === 'approved' ? 'text-[#065F46]' : 'text-[#991B1B]'
+                        }
+                      >
+                        {r.status}
+                      </span>
+                      <button
+                        onClick={() => onDelete(r)}
+                        className="text-[#D1D5DB] hover:text-[#DC2626]"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Policy editor */}
+        <div>
+          <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
+            Policy — days per year by tenure
+          </div>
+          {policy ? (
+            <PolicyEditor policy={policy} todayISO={todayISO} onSaveBands={onSaveBands} />
+          ) : (
+            <div className="text-xs text-[#9CA3AF]">No policy loaded.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Tenure-band editor: each row is { min_years, max_years, days_per_year }.
+function PolicyEditor({
+  policy,
+  onSaveBands,
+}: {
+  policy: PtoPolicy
+  todayISO: string
+  onSaveBands: (rules: PtoBand[]) => void
+}) {
+  const bands = policy.rules || []
+  function patch(i: number, key: keyof PtoBand, value: number) {
+    const next = bands.map((b, idx) => (idx === i ? { ...b, [key]: value } : b))
+    onSaveBands(next)
+  }
+  function addBand() {
+    const last = bands[bands.length - 1]
+    const min = last ? last.max_years : 0
+    onSaveBands([...bands, { min_years: min, max_years: min + 1, days_per_year: 0 }])
+  }
+  function removeBand(i: number) {
+    onSaveBands(bands.filter((_, idx) => idx !== i))
+  }
+  return (
+    <div className="bg-white border border-[#E5E7EB] rounded-xl p-3">
+      <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 text-[10px] uppercase tracking-wide text-[#9CA3AF] mb-1 px-1">
+        <span>From yr</span>
+        <span>To yr</span>
+        <span>Days/yr</span>
+        <span />
+      </div>
+      <div className="space-y-1.5">
+        {bands.map((b, i) => (
+          <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+            <NumberCell value={b.min_years} onCommit={(v) => patch(i, 'min_years', v)} />
+            <NumberCell value={b.max_years} onCommit={(v) => patch(i, 'max_years', v)} />
+            <NumberCell value={b.days_per_year} onCommit={(v) => patch(i, 'days_per_year', v)} />
+            <button
+              onClick={() => removeBand(i)}
+              className="text-[#D1D5DB] hover:text-[#DC2626] justify-self-center"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={addBand}
+        className="mt-2 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+      >
+        + Add band
+      </button>
+    </div>
+  )
+}
+
+function NumberCell({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      defaultValue={String(value)}
+      onBlur={(e) => onCommit(parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+      }}
+      className="w-full px-2 py-1 text-xs font-mono tabular-nums border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+    />
   )
 }
 
