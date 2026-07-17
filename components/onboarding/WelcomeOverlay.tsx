@@ -55,6 +55,10 @@ export default function WelcomeOverlay() {
   // show anything. And don't flash the overlay before the initial users
   // fetch settles.
   if (!user?.id || !org?.id) return null
+  // Owner setup only — this is the shop-rate + base-cabinet calibration.
+  // Workers (role='member') get their own /me app and must never see it,
+  // even though their fresh users row has onboarded_at = null.
+  if (user.role === 'member') return null
   if (loading) return null
   if (onboardedAt) return null
 

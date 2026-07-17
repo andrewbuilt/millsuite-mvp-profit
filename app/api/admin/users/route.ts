@@ -110,6 +110,10 @@ export async function POST(req: NextRequest) {
         email,
         name: name || email,
         role: 'member',
+        // Workers never run the owner onboarding (shop-rate/base-cabinet)
+        // walkthrough, so mark them onboarded up front — the WelcomeOverlay
+        // also role-gates, this keeps the data honest for any other reader.
+        onboarded_at: new Date().toISOString(),
       })
       .select('id')
       .single()
