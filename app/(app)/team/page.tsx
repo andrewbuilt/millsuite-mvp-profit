@@ -34,10 +34,14 @@ import {
   saveShopRate,
   makeTeamMember,
   computeDerivedShopRate,
+  sumOverheadAnnual,
+  sumTeamAnnualComp,
+  sumBillableHoursYear,
   type TeamMember,
   type OverheadInputs,
   type BillableHoursInputs,
 } from '@/lib/shop-rate-setup'
+import { loadProjectDeptHours } from '@/lib/project-hours'
 import {
   loadPtoRequests,
   loadOrCreateDefaultPolicy,
@@ -91,6 +95,9 @@ function TeamContent() {
   const [loaded, setLoaded] = useState(false)
   const [savingRate, setSavingRate] = useState(false)
   const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
+  // Shop-rate extras (chunk C).
+  const [snapshots, setSnapshots] = useState<Array<{ id: string; effective_rate: number; created_at: string }>>([])
+  const [rateAlerts, setRateAlerts] = useState<Array<{ id: string; name: string; effRate: number; belowBreakEven: boolean }>>([])
 
   const [newDeptName, setNewDeptName] = useState('')
   const [addingDept, setAddingDept] = useState(false)
@@ -115,6 +122,9 @@ function TeamContent() {
       setShopRate(setup.shopRate)
       setDepartments(depts || [])
       setLoaded(true)
+
+      // Shop-rate snapshot history (chunk C). Table predates this (001).
+      loadSnapshots()
 
       // PTO (chunk B). Guarded: if migration 062 hasn't run yet the tables
       // are missing — hide the section rather than erroring the page.
@@ -211,6 +221,49 @@ function TeamContent() {
     () => computeDerivedShopRate(overhead, team, billable),
     [overhead, team, billable],
   )
+  // Break-even = the cost-covering derived rate. Projects should bid above
+  // it; the alert strip flags anything under break-even × 1.15.
+  const breakEven = derivedRate
+
+  // Margin alert strip (chunk C2). Loads active projects' bid_total + est
+  // hours (N parallel calls, fine at beta scale) and flags underpriced ones.
+  useEffect(() => {
+    if (!org?.id || !loaded || breakEven <= 0) {
+      setRateAlerts([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const { data: projs } = await supabase
+        .from('projects')
+        .select('id, name, bid_total, stage')
+        .eq('org_id', org.id)
+        .in('stage', ['sold', 'production', 'installed'])
+      const list = (projs || []) as Array<{ id: string; name: string; bid_total: number; stage: string }>
+      const threshold = breakEven * 1.15
+      const rows = await Promise.all(
+        list.map(async (p) => {
+          const { totalHours } = await loadProjectDeptHours(org.id, p.id)
+          if (!totalHours || totalHours <= 0 || !p.bid_total) return null
+          const effRate = p.bid_total / totalHours
+          if (effRate >= threshold) return null
+          return { id: p.id, name: p.name, effRate, belowBreakEven: effRate < breakEven }
+        }),
+      )
+      if (cancelled) return
+      setRateAlerts(
+        rows.filter(Boolean).sort((a, b) => a!.effRate - b!.effRate) as Array<{
+          id: string
+          name: string
+          effRate: number
+          belowBreakEven: boolean
+        }>,
+      )
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [org?.id, loaded, breakEven])
 
   // ── Departments CRUD ──
 
@@ -309,7 +362,18 @@ function TeamContent() {
     return team.filter((m) => (m.dept_assignments || []).includes(deptId))
   }
 
-  // ── Save derived rate as the org's shop rate ──
+  // ── Save derived rate as the org's shop rate + snapshot (chunk C) ──
+  async function loadSnapshots() {
+    if (!org?.id) return
+    const { data } = await supabase
+      .from('shop_rate_snapshots')
+      .select('id, effective_rate, created_at')
+      .eq('org_id', org.id)
+      .order('created_at', { ascending: false })
+      .limit(8)
+    setSnapshots((data || []) as Array<{ id: string; effective_rate: number; created_at: string }>)
+  }
+
   async function promoteDerivedRate() {
     if (!org?.id || derivedRate <= 0) return
     setSavingRate(true)
@@ -318,6 +382,16 @@ function TeamContent() {
       setShopRate(derivedRate)
       setRateSavedAt(Date.now())
       setTimeout(() => setRateSavedAt((prev) => (prev && Date.now() - prev > 2400 ? null : prev)), 2600)
+      // Snapshot the inputs behind this rate (uses the existing 001 columns).
+      await supabase.from('shop_rate_snapshots').insert({
+        org_id: org.id,
+        effective_rate: derivedRate,
+        overhead_monthly: sumOverheadAnnual(overhead) / 12,
+        labor_cost_monthly: sumTeamAnnualComp(team) / 12,
+        billable_hours_monthly: sumBillableHoursYear(team, billable) / 12,
+        utilization_pct: billable.utilization_pct,
+      })
+      await loadSnapshots()
     } catch (e) {
       console.error('promoteDerivedRate', e)
     } finally {
@@ -422,6 +496,15 @@ function TeamContent() {
           Shop rate saved at <span className="font-mono">${shopRate.toFixed(2)}/hr</span>.
         </div>
       )}
+
+      <ShopRatePanel
+        breakEven={breakEven}
+        shopRate={shopRate}
+        saving={savingRate}
+        onSave={promoteDerivedRate}
+        snapshots={snapshots}
+        alerts={rateAlerts}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Departments */}
@@ -989,6 +1072,118 @@ function NumberCell({ value, onCommit }: { value: number; onCommit: (v: number) 
       }}
       className="w-full px-2 py-1 text-xs font-mono tabular-nums border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
     />
+  )
+}
+
+// Shop-rate cockpit (chunk C): margin ladder + save + snapshot history +
+// margin alerts. Break-even is the cost-covering derived rate.
+function ShopRatePanel({
+  breakEven,
+  shopRate,
+  saving,
+  onSave,
+  snapshots,
+  alerts,
+}: {
+  breakEven: number
+  shopRate: number
+  saving: boolean
+  onSave: () => void
+  snapshots: Array<{ id: string; effective_rate: number; created_at: string }>
+  alerts: Array<{ id: string; name: string; effRate: number; belowBreakEven: boolean }>
+}) {
+  if (breakEven <= 0) return null
+  const margins = [0, 0.15, 0.2, 0.25, 0.3]
+  const money = (n: number) => `$${n.toFixed(2)}`
+  const fmtDate = (iso: string) =>
+    new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
+  return (
+    <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Margin ladder */}
+      <div className="bg-white border border-[#E5E7EB] rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-[#111]">Shop rate</h2>
+          <span className="text-[11px] text-[#9CA3AF]">
+            Current <span className="font-mono text-[#111]">{money(shopRate)}/hr</span>
+          </span>
+        </div>
+        <div className="space-y-1">
+          {margins.map((m) => {
+            const rate = breakEven / (1 - m)
+            const isCurrent = Math.abs(rate - shopRate) < 0.01
+            return (
+              <div
+                key={m}
+                className={`flex items-center justify-between text-sm px-2 py-1 rounded-lg ${
+                  isCurrent ? 'bg-[#EFF6FF]' : ''
+                }`}
+              >
+                <span className="text-[#6B7280]">
+                  {m === 0 ? 'Break-even' : `${Math.round(m * 100)}% margin`}
+                </span>
+                <span className="font-mono tabular-nums text-[#111]">{money(rate)}/hr</span>
+              </div>
+            )
+          })}
+        </div>
+        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[#F3F4F6]">
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : 'Save break-even as my shop rate'}
+          </button>
+          {snapshots.length > 0 && (
+            <span className="text-[11px] text-[#9CA3AF]">
+              Last saved {fmtDate(snapshots[0].created_at)}
+            </span>
+          )}
+        </div>
+        {snapshots.length > 1 && (
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5">
+            {snapshots.slice(0, 6).map((s) => (
+              <span key={s.id} className="text-[10px] font-mono text-[#9CA3AF]">
+                {fmtDate(s.created_at)}: {money(s.effective_rate)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Margin alerts */}
+      <div className="bg-white border border-[#E5E7EB] rounded-xl p-4">
+        <h2 className="text-sm font-semibold text-[#111] mb-1">Margin alerts</h2>
+        <p className="text-[11px] text-[#9CA3AF] mb-2">
+          Active jobs priced under break-even × 1.15 ({money(breakEven * 1.15)}/hr).
+        </p>
+        {alerts.length === 0 ? (
+          <div className="text-xs text-[#16A34A] font-medium py-2">
+            All active jobs are priced above target.
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {alerts.map((a) => (
+              <Link
+                key={a.id}
+                href={`/projects/${a.id}`}
+                className="flex items-center justify-between text-xs px-1 py-1 rounded hover:bg-[#F9FAFB]"
+              >
+                <span className="truncate text-[#111]">{a.name}</span>
+                <span
+                  className={`font-mono tabular-nums flex-shrink-0 ml-2 ${
+                    a.belowBreakEven ? 'text-[#DC2626] font-semibold' : 'text-[#B45309]'
+                  }`}
+                >
+                  {money(a.effRate)}/hr
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
