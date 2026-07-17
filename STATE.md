@@ -41,7 +41,11 @@ Verified: tsc clean; grep `capacity-seed|autoSeed|source.*auto|pinAllocation` un
 - **C shop-rate extras** (`7ac13cb`) — no migration (reuses `shop_rate_snapshots` from 001). /team margin ladder (break-even + 15/20/25/30%), snapshot on "Save…", margin alert strip (active jobs under break-even × 1.15).
 - **D worker app** (`0a60940`) — no new migration (running timer = `time_entries` with null `ended_at`). `lib/worker-time.ts` + `/me` bottom-tab app: Today (tap-to-clock-in/switch/out, live timer, other-work picker), My week, Time off (request form → /team), History (edit/delete). Admin `/time` already reads the same rows.
 
-_**Left for Andrew:** (1) **run migration `062_pto.sql` on prod Supabase** before/with deploy; (2) end-to-end QA in the logged-in app — create a worker login on /team, sign in on a phone, land on /me, clock in/switch/out, request PTO → approve on /team → day blocks on /capacity + /schedule, confirm per-person hours move the derived shop rate. Note: a worker login consumes a seat (same gate as /join)._
+Follow-ups since (2026-07-17):
+- **Onboarding-overlay fix** (`2927c95`) — the owner WelcomeOverlay (shop-rate/base-cabinet walkthrough) was popping over the `/me` worker app because new worker `users` rows have `onboarded_at` NULL. Role-gated the overlay to non-members + stamp `onboarded_at` when creating a worker login.
+- **Employee vanity URL** (`ea89d4e`) — shop-branded worker login at **`millsuite.com/{shopname}/portal`** (`{shopname}` = org `slug`), mirroring `/join/[slug]`. Root `[shop]/portal` only matches two-segment paths; static routes still win; `/*/portal` is public in auth-context. _App domain is **millsuite.com** (NOT tools.millsuite.com — that's a different site; the top-nav still hard-codes a `tools.millsuite.com/dashboard` external shortcut for starter plans → likely stale, clean up later). The bare `millsuite.com/{shopname}` route Andrew mentioned is NOT built — separate scope (what does that page show?)._
+
+_**Left for Andrew:** (1) **run migration `062_pto.sql` on prod Supabase** — I can't (no CLI/psql/connection here; service key only speaks PostgREST). Paste `db/migrations/062_pto.sql` into the Supabase SQL editor and run; it's idempotent. (2) end-to-end QA in the logged-in app — create a worker login on /team, sign in via `/{slug}/portal` on a phone, land on /me, clock in/switch/out, request PTO → approve on /team → day blocks on /capacity + /schedule, confirm per-person hours move the derived shop rate. Note: a worker login consumes a seat (same gate as /join)._
 
 ---
 
@@ -66,6 +70,27 @@ _**Left for Andrew:** (1) **run migration `062_pto.sql` on prod Supabase** befor
 _(Capacity 0h-capacity bug — **fixed 2026-07-17** (`95135dd`), moved to "Where things stand." Rest of the capacity redesign shipped 2026-07-16; interactive drag/split/toggle QA still pending Andrew, noted there.)_
 
 _(Team + shop rate + worker time app — **built 2026-07-17** (chunks A–D, 8 commits), moved to "Where things stand." **Migration `062_pto.sql` still needs to run on prod**, plus live-app QA — noted there.)_
+
+### Worker time app — QA fixes  _(found 2026-07-17, Andrew testing with a fake employee login)_
+
+1. **Workers get the owner onboarding wizard.** `components/onboarding/WelcomeOverlay.tsx` is mounted for everyone in `app/(app)/layout.tsx` and shows whenever `users.onboarded_at` is null — no role check — so a fresh member-role login on `/me` gets the shop-rate/base-labor setup walkthrough (and its finish step pushes `/sales`, a route members can't access). Fix: return `null` for member-role users (read role from `useAuth`, same source RoleGate uses) — members should never see org onboarding. Also stamp/skip so it never fires for them later (either stamp `onboarded_at` for member users on first `/me` load, or just keep the role check — role check alone is fine and simpler).
+2. **PWA `start_url` flash (minor):** `app/manifest.ts` has `start_url: '/dashboard'`, so a worker's home-screen icon opens the dashboard for a beat before RoleGate bounces to `/me`. Cheap fix: point `start_url` at a tiny neutral route (or `/login`) that forwards by role, or leave as-is if the flash is acceptable.
+
+**Verify:** fresh member login on a phone → `/me` directly, no welcome overlay, no `/sales` push; owner login still gets onboarding when `onboarded_at` is null; home-screen icon opens into `/me` without visibly hitting the dashboard.
+
+### Per-org vanity login URL — scoped 2026-07-17 (Cowork planning pass with Andrew)
+
+**Goal:** each customer org gets a memorable branded sign-in address — `millsuite.com/<org-slug>` (e.g. `/built`) — for employees and for the "your own instance" feel when selling MillSuite. **Decisions locked:** vanity login page now (path style, one route — NOT a full `/built/...` route-prefix refactor); **subdomains (`built.millsuite.com`) deferred** as the later sellable-instance upgrade (added to "Next"); branding = **org name + uploadable logo**.
+
+Key architecture fact (don't fight it): the org comes from the *login*, not the URL — the vanity page only brands the sign-in. After auth, everything stays on the normal unprefixed routes (`/me`, `/team`, …).
+
+1. **Route `app/(marketing)/[orgSlug]/page.tsx`** — look up the org by `orgs.slug` (public read of name/logo only — mind RLS; a tiny public view or API route if needed). Unknown slug → 404 (don't leak which slugs exist beyond the page itself). Renders the branded sign-in: logo (fallback: name initial), "Sign in to {org name}", same `signInWithPassword` flow as `/login`, same post-login role routing (owner → dashboard, member → `/me` via RoleGate). Watch route collisions: the slug segment must not shadow existing marketing routes (`/login`, `/signup`, `/join`, `/pricing`, `/cancellation-policy`) — reserve those slugs at org creation too (extend the reserved list in `053_create_org_with_owner.sql`'s successor or app-side validation).
+2. **Optional org mismatch guard:** if the signed-in user's org slug ≠ the page slug, show "This account belongs to a different shop" with a link to the right URL rather than silently logging into the other org (cheap confusion-saver for multi-org future).
+3. **Logo upload:** `orgs.logo_url` (one migration, idempotent, run on prod first) + upload in Settings (Supabase storage bucket, public-read). Show on the vanity login + reuse later on estimate/invoice PDFs (they already want a logo — check `EstimatePdf` for an existing logo source before duplicating).
+4. **Slug surfacing:** Settings shows "Your team's sign-in link: millsuite.com/{slug}" with copy button; same link shown in the /team Accounts area where Andrew creates worker logins (that's the natural "what do I tell my employee" moment).
+5. `manifest.ts` `start_url` interplay: home-screen installs from the vanity page should still open into the app fine (RoleGate handles it) — just verify, no special work planned.
+
+**Verify:** `millsuite.com/built` shows Built's name/logo sign-in; worker signs in there → `/me`; unknown slug → 404; reserved words can't become slugs; logo upload renders on the login page; normal `/login` unchanged.
 
 ---
 
@@ -133,6 +158,7 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 **Phase 3**
 
 - `[unscoped]` Migrate data Built OS → MillSuite (plan: `../built-os/docs/DATA-MIGRATION-INVENTORY.md`), then archive Built OS
+- `[unscoped]` Org subdomains (`built.millsuite.com`) — the sellable-instance upgrade over the vanity login page (scoped 2026-07-17 in "Now"): middleware resolves subdomain → org, brands login, wildcard DNS + wildcard domain on the host. Scope when a second paying customer is close.
 
 ## Open decisions _(resolve when scoping the relevant item)_
 
