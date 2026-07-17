@@ -418,7 +418,9 @@ function TeamContent() {
             {team.map((member) => (
               <div
                 key={member.id}
-                className="bg-white border border-[#E5E7EB] rounded-xl p-4"
+                className={`bg-white border border-[#E5E7EB] rounded-xl p-4 ${
+                  member.active === false ? 'opacity-60' : ''
+                }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <input
@@ -427,12 +429,27 @@ function TeamContent() {
                     onBlur={(e) => patchMember(member.id, { name: e.target.value })}
                     className="text-sm font-medium text-[#111] bg-transparent outline-none focus:bg-[#F9FAFB] rounded px-1 -mx-1"
                   />
-                  <button
-                    onClick={() => deleteMember(member.id)}
-                    className="text-[#D1D5DB] hover:text-[#DC2626] transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() =>
+                        patchMember(member.id, { active: member.active === false })
+                      }
+                      className={`text-[10px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
+                        member.active === false
+                          ? 'border-[#E5E7EB] text-[#9CA3AF] hover:border-[#D1D5DB]'
+                          : 'border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]'
+                      }`}
+                      title="Active members count toward capacity and the shop rate"
+                    >
+                      {member.active === false ? 'Inactive' : 'Active'}
+                    </button>
+                    <button
+                      onClick={() => deleteMember(member.id)}
+                      className="text-[#D1D5DB] hover:text-[#DC2626] transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center gap-4 mb-2">
                   <div className="flex items-center gap-1.5">
@@ -480,6 +497,50 @@ function TeamContent() {
                     <span className="text-xs text-[#9CA3AF]">Billable</span>
                   </div>
                 </div>
+
+                {/* Depth fields (chunk A1). Per-person hours/week feeds both
+                    the shop-rate denominator and per-dept capacity. */}
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2 mb-3">
+                  <FieldInput
+                    label="Title"
+                    defaultValue={member.title ?? ''}
+                    placeholder="e.g. Lead installer"
+                    onCommit={(v) => patchMember(member.id, { title: v || null })}
+                  />
+                  <FieldInput
+                    label="Hours / week"
+                    defaultValue={member.hours_per_week != null ? String(member.hours_per_week) : ''}
+                    placeholder={`${billable.hrs_per_week} (org default)`}
+                    inputMode="decimal"
+                    mono
+                    onCommit={(v) => {
+                      const trimmed = v.trim()
+                      patchMember(member.id, {
+                        hours_per_week: trimmed === '' ? undefined : parseFloat(trimmed) || 0,
+                      })
+                    }}
+                  />
+                  <FieldInput
+                    label="Email"
+                    type="email"
+                    defaultValue={member.email ?? ''}
+                    placeholder="name@shop.com"
+                    onCommit={(v) => patchMember(member.id, { email: v.trim() || null })}
+                  />
+                  <FieldInput
+                    label="Phone"
+                    defaultValue={member.phone ?? ''}
+                    placeholder="(555) 555-1234"
+                    onCommit={(v) => patchMember(member.id, { phone: v.trim() || null })}
+                  />
+                  <FieldInput
+                    label="Start date"
+                    type="date"
+                    defaultValue={member.start_date ?? ''}
+                    onCommit={(v) => patchMember(member.id, { start_date: v || null })}
+                  />
+                </div>
+
                 {departments.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {departments.map((dept) => {
@@ -523,5 +584,44 @@ function TeamContent() {
         </div>
       </div>
     </div>
+  )
+}
+
+// Small labeled input for the member detail grid. Uncontrolled
+// (defaultValue) + commit on blur / Enter, matching the name/comp fields.
+function FieldInput({
+  label,
+  defaultValue,
+  placeholder,
+  type = 'text',
+  inputMode,
+  mono,
+  onCommit,
+}: {
+  label: string
+  defaultValue: string
+  placeholder?: string
+  type?: string
+  inputMode?: 'decimal' | 'email' | 'text'
+  mono?: boolean
+  onCommit: (value: string) => void
+}) {
+  return (
+    <label className="flex flex-col gap-0.5">
+      <span className="text-[10px] uppercase tracking-wide text-[#9CA3AF]">{label}</span>
+      <input
+        type={type}
+        inputMode={inputMode}
+        defaultValue={defaultValue}
+        placeholder={placeholder}
+        onBlur={(e) => onCommit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        }}
+        className={`px-2 py-1 text-xs border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] transition-colors ${
+          mono ? 'font-mono tabular-nums' : ''
+        }`}
+      />
+    </label>
   )
 }

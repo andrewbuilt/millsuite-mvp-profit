@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { loadSubprojectStatusMap, SubprojectStatus } from '@/lib/subproject-status'
 import { seedAllocationsForProduction } from '@/lib/schedule-seed'
 import DivideBlockModal from '@/components/schedule/DivideBlockModal'
-import { loadShopRateSetup } from '@/lib/shop-rate-setup'
+import { loadShopRateSetup, deptDailyHoursByTeam } from '@/lib/shop-rate-setup'
 
 // =====================================================
 // TYPES
@@ -918,7 +918,9 @@ export default function SchedulePage() {
   const [subStatusMap, setSubStatusMap] = useState<Record<string, SubprojectStatus>>({})
   const [blocks, setBlocks] = useState<Block[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
-  const [headcountByDept, setHeadcountByDept] = useState<Record<string, number>>({})
+  // Per-dept daily capacity hours (hours_per_week / 5 summed over the dept's
+  // active billable members). Shared definition with /capacity + /team.
+  const [dailyHoursByDept, setDailyHoursByDept] = useState<Record<string, number>>({})
 
   // --- UI state ---
   const [dragState, setDragState] = useState<DragStateType | null>(null)
@@ -1039,14 +1041,13 @@ export default function SchedulePage() {
     const m: Record<string, number> = {}
     for (const d of departments) {
       // Strict 0 when no billable team_members are assigned to the dept.
-      // The legacy `|| 1` fallback inflated capacity to a phantom 40h/wk
-      // for unassigned depts, which made the schedule lie about how
-      // much work the shop could actually take on.
-      const headcount = headcountByDept[d.id] || 0
-      m[d.id] = d.hours_per_day * headcount * 5
+      // Per-person hours (hours_per_week / 5 per member) supersede the old
+      // headcount × dept.hours_per_day; a 40h/wk member = 8h/day, so
+      // seeded 8h/day depts are unchanged. Weekly = daily × 5.
+      m[d.id] = (dailyHoursByDept[d.id] || 0) * 5
     }
     return m
-  }, [departments, headcountByDept])
+  }, [departments, dailyHoursByDept])
 
   const numWeeks = useMemo(() => {
     if (blocks.length === 0) return 18
@@ -1205,20 +1206,15 @@ export default function SchedulePage() {
       setSubStatusMap(statusMap)
     }
 
-    // Load headcount per dept from orgs.team_members (the single source
-    // shared with /team + /settings + the welcome walkthrough). Each
-    // billable member contributes 1 to every dept their dept_assignments
-    // includes. Non-billable members don't count toward capacity (they
-    // still count toward shop-rate numerator via /settings).
+    // Load per-dept daily capacity hours from orgs.team_members (the single
+    // source shared with /team + /capacity + the welcome walkthrough). Each
+    // active billable member contributes hours_per_week / 5 per day to every
+    // dept they're assigned to. Non-billable/inactive members don't count
+    // toward capacity (billable still counts toward the shop-rate numerator).
     const setup = await loadShopRateSetup(org.id)
-    const hcMap: Record<string, number> = {}
-    for (const m of setup.team) {
-      if (!m.billable) continue
-      for (const deptId of m.dept_assignments || []) {
-        hcMap[deptId] = (hcMap[deptId] || 0) + 1
-      }
-    }
-    setHeadcountByDept(hcMap)
+    setDailyHoursByDept(
+      deptDailyHoursByTeam(setup.team, Number(setup.billable?.hrs_per_week) || 40),
+    )
 
     // Load allocations
     if (allSubIds.length === 0) {

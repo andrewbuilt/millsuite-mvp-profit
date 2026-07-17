@@ -36,18 +36,66 @@ export interface TeamMember {
    *  toward total payroll cost (the numerator). */
   billable: boolean
   /** Department assignments — array of departments.id (UUID). Single
-   *  source of truth for schedule capacity per dept: capacity =
-   *  count(team_members where billable AND dept_assignments includes
-   *  dept.id) × hours_per_day × 5. Replaces the legacy split where
-   *  /team wrote department_members rows + the schedule read those
-   *  rows for capacity. The walkthrough doesn't populate this — defaults
-   *  to []. */
+   *  source of truth for schedule capacity per dept: a billable member
+   *  contributes `hours_per_week / 5` hours per working day to every dept
+   *  they're assigned to (see deptDailyHoursByTeam). Replaces the legacy
+   *  split where /team wrote department_members rows + the schedule read
+   *  those rows for capacity. The walkthrough doesn't populate this —
+   *  defaults to []. */
   dept_assignments: string[]
   /** Optional FK to users.id, kept for time-tracking surfaces that
    *  reference users (clock-in, time_entries.user_id). Set when /team
-   *  needs to materialize a scheduling identity for this person. NULL
-   *  for payroll-only members. */
+   *  creates a login for this person (the account is the one explicit
+   *  bridge). NULL for payroll-only members. */
   user_id?: string | null
+  // ── Depth fields (chunk A1). All optional/backfilled so pre-existing
+  // jsonb rows keep working; the /team edit pane fills them in. ──
+  /** Contact email. Also seeds the login email when an account is created. */
+  email?: string | null
+  phone?: string | null
+  title?: string | null
+  /** ISO date (YYYY-MM-DD). Drives PTO tenure bands (chunk B). */
+  start_date?: string | null
+  /** Per-person scheduled hours/week. Feeds BOTH the shop-rate billable
+   *  denominator and per-dept capacity (hours_per_week / 5 per working
+   *  day). Defaults from the org billable inputs (40) so existing members
+   *  compute exactly as before. */
+  hours_per_week?: number
+  /** Active on the roster. Inactive members drop out of capacity, the
+   *  shop-rate denominator, and the worker app. Defaults true. */
+  active?: boolean
+}
+
+/** Standard work week used to convert a per-person weekly hours figure
+ *  into a per-working-day rate for capacity math. */
+export const WORK_DAYS_PER_WEEK = 5
+
+/** A member's scheduled hours per working day (hours_per_week / 5).
+ *  Falls back to the org default (40/wk → 8/day) when unset. */
+export function memberDailyHours(m: TeamMember, defaultHrsPerWeek = 40): number {
+  const hpw = Number(m.hours_per_week) || defaultHrsPerWeek
+  return hpw / WORK_DAYS_PER_WEEK
+}
+
+/** Per-dept daily capacity hours from the team roster: the sum, over active
+ *  billable members assigned to each dept, of their per-day hours. This is
+ *  the single source both /capacity and /schedule use in place of the old
+ *  `headcount × dept.hours_per_day`. */
+export function deptDailyHoursByTeam(
+  team: TeamMember[],
+  defaultHrsPerWeek = 40,
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const m of team || []) {
+    if (!m.billable) continue
+    if (m.active === false) continue
+    const daily = memberDailyHours(m, defaultHrsPerWeek)
+    if (daily <= 0) continue
+    for (const deptId of m.dept_assignments || []) {
+      out[deptId] = (out[deptId] || 0) + daily
+    }
+  }
+  return out
 }
 
 export interface BillableHoursInputs {
@@ -91,14 +139,14 @@ export function makeTeamMember(
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `tm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  return { id, name, annual_comp, billable, dept_assignments: [] }
+  return { id, name, annual_comp, billable, dept_assignments: [], active: true }
 }
 
 /** Floor of 1 so an empty-team state doesn't divide by zero in the
  *  derived rate calc. The Result screen still surfaces the zero-state
- *  honestly via the math breakdown text. */
+ *  honestly via the math breakdown text. Inactive members are excluded. */
 export function countBillable(team: TeamMember[]): number {
-  return (team || []).filter((m) => m.billable).length || 1
+  return (team || []).filter((m) => m.billable && m.active !== false).length || 1
 }
 
 export function normalizeOverheadAnnual(i: OverheadInput): number {
@@ -116,10 +164,18 @@ export function sumOverheadAnnual(inputs: OverheadInputs): number {
 
 export function sumTeamAnnualComp(team: TeamMember[]): number {
   let total = 0
-  for (const m of team || []) total += Number(m.annual_comp) || 0
+  // Inactive members aren't on payroll, so they leave the numerator too.
+  for (const m of team || []) {
+    if (m.active === false) continue
+    total += Number(m.annual_comp) || 0
+  }
   return total
 }
 
+/** Legacy uniform billable-hours calc (everyone at the org hrs/week).
+ *  Kept for the onboarding walkthrough + settings display; the derived
+ *  rate itself now uses the per-person sumBillableHoursYear below. For a
+ *  team where nobody overrides hours_per_week the two agree exactly. */
 export function computeBillableHoursYear(
   b: BillableHoursInputs,
   billablePeople: number
@@ -131,12 +187,32 @@ export function computeBillableHoursYear(
   return n * hpw * wpy * (util / 100)
 }
 
+/** Per-person billable hours/year: sum each active billable member's own
+ *  hours_per_week (falling back to the org default) × weeks × utilization.
+ *  This is the denominator the derived shop rate uses. */
+export function sumBillableHoursYear(
+  team: TeamMember[],
+  b: BillableHoursInputs
+): number {
+  const wpy = Number(b?.weeks_per_year) || 0
+  const util = Number(b?.utilization_pct) || 0
+  const defHpw = Number(b?.hrs_per_week) || 0
+  let total = 0
+  for (const m of team || []) {
+    if (!m.billable) continue
+    if (m.active === false) continue
+    const hpw = Number(m.hours_per_week) || defHpw
+    total += hpw * wpy * (util / 100)
+  }
+  return total
+}
+
 export function computeDerivedShopRate(
   overhead: OverheadInputs,
   team: TeamMember[],
   billable: BillableHoursInputs
 ): number {
-  const hours = computeBillableHoursYear(billable, countBillable(team))
+  const hours = sumBillableHoursYear(team, billable)
   if (hours <= 0) return 0
   // Numerator is ALL payroll + ALL overhead — non-billable people still
   // cost money. The billable flag only shapes the denominator.
@@ -179,6 +255,17 @@ export async function loadShopRateSetup(orgId: string): Promise<ShopRateSetup> {
       ? ((m as { dept_assignments: unknown[] }).dept_assignments).map(String)
       : [],
     user_id: m.user_id ? String(m.user_id) : null,
+    // Depth fields (chunk A1) — undefined on pre-existing rows; the edit
+    // pane fills them. active defaults true so old members stay counted.
+    email: m.email ? String(m.email) : null,
+    phone: m.phone ? String(m.phone) : null,
+    title: m.title ? String(m.title) : null,
+    start_date: m.start_date ? String(m.start_date) : null,
+    hours_per_week:
+      m.hours_per_week != null && String(m.hours_per_week).trim() !== ''
+        ? Number(m.hours_per_week)
+        : undefined,
+    active: m.active === false ? false : true,
   }))
   return {
     shopRate: Number(row.shop_rate) || 0,

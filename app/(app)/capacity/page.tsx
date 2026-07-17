@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth-context'
 import { ChevronLeft, ChevronRight, X, RefreshCw, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { loadProjectDeptHours } from '@/lib/project-hours'
-import { loadShopRateSetup, type TeamMember } from '@/lib/shop-rate-setup'
+import { loadShopRateSetup, deptDailyHoursByTeam, type TeamMember } from '@/lib/shop-rate-setup'
 
 interface Department { id: string; name: string; color: string; hours_per_day: number }
 interface Project { id: string; name: string; client_name: string | null; stage: string; bid_total: number }
@@ -151,6 +151,9 @@ function CapacityContent() {
   const [monthAllocations, setMonthAllocations] = useState<MonthAllocation[]>([])
   const [capacityOverrides, setCapacityOverrides] = useState<CapacityOverride[]>([])
   const [team, setTeam] = useState<TeamMember[]>([])
+  // Org default hrs/week — members without an explicit hours_per_week
+  // inherit it for the per-dept capacity math.
+  const [orgHrsPerWeek, setOrgHrsPerWeek] = useState(40)
   const [loading, setLoading] = useState(true)
 
   // Drag state: source can be 'unscheduled' or 'month' (moving between months)
@@ -214,6 +217,7 @@ function CapacityContent() {
     setMonthAllocations(monthAllocs || [])
     setCapacityOverrides((overrides || []) as CapacityOverride[])
     setTeam(shopRateSetup.team)
+    setOrgHrsPerWeek(Number(shopRateSetup.billable?.hrs_per_week) || 40)
     setLoading(false)
   }
 
@@ -229,21 +233,16 @@ function CapacityContent() {
     return m
   }, [team])
 
-  // Per-dept billable headcount from orgs.team_members (the single source
-  // shared with /team + /schedule). Each billable member contributes 1 to
+  // Per-dept daily capacity hours from orgs.team_members (the single source
+  // shared with /team + /schedule). Each active billable member contributes
+  // their per-day hours (hours_per_week / 5, inheriting the org default) to
   // every dept in their dept_assignments. Replaces the legacy dept-members
   // join table, which /team stopped writing in the shop-rate PR — reading
   // it left every month at 0h capacity.
-  const headcountByDept = useMemo(() => {
-    const hc: Record<string, number> = {}
-    for (const m of team) {
-      if (!m.billable) continue
-      for (const deptId of m.dept_assignments || []) {
-        hc[deptId] = (hc[deptId] || 0) + 1
-      }
-    }
-    return hc
-  }, [team])
+  const dailyHoursByDept = useMemo(
+    () => deptDailyHoursByTeam(team, orgHrsPerWeek),
+    [team, orgHrsPerWeek],
+  )
 
   // Capacity per department per month — one entry per column in the rolling
   // 12-month window, starting at windowStart (spans the year boundary).
@@ -310,12 +309,16 @@ function CapacityContent() {
       const deptCapacity: Record<string, number> = {}
       let totalCapacity = 0
       for (const dept of departments) {
-        const memberCount = headcountByDept[dept.id] || 0
+        // Per-day capacity hours contributed by the dept's members
+        // (hours_per_week / 5 each). Supersedes the old
+        // headcount × dept.hours_per_day; a 40h/wk member = 8h/day, so
+        // seeded 8h/day depts are unchanged.
+        const deptDailyHours = dailyHoursByDept[dept.id] || 0
         const deptHolidayCount = holidays.filter(
           (h) => h.department_id == null || h.department_id === dept.id,
         ).length
         const effectiveDays = Math.max(0, workingDays - deptHolidayCount)
-        const cap = memberCount * dept.hours_per_day * effectiveDays
+        const cap = deptDailyHours * effectiveDays
         deptCapacity[dept.id] = cap
         totalCapacity += cap
       }
@@ -393,7 +396,7 @@ function CapacityContent() {
         daySummaries,
       }
     })
-  }, [departments, headcountByDept, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById])
+  }, [departments, dailyHoursByDept, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById])
 
   // Unscheduled projects (not in any month). Pipeline-stage projects only
   // appear in the tray when the toggle is on — so they're only draggable
