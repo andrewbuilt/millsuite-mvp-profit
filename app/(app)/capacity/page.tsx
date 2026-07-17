@@ -11,7 +11,6 @@ import { loadProjectDeptHours } from '@/lib/project-hours'
 import { loadShopRateSetup, type TeamMember } from '@/lib/shop-rate-setup'
 
 interface Department { id: string; name: string; color: string; hours_per_day: number }
-interface DeptMember { department_id: string; user_id: string }
 interface Project { id: string; name: string; client_name: string | null; stage: string; bid_total: number }
 interface Subproject { id: string; project_id: string; name: string }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
@@ -89,11 +88,23 @@ function pipelineStageLabel(stage: string): string {
   return stage
 }
 
+// Sentinel utilization for a month with allocated hours but zero capacity —
+// keeps it firmly in the "over" band instead of a healthy-looking 0%.
+const OVER_UTIL = 999
+
 // Utilization heat color: green <80% / amber 80–100% / red >100%.
 function utilColor(util: number): string {
   if (util > 100) return '#DC2626'
   if (util >= 80) return '#F59E0B'
   return '#16A34A'
+}
+
+// Heat color that accounts for the no-capacity case: a month with no
+// configured capacity is neutral gray when empty (not a healthy green) and
+// red once anything is allocated against it.
+function monthHeatColor(hasCapacity: boolean, allocated: number, util: number): string {
+  if (!hasCapacity) return allocated > 0 ? '#DC2626' : '#D1D5DB'
+  return utilColor(util)
 }
 
 // Tooltip for the quiet PTO/holiday line: one dated row per override day,
@@ -134,7 +145,6 @@ function CapacityContent() {
   // Pipeline toggle: false = "Sold only" (default), true = "Sold + pipeline".
   const [showPipeline, setShowPipeline] = useState(false)
   const [departments, setDepartments] = useState<Department[]>([])
-  const [deptMembers, setDeptMembers] = useState<DeptMember[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [deptAllocations, setDeptAllocations] = useState<DeptAllocation[]>([])
@@ -171,7 +181,6 @@ function CapacityContent() {
     const endMonthLastISO = `${ymOf(endMonth)}-${String(lastDay).padStart(2, '0')}`
     const [
       { data: depts },
-      { data: dm },
       { data: projs },
       { data: subs },
       { data: allocs },
@@ -180,7 +189,6 @@ function CapacityContent() {
       shopRateSetup,
     ] = await Promise.all([
       supabase.from('departments').select('*').eq('org_id', org!.id).eq('active', true).order('display_order'),
-      supabase.from('department_members').select('department_id, user_id').eq('org_id', org!.id),
       supabase
         .from('projects')
         .select('id, name, client_name, stage, bid_total')
@@ -195,12 +203,11 @@ function CapacityContent() {
         .eq('org_id', org!.id)
         .gte('override_date', startISO)
         .lte('override_date', endMonthLastISO),
-      // Team roster — needed to resolve PTO names in the per-day flag
-      // strip tooltips. orgs.team_members jsonb is the canonical source.
+      // Team roster — the canonical source (orgs.team_members jsonb) for
+      // both PTO-name tooltips and per-dept headcount (dept_assignments).
       loadShopRateSetup(org!.id),
     ])
     setDepartments(depts || [])
-    setDeptMembers(dm || [])
     setProjects(projs || [])
     setSubprojects(subs || [])
     setDeptAllocations(allocs || [])
@@ -220,6 +227,22 @@ function CapacityContent() {
     const m: Record<string, string> = {}
     for (const t of team) m[t.id] = t.name || 'Team member'
     return m
+  }, [team])
+
+  // Per-dept billable headcount from orgs.team_members (the single source
+  // shared with /team + /schedule). Each billable member contributes 1 to
+  // every dept in their dept_assignments. Replaces the legacy dept-members
+  // join table, which /team stopped writing in the shop-rate PR — reading
+  // it left every month at 0h capacity.
+  const headcountByDept = useMemo(() => {
+    const hc: Record<string, number> = {}
+    for (const m of team) {
+      if (!m.billable) continue
+      for (const deptId of m.dept_assignments || []) {
+        hc[deptId] = (hc[deptId] || 0) + 1
+      }
+    }
+    return hc
   }, [team])
 
   // Capacity per department per month — one entry per column in the rolling
@@ -287,7 +310,7 @@ function CapacityContent() {
       const deptCapacity: Record<string, number> = {}
       let totalCapacity = 0
       for (const dept of departments) {
-        const memberCount = deptMembers.filter((dm) => dm.department_id === dept.id).length
+        const memberCount = headcountByDept[dept.id] || 0
         const deptHolidayCount = holidays.filter(
           (h) => h.department_id == null || h.department_id === dept.id,
         ).length
@@ -338,10 +361,17 @@ function CapacityContent() {
         }
       }
       const totalAllocated = soldAllocated + pipelineAllocated
+      const hasCapacity = totalCapacity > 0
 
-      const utilization = totalCapacity > 0 ? (totalAllocated / totalCapacity) * 100 : 0
-      const soldUtil = totalCapacity > 0 ? (soldAllocated / totalCapacity) * 100 : 0
-      const pipelineUtil = totalCapacity > 0 ? (pipelineAllocated / totalCapacity) * 100 : 0
+      // With zero capacity, a naive ratio would read 0% (looks healthy).
+      // Instead: any allocated hours against no capacity is "over" (OVER_UTIL
+      // sentinel) so the heat strip, staffing signal, and next-opening all
+      // treat it as a red month; no hours = 0 (a genuinely empty month).
+      const utilFor = (hrs: number) =>
+        hasCapacity ? (hrs / totalCapacity) * 100 : hrs > 0 ? OVER_UTIL : 0
+      const utilization = utilFor(totalAllocated)
+      const soldUtil = utilFor(soldAllocated)
+      const pipelineUtil = utilFor(pipelineAllocated)
 
       const projectCards = visibleAllocs.map(({ alloc: a, proj }) => ({
         ...proj,
@@ -355,7 +385,7 @@ function CapacityContent() {
 
       return {
         month, label, longLabel, showYear, year: y,
-        totalCapacity, totalAllocated, utilization,
+        totalCapacity, totalAllocated, utilization, hasCapacity,
         soldAllocated, pipelineAllocated, soldUtil, pipelineUtil,
         deptCapacity, deptAllocated, projectCards,
         holidayCount, ptoHours, ptoDayCount, ptoPersonCount,
@@ -363,7 +393,7 @@ function CapacityContent() {
         daySummaries,
       }
     })
-  }, [departments, deptMembers, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById])
+  }, [departments, headcountByDept, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById])
 
   // Unscheduled projects (not in any month). Pipeline-stage projects only
   // appear in the tray when the toggle is on — so they're only draggable
@@ -634,8 +664,13 @@ function CapacityContent() {
   // does fold in pipeline when the toggle is on.
   const totalSold12 = months.reduce((s, m) => s + m.soldAllocated, 0)
   const bookedPct = totalCap12 > 0 ? Math.round((totalSold12 / totalCap12) * 100) : 0
-  // Next opening = first month under 80% util; lead time = months out from now.
-  const nextOpeningIdx = months.findIndex((m) => m.utilization < 80)
+  // No capacity anywhere in the window = team not assigned to departments.
+  // Every downstream stat is meaningless in this state, so it drives a
+  // dedicated banner + staffing message instead of the normal reads.
+  const noCapacityConfigured = totalCap12 <= 0
+  // Next opening = first month under 80% util (only meaningful with capacity;
+  // a no-capacity month is "over", so it's correctly skipped).
+  const nextOpeningIdx = months.findIndex((m) => m.hasCapacity && m.utilization < 80)
   const nextOpening = nextOpeningIdx >= 0 ? months[nextOpeningIdx] : null
   // Over-capacity months feed the staffing signal.
   const overMonths = months.filter((m) => m.utilization > 100)
@@ -695,6 +730,23 @@ function CapacityContent() {
         </div>
       ) : (
         <>
+          {/* No team assigned to any department → capacity is 0 everywhere.
+              Warn instead of silently reading healthy. Doesn't gate the page. */}
+          {noCapacityConfigured && (
+            <div className="mb-4 flex items-center justify-between gap-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl px-4 py-3">
+              <div className="text-sm text-[#92400E]">
+                <span className="font-semibold">No team capacity configured.</span>{' '}
+                Assign team members to departments to see real utilization.
+              </div>
+              <button
+                onClick={() => router.push('/team')}
+                className="flex-shrink-0 text-sm font-medium text-[#92400E] hover:text-[#78350F] underline"
+              >
+                Go to Team →
+              </button>
+            </div>
+          )}
+
           {/* Header stats — the three planning reads. */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
             <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 py-3">
@@ -717,7 +769,14 @@ function CapacityContent() {
             </div>
             <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 py-3">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1">Staffing signal</div>
-              {overMonths.length === 0 ? (
+              {noCapacityConfigured ? (
+                <button
+                  onClick={() => router.push('/team')}
+                  className="text-sm font-semibold text-[#92400E] hover:text-[#78350F]"
+                >
+                  No team capacity set up →
+                </button>
+              ) : overMonths.length === 0 ? (
                 <div className="text-sm font-semibold text-[#16A34A]">No months over capacity</div>
               ) : (
                 <div className="text-sm font-semibold text-[#DC2626] leading-snug">
@@ -735,12 +794,16 @@ function CapacityContent() {
               <button
                 key={m.month}
                 onClick={() => scrollToMonth(m.month)}
-                title={`${m.longLabel} ${m.year} — ${Math.round(m.utilization)}% utilized`}
+                title={
+                  m.hasCapacity
+                    ? `${m.longLabel} ${m.year} — ${Math.round(m.utilization)}% utilized`
+                    : `${m.longLabel} ${m.year} — no capacity configured${m.totalAllocated > 0 ? ` (${Math.round(m.totalAllocated)}h allocated)` : ''}`
+                }
                 className="flex-1 group"
               >
                 <div
                   className="h-6 rounded transition-transform group-hover:scale-y-125"
-                  style={{ background: utilColor(m.utilization) }}
+                  style={{ background: monthHeatColor(m.hasCapacity, m.totalAllocated, m.utilization) }}
                 />
                 <div className="text-[9px] text-center text-[#9CA3AF] mt-0.5 tabular-nums">{m.label.slice(0, 1)}</div>
               </button>
@@ -848,8 +911,11 @@ function CapacityContent() {
                         )}
                       </div>
                       <div className="flex items-center justify-between mt-1">
-                        <span className="text-[10px] font-mono tabular-nums font-medium" style={{ color: utilColor(m.utilization) }}>
-                          {Math.round(m.utilization)}%
+                        <span
+                          className="text-[10px] font-mono tabular-nums font-medium"
+                          style={{ color: monthHeatColor(m.hasCapacity, m.totalAllocated, m.utilization) }}
+                        >
+                          {m.hasCapacity ? `${Math.round(m.utilization)}%` : m.totalAllocated > 0 ? 'over' : 'no cap'}
                         </span>
                         {overBy > 0 && (
                           <span className="text-[10px] font-mono tabular-nums font-medium text-[#DC2626]">
