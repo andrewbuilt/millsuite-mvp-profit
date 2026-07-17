@@ -129,9 +129,6 @@ export default function TopNav() {
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
           {showExternalShortcuts && (
             <div className="hidden xl:flex items-center gap-3 mr-2 text-xs text-[#9CA3AF] whitespace-nowrap">
-              <a href="https://tools.millsuite.com/dashboard" className="hover:text-[#111] transition-colors">
-                Shop Rate
-              </a>
               <a href="https://takeoff.millsuite.com" className="hover:text-[#111] transition-colors">
                 Takeoff
               </a>
