@@ -67,7 +67,7 @@ const NAV: GroupSpec[] = [
   },
 ]
 
-const MEMBER_NAV: Leaf[] = [{ href: '/time', label: 'Time' }]
+const MEMBER_NAV: Leaf[] = [{ href: '/me', label: 'My work' }]
 
 function leafActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + '/')
@@ -98,7 +98,7 @@ export default function TopNav() {
         {/* Brand → Dashboard */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <Link
-            href={isMember ? '/time' : '/dashboard'}
+            href={isMember ? '/me' : '/dashboard'}
             className="flex items-center gap-2 text-base font-semibold tracking-tight text-[#111] rounded-lg px-1.5 py-1 hover:bg-[#F9FAFB] transition-colors"
             aria-label="Dashboard"
           >

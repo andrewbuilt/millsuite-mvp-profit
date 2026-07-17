@@ -1,15 +1,16 @@
 'use client'
 
-// RoleGate — keeps member-role users (hourly employees) out of non-time routes.
-// Owners/admins see everything; members only ever belong on /time.
-// Client-side only: the real protection is at the data layer (RLS / API checks).
+// RoleGate — keeps member-role users (workers) inside the worker app.
+// Owners/admins see everything; members only ever belong on /me (the phone
+// worker app). Client-side only: the real protection is at the data layer.
 
 import { useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 
-// Routes members are allowed to see (any other /app route bounces to /time)
-const MEMBER_ALLOWED_PREFIXES = ['/time']
+// Routes members are allowed to see (any other /app route bounces to /me).
+const MEMBER_ALLOWED_PREFIXES = ['/me']
+const MEMBER_HOME = '/me'
 
 export default function RoleGate({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -23,7 +24,7 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
 
     const allowed = MEMBER_ALLOWED_PREFIXES.some(p => pathname.startsWith(p))
     if (!allowed) {
-      router.replace('/time')
+      router.replace(MEMBER_HOME)
     }
   }, [user, loading, pathname, router])
 
