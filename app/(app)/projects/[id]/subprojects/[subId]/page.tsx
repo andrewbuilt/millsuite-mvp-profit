@@ -96,6 +96,7 @@ interface SubprojectRow {
   id: string
   project_id: string
   name: string
+  description: string | null
   linear_feet: number | null
   consumable_markup_pct: number | null
   activity_type: string | null
@@ -230,7 +231,7 @@ export default function SubprojectEditorPage() {
           .single(),
         supabase
           .from('subprojects')
-          .select('id, project_id, name, linear_feet, consumable_markup_pct, activity_type')
+          .select('id, project_id, name, description, linear_feet, consumable_markup_pct, activity_type')
           .eq('id', subId)
           .single(),
         supabase
@@ -713,6 +714,20 @@ export default function SubprojectEditorPage() {
               </button>
             )}
           </div>
+
+          {/* Subproject spec block — the rich scope text (e.g. migrated from
+              Built OS: Material / Dimensions / Details / Exclusions). Read-only;
+              editing lives on the lines. Only rendered when present. */}
+          {subproject.description && (
+            <div className="mb-4 px-4 py-3 bg-[#F9FAFB] border border-[#F3F4F6] rounded-xl">
+              <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1">
+                Scope
+              </div>
+              <p className="text-[13px] text-[#374151] whitespace-pre-line leading-relaxed">
+                {subproject.description}
+              </p>
+            </div>
+          )}
 
           {/* Staleness banner (Phase 12 item 10) — pre-sold only. */}
           {showStaleBanner && (

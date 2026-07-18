@@ -61,6 +61,21 @@ export const MILLSUITE_KEY = pick(
 )
 export const TARGET_ORG_SLUG = pick('TARGET_ORG_SLUG') || 'built'
 
+// Seed the vars that app libraries read at import time. lib/supabase.ts does
+// `createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, ...ANON_KEY!)` at module
+// load, and it throws if either is falsy. The estimate verifier (chunk 6a)
+// imports lib/estimate-lines + lib/pricing for their *pure* math, which pulls
+// that side-effecting module in — so give it non-empty values. The client is
+// never used for queries here (the migration uses its own service-role
+// clients above), so a placeholder key is fine when .env.local lacks one.
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL && MILLSUITE_URL) {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = MILLSUITE_URL
+}
+if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY =
+    localEnv['NEXT_PUBLIC_SUPABASE_ANON_KEY'] || MILLSUITE_KEY || 'unused-by-migration'
+}
+
 const clientOpts = { auth: { persistSession: false, autoRefreshToken: false } } as const
 
 /** Source (Built OS) client. Throws a clear error if creds are missing. */

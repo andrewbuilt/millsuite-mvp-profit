@@ -14,8 +14,22 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { SupabaseClient } from '@supabase/supabase-js'
+// Side-effect import: env.ts seeds NEXT_PUBLIC_SUPABASE_* into process.env so
+// the app pricing libs below (which pull in lib/supabase at import) don't throw.
+// Must precede the lib imports.
+import './env'
 import type { CliOptions } from './cli'
 import { lookupMillsuiteId, recordId, loadEntityMap } from './id-map'
+// The verifier (chunk 6a) reconstructs each project's price with the SAME pure
+// functions the app uses to compute projects.bid_total (see lib/project-totals.ts),
+// so any script-vs-app disagreement fails loudly instead of a parallel formula
+// silently "reconciling" while the composer shows $0.
+import {
+  computeSubprojectRollup,
+  type EstimateLine,
+  type PricingContext,
+} from '../../lib/estimate-lines'
+import { computeBucketedPrice, type CostBuckets } from '../../lib/pricing'
 
 export interface Scope {
   // When --project is set: the one Built job being migrated.
@@ -89,6 +103,49 @@ function milestonesOf(paymentTerms: unknown): Milestone[] {
 function num(v: unknown): number | null {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
+}
+
+// Join a jsonb string[] into non-empty trimmed lines.
+function stringBlocks(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  return v.map((b) => (typeof b === 'string' ? b.trim() : '')).filter(Boolean)
+}
+
+// Built stores a subproject's rich spec as details_json (an array of text
+// blocks — "Material – …", "Dimensions – …", "Details – …") + exclusions_json
+// (an array of exclusion strings). The old migration copied only `description`
+// (null on leads), dropping all of it. Rebuild a readable block; fall back to
+// the plain `description` when there's no rich json.
+function buildSubDescription(s: any): string | null {
+  const blocks = stringBlocks(s.details_json)
+  const exclusions = stringBlocks(s.exclusions_json)
+  let text = blocks.join('\n\n')
+  if (exclusions.length > 0) {
+    text += (text ? '\n\n' : '') + 'Exclusions:\n' + exclusions.join('\n')
+  }
+  text = text.trim()
+  if (text) return text
+  const plain = typeof s.description === 'string' ? s.description.trim() : ''
+  return plain || null
+}
+
+// Per-spec-line detail carried onto the MillSuite estimate line:
+//   notes                → Built's line-level `notes` (visible in the freeform
+//                          line editor when the operator opens the row).
+//   material_description → the useful material spec fields, joined.
+function specLineDetail(sl: any): { notes: string | null; material_description: string | null } {
+  const notes = typeof sl.notes === 'string' && sl.notes.trim() ? sl.notes.trim() : null
+  const seen = new Set<string>()
+  const parts: string[] = []
+  for (const key of ['material_finish', 'ct_species', 'ct_thickness', 'cab_ext', 'cab_int', 'drawer_type']) {
+    const raw = sl[key]
+    const val = typeof raw === 'string' ? raw.trim() : ''
+    if (val && !seen.has(val.toLowerCase())) {
+      seen.add(val.toLowerCase())
+      parts.push(val)
+    }
+  }
+  return { notes, material_description: parts.length ? parts.join(' · ') : null }
 }
 
 // Apply --limit to a query builder unless a single --project is scoped.
@@ -325,7 +382,7 @@ export async function migrateSubprojects(ctx: Ctx): Promise<void> {
       project_id: millsuiteProjectId,
       name: s.name ?? 'Subproject',
       sort_order: num(s.sequence_order) ?? 0,
-      description: s.description ?? null,
+      description: buildSubDescription(s),
       estimated_hours: num(s.estimated_hours),
       estimated_price: num(s.estimated_price),
       material_cost: num(s.material_cost),
@@ -459,13 +516,20 @@ function mapDeptHours(dh: unknown): Record<string, number> {
 const sumHours = (dh: Record<string, number>) => Object.values(dh).reduce((a, v) => a + v, 0)
 const round2 = (n: number) => Math.round(n * 100) / 100
 
+interface LineDetail {
+  notes?: string | null
+  material_description?: string | null
+}
+
 function estimateLineRow(
   subprojectId: string,
   sortOrder: number,
   label: string,
   materialTotal: number,
   deptHours: Record<string, number>,
+  detail: LineDetail = {},
 ) {
+  const lump = Math.round(materialTotal)
   return {
     subproject_id: subprojectId,
     sort_order: sortOrder,
@@ -473,9 +537,44 @@ function estimateLineRow(
     spec_label: label,
     quantity: 1, // lump_cost_override + hours are already line totals
     unit: 'lot',
-    lump_cost_override: Math.round(materialTotal),
+    lump_cost_override: lump,
+    // The rollup resolves material via `material_mode_override || item?.material_mode
+    // || 'none'` (lib/estimate-lines.ts). With no rate-book item and a null mode it
+    // reads 'none' and IGNORES the lump cost — the bug that priced Wall Cap
+    // labor-only. Pin the mode to 'lump' whenever we carry a lump cost.
+    material_mode_override: lump > 0 ? 'lump' : null,
     dept_hour_overrides: deptHours,
+    material_description: detail.material_description ?? null,
+    notes: detail.notes ?? null,
     product_key: null,
+  }
+}
+
+// Cast a to-be-inserted row into the EstimateLine shape the app's pure pricing
+// functions consume, so the verifier prices exactly what will land in the DB.
+function rowToEstimateLine(row: ReturnType<typeof estimateLineRow>, i: number): EstimateLine {
+  return {
+    id: `mig-${i}`,
+    subproject_id: row.subproject_id,
+    sort_order: row.sort_order,
+    description: row.description,
+    rate_book_item_id: null,
+    quantity: row.quantity,
+    unit: row.unit as EstimateLine['unit'],
+    material_mode_override: row.material_mode_override as EstimateLine['material_mode_override'],
+    linear_cost_override: null,
+    lump_cost_override: row.lump_cost_override,
+    dept_hour_overrides: row.dept_hour_overrides as EstimateLine['dept_hour_overrides'],
+    material_description: row.material_description,
+    install_mode: null,
+    install_params: null,
+    finish_specs: null,
+    callouts: null,
+    unit_price_override: null,
+    notes: row.notes,
+    product_key: null,
+    product_slots: null,
+    spec_label: row.spec_label,
   }
 }
 
@@ -489,7 +588,8 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     .eq('id', orgId)
     .single()
   const shopRate = Number(org?.shop_rate) || 0
-  const consumableMarkup = (Number(org?.consumable_markup_pct) || 0) / 100
+  const consumableMarkupPct = Number(org?.consumable_markup_pct) || 0
+  const consumableMarkup = consumableMarkupPct / 100
 
   const leads = await selectLeadsToMigrate(ctx)
   const projects = await selectProjectsToMigrate(ctx)
@@ -528,6 +628,11 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     // ── Chunk 5: completed jobs → read-only snapshot ──
     // Don't re-model old estimates. Stash the raw spec lines in built_archive
     // and represent the project with ONE summary line = its frozen total.
+    // NB: proj.stage is the MillSuite lifecycle stage we mapped in chunk 3
+    // (projectStatusToStage: Built 'installed'/'complete' → 'installed'), read
+    // back off the migrated project row — NOT the raw Built status. Leads never
+    // map to 'installed' (max 'sold'), so this gate only ever catches completed
+    // Built projects, which is exactly the snapshot set.
     if (proj.stage === 'installed') {
       const { data: snapSubs } = await ms
         .from('subprojects')
@@ -561,7 +666,10 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
         })),
       }
       const subIds = (snapSubs || []).map((s) => s.id)
-      if (subIds.length > 0) await ms.from('estimate_lines').delete().in('subproject_id', subIds)
+      if (subIds.length > 0) {
+        const { error: delErr } = await ms.from('estimate_lines').delete().in('subproject_id', subIds)
+        if (delErr) throw new Error(`clear snapshot lines for ${proj.name}: ${delErr.message}`)
+      }
       if (bid > 0 && subIds.length > 0) {
         // lump/(1+markup) so the auto consumable markup lands the rollup
         // exactly on bid_total at margin 0.
@@ -572,7 +680,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
         if (error) throw new Error(`insert snapshot line for ${proj.name}: ${error.message}`)
         linesWritten++
       }
-      await ms
+      const { error: snapUpdErr } = await ms
         .from('projects')
         .update({
           built_archive: archive,
@@ -582,19 +690,25 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
           consumable_margin_pct: 0,
         })
         .eq('id', msProjectId)
+      if (snapUpdErr) throw new Error(`update snapshot project ${proj.name}: ${snapUpdErr.message}`)
       continue
     }
 
     const { data: subs } = await ms
       .from('subprojects')
-      .select('id, name, spec_lines_json, dept_hours, material_cost')
+      .select('id, name, spec_lines_json, dept_hours, material_cost, consumable_markup_pct')
       .eq('project_id', msProjectId)
       .order('sort_order')
 
-    const rows: ReturnType<typeof estimateLineRow>[] = []
-    let projMaterial = 0
-    let projHours = 0
+    // Build the estimate-line rows, grouped per subproject so the verifier can
+    // price each sub with its own consumable markup (matching the app).
+    const groups: Array<{
+      subId: string
+      consumableMarkupPct: number
+      rows: ReturnType<typeof estimateLineRow>[]
+    }> = []
     for (const s of subs || []) {
+      const subRows: ReturnType<typeof estimateLineRow>[] = []
       const specLines = Array.isArray(s.spec_lines_json) ? s.spec_lines_json : []
       if (specLines.length > 0) {
         specLines.forEach((sl: any, idx: number) => {
@@ -602,9 +716,9 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
           const dh = mapDeptHours(sl.dept_hours)
           const hours = sumHours(dh)
           if (material === 0 && hours === 0) return
-          projMaterial += material
-          projHours += hours
-          rows.push(estimateLineRow(s.id, idx, String(sl.label || 'Line'), material, dh))
+          subRows.push(
+            estimateLineRow(s.id, idx, String(sl.label || 'Line'), material, dh, specLineDetail(sl)),
+          )
         })
       } else {
         // Labor-only / material-only sub (e.g. install): use sub-level fields.
@@ -612,18 +726,65 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
         const hours = sumHours(dh)
         const material = Number(s.material_cost) || 0
         if (hours > 0 || material > 0) {
-          projMaterial += material
-          projHours += hours
-          rows.push(estimateLineRow(s.id, 0, String(s.name || 'Work'), material, dh))
+          subRows.push(estimateLineRow(s.id, 0, String(s.name || 'Work'), material, dh))
         }
       }
+      groups.push({
+        subId: s.id,
+        consumableMarkupPct: s.consumable_markup_pct != null ? Number(s.consumable_markup_pct) : consumableMarkupPct,
+        rows: subRows,
+      })
     }
+    const rows = groups.flatMap((g) => g.rows)
 
-    const cost = projMaterial * (1 + consumableMarkup) + projHours * shopRate
+    // ── Verify with the APP's math, not a parallel formula. Reconstruct the
+    // cost buckets via computeSubprojectRollup (the same pure fn that feeds
+    // projects.bid_total in lib/project-totals.ts), then price them through
+    // computeBucketedPrice with the margin we're about to pin. If the migrated
+    // lines don't price the way the app prices them (e.g. a missing
+    // material_mode_override reading as $0 material), the delta fails loudly. ──
+    const buckets: CostBuckets = {
+      laborCost: 0,
+      materialCost: 0,
+      hardwareCost: 0,
+      consumablesCost: 0,
+      installCost: 0,
+      optionsCost: 0,
+    }
+    let projHours = 0
+    let lineIdx = 0
+    for (const g of groups) {
+      const lines = g.rows.map((r) => rowToEstimateLine(r, lineIdx++))
+      const pctx: PricingContext = {
+        shopRate,
+        consumableMarkupPct: g.consumableMarkupPct,
+        profitMarginPct: 0, // margin applied once, project-level, below
+      }
+      const rollup = computeSubprojectRollup(lines, new Map(), new Map(), pctx)
+      buckets.laborCost += rollup.laborCost
+      buckets.materialCost += rollup.materialCost
+      buckets.hardwareCost += rollup.hardwareCost
+      buckets.consumablesCost += rollup.consumablesCost
+      buckets.installCost += rollup.installCost
+      buckets.optionsCost += rollup.optionsCost
+      projHours += rollup.totalHours
+    }
+    const cost = computeBucketedPrice(buckets, {
+      laborMarginPct: 0,
+      materialMarginPct: 0,
+      consumableMarginPct: 0,
+    }).costTotal
     const bid = Number(proj.bid_total) || 0
     const rawMargin = bid > 0 ? (bid - cost) / bid : 0
     const applied = Math.min(Math.max(rawMargin, 0), 0.95)
-    const reconstructed = applied > 0 ? cost / (1 - applied) : cost
+    const marginPct = round2(applied * 100)
+    // Price the buckets at the margin we'll pin — the number the composer will
+    // show once these margins land on the project.
+    const reconstructed = computeBucketedPrice(buckets, {
+      laborMarginPct: marginPct,
+      materialMarginPct: marginPct,
+      consumableMarginPct: marginPct,
+    }).priceTotal
     const deltaPct = bid > 0 ? (Math.abs(reconstructed - bid) / bid) * 100 : 100
     let status: 'ok' | 'FLAG' = 'ok'
     let reason: string | undefined
@@ -635,7 +796,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       reason = `cost ($${Math.round(cost)}) exceeds bid — check rate/hours`
     } else if (deltaPct > 1) {
       status = 'FLAG'
-      reason = `reconstructed total off by ${deltaPct.toFixed(1)}%`
+      reason = `app-math total ($${Math.round(reconstructed)}) off from bid by ${deltaPct.toFixed(1)}%`
     }
     if (status === 'FLAG') flagged++
 
@@ -645,7 +806,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       bid: Math.round(bid),
       cost: Math.round(cost),
       marginPct: round2(rawMargin * 100),
-      appliedMarginPct: round2(applied * 100),
+      appliedMarginPct: marginPct,
       reconstructed: Math.round(reconstructed),
       deltaPct: round2(deltaPct),
       hours: Math.round(projHours),
@@ -664,8 +825,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       if (error) throw new Error(`insert estimate_lines for ${proj.name}: ${error.message}`)
       linesWritten += rows.length
     }
-    const marginPct = round2(applied * 100)
-    await ms
+    const { error: marginErr } = await ms
       .from('projects')
       .update({
         target_margin_pct: marginPct,
@@ -674,6 +834,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
         consumable_margin_pct: marginPct,
       })
       .eq('id', msProjectId)
+    if (marginErr) throw new Error(`update margins for ${proj.name}: ${marginErr.message}`)
   }
 
   // Report.
