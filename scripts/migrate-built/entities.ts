@@ -507,12 +507,13 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     deltaPct: number
     hours: number
     estHours: number | null
-    status: 'ok' | 'FLAG'
+    status: 'ok' | 'FLAG' | 'snapshot'
     reason?: string
   }
   const report: Report[] = []
   let linesWritten = 0
   let flagged = 0
+  let snapshots = 0
 
   for (const builtId of builtIds) {
     const msProjectId = projMap[builtId]
@@ -523,8 +524,66 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       .eq('id', msProjectId)
       .single()
     if (!proj) continue
-    // Completed jobs go through the chunk-5 snapshot path, not here.
-    if (proj.stage === 'installed') continue
+
+    // ── Chunk 5: completed jobs → read-only snapshot ──
+    // Don't re-model old estimates. Stash the raw spec lines in built_archive
+    // and represent the project with ONE summary line = its frozen total.
+    if (proj.stage === 'installed') {
+      const { data: snapSubs } = await ms
+        .from('subprojects')
+        .select('id, name, spec_lines_json, pricing_lines_json')
+        .eq('project_id', msProjectId)
+        .order('sort_order')
+      const bid = Number(proj.bid_total) || 0
+      report.push({
+        project: proj.name,
+        stage: proj.stage,
+        bid: Math.round(bid),
+        cost: Math.round(bid),
+        marginPct: 0,
+        appliedMarginPct: 0,
+        reconstructed: Math.round(bid),
+        deltaPct: 0,
+        hours: 0,
+        estHours: proj.estimated_hours != null ? Number(proj.estimated_hours) : null,
+        status: 'snapshot',
+      })
+      snapshots++
+      if (opts.dryRun) continue
+
+      const archive = {
+        migrated_from: 'built_os',
+        migrated_at: new Date().toISOString(),
+        subprojects: (snapSubs || []).map((s) => ({
+          name: s.name,
+          spec_lines_json: s.spec_lines_json ?? null,
+          pricing_lines_json: s.pricing_lines_json ?? null,
+        })),
+      }
+      const subIds = (snapSubs || []).map((s) => s.id)
+      if (subIds.length > 0) await ms.from('estimate_lines').delete().in('subproject_id', subIds)
+      if (bid > 0 && subIds.length > 0) {
+        // lump/(1+markup) so the auto consumable markup lands the rollup
+        // exactly on bid_total at margin 0.
+        const lump = Math.round(bid / (1 + consumableMarkup))
+        const { error } = await ms
+          .from('estimate_lines')
+          .insert(estimateLineRow(subIds[0], 0, 'Built OS migration — frozen total (see archive)', lump, {}))
+        if (error) throw new Error(`insert snapshot line for ${proj.name}: ${error.message}`)
+        linesWritten++
+      }
+      await ms
+        .from('projects')
+        .update({
+          built_archive: archive,
+          target_margin_pct: 0,
+          labor_margin_pct: 0,
+          material_margin_pct: 0,
+          consumable_margin_pct: 0,
+        })
+        .eq('id', msProjectId)
+      continue
+    }
 
     const { data: subs } = await ms
       .from('subprojects')
@@ -618,11 +677,17 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
   }
 
   // Report.
-  console.log(`  estimate_lines: ${report.length} active project(s)` + (opts.dryRun ? ' (dry-run)' : `, ${linesWritten} lines written`))
+  const active = report.length - snapshots
+  console.log(
+    `  estimate_lines: ${active} active + ${snapshots} snapshot project(s)` +
+      (opts.dryRun ? ' (dry-run)' : `, ${linesWritten} lines written`),
+  )
   for (const r of report) {
-    const tag = r.status === 'FLAG' ? ` ⚠ ${r.reason}` : ''
+    const mark = r.status === 'FLAG' ? '!' : r.status === 'snapshot' ? '❄' : '·'
+    const tag =
+      r.status === 'FLAG' ? ` ⚠ ${r.reason}` : r.status === 'snapshot' ? ' (frozen snapshot)' : ''
     console.log(
-      `    ${r.status === 'FLAG' ? '!' : '·'} ${r.project.slice(0, 28).padEnd(29)} bid $${r.bid} cost $${r.cost} margin ${r.appliedMarginPct}% Δ${r.deltaPct}% hrs ${r.hours}${tag}`,
+      `    ${mark} ${r.project.slice(0, 28).padEnd(29)} bid $${r.bid} cost $${r.cost} margin ${r.appliedMarginPct}% Δ${r.deltaPct}% hrs ${r.hours}${tag}`,
     )
   }
   if (flagged) console.log(`    ↳ ${flagged} project(s) flagged for composer hand-fix`)
@@ -631,6 +696,10 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
   mkdirSync(dir, { recursive: true })
   writeFileSync(
     resolve(dir, 'estimate-verify.json'),
-    JSON.stringify({ shopRate, consumableMarkup, generated: report.length, flagged, report }, null, 2),
+    JSON.stringify(
+      { shopRate, consumableMarkup, active, snapshots, flagged, report },
+      null,
+      2,
+    ),
   )
 }
