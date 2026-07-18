@@ -22,6 +22,8 @@ npm-debug.log*
 
 # local env files
 .env*.local
+# Built OS migration creds (service keys) — never commit
+scripts/migrate-built/.env
 
 # vercel
 .vercel
