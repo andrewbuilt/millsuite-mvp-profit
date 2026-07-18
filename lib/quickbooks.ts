@@ -424,6 +424,7 @@ export interface QbItem {
   qb_id: string
   name: string | null
   type: string | null
+  description: string | null
 }
 
 const QB_ITEM_PAGE = 100
@@ -489,7 +490,7 @@ export async function syncQbItems(orgId: string): Promise<number> {
 export async function listQbItems(orgId: string): Promise<QbItem[]> {
   const { data, error } = await supabaseAdmin
     .from('qbo_items_cache')
-    .select('qb_id, name, type')
+    .select('qb_id, name, type, description')
     .eq('org_id', orgId)
     .eq('active', true)
     .order('name')

@@ -21,6 +21,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { resolveBucketMargins } from '@/lib/pricing'
+import { normalizeItemName } from '@/lib/subproject-description'
 import { useConfirm } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import {
@@ -146,7 +147,9 @@ export default function SubprojectEditorPage() {
   // Synced QB service items → activity-type dropdown. Empty until a QB item
   // sync has run (Settings → QuickBooks); the field still shows the current
   // value so nothing is lost when the cache is cold.
-  const [qbItems, setQbItems] = useState<Array<{ qb_id: string; name: string | null }>>([])
+  const [qbItems, setQbItems] = useState<
+    Array<{ qb_id: string; name: string | null; description: string | null }>
+  >([])
   // Every subproject on the project, for the tab bar. Only id/name/sort_order
   // are needed here; the active sub carries its full row in `subproject`.
   const [siblingSubs, setSiblingSubs] = useState<Array<{ id: string; name: string; sort_order: number }>>([])
@@ -1349,6 +1352,16 @@ function squashScope(blocks: string[], exclusions: string[]): string | null {
  *  description blocks (details_json), and exclusions (exclusions_json). Reads
  *  the legacy single `description` as one block when details_json is empty.
  *  Persists to the subprojects row; read-only once the estimate locks. */
+// Split a QB item's description into editor blocks: one per non-blank line.
+// Mirrors how the migration stored details_json (an array of lines), so a
+// freshly autofilled sub reads like a migrated one.
+function blocksFromItemDescription(desc: string | null | undefined): string[] {
+  return (desc || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
 function ScopeEditor({
   sub,
   qbItems,
@@ -1356,13 +1369,17 @@ function ScopeEditor({
   onSaved,
 }: {
   sub: SubprojectRow
-  qbItems: Array<{ qb_id: string; name: string | null }>
+  qbItems: Array<{ qb_id: string; name: string | null; description: string | null }>
   editable: boolean
   onSaved: (patch: Partial<SubprojectRow>) => void
 }) {
   const [activityType, setActivityType] = useState('')
   const [blocks, setBlocks] = useState<string[]>([])
   const [exclusions, setExclusions] = useState<string[]>([])
+
+  // The cached QB item for the current activity type (→ its prefill text).
+  const itemFor = (name: string) =>
+    qbItems.find((i) => i.name && normalizeItemName(i.name) === normalizeItemName(name)) || null
 
   // Re-seed when the active subproject changes.
   useEffect(() => {
@@ -1407,8 +1424,19 @@ function ScopeEditor({
             <select
               value={activityType}
               onChange={(e) => {
-                setActivityType(e.target.value)
-                persist({ activityType: e.target.value })
+                const v = e.target.value
+                setActivityType(v)
+                // Autofill the description from the QB item — but only when the
+                // description is empty, so we never clobber real edits silently.
+                // "Restore default" (below) is the explicit re-pull.
+                const hasContent = blocks.some((b) => b.trim())
+                const filled = blocksFromItemDescription(itemFor(v)?.description)
+                if (!hasContent && filled.length) {
+                  setBlocks(filled)
+                  persist({ activityType: v, blocks: filled })
+                } else {
+                  persist({ activityType: v })
+                }
               }}
               className="w-full max-w-xs px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
             >
@@ -1435,9 +1463,32 @@ function ScopeEditor({
         <div className="flex items-center justify-between mb-1">
           <span className={labelCls}>Description</span>
           {editable && (
-            <button type="button" className={addBtnCls} onClick={() => setBlocks((b) => [...b, ''])}>
-              + Add
-            </button>
+            <div className="flex items-center gap-3">
+              {blocksFromItemDescription(itemFor(activityType)?.description).length > 0 && (
+                <button
+                  type="button"
+                  className={addBtnCls}
+                  title="Replace with the default description for this activity type"
+                  onClick={() => {
+                    const filled = blocksFromItemDescription(itemFor(activityType)?.description)
+                    if (!filled.length) return
+                    if (
+                      blocks.some((b) => b.trim()) &&
+                      !window.confirm('Replace the description with the default text for this activity type?')
+                    ) {
+                      return
+                    }
+                    setBlocks(filled)
+                    persist({ blocks: filled })
+                  }}
+                >
+                  Restore default
+                </button>
+              )}
+              <button type="button" className={addBtnCls} onClick={() => setBlocks((b) => [...b, ''])}>
+                + Add
+              </button>
+            </div>
           )}
         </div>
         {blocks.length === 0 && !editable ? (
