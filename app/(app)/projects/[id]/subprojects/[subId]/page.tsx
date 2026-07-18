@@ -100,6 +100,8 @@ interface SubprojectRow {
   linear_feet: number | null
   consumable_markup_pct: number | null
   activity_type: string | null
+  details_json: unknown
+  exclusions_json: unknown
 }
 
 interface ProjectRow {
@@ -141,6 +143,10 @@ export default function SubprojectEditorPage() {
 
   const [project, setProject] = useState<ProjectRow | null>(null)
   const [subproject, setSubproject] = useState<SubprojectRow | null>(null)
+  // Synced QB service items → activity-type dropdown. Empty until a QB item
+  // sync has run (Settings → QuickBooks); the field still shows the current
+  // value so nothing is lost when the cache is cold.
+  const [qbItems, setQbItems] = useState<Array<{ qb_id: string; name: string | null }>>([])
   // Every subproject on the project, for the tab bar. Only id/name/sort_order
   // are needed here; the active sub carries its full row in `subproject`.
   const [siblingSubs, setSiblingSubs] = useState<Array<{ id: string; name: string; sort_order: number }>>([])
@@ -231,7 +237,7 @@ export default function SubprojectEditorPage() {
           .single(),
         supabase
           .from('subprojects')
-          .select('id, project_id, name, description, linear_feet, consumable_markup_pct, activity_type')
+          .select('id, project_id, name, description, linear_feet, consumable_markup_pct, activity_type, details_json, exclusions_json')
           .eq('id', subId)
           .single(),
         supabase
@@ -318,6 +324,26 @@ export default function SubprojectEditorPage() {
   }, [matches])
 
   useEffect(() => setAddHighlight(0), [addQuery])
+
+  // Load the org's cached QB items once, for the activity-type dropdown.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (!session) return
+      const res = await fetch('/api/qb/items', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      }).catch(() => null)
+      if (!res || !res.ok) return
+      const json = await res.json().catch(() => null)
+      if (!cancelled && Array.isArray(json?.items)) setQbItems(json.items)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // ── Global keyboard shortcuts ──
   // The "/" key focuses the freeform-add input. ⌘D and Backspace
@@ -715,19 +741,14 @@ export default function SubprojectEditorPage() {
             )}
           </div>
 
-          {/* Subproject spec block — the rich scope text (e.g. migrated from
-              Built OS: Material / Dimensions / Details / Exclusions). Read-only;
-              editing lives on the lines. Only rendered when present. */}
-          {subproject.description && (
-            <div className="mb-4 px-4 py-3 bg-[#F9FAFB] border border-[#F3F4F6] rounded-xl">
-              <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1">
-                Scope
-              </div>
-              <p className="text-[13px] text-[#374151] whitespace-pre-line leading-relaxed">
-                {subproject.description}
-              </p>
-            </div>
-          )}
+          {/* Subproject scope — activity type (→ QB item), rich description
+              blocks + exclusions. Feeds the QuickBooks line item on push. */}
+          <ScopeEditor
+            sub={subproject}
+            qbItems={qbItems}
+            editable={!!project && isPresold(project.stage)}
+            onSaved={(patch) => setSubproject((s) => (s ? { ...s, ...patch } : s))}
+          />
 
           {/* Staleness banner (Phase 12 item 10) — pre-sold only. */}
           {showStaleBanner && (
@@ -801,12 +822,7 @@ export default function SubprojectEditorPage() {
                   line.description.startsWith(`${productLabel} · `)
                     ? line.description.slice(productLabel.length + 3)
                     : ''
-                // Prefer the short spec label for the row headline — a freeform
-                // line's description can be a full scope paragraph (e.g. migrated
-                // Built OS jobs), which belongs in the editor/QB line, not the
-                // one-line table cell.
-                const headline =
-                  productLabel || item?.name || line.spec_label || line.description || '(custom)'
+                const headline = productLabel || item?.name || line.description || '(custom)'
                 return (
                   <div
                     key={line.id}
@@ -1311,6 +1327,212 @@ function resolveCategoryName(id: string, items: RateBookItemRow[]): string | nul
 }
 
 // ── Sub-components ──
+
+/** Parse a jsonb column into a trimmed, non-empty string[]. */
+function toStrArr(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  return v.map((x) => (typeof x === 'string' ? x : String(x ?? ''))).map((s) => s.trim())
+}
+
+/** Re-squash the structured scope back into the single `description` string so
+ *  legacy surfaces that only read `description` stay in sync. Mirrors the
+ *  migration's buildSubDescription format. */
+function squashScope(blocks: string[], exclusions: string[]): string | null {
+  const b = blocks.map((s) => s.trim()).filter(Boolean)
+  const e = exclusions.map((s) => s.trim()).filter(Boolean)
+  let t = b.join('\n\n')
+  if (e.length) t += (t ? '\n\n' : '') + 'Exclusions:\n' + e.join('\n')
+  return t.trim() || null
+}
+
+/** Subproject scope editor — activity type (→ QB service item on push), rich
+ *  description blocks (details_json), and exclusions (exclusions_json). Reads
+ *  the legacy single `description` as one block when details_json is empty.
+ *  Persists to the subprojects row; read-only once the estimate locks. */
+function ScopeEditor({
+  sub,
+  qbItems,
+  editable,
+  onSaved,
+}: {
+  sub: SubprojectRow
+  qbItems: Array<{ qb_id: string; name: string | null }>
+  editable: boolean
+  onSaved: (patch: Partial<SubprojectRow>) => void
+}) {
+  const [activityType, setActivityType] = useState('')
+  const [blocks, setBlocks] = useState<string[]>([])
+  const [exclusions, setExclusions] = useState<string[]>([])
+
+  // Re-seed when the active subproject changes.
+  useEffect(() => {
+    setActivityType(sub.activity_type || '')
+    const detail = toStrArr(sub.details_json)
+    const legacy = (sub.description || '').trim()
+    setBlocks(detail.length ? detail : legacy ? [legacy] : [])
+    setExclusions(toStrArr(sub.exclusions_json))
+  }, [sub.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function persist(next: { activityType?: string; blocks?: string[]; exclusions?: string[] }) {
+    const at = (next.activityType ?? activityType).trim()
+    const bl = (next.blocks ?? blocks).map((s) => s.trim()).filter(Boolean)
+    const ex = (next.exclusions ?? exclusions).map((s) => s.trim()).filter(Boolean)
+    const description = squashScope(bl, ex)
+    const patch = {
+      activity_type: at || null,
+      details_json: bl,
+      exclusions_json: ex,
+      description,
+    }
+    await supabase.from('subprojects').update(patch).eq('id', sub.id)
+    onSaved(patch)
+  }
+
+  // Activity-type options: the synced QB items, with the current value folded
+  // in so a cold cache (or a value QB no longer has) never drops the selection.
+  const itemNames = qbItems.map((i) => i.name || '').filter(Boolean)
+  const options = Array.from(new Set([activityType, ...itemNames].filter(Boolean)))
+
+  const labelCls = 'text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider'
+  const addBtnCls =
+    'text-[11px] font-semibold text-[#2563EB] hover:text-[#1D4ED8] disabled:opacity-40'
+
+  return (
+    <div className="mb-4 px-4 py-3 bg-[#F9FAFB] border border-[#F3F4F6] rounded-xl space-y-3">
+      {/* Activity type → QB item */}
+      <div>
+        <div className={labelCls + ' mb-1'}>Activity type</div>
+        {editable ? (
+          <>
+            <select
+              value={activityType}
+              onChange={(e) => {
+                setActivityType(e.target.value)
+                persist({ activityType: e.target.value })
+              }}
+              className="w-full max-w-xs px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
+            >
+              <option value="">— none —</option>
+              {options.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            {qbItems.length === 0 && (
+              <div className="text-[11px] text-[#9CA3AF] mt-1">
+                Sync your QuickBooks items (Settings → QuickBooks) to map to your item list.
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="text-[13px] text-[#374151]">{activityType || '—'}</div>
+        )}
+      </div>
+
+      {/* Description blocks */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <span className={labelCls}>Description</span>
+          {editable && (
+            <button type="button" className={addBtnCls} onClick={() => setBlocks((b) => [...b, ''])}>
+              + Add
+            </button>
+          )}
+        </div>
+        {blocks.length === 0 && !editable ? (
+          <div className="text-[13px] text-[#9CA3AF] italic">—</div>
+        ) : (
+          <div className="space-y-2">
+            {blocks.map((blk, i) =>
+              editable ? (
+                <div key={i} className="flex gap-2 items-start">
+                  <textarea
+                    value={blk}
+                    rows={Math.max(2, blk.split('\n').length)}
+                    onChange={(e) =>
+                      setBlocks((b) => b.map((x, j) => (j === i ? e.target.value : x)))
+                    }
+                    onBlur={() => persist({})}
+                    placeholder="Material / dimensions / details…"
+                    className="flex-1 px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none resize-y whitespace-pre-wrap leading-relaxed"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove block"
+                    className="text-[#9CA3AF] hover:text-[#DC2626] mt-1.5"
+                    onClick={() => {
+                      const nextBlocks = blocks.filter((_, j) => j !== i)
+                      setBlocks(nextBlocks)
+                      persist({ blocks: nextBlocks })
+                    }}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <p key={i} className="text-[13px] text-[#374151] whitespace-pre-line leading-relaxed">
+                  {blk}
+                </p>
+              ),
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Exclusions */}
+      {(editable || exclusions.length > 0) && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className={labelCls}>Exclusions</span>
+            {editable && (
+              <button
+                type="button"
+                className={addBtnCls}
+                onClick={() => setExclusions((x) => [...x, ''])}
+              >
+                + Add
+              </button>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            {exclusions.map((ex, i) =>
+              editable ? (
+                <div key={i} className="flex gap-2 items-center">
+                  <input
+                    value={ex}
+                    onChange={(e) =>
+                      setExclusions((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))
+                    }
+                    onBlur={() => persist({})}
+                    placeholder="Excluded from this scope…"
+                    className="flex-1 px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove exclusion"
+                    className="text-[#9CA3AF] hover:text-[#DC2626]"
+                    onClick={() => {
+                      const nextEx = exclusions.filter((_, j) => j !== i)
+                      setExclusions(nextEx)
+                      persist({ exclusions: nextEx })
+                    }}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <p key={i} className="text-[13px] text-[#374151] leading-relaxed">
+                  • {ex}
+                </p>
+              ),
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** Cost-breakdown row in the right pricing pane. Mirrors the project page's
  *  FinRow shape so the two surfaces read identically. */

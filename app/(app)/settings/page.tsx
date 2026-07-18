@@ -1312,6 +1312,25 @@ function QuickBooksPanel({ orgId }: { orgId: string | null }) {
     }
   }
 
+  async function handleSyncItems() {
+    if (!orgId) return
+    setBusy(true)
+    setNotice(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/qb/sync-items', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Sync failed')
+      setNotice({ ok: true, text: `Synced ${data.count} QuickBooks item${data.count === 1 ? '' : 's'}.` })
+    } catch (err: any) {
+      setNotice({ ok: false, text: err?.message || 'Could not sync QuickBooks items' })
+    }
+    setBusy(false)
+  }
+
   async function handleDisconnect() {
     if (!orgId) return
     if (!window.confirm('Disconnect QuickBooks? Past QB events stay in your audit log; no new events will be accepted until you reconnect.')) {
@@ -1371,13 +1390,23 @@ function QuickBooksPanel({ orgId }: { orgId: string | null }) {
                   : ''}
               </div>
             </div>
-            <button
-              onClick={handleDisconnect}
-              disabled={busy}
-              className="px-4 py-2 text-xs font-semibold rounded-lg border border-[#E5E7EB] text-[#374151] hover:bg-[#F9FAFB] disabled:opacity-50"
-            >
-              Disconnect
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleSyncItems}
+                disabled={busy}
+                title="Pull your QuickBooks service items so subproject activity types map to the right QB line item"
+                className="px-4 py-2 text-xs font-semibold rounded-lg border border-[#E5E7EB] text-[#374151] hover:bg-[#F9FAFB] disabled:opacity-50"
+              >
+                {busy ? 'Working…' : 'Sync items'}
+              </button>
+              <button
+                onClick={handleDisconnect}
+                disabled={busy}
+                className="px-4 py-2 text-xs font-semibold rounded-lg border border-[#E5E7EB] text-[#374151] hover:bg-[#F9FAFB] disabled:opacity-50"
+              >
+                Disconnect
+              </button>
+            </div>
           </div>
         ) : (
           <button
