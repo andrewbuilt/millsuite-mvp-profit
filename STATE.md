@@ -8,6 +8,20 @@
 
 ---
 
+## ⛔ CURRENT FOCUS — read this first (set by Andrew, 2026-07-18)
+
+**The ONLY active work is the migration test projects + the QB-mapping foundation.** Status: **6a-2 (Subproject parity + QB mapping) is BUILT** (see "Now"); **migration `064` still needs to run on prod**, then a QB item sync, then the 6b re-run/check loop. **Andrew has decided finished jobs (Arnold, Pendry) won't be migrated** → a "skip finished projects" change is pending; the live active test job is **DPR**. Until Andrew signs off:
+- Do NOT run the full 85-project migration.
+- Do NOT start any other item in this file, even if it looks quick.
+- The loop is: do ONE thing → prompt Andrew to check it in the app → WAIT for his answer → fix if wrong → re-run → repeat.
+
+**How to communicate with Andrew (applies to every session):**
+- Plain language. Short. No long explanations or jargon walls.
+- When Andrew needs to do something, give one clear instruction ("Run this: … Then check X and tell me what you see") — then STOP and wait. No stacked todo lists, no pushing ahead to the next thing while an ask is pending.
+- One thing at a time.
+
+---
+
 ## Where things stand
 
 MillSuite is live and in use. Estimating (rate book, composer, project rollup), scheduling, capacity calendar, invoicing, and Stripe billing are all shipped. Two beta testers are on it.
@@ -104,7 +118,24 @@ _Dry-run currently **flags** the 2 active jobs — expected: dry-run reads the s
 
 **Left for 6b to verify live:** re-run on the 3 test jobs → Wall Cap shows $1,116 material + consumables in the composer, sub total ≈ Built's at the derived margin; Scope block shows the migrated details/exclusions on the subproject; Pendry page shows $4,865 (one frozen line, 0% margins); verifier passes all 3; re-run = zero dupes.
 
-**6b. Full run + reconcile.** After the above verifies live: full run `npx tsx scripts/migrate-built/migrate.ts` (via the terminal session — desktop can't prod-write): all 85 projects structural + active estimates + completed snapshots, re-processing test jobs idempotently. Then the inventory doc's checklist — Built vs MillSuite row counts reconcile through `migration_id_map`, FKs resolve, re-run = zero duplicates. _Optional: a read-only `reconcile.ts` to automate the count check._
+**6a-2. Subproject parity + QB mapping — BUILT 2026-07-18 (4 commits: `77a7795` foundation, `f2cadaf` mapped push, `9c16d2a` editor+sync; tsc clean throughout). Migration `064` NOT yet run on prod.**
+
+Key fact: MillSuite's `subprojects` table **already has** `activity_type`, `description`, `details_json`, `exclusions_json`, `material_finish`, `dimensions` (migration 001). What got built:
+
+1. **QB item cache foundation** (`77a7795`): migration **`064_qbo_items_cache.sql`** — org-scoped `qbo_items_cache` (idempotent, RLS read for org members, service-role writes; **run on prod before this ships**). `lib/subproject-description.ts` — pure `buildRichDescription`/`buildInstallDescription`/`normalizeItemName` (ported from Built, client-safe, shared by preview + push). `lib/quickbooks.ts` — `syncQbItems`/`listQbItems`/`strictCacheItemLookup`/`CacheMissError`. Routes: `POST /api/qb/sync-items` (QB → cache), `GET /api/qb/items` (cache → dropdown).
+2. **Mapped push** (`f2cadaf`): `/api/qb/push-invoice` resolves each line's `activity_type` → ItemRef via `strictCacheItemLookup`; a miss returns **422 `{ missing_activity }`** (UI can prompt a sync) instead of a wrong/blank item. `QbLineItemInput`+`toLine` carry optional `ItemRef`. Project page sends `subprojectId`+`activityType` per line and builds each description via the shared `buildRichDescription` (dropped the old `buildDefaultSpec` boilerplate).
+3. **Subproject scope editor + sync button** (`9c16d2a`): `ScopeEditor` on the subproject page — activity-type dropdown (from synced items; folds in the current value so a cold cache never drops it), editable multi-block **Description** (`details_json`, +Add/remove) + **Exclusions** (`exclusions_json`, +Add/remove); reads legacy single `description` as one block when `details_json` empty; re-squashes to `description` on save; read-only once the estimate locks. Settings → QuickBooks **"Sync items"** button.
+4. **Migration script** already carried `activity_type`/`details_json`/`exclusions_json`/`material_finish`/`dimensions` into the real columns (part 3 was effectively done). Reverted the interim estimate-line-description hack (`1eef185`/`49198aa`): the line description is back to the short spec label; rich scope lives on the subproject (editor + `buildRichDescription` → QB), matching Built's spec-line model.
+
+_**Left for Andrew before 6b:** (a) run `064_qbo_items_cache.sql` on prod; (b) Settings → QuickBooks → **Sync items** (populates the cache so activity types map + the dropdown fills); (c) then the 6b re-runs — check the scope editor (activity type + description blocks + exclusions editable) on DPR, and a QB invoice-push preview maps service items._
+
+**6b. STAGED rollout — one job at a time; prompt Andrew, wait for his check; nothing else until signed off. Progress 2026-07-18:**
+
+**Finding — Arnold & Pendry are FINISHED jobs in Built** (`status = complete` since April), so the migration brought them in as read-only frozen snapshots. **Andrew's call: don't pull in finished projects at all.** → **NEW pending change (not yet built):** the migration should **skip** completed/installed Built projects entirely rather than snapshot them (`scripts/migrate-built/entities.ts` — the `stage === 'installed'` snapshot branch + the project/subproject/milestone selects should exclude them; log the skipped count). This drops Arnold + Pendry from the migration; the effective active test set is DPR (+ other active jobs on the full run).
+
+1. **DPR – AHT Sim Lab** (`64550bcb-…`, active `fifty_fifty`): re-run + **verified on data** — $57,415 @ 5.58%, 7 lines each with material $ + dept hours (Wall Cap $1,116), 4 milestones 30/30/30/10, Δ0%. Andrew signed off on total / Wall Cap material / Corian scope + exclusions. Description ask handled by 6a-2 (scope editor + rich QB description). _Still wants: Andrew's look at the 6a-2 scope editor on DPR + a QB push preview once 064 + sync are done._
+2. **Arnold / Pendry:** finished → to be **skipped** once the skip-finished change lands (above). No further per-job sign-off needed if skipped.
+3. **Then the full run** `npx tsx scripts/migrate-built/migrate.ts` (all active jobs; finished skipped) + the inventory doc's checklist — row counts reconcile through `migration_id_map`, FKs resolve, re-run = zero duplicates. _Optional: read-only `reconcile.ts`._
 
 **Cutover** (freeze Built OS writes, archive repo, retire deploy) stays in the inventory doc — only after the full run is verified.
 
@@ -173,7 +204,7 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 
 **Phase 3**
 
-- `[in progress]` Migrate data Built OS → MillSuite → **first pass under way in "Now" (chunks 1–5 + 6a QA fixes built 2026-07-18; only 6b full run + reconcile remains)**: clients + leads/projects + estimates (auto-translate + verify) + milestones; active + snapshots; 3 test jobs live + signed off. Inventory: `../built-os/docs/DATA-MIGRATION-INVENTORY.md`. Archive Built OS after cutover.
+- `[in progress]` Migrate data Built OS → MillSuite → **first pass under way in "Now" (chunks 1–5 + 6a QA fixes + 6a-2 QB-mapping foundation built 2026-07-18; left: run migration 064 on prod, skip-finished-jobs change, 6b full run + reconcile)**: clients + leads/projects + estimates (auto-translate + verify) + milestones; active jobs only (finished jobs to be skipped per Andrew). Inventory: `../built-os/docs/DATA-MIGRATION-INVENTORY.md`. Archive Built OS after cutover.
 - `[unscoped]` Org subdomains (`built.millsuite.com`) — the sellable-instance upgrade over the vanity login page (scoped 2026-07-17 in "Now"): middleware resolves subdomain → org, brands login, wildcard DNS + wildcard domain on the host. Scope when a second paying customer is close.
 
 ## Open decisions _(resolve when scoping the relevant item)_
@@ -187,7 +218,7 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 
 - QB mode = **estimates stay in MillSuite (PDF); one project invoice pushes to QB** (estimate→QB push and per-milestone invoicing are retired). If a stray "we never send to QuickBooks" line turns up anywhere, clean it up.
 - **Production is a manual step** (shipped 2026-06-23) — `sold → production` no longer auto-advances; the readiness-gated "Start production" button (project page + Ready banner) is the only path, and it's the only thing that seeds schedule allocations. Existing `production` projects unaffected. "Ready for production" is **derived**, not a stored stage. **Deposit signal** = the contract invoice's `amount_received > 0` (not a milestone flipped to "received").
-- **Latest DB migration is `063`** (`063_migration_id_map.sql`, Built OS migration id map + `projects.built_archive` — **run on prod 2026-07-18**; `062_pto.sql` PTO ran 2026-07-17). Run any new migration against prod Supabase before deploying.
+- **Latest DB migration is `064`** (`064_qbo_items_cache.sql`, org-scoped QB item cache for the activity_type→ItemRef mapping — **NOT yet run on prod**; `063_migration_id_map.sql` ran 2026-07-18). Run any new migration against prod Supabase before deploying.
 - **supabase-js gotcha:** a `.select(..., { head: true, count: 'exact' })` query returns `{ error: null, count: null }` for a **missing** table (no error) — use a real non-head select to detect table existence (see `scripts/migrate-built/migrate.ts` preflight).
 - **Per-person `hours_per_week` drives capacity + the shop rate now** (chunk A1) — `deptDailyHoursByTeam` (Σ members' hours_per_week/5) replaced headcount × dept.hours_per_day in `/capacity` + `/schedule`; `sumBillableHoursYear` replaced the uniform denominator in `computeDerivedShopRate`. 40h/wk = 8h/day so seeded 8h depts are unchanged; `dept.hours_per_day` is no longer the capacity multiplier. Inactive members drop out of both.
 - **Worker logins consume a seat** (chunk A2) — creating a login on /team hits the same seat gate as /join; if at the limit it 402s. Members (role='member') are confined to `/me` by RoleGate.
