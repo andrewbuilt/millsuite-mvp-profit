@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react'
 import {
   computeInstallCost,
   computeInstallHours,
+  effectiveInstallRate,
   emptyInstallPrefill,
   loadInstallPrefill,
   saveInstallPrefill,
@@ -67,7 +68,7 @@ export default function InstallPrefill({ subprojectId, installRatePerHour, onCha
 
   const hours = computeInstallHours(values)
   const cost = computeInstallCost(values, installRatePerHour)
-  const base = hours * (Number(installRatePerHour) || 0)
+  const base = hours * effectiveInstallRate(values, installRatePerHour)
   const complexityAmount = cost - base
 
   function set<K extends keyof InstallPrefillValues>(key: K, raw: string) {
@@ -124,7 +125,7 @@ export default function InstallPrefill({ subprojectId, installRatePerHour, onCha
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
         <InputField
           label="Guys"
           hint="installers on the job"
@@ -145,6 +146,17 @@ export default function InstallPrefill({ subprojectId, installRatePerHour, onCha
           onStep={(d) => step('days', d)}
           onBlur={persist}
           unit=""
+          disabled={loading || saving}
+        />
+        <InputField
+          label="Rate / hr"
+          hint={`blank = shop rate ($${(Number(installRatePerHour) || 0).toFixed(0)})`}
+          value={values.ratePerHour ?? null}
+          step={1}
+          onRaw={(v) => set('ratePerHour', v)}
+          onStep={(d) => step('ratePerHour', d)}
+          onBlur={persist}
+          unit="$"
           disabled={loading || saving}
         />
         <InputField

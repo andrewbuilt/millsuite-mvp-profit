@@ -115,6 +115,7 @@ interface Subproject {
   install_guys: number | null
   install_days: number | null
   install_complexity_pct: number | null
+  install_rate_per_hour: number | null
 }
 
 // ── Helpers ──
@@ -245,6 +246,7 @@ function HandoffPageInner() {
             guys: sub.install_guys,
             days: sub.install_days,
             complexityPct: sub.install_complexity_pct,
+            ratePerHour: sub.install_rate_per_hour,
           }
           installCost[sub.id] = computeInstallCost(prefill, shopRate)
           installHours[sub.id] = computeInstallHours(prefill)

@@ -29,18 +29,30 @@ export interface InstallPrefill {
   guys: number | null
   days: number | null
   complexityPct: number | null
+  /** Per-sub rate override (065). NULL/absent = use the org shop rate passed
+   *  in. Optional so hours-only callers needn't supply it. */
+  ratePerHour?: number | null
 }
 
 export function emptyInstallPrefill(): InstallPrefill {
-  return { guys: null, days: null, complexityPct: null }
+  return { guys: null, days: null, complexityPct: null, ratePerHour: null }
 }
 
 const HOURS_PER_DAY = 8
 
+/** The rate actually used: the per-sub override when set, else the org rate. */
+export function effectiveInstallRate(
+  prefill: InstallPrefill,
+  orgInstallRate: number,
+): number {
+  const own = Number(prefill.ratePerHour)
+  return own > 0 ? own : Number(orgInstallRate) || 0
+}
+
 /**
- * Install cost rolled up from the three subproject columns + the org's
- * install labor rate. Returns 0 whenever any input is NULL / <=0 —
- * partial state = no contribution to subproject total.
+ * Install cost rolled up from the subproject columns + the effective install
+ * rate (per-sub override, else the org rate passed in). Returns 0 whenever any
+ * input is NULL / <=0 — partial state = no contribution to subproject total.
  */
 export function computeInstallCost(
   prefill: InstallPrefill,
@@ -49,7 +61,7 @@ export function computeInstallCost(
   const g = Number(prefill.guys) || 0
   const d = Number(prefill.days) || 0
   const pct = Number(prefill.complexityPct) || 0
-  const rate = Number(installRatePerHour) || 0
+  const rate = effectiveInstallRate(prefill, installRatePerHour)
   if (g <= 0 || d <= 0 || rate <= 0) return 0
   const base = g * d * HOURS_PER_DAY * rate
   return base * (1 + pct / 100)
@@ -67,19 +79,21 @@ export function computeInstallHours(prefill: InstallPrefill): number {
 export async function loadInstallPrefill(subprojectId: string): Promise<InstallPrefill> {
   const { data } = await supabase
     .from('subprojects')
-    .select('install_guys, install_days, install_complexity_pct')
+    .select('install_guys, install_days, install_complexity_pct, install_rate_per_hour')
     .eq('id', subprojectId)
     .single()
   const row = (data || {}) as {
     install_guys: number | null
     install_days: number | null
     install_complexity_pct: number | null
+    install_rate_per_hour: number | null
   }
   return {
     guys: row.install_guys ?? null,
     days: row.install_days != null ? Number(row.install_days) : null,
     complexityPct:
       row.install_complexity_pct != null ? Number(row.install_complexity_pct) : null,
+    ratePerHour: row.install_rate_per_hour != null ? Number(row.install_rate_per_hour) : null,
   }
 }
 
@@ -93,6 +107,7 @@ export async function saveInstallPrefill(
       install_guys: prefill.guys,
       install_days: prefill.days,
       install_complexity_pct: prefill.complexityPct,
+      install_rate_per_hour: prefill.ratePerHour,
     })
     .eq('id', subprojectId)
   if (error) {

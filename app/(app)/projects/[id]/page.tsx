@@ -48,6 +48,7 @@ import {
   Pencil,
   Plus,
   Copy,
+  Wrench,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
@@ -154,6 +155,7 @@ interface Subproject {
   install_guys: number | null
   install_days: number | null
   install_complexity_pct: number | null
+  install_rate_per_hour: number | null
 }
 
 // The mockup distinguishes install-type subprojects (dashed border + purple
@@ -421,6 +423,7 @@ export default function ProjectCoverPage() {
         guys: sub.install_guys,
         days: sub.install_days,
         complexityPct: sub.install_complexity_pct,
+        ratePerHour: sub.install_rate_per_hour,
       }
       const installPrefillCost = computeInstallCost(installPrefill, shopRate)
       const installPrefillHours = computeInstallHours(installPrefill)
@@ -772,6 +775,69 @@ export default function ProjectCoverPage() {
   function showToast(msg: string) {
     setToast(msg)
     setTimeout(() => setToast(null), 2600)
+  }
+
+  // ── Add install block (project-level) ──
+  // Creates the project's install subproject in one click: an install activity
+  // type + the QB item's install terms auto-filled as the description. Install
+  // labor is priced via the InstallPrefill card on its editor (guys/days/rate).
+  // One per project — if one exists, jump to it instead of making a second.
+  const [addingInstall, setAddingInstall] = useState(false)
+  async function addInstallBlock() {
+    if (!org?.id || addingInstall) return
+    const existing = cards.find((c) => isInstallSub(c.sub))
+    if (existing) {
+      router.push(`/projects/${projectId}/subprojects/${existing.sub.id}`)
+      return
+    }
+    setAddingInstall(true)
+    const activityType = 'Delivery, Install & Project Management - Commercial'
+    // Auto-fill the install terms from the QB item description (best-effort).
+    let details: string[] = []
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const res = await fetch('/api/qb/items', {
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+      })
+      if (res.ok) {
+        const json = await res.json()
+        const item = (json.items || []).find(
+          (i: { name?: string | null }) =>
+            (i.name || '').toLowerCase() === activityType.toLowerCase(),
+        )
+        if (item?.description) {
+          details = String(item.description)
+            .split('\n')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
+        }
+      }
+    } catch {
+      /* cache cold / offline — create with an empty description */
+    }
+    const nextOrder = cards.reduce((m, c) => Math.max(m, c.sub.sort_order ?? 0), -1) + 1
+    const { data, error } = await supabase
+      .from('subprojects')
+      .insert({
+        project_id: projectId,
+        org_id: org.id,
+        name: 'Installation',
+        sort_order: nextOrder,
+        activity_type: activityType,
+        details_json: details,
+        description: details.length ? details.join('\n\n') : null,
+        consumable_markup_pct: org.consumable_markup_pct ?? null,
+      })
+      .select('id')
+      .single()
+    setAddingInstall(false)
+    if (error || !data) {
+      showToast('Could not add install.')
+      return
+    }
+    router.push(`/projects/${projectId}/subprojects/${data.id}`)
   }
 
   const qbTotal = qbLines.reduce((s, l) => s + (l.amount || 0), 0)
@@ -1155,13 +1221,27 @@ export default function ProjectCoverPage() {
                   persists and routes to the editor on save. Hidden post-sold
                   (stage strip locks the estimate; CO is the only edit path). */}
               {isPresold(project.stage) && (
-                <button
-                  onClick={() => setNewSubOpen(true)}
-                  className="block w-full border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5 inline mr-1" />
-                  Add subproject
-                </button>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    onClick={() => setNewSubOpen(true)}
+                    className="block w-full border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5 inline mr-1" />
+                    Add subproject
+                  </button>
+                  <button
+                    onClick={addInstallBlock}
+                    disabled={addingInstall}
+                    className="block w-full border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#7C3AED] hover:border-[#7C3AED] hover:bg-[#F5F3FF] transition-colors disabled:opacity-50"
+                  >
+                    <Wrench className="w-3.5 h-3.5 inline mr-1" />
+                    {addingInstall
+                      ? 'Adding…'
+                      : cards.some((c) => isInstallSub(c.sub))
+                        ? 'Go to install'
+                        : 'Add install'}
+                  </button>
+                </div>
               )}
             </div>
           </div>

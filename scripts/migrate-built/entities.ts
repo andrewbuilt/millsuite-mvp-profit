@@ -391,6 +391,12 @@ export async function migrateSubprojects(ctx: Ctx): Promise<void> {
       material_finish: s.material_finish ?? null,
       activity_type: s.activity_type ?? null,
       dimensions: s.dimensions ?? null,
+      // Install prefill — Built's install subs carry men/days here; map them to
+      // MillSuite's install prefill columns so the migrated install block
+      // prices via guys×days×rate (not just raw install dept-hours). Non-install
+      // subs have these null in Built, so this is a no-op for them.
+      install_guys: num(s.install_men),
+      install_days: num(s.install_days),
       // Carry the estimate json across so chunk 4 can translate it in place;
       // ignore assembly_lines_json (v3, dead engine).
       dept_hours: s.dept_hours ?? null,
