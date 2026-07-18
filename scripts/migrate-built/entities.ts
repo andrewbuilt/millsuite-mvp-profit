@@ -11,6 +11,8 @@
 // its children; --limit caps rows per entity.
 // ============================================================================
 
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CliOptions } from './cli'
 import { lookupMillsuiteId, recordId, loadEntityMap } from './id-map'
@@ -419,4 +421,216 @@ export async function migrateMilestones(ctx: Ctx): Promise<void> {
     written += rows.length
   }
   console.log(`    ↳ ${written} milestone rows written`)
+}
+
+// ── Estimate lines (chunk 4): spec_lines_json → custom estimate_lines ──
+// Built stores each spec line's material cost (qty×rate) + dept_hours; the
+// sell price (bid_total, set in chunk 3) already bakes in labor + margin.
+// We recreate each line as a CUSTOM MillSuite line (lump_cost_override =
+// material, dept_hour_overrides = hours, qty=1), then MillSuite's rollup is
+//   cost = Σ material×(1+consumable_markup) + Σ hours×shop_rate
+//   price = cost / (1 − margin)
+// so we set the project margin = (bid_total − cost)/bid_total → the composer
+// total reproduces Built's sold price exactly, never double-applying. A
+// per-project verify compares the reconstructed total (±1%) and dept hours to
+// Built's; misses are flagged (not force-fitted) in reports/estimate-verify.json.
+// Completed jobs (stage 'installed') are left for the chunk-5 snapshot path.
+
+const DEPT_KEY_MAP: Record<string, string> = {
+  engineering: 'eng',
+  eng: 'eng',
+  cnc: 'cnc',
+  assembly: 'assembly',
+  finish: 'finish',
+  install: 'install',
+}
+
+function mapDeptHours(dh: unknown): Record<string, number> {
+  const out: Record<string, number> = {}
+  if (dh && typeof dh === 'object') {
+    for (const [k, v] of Object.entries(dh as Record<string, unknown>)) {
+      const key = DEPT_KEY_MAP[k.toLowerCase()]
+      const n = Number(v) || 0
+      if (key && n > 0) out[key] = (out[key] || 0) + n
+    }
+  }
+  return out
+}
+const sumHours = (dh: Record<string, number>) => Object.values(dh).reduce((a, v) => a + v, 0)
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+function estimateLineRow(
+  subprojectId: string,
+  sortOrder: number,
+  label: string,
+  materialTotal: number,
+  deptHours: Record<string, number>,
+) {
+  return {
+    subproject_id: subprojectId,
+    sort_order: sortOrder,
+    description: label,
+    spec_label: label,
+    quantity: 1, // lump_cost_override + hours are already line totals
+    unit: 'lot',
+    lump_cost_override: Math.round(materialTotal),
+    dept_hour_overrides: deptHours,
+    product_key: null,
+  }
+}
+
+export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
+  const { built: _built, ms, orgId, opts } = ctx
+  void _built
+
+  const { data: org } = await ms
+    .from('orgs')
+    .select('shop_rate, consumable_markup_pct')
+    .eq('id', orgId)
+    .single()
+  const shopRate = Number(org?.shop_rate) || 0
+  const consumableMarkup = (Number(org?.consumable_markup_pct) || 0) / 100
+
+  const leads = await selectLeadsToMigrate(ctx)
+  const projects = await selectProjectsToMigrate(ctx)
+  const builtIds = [...leads.map((l) => l.id), ...projects.map((p) => p.id)]
+  const projMap = await loadEntityMap(ms, orgId, 'project')
+
+  interface Report {
+    project: string
+    stage: string
+    bid: number
+    cost: number
+    marginPct: number
+    appliedMarginPct: number
+    reconstructed: number
+    deltaPct: number
+    hours: number
+    estHours: number | null
+    status: 'ok' | 'FLAG'
+    reason?: string
+  }
+  const report: Report[] = []
+  let linesWritten = 0
+  let flagged = 0
+
+  for (const builtId of builtIds) {
+    const msProjectId = projMap[builtId]
+    if (!msProjectId) continue
+    const { data: proj } = await ms
+      .from('projects')
+      .select('id, name, stage, bid_total, estimated_hours')
+      .eq('id', msProjectId)
+      .single()
+    if (!proj) continue
+    // Completed jobs go through the chunk-5 snapshot path, not here.
+    if (proj.stage === 'installed') continue
+
+    const { data: subs } = await ms
+      .from('subprojects')
+      .select('id, name, spec_lines_json, dept_hours, material_cost')
+      .eq('project_id', msProjectId)
+      .order('sort_order')
+
+    const rows: ReturnType<typeof estimateLineRow>[] = []
+    let projMaterial = 0
+    let projHours = 0
+    for (const s of subs || []) {
+      const specLines = Array.isArray(s.spec_lines_json) ? s.spec_lines_json : []
+      if (specLines.length > 0) {
+        specLines.forEach((sl: any, idx: number) => {
+          const material = (Number(sl.qty) || 0) * (Number(sl.rate) || 0)
+          const dh = mapDeptHours(sl.dept_hours)
+          const hours = sumHours(dh)
+          if (material === 0 && hours === 0) return
+          projMaterial += material
+          projHours += hours
+          rows.push(estimateLineRow(s.id, idx, String(sl.label || 'Line'), material, dh))
+        })
+      } else {
+        // Labor-only / material-only sub (e.g. install): use sub-level fields.
+        const dh = mapDeptHours(s.dept_hours)
+        const hours = sumHours(dh)
+        const material = Number(s.material_cost) || 0
+        if (hours > 0 || material > 0) {
+          projMaterial += material
+          projHours += hours
+          rows.push(estimateLineRow(s.id, 0, String(s.name || 'Work'), material, dh))
+        }
+      }
+    }
+
+    const cost = projMaterial * (1 + consumableMarkup) + projHours * shopRate
+    const bid = Number(proj.bid_total) || 0
+    const rawMargin = bid > 0 ? (bid - cost) / bid : 0
+    const applied = Math.min(Math.max(rawMargin, 0), 0.95)
+    const reconstructed = applied > 0 ? cost / (1 - applied) : cost
+    const deltaPct = bid > 0 ? (Math.abs(reconstructed - bid) / bid) * 100 : 100
+    let status: 'ok' | 'FLAG' = 'ok'
+    let reason: string | undefined
+    if (bid <= 0) {
+      status = 'FLAG'
+      reason = 'no bid_total'
+    } else if (rawMargin < 0) {
+      status = 'FLAG'
+      reason = `cost ($${Math.round(cost)}) exceeds bid — check rate/hours`
+    } else if (deltaPct > 1) {
+      status = 'FLAG'
+      reason = `reconstructed total off by ${deltaPct.toFixed(1)}%`
+    }
+    if (status === 'FLAG') flagged++
+
+    report.push({
+      project: proj.name,
+      stage: proj.stage,
+      bid: Math.round(bid),
+      cost: Math.round(cost),
+      marginPct: round2(rawMargin * 100),
+      appliedMarginPct: round2(applied * 100),
+      reconstructed: Math.round(reconstructed),
+      deltaPct: round2(deltaPct),
+      hours: Math.round(projHours),
+      estHours: proj.estimated_hours != null ? Number(proj.estimated_hours) : null,
+      status,
+      reason,
+    })
+
+    if (opts.dryRun) continue
+
+    // Idempotent: replace this project's migrated estimate lines.
+    const subIds = (subs || []).map((s) => s.id)
+    if (subIds.length > 0) await ms.from('estimate_lines').delete().in('subproject_id', subIds)
+    if (rows.length > 0) {
+      const { error } = await ms.from('estimate_lines').insert(rows)
+      if (error) throw new Error(`insert estimate_lines for ${proj.name}: ${error.message}`)
+      linesWritten += rows.length
+    }
+    const marginPct = round2(applied * 100)
+    await ms
+      .from('projects')
+      .update({
+        target_margin_pct: marginPct,
+        labor_margin_pct: marginPct,
+        material_margin_pct: marginPct,
+        consumable_margin_pct: marginPct,
+      })
+      .eq('id', msProjectId)
+  }
+
+  // Report.
+  console.log(`  estimate_lines: ${report.length} active project(s)` + (opts.dryRun ? ' (dry-run)' : `, ${linesWritten} lines written`))
+  for (const r of report) {
+    const tag = r.status === 'FLAG' ? ` ⚠ ${r.reason}` : ''
+    console.log(
+      `    ${r.status === 'FLAG' ? '!' : '·'} ${r.project.slice(0, 28).padEnd(29)} bid $${r.bid} cost $${r.cost} margin ${r.appliedMarginPct}% Δ${r.deltaPct}% hrs ${r.hours}${tag}`,
+    )
+  }
+  if (flagged) console.log(`    ↳ ${flagged} project(s) flagged for composer hand-fix`)
+
+  const dir = resolve(__dirname, 'reports')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    resolve(dir, 'estimate-verify.json'),
+    JSON.stringify({ shopRate, consumableMarkup, generated: report.length, flagged, report }, null, 2),
+  )
 }

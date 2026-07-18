@@ -26,6 +26,7 @@ import {
   migrateProjects,
   migrateSubprojects,
   migrateMilestones,
+  migrateEstimateLines,
   type Ctx,
 } from './entities'
 
@@ -43,11 +44,6 @@ async function preflight(ms: SupabaseClient): Promise<void> {
         `MillSuite Supabase project first. (${error.message})`,
     )
   }
-}
-
-// estimate_lines translation lands in chunks 4–5.
-async function migrateEstimateLines(_ctx: Ctx): Promise<void> {
-  console.log('  estimate_lines (v4 translate / snapshot) — not yet implemented (chunks 4–5)')
 }
 
 const RUNNERS: Record<Entity, (ctx: Ctx) => Promise<void>> = {
