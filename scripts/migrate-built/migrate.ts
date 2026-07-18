@@ -18,15 +18,16 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { builtClient, millsuiteClient, resolveTargetOrgId, TARGET_ORG_SLUG } from './env'
-import { parseArgs, describeOptions, type CliOptions } from './cli'
+import { parseArgs, describeOptions } from './cli'
 import type { Entity } from './id-map'
-
-interface Ctx {
-  built: SupabaseClient
-  ms: SupabaseClient
-  orgId: string
-  opts: CliOptions
-}
+import {
+  resolveScope,
+  migrateClients,
+  migrateProjects,
+  migrateSubprojects,
+  migrateMilestones,
+  type Ctx,
+} from './entities'
 
 // Dependency order — parents before children so FKs resolve through the map.
 const PIPELINE: Entity[] = ['client', 'project', 'subproject', 'estimate_line', 'milestone']
@@ -44,21 +45,9 @@ async function preflight(ms: SupabaseClient): Promise<void> {
   }
 }
 
-// ── Entity migrations (stubs — later chunks implement these) ──
-async function migrateClients(_ctx: Ctx): Promise<void> {
-  console.log('  · clients — not yet implemented (chunk 3)')
-}
-async function migrateProjects(_ctx: Ctx): Promise<void> {
-  console.log('  · projects (Built leads + projects → MillSuite projects) — not yet implemented (chunk 3)')
-}
-async function migrateSubprojects(_ctx: Ctx): Promise<void> {
-  console.log('  · subprojects — not yet implemented (chunk 3)')
-}
+// estimate_lines translation lands in chunks 4–5.
 async function migrateEstimateLines(_ctx: Ctx): Promise<void> {
-  console.log('  · estimate_lines (v4 translate / snapshot) — not yet implemented (chunks 4–5)')
-}
-async function migrateMilestones(_ctx: Ctx): Promise<void> {
-  console.log('  · milestones (validate %s sum to 100) — not yet implemented (chunk 3)')
+  console.log('  estimate_lines (v4 translate / snapshot) — not yet implemented (chunks 4–5)')
 }
 
 const RUNNERS: Record<Entity, (ctx: Ctx) => Promise<void>> = {
@@ -79,7 +68,11 @@ async function main() {
   await preflight(ms)
   const built = builtClient()
   const orgId = await resolveTargetOrgId(ms)
-  console.log(`  target org id: ${orgId}\n`)
+  console.log(`  target org id: ${orgId}`)
+
+  const scope = await resolveScope(built, opts.project)
+  if (scope.id) console.log(`  scope: single ${scope.kind} ${scope.id}`)
+  console.log('')
 
   const entities = opts.entity ? PIPELINE.filter((e) => e === opts.entity) : PIPELINE
   if (entities.length === 0) {
@@ -87,7 +80,7 @@ async function main() {
     process.exit(1)
   }
 
-  const ctx: Ctx = { built, ms, orgId, opts }
+  const ctx: Ctx = { built, ms, orgId, opts, scope }
   for (const entity of entities) {
     console.log(`${entity}:`)
     await RUNNERS[entity](ctx)
