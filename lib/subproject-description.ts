@@ -78,13 +78,13 @@ export function buildInstallDescription(_sub: SubprojectScope): string {
 export function buildRichDescription(sub: SubprojectScope): string {
   if (isInstallActivity(sub.activity_type)) return buildInstallDescription(sub)
 
+  // NB: Built prepends "Item - {name}" here because its QB description is the
+  // whole line. MillSuite already shows the subproject name as the line
+  // headline, so repeating it here just doubles the name — omit it.
   const lines: string[] = []
-
-  if (sub.name) lines.push(`Item - ${sub.name}`)
 
   if (sub.material_finish || sub.quality_type) {
     const finish = sub.material_finish || sub.quality_type || ''
-    lines.push('')
     lines.push(`Material - ${finish}`)
   }
 
