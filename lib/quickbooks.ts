@@ -10,6 +10,7 @@
 // will build on getValidToken() / qboApi() here.
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { normalizeItemName } from '@/lib/subproject-description'
 
 const QBO_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
 const QBO_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
@@ -396,4 +397,119 @@ export async function createInvoice(
     docNumber: result.Invoice.DocNumber,
     totalAmt: result.Invoice.TotalAmt,
   }
+}
+
+// ── QB item cache — activity_type → QB service-item (ItemRef) mapping ────────
+// 6a-2. Ported from Built OS (single-tenant) into MillSuite's per-org model.
+// The invoice push maps each subproject's activity_type to a real QB Item via
+// a strict, normalized name match against qbo_items_cache (migration 064). A
+// miss surfaces as a CacheMissError → 422 "sync your QB items", never a
+// silently-invented item.
+
+/** Thrown when a subproject's activity_type has no matching row in the org's
+ *  qbo_items_cache. Carries the activity type for the "sync items" CTA. */
+export class CacheMissError extends Error {
+  activityType: string
+  constructor(activityType: string) {
+    super(`Activity type "${activityType}" not found in qbo_items_cache`)
+    this.name = 'CacheMissError'
+    this.activityType = activityType
+  }
+}
+
+export interface QbItem {
+  qb_id: string
+  name: string | null
+  type: string | null
+}
+
+const QB_ITEM_PAGE = 100
+
+/** Pull the org's active Service + NonInventory items from QB into the cache.
+ *  Upserts on (org_id, qb_id); deactivates cached rows QB no longer returns.
+ *  Returns the number of items synced. */
+export async function syncQbItems(orgId: string): Promise<number> {
+  const items: any[] = []
+  let start = 1
+  // Paginate QB's query API (STARTPOSITION/MAXRESULTS).
+  for (;;) {
+    const sql =
+      `SELECT * FROM Item WHERE Active = true AND Type IN ('Service', 'NonInventory') ` +
+      `STARTPOSITION ${start} MAXRESULTS ${QB_ITEM_PAGE}`
+    const res = await qboApi<any>(orgId, 'GET', `query?query=${encodeURIComponent(sql)}`)
+    const page = res?.QueryResponse?.Item ?? []
+    if (page.length === 0) break
+    items.push(...page)
+    if (page.length < QB_ITEM_PAGE) break
+    start += QB_ITEM_PAGE
+  }
+
+  const now = new Date().toISOString()
+  if (items.length > 0) {
+    const rows = items.map((it: any) => ({
+      org_id: orgId,
+      qb_id: String(it.Id),
+      name: it.Name ?? null,
+      description: it.Description ?? null,
+      type: it.Type ?? null,
+      income_account_id: it.IncomeAccountRef?.value ?? null,
+      unit_price: typeof it.UnitPrice === 'number' ? it.UnitPrice : null,
+      active: it.Active ?? true,
+      synced_at: now,
+    }))
+    const { error } = await supabaseAdmin
+      .from('qbo_items_cache')
+      .upsert(rows, { onConflict: 'org_id,qb_id' })
+    if (error) throw error
+  }
+
+  // Deactivate cached rows QB no longer returns (deleted / made inactive).
+  const returned = new Set(items.map((it: any) => String(it.Id)))
+  const { data: existing } = await supabaseAdmin
+    .from('qbo_items_cache')
+    .select('qb_id')
+    .eq('org_id', orgId)
+    .eq('active', true)
+  const stale = (existing || []).map((r: any) => r.qb_id).filter((id: string) => !returned.has(id))
+  if (stale.length > 0) {
+    await supabaseAdmin
+      .from('qbo_items_cache')
+      .update({ active: false, synced_at: now })
+      .eq('org_id', orgId)
+      .in('qb_id', stale)
+  }
+
+  return items.length
+}
+
+/** The org's active cached items (for the activity-type dropdown). */
+export async function listQbItems(orgId: string): Promise<QbItem[]> {
+  const { data, error } = await supabaseAdmin
+    .from('qbo_items_cache')
+    .select('qb_id, name, type')
+    .eq('org_id', orgId)
+    .eq('active', true)
+    .order('name')
+  if (error) throw error
+  return (data ?? []) as QbItem[]
+}
+
+/** Strict (normalized) match of an activity type to the org's cached QB item.
+ *  Throws CacheMissError on no match — the push turns that into a 422. */
+export async function strictCacheItemLookup(
+  orgId: string,
+  activityType: string,
+): Promise<{ value: string; name: string }> {
+  const trimmed = (activityType ?? '').trim()
+  if (!trimmed) throw new CacheMissError(activityType)
+  const target = normalizeItemName(trimmed)
+  const { data, error } = await supabaseAdmin
+    .from('qbo_items_cache')
+    .select('qb_id, name')
+    .eq('org_id', orgId)
+    .eq('active', true)
+  if (error) throw error
+  const hit = (data ?? []).find((r: any) => r.name && normalizeItemName(r.name) === target)
+  if (!hit) throw new CacheMissError(activityType)
+  return { value: hit.qb_id, name: hit.name }
 }
