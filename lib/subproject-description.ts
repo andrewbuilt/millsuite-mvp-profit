@@ -21,6 +21,8 @@ export interface SubprojectScope {
   exclusions_json?: unknown
   spec_lines_json?: unknown
   dept_hours?: Record<string, number> | null
+  /** When true, this sub bills its own install — noted on the line (066). */
+  install_included?: boolean | null
 }
 
 // Default activity type when a subproject has none — matches Built's fallback.
@@ -113,6 +115,12 @@ export function buildRichDescription(sub: SubprojectScope): string {
     lines.push('')
     lines.push('Description - ' + stripBullet(details[0]))
     for (let i = 1; i < details.length; i++) lines.push('- ' + stripBullet(details[i]))
+  }
+
+  // "Includes install" subs bill their own install — call it out on the line.
+  if (sub.install_included) {
+    lines.push('')
+    lines.push('Includes Installation')
   }
 
   const exclusions = toStringArray(sub.exclusions_json)
