@@ -30,6 +30,9 @@ import {
   type PricingContext,
 } from '../../lib/estimate-lines'
 import { computeBucketedPrice, type CostBuckets } from '../../lib/pricing'
+import { isInstallActivity } from '../../lib/subproject-description'
+
+const INSTALL_HOURS_PER_DAY = 8
 
 export interface Scope {
   // When --project is set: the one Built job being migrated.
@@ -704,9 +707,18 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
 
     const { data: subs } = await ms
       .from('subprojects')
-      .select('id, name, spec_lines_json, dept_hours, material_cost, consumable_markup_pct')
+      .select(
+        'id, name, activity_type, spec_lines_json, dept_hours, material_cost, consumable_markup_pct, install_guys, install_days, install_complexity_pct, install_rate_per_hour',
+      )
       .eq('project_id', msProjectId)
       .order('sort_order')
+
+    // Install blocks price via the install prefill (guys × days × rate), NOT via
+    // estimate lines — so we skip their lines and add the prefill cost to the
+    // verify buckets. Writing both would double-count install (the app folds the
+    // prefill in on top of any install-dept-hours line).
+    let installBucketCost = 0
+    let installBucketHours = 0
 
     // Build the estimate-line rows, grouped per subproject so the verifier can
     // price each sub with its own consumable markup (matching the app).
@@ -717,6 +729,26 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     }> = []
     for (const s of subs || []) {
       const subRows: ReturnType<typeof estimateLineRow>[] = []
+      // Install block → no estimate lines; price it from the install prefill so
+      // it's counted exactly once (matches the app's InstallPrefill rollup).
+      if (isInstallActivity(s.activity_type)) {
+        const guys = Number(s.install_guys) || 0
+        const days = Number(s.install_days) || 0
+        const rate = Number(s.install_rate_per_hour) || shopRate
+        const pct = Number(s.install_complexity_pct) || 0
+        if (guys > 0 && days > 0 && rate > 0) {
+          const h = guys * days * INSTALL_HOURS_PER_DAY
+          installBucketHours += h
+          installBucketCost += h * rate * (1 + pct / 100)
+        }
+        groups.push({
+          subId: s.id,
+          consumableMarkupPct:
+            s.consumable_markup_pct != null ? Number(s.consumable_markup_pct) : consumableMarkupPct,
+          rows: [],
+        })
+        continue
+      }
       const specLines = Array.isArray(s.spec_lines_json) ? s.spec_lines_json : []
       if (specLines.length > 0) {
         specLines.forEach((sl: any, idx: number) => {
@@ -781,6 +813,9 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       buckets.optionsCost += rollup.optionsCost
       projHours += rollup.totalHours
     }
+    // Install blocks priced off the prefill (not lines) — fold them in once.
+    buckets.installCost += installBucketCost
+    projHours += installBucketHours
     const cost = computeBucketedPrice(buckets, {
       laborMarginPct: 0,
       materialMarginPct: 0,
