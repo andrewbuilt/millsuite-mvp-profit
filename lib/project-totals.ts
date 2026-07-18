@@ -55,6 +55,7 @@ interface SubRow {
   install_days: number | null
   install_complexity_pct: number | null
   install_rate_per_hour: number | null
+  install_included: boolean | null
 }
 
 /**
@@ -110,7 +111,7 @@ export async function recomputeProjectBidTotal(
     const { data: subsData } = await supabase
       .from('subprojects')
       .select(
-        'id, consumable_markup_pct, install_guys, install_days, install_complexity_pct, install_rate_per_hour',
+        'id, consumable_markup_pct, install_guys, install_days, install_complexity_pct, install_rate_per_hour, install_included',
       )
       .eq('project_id', projectId)
     const subs = (subsData || []) as SubRow[]
@@ -150,6 +151,7 @@ export async function recomputeProjectBidTotal(
         days: sub.install_days,
         complexityPct: sub.install_complexity_pct,
         ratePerHour: sub.install_rate_per_hour,
+        included: sub.install_included ?? false,
       }
       const installPrefillCost = computeInstallCost(installPrefill, shopRate)
       // computeInstallHours is read but doesn't affect priceTotal —

@@ -97,34 +97,68 @@ export default function InstallPrefill({ subprojectId, installRatePerHour, onCha
     }
   }
 
+  const included = !!values.included
+
+  function toggleIncluded(next: boolean) {
+    setValues((prev) => {
+      const updated = { ...prev, included: next }
+      // Persist immediately with the new value (setValues is async).
+      void (async () => {
+        setSaving(true)
+        try {
+          await saveInstallPrefill(subprojectId, updated)
+          onChange?.(updated)
+        } catch (err: any) {
+          setError(err?.message || 'Failed to save install prefill')
+        } finally {
+          setSaving(false)
+        }
+      })()
+      return updated
+    })
+  }
+
   return (
     <div className="bg-white border border-[#E5E7EB] rounded-xl p-4 mb-4">
       <div className="flex items-center justify-between mb-2 gap-3 flex-wrap">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280]">
-            Install prefill
-          </div>
-          <div className="text-[11.5px] text-[#9CA3AF]">
-            Guys × days × ${(Number(installRatePerHour) || 0).toFixed(2)}/hr × (1 + complexity%).
-            Complexity markup covers <em>elevator access, 2nd-floor stairs, long carry, tight stairwell, historic building, occupied residence, etc.</em> One number, no checkbox matrix.
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={included}
+              disabled={loading || saving}
+              onChange={(e) => toggleIncluded(e.target.checked)}
+              className="w-3.5 h-3.5 accent-[#2563EB]"
+            />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280]">
+              Includes install
+            </span>
+          </label>
+          <div className="text-[11.5px] text-[#9CA3AF] mt-1">
+            {included
+              ? `Guys × days × $${(Number(installRatePerHour) || 0).toFixed(2)}/hr × (1 + complexity%). This sub's install is billed with it; leave off if the project-level install block covers it.`
+              : 'Off — no install on this subproject. Turn on to bill install here, or use the project-level install block.'}
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
-            Install cost
-          </div>
-          <div className="text-[18px] font-semibold text-[#111] font-mono tabular-nums">
-            {fmtMoney(cost)}
-          </div>
-          {hours > 0 && (
-            <div className="text-[11px] text-[#9CA3AF] font-mono tabular-nums">
-              {hours.toFixed(1)} hr · {fmtMoney(base)} base
-              {complexityAmount > 0 && ` + ${fmtMoney(complexityAmount)} markup`}
+        {included && (
+          <div className="text-right">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
+              Install cost
             </div>
-          )}
-        </div>
+            <div className="text-[18px] font-semibold text-[#111] font-mono tabular-nums">
+              {fmtMoney(cost)}
+            </div>
+            {hours > 0 && (
+              <div className="text-[11px] text-[#9CA3AF] font-mono tabular-nums">
+                {hours.toFixed(1)} hr · {fmtMoney(base)} base
+                {complexityAmount > 0 && ` + ${fmtMoney(complexityAmount)} markup`}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
+      {included && (
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
         <InputField
           label="Guys"
@@ -171,6 +205,7 @@ export default function InstallPrefill({ subprojectId, installRatePerHour, onCha
           disabled={loading || saving}
         />
       </div>
+      )}
 
       {error && (
         <div className="mt-3 px-3 py-1.5 bg-[#FEF2F2] border border-[#FECACA] rounded-md text-[12px] text-[#991B1B]">

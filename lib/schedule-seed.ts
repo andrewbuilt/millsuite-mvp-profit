@@ -82,7 +82,7 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
   const { data: subRowsRaw } = await supabase
     .from('subprojects')
     .select(
-      'id, name, sort_order, install_guys, install_days, install_complexity_pct',
+      'id, name, sort_order, install_guys, install_days, install_complexity_pct, install_included',
     )
     .eq('project_id', projectId)
     .order('sort_order')
@@ -93,6 +93,7 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
     install_guys: number | null
     install_days: number | null
     install_complexity_pct: number | null
+    install_included: boolean | null
   }>
   if (subRows.length === 0) return
   const subIds = subRows.map((s) => s.id)
@@ -199,6 +200,7 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
       guys: sub.install_guys,
       days: sub.install_days,
       complexityPct: sub.install_complexity_pct,
+      included: sub.install_included ?? false,
     })
 
     for (const ld of ['eng', 'cnc', 'assembly', 'finish', 'install'] as LaborDept[]) {

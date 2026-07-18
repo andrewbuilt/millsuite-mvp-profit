@@ -156,6 +156,7 @@ interface Subproject {
   install_days: number | null
   install_complexity_pct: number | null
   install_rate_per_hour: number | null
+  install_included: boolean | null
 }
 
 // The mockup distinguishes install-type subprojects (dashed border + purple
@@ -424,6 +425,7 @@ export default function ProjectCoverPage() {
         days: sub.install_days,
         complexityPct: sub.install_complexity_pct,
         ratePerHour: sub.install_rate_per_hour,
+        included: sub.install_included ?? false,
       }
       const installPrefillCost = computeInstallCost(installPrefill, shopRate)
       const installPrefillHours = computeInstallHours(installPrefill)
@@ -829,6 +831,7 @@ export default function ProjectCoverPage() {
         details_json: details,
         description: details.length ? details.join('\n\n') : null,
         consumable_markup_pct: org.consumable_markup_pct ?? null,
+        install_included: true,
       })
       .select('id')
       .single()
