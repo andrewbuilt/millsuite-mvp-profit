@@ -801,7 +801,12 @@ export default function SubprojectEditorPage() {
                   line.description.startsWith(`${productLabel} · `)
                     ? line.description.slice(productLabel.length + 3)
                     : ''
-                const headline = productLabel || item?.name || line.description || '(custom)'
+                // Prefer the short spec label for the row headline — a freeform
+                // line's description can be a full scope paragraph (e.g. migrated
+                // Built OS jobs), which belongs in the editor/QB line, not the
+                // one-line table cell.
+                const headline =
+                  productLabel || item?.name || line.spec_label || line.description || '(custom)'
                 return (
                   <div
                     key={line.id}

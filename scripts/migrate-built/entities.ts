@@ -528,12 +528,13 @@ function estimateLineRow(
   materialTotal: number,
   deptHours: Record<string, number>,
   detail: LineDetail = {},
+  description: string = label,
 ) {
   const lump = Math.round(materialTotal)
   return {
     subproject_id: subprojectId,
     sort_order: sortOrder,
-    description: label,
+    description,
     spec_label: label,
     quantity: 1, // lump_cost_override + hours are already line totals
     unit: 'lot',
@@ -696,7 +697,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
 
     const { data: subs } = await ms
       .from('subprojects')
-      .select('id, name, spec_lines_json, dept_hours, material_cost, consumable_markup_pct')
+      .select('id, name, description, spec_lines_json, dept_hours, material_cost, consumable_markup_pct')
       .eq('project_id', msProjectId)
       .order('sort_order')
 
@@ -709,6 +710,13 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     }> = []
     for (const s of subs || []) {
       const subRows: ReturnType<typeof estimateLineRow>[] = []
+      // The subproject's rich scope text (material / dimensions / details /
+      // exclusions, migrated from Built's details_json in 6a). Land it on the
+      // sub's first estimate line so it fills the line's Description field and
+      // flows through as the QuickBooks line-item description. spec_label keeps
+      // the short label as the row headline; later lines keep their own label.
+      const subDesc =
+        typeof s.description === 'string' && s.description.trim() ? s.description.trim() : null
       const specLines = Array.isArray(s.spec_lines_json) ? s.spec_lines_json : []
       if (specLines.length > 0) {
         specLines.forEach((sl: any, idx: number) => {
@@ -716,8 +724,10 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
           const dh = mapDeptHours(sl.dept_hours)
           const hours = sumHours(dh)
           if (material === 0 && hours === 0) return
+          const label = String(sl.label || 'Line')
+          const desc = subRows.length === 0 && subDesc ? subDesc : label
           subRows.push(
-            estimateLineRow(s.id, idx, String(sl.label || 'Line'), material, dh, specLineDetail(sl)),
+            estimateLineRow(s.id, idx, label, material, dh, specLineDetail(sl), desc),
           )
         })
       } else {
@@ -726,7 +736,8 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
         const hours = sumHours(dh)
         const material = Number(s.material_cost) || 0
         if (hours > 0 || material > 0) {
-          subRows.push(estimateLineRow(s.id, 0, String(s.name || 'Work'), material, dh))
+          const label = String(s.name || 'Work')
+          subRows.push(estimateLineRow(s.id, 0, label, material, dh, {}, subDesc || label))
         }
       }
       groups.push({
