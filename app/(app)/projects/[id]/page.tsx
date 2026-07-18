@@ -136,6 +136,7 @@ interface Subproject {
   project_id: string
   name: string
   sort_order: number
+  description: string | null
   activity_type: string | null
   material_finish: string | null
   dimensions: string | null
@@ -2617,6 +2618,12 @@ function QbPreviewModal({
 // Pulls whatever structural facts we already have on the subproject + a
 // generic exclusions list. Users overwrite this in the modal before sending.
 function buildDefaultSpec(sub: Subproject): string {
+  // Prefer the subproject's real description (migrated from Built OS or entered
+  // by hand) — it carries material, dimensions, details, and exclusions, and is
+  // exactly what should show on the QuickBooks line item. Use it verbatim; only
+  // fall back to a generated spec when there's no description.
+  const desc = (sub.description || '').trim()
+  if (desc) return desc
   const parts: string[] = []
   if (sub.linear_feet) parts.push(`${sub.linear_feet} LF`)
   if (sub.activity_type) parts.push(sub.activity_type)
