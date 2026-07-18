@@ -547,9 +547,9 @@ export default function ProjectCoverPage() {
         )
         return {
           subId: sub.id,
-          desc: isInstallSub(sub)
-            ? 'Installation'
-            : `${sub.name} — custom millwork`,
+          // Line headline = the subproject name. The QB service item (activity
+          // type) is the line's Product/Service; the scope goes in `spec`.
+          desc: sub.name,
           // Rich scope description (material / details / exclusions) — the same
           // text the QB line item gets on push. Editable in the preview.
           spec: buildRichDescription(sub),
