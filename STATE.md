@@ -4,7 +4,7 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-07-17 · **Branch:** `main`
+**Last updated:** 2026-07-18 · **Branch:** `main`
 
 ---
 
@@ -94,14 +94,9 @@ _(Team + shop rate + worker time app — **built 2026-07-17** (chunks A–D, 8 c
 
 **All 5 build chunks done. Remaining = chunk 6: the full production run + reconcile.** Run via the terminal session (desktop can't prod-write): full run `npx tsx scripts/migrate-built/migrate.ts` (all 85 projects structural + active estimates + completed snapshots), then the inventory doc's checklist — Built vs MillSuite row counts reconcile (via `migration_id_map`), FKs resolve through the map, re-run = zero duplicates. A read-only reconcile helper could automate the count check (not yet built). _The 3 test jobs are already live + signed off; a full run re-processes them idempotently._
 
-**Build (each numbered chunk = commit set):**
+**Chunks 1–5 built (see progress note above); only chunk 6 remains:**
 
-1. **Export the live Built OS schema first** (the inventory's warning stands: Built has no migration files — schema lives in its Supabase dashboard). Dump `information_schema` for the in-scope tables (clients, leads + lead subprojects, projects, subprojects, milestones) via the Built service key; save to `scripts/migrate-built/schema-snapshot/`. Confirm the estimate format split per subproject: `spec_lines_json` (v4, trust) vs `pricing_lines_json` (v2) vs flat v1 fields — do NOT read `assembly_lines_json` (v3 engine was deleted).
-2. **Script scaffold** `scripts/migrate-built/` (TS, run via tsx; env: `BUILT_SUPABASE_URL/SERVICE_KEY`, `MILLSUITE_SUPABASE_URL/SERVICE_KEY`, `TARGET_ORG_SLUG=built`). One idempotent MillSuite migration adds `migration_id_map` (org_id, entity, built_id, millsuite_id, unique(entity, built_id)) — every write upserts through the map so re-runs update instead of duplicate. Flags: `--dry-run` (prints plan, writes nothing), `--entity <name>`, `--project <built-id>` (single-project test), `--limit N`.
-3. **Order + stage mapping:** clients → projects (Built `leads` AND Built `projects` both land in MillSuite `projects` — the stage names `new_lead`/`fifty_fifty`/`ninety_percent`/`sold` already match 1:1; Built post-sold statuses map onto MillSuite's lifecycle: `sold/pre_production` → sold (Pre-Production), `scheduling`/`in_production` → production, installed/complete → installed) → subprojects → estimate lines → milestones (validate each project's milestone %s sum to 100).
-4. **Estimate translation (active jobs):** v4 spec lines → `estimate_lines` (map to `product_key`/`product_slots` where clean; otherwise a custom line preserving cost + dept hours; carry dept-hours jsonb into dept-hour overrides). v2/v1 rows → one custom line with the stored totals. **Margin guard:** confirm whether Built's stored totals bake markup in; set the MillSuite project margins so `bid_total` equals Built's sold price — never double-apply. **Per-project verify:** `computeSubprojectRollup` total + dept hours vs Built's stored total within ±1%; misses go to a mismatch report + project flagged for composer hand-fix.
-5. **Snapshots (completed jobs):** project row with frozen `bid_total`, stage installed/complete, original `spec_lines_json` stashed in an archive jsonb column (add in the same migration as the id map); one summary estimate line; read-only by convention.
-6. **Test pass (do this before the full run — Andrew's ask):** `--project` on 2–3 representative jobs — one active v4 job, one open lead, one completed job — into the live org. Andrew eyeballs them in the UI (sales kanban, project page, estimate composer, milestones) and signs off. Then the full run, then the inventory doc's verification checklist (row counts reconcile, FKs resolve through the map, re-run = zero duplicates).
+6. **Full run + reconcile.** Test pass done (3 jobs, Andrew signed off). Now the full run `npx tsx scripts/migrate-built/migrate.ts` (via the terminal session — desktop can't prod-write): all 85 projects structural + active estimates + completed snapshots, re-processing the 3 test jobs idempotently. Then the inventory doc's checklist — Built vs MillSuite row counts reconcile through `migration_id_map`, FKs resolve, re-run = zero duplicates. _Optional: a read-only `reconcile.ts` to automate the count check (not built yet)._
 
 **Cutover** (freeze Built OS writes, archive repo, retire deploy) stays in the inventory doc — only after the full run is verified.
 
@@ -170,7 +165,7 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 
 **Phase 3**
 
-- `[scoped]` Migrate data Built OS → MillSuite → **first pass scoped in "Now" (2026-07-17)**: clients + leads/projects + estimates (auto-translate + verify) + milestones; active + snapshots; test with 2–3 projects before the full run. Inventory: `../built-os/docs/DATA-MIGRATION-INVENTORY.md`. Archive Built OS after cutover.
+- `[in progress]` Migrate data Built OS → MillSuite → **first pass under way in "Now" (chunks 1–5 built 2026-07-18; only the full run + reconcile remain)**: clients + leads/projects + estimates (auto-translate + verify) + milestones; active + snapshots; 3 test jobs live + signed off. Inventory: `../built-os/docs/DATA-MIGRATION-INVENTORY.md`. Archive Built OS after cutover.
 - `[unscoped]` Org subdomains (`built.millsuite.com`) — the sellable-instance upgrade over the vanity login page (scoped 2026-07-17 in "Now"): middleware resolves subdomain → org, brands login, wildcard DNS + wildcard domain on the host. Scope when a second paying customer is close.
 
 ## Open decisions _(resolve when scoping the relevant item)_
@@ -182,7 +177,6 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 
 ## Watch out for
 
-- Latest DB migration is `061` (057–061 = the invoicing rebuild; all run on prod). Run any new migration against prod Supabase before deploying.
 - QB mode = **estimates stay in MillSuite (PDF); one project invoice pushes to QB** (estimate→QB push and per-milestone invoicing are retired). If a stray "we never send to QuickBooks" line turns up anywhere, clean it up.
 - **Production is a manual step** (shipped 2026-06-23) — `sold → production` no longer auto-advances; the readiness-gated "Start production" button (project page + Ready banner) is the only path, and it's the only thing that seeds schedule allocations. Existing `production` projects unaffected. "Ready for production" is **derived**, not a stored stage. **Deposit signal** = the contract invoice's `amount_received > 0` (not a milestone flipped to "received").
 - **Latest DB migration is `063`** (`063_migration_id_map.sql`, Built OS migration id map + `projects.built_archive` — **run on prod 2026-07-18**; `062_pto.sql` PTO ran 2026-07-17). Run any new migration against prod Supabase before deploying.
