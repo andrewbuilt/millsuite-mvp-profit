@@ -1,0 +1,35 @@
+{
+  "total": 53,
+  "v4_spec_lines_json": 53,
+  "v2_pricing_lines_json": 53,
+  "v3_assembly_lines_json_IGNORE": 53,
+  "none_flat_v1_or_empty": 0,
+  "spec_lines_json_shape": [
+    {
+      "id": "<string>",
+      "qty": "<number>",
+      "rate": "<number>",
+      "unit": "<string>",
+      "label": "<string>",
+      "notes": "<string>",
+      "prefil": "<string>",
+      "cab_ext": "<string>",
+      "cab_int": "<string>",
+      "led_type": "<string>",
+      "ct_species": "<string>",
+      "dept_hours": {
+        "cnc": "<number>",
+        "finish": "<number>",
+        "install": "<number>",
+        "assembly": "<number>",
+        "engineering": "<number>"
+      },
+      "drawer_type": "<string>",
+      "ct_thickness": "<string>",
+      "ct_dimensions": [],
+      "material_finish": "<string>",
+      "rate_overridden": "<boolean>",
+      "hours_overridden": "<boolean>"
+    }
+  ]
+}

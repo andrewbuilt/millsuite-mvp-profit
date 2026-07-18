@@ -1,0 +1,1080 @@
+{
+  "clients": {
+    "rowCount": 62,
+    "exists": true,
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Primary Key.<pk/>"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "type",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "phone",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "email",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "address",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "notes",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "qbo_customer_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      }
+    ]
+  },
+  "leads": {
+    "rowCount": 87,
+    "exists": true,
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Primary Key.<pk/>"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "lead_name",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "client_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `clients.id`.<fk table='clients' column='id'/>"
+      },
+      {
+        "name": "contact_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `contacts.id`.<fk table='contacts' column='id'/>"
+      },
+      {
+        "name": "delivery_address",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "estimated_price",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "estimated_hours",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "labor_rate",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "scope_description",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "target_quarter",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "converted_to_project_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `projects.id`.<fk table='projects' column='id'/>"
+      },
+      {
+        "name": "material_cost",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "consumables_percent",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "drive_folder_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "drive_folder_url",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "qbo_estimate_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "qbo_estimate_number",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "payment_terms",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "design_terms_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `estimate_config.id`.<fk table='estimate_config' column='id'/>"
+      },
+      {
+        "name": "exclusions_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      }
+    ]
+  },
+  "lead_subprojects": {
+    "rowCount": 358,
+    "exists": true,
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Primary Key.<pk/>"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "lead_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `leads.id`.<fk table='leads' column='id'/>"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "sequence_order",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "estimated_hours",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "estimated_price",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "linear_feet",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "quality_type",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "rate_per_lf",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "hours_per_lf",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "material_cost",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "drive_folder_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "drive_approval_folder_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "install_config_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "activity_type",
+        "type": "string",
+        "format": "character varying",
+        "description": ""
+      },
+      {
+        "name": "material_finish",
+        "type": "string",
+        "format": "character varying",
+        "description": ""
+      },
+      {
+        "name": "dimensions",
+        "type": "string",
+        "format": "character varying",
+        "description": ""
+      },
+      {
+        "name": "details_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "exclusions_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "pricing_lines_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "dept_hours",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "specs_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "assembly_lines_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "spec_lines_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "approval_group",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "combined_drawing_name",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "quantity",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "profit_multiplier",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "kind",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "install_complexity",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "install_days",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "install_men",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "install_rate_per_hour",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "install_hours_per_day",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "consumables_pct",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      }
+    ]
+  },
+  "projects": {
+    "rowCount": 15,
+    "exists": true,
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Primary Key.<pk/>"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "source_lead_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `leads.id`.<fk table='leads' column='id'/>"
+      },
+      {
+        "name": "project_name",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "client_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `clients.id`.<fk table='clients' column='id'/>"
+      },
+      {
+        "name": "contact_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `contacts.id`.<fk table='contacts' column='id'/>"
+      },
+      {
+        "name": "delivery_address",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "estimated_price",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "estimated_hours",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "actual_cost",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "harvest_project_id",
+        "type": "integer",
+        "format": "bigint",
+        "description": ""
+      },
+      {
+        "name": "harvest_synced_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "target_production_month",
+        "type": "string",
+        "format": "date",
+        "description": ""
+      },
+      {
+        "name": "lifecycle_state",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "quoted_lead_time_weeks",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "approvals_complete_date",
+        "type": "string",
+        "format": "date",
+        "description": ""
+      },
+      {
+        "name": "target_start_date",
+        "type": "string",
+        "format": "date",
+        "description": ""
+      },
+      {
+        "name": "locked_shop_rate",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "drive_folder_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "drive_folder_url",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "single_drawing_project",
+        "type": "boolean",
+        "format": "boolean",
+        "description": ""
+      },
+      {
+        "name": "due_date",
+        "type": "string",
+        "format": "date",
+        "description": ""
+      },
+      {
+        "name": "priority",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "qbo_invoice_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "qbo_invoice_number",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "qbo_invoice_total",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "qbo_invoice_balance",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "qbo_last_synced",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "payment_terms",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "design_terms_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `estimate_config.id`.<fk table='estimate_config' column='id'/>"
+      },
+      {
+        "name": "portal_slug",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "portal_password_hash",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "portal_step",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "portal_enabled",
+        "type": "boolean",
+        "format": "boolean",
+        "description": ""
+      },
+      {
+        "name": "portal_created_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      }
+    ]
+  },
+  "subprojects": {
+    "rowCount": 53,
+    "exists": true,
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Primary Key.<pk/>"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `projects.id`.<fk table='projects' column='id'/>"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "sequence_order",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "harvest_task_id",
+        "type": "integer",
+        "format": "bigint",
+        "description": ""
+      },
+      {
+        "name": "estimated_hours",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "estimated_price",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "linear_feet",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "quality_type",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "rate_per_lf",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "hours_per_lf",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "actual_hours",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "original_estimated_hours",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "original_estimated_price",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "drawings_approved",
+        "type": "boolean",
+        "format": "boolean",
+        "description": ""
+      },
+      {
+        "name": "drawings_approved_date",
+        "type": "string",
+        "format": "date",
+        "description": ""
+      },
+      {
+        "name": "finishes_approved",
+        "type": "boolean",
+        "format": "boolean",
+        "description": ""
+      },
+      {
+        "name": "finishes_approved_date",
+        "type": "string",
+        "format": "date",
+        "description": ""
+      },
+      {
+        "name": "ready_for_production",
+        "type": "boolean",
+        "format": "boolean",
+        "description": ""
+      },
+      {
+        "name": "material_cost",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "selections_confirmed",
+        "type": "boolean",
+        "format": "boolean",
+        "description": ""
+      },
+      {
+        "name": "selections_confirmed_date",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "drive_folder_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "drive_approval_folder_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "install_config_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "activity_type",
+        "type": "string",
+        "format": "character varying",
+        "description": ""
+      },
+      {
+        "name": "material_finish",
+        "type": "string",
+        "format": "character varying",
+        "description": ""
+      },
+      {
+        "name": "dimensions",
+        "type": "string",
+        "format": "character varying",
+        "description": ""
+      },
+      {
+        "name": "details_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "exclusions_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "pricing_lines_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "dept_hours",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "specs_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "assembly_lines_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "spec_lines_json",
+        "type": "",
+        "format": "jsonb",
+        "description": ""
+      },
+      {
+        "name": "sub_due_date",
+        "type": "string",
+        "format": "date",
+        "description": ""
+      },
+      {
+        "name": "schedule_order",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "approval_group",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "drawing_not_required",
+        "type": "boolean",
+        "format": "boolean",
+        "description": ""
+      },
+      {
+        "name": "combined_drawing_name",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "kind",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "install_complexity",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "install_days",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "install_men",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "install_rate_per_hour",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "install_hours_per_day",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "consumables_pct",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      }
+    ]
+  },
+  "cash_flow": {
+    "rowCount": 81,
+    "exists": true,
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Primary Key.<pk/>"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "format": "uuid",
+        "description": "Note: This is a Foreign Key to `projects.id`.<fk table='projects' column='id'/>"
+      },
+      {
+        "name": "qbo_invoice_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "qbo_payment_id",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "amount",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      },
+      {
+        "name": "payment_date",
+        "type": "string",
+        "format": "date",
+        "description": ""
+      },
+      {
+        "name": "expected_date",
+        "type": "string",
+        "format": "date",
+        "description": ""
+      },
+      {
+        "name": "type",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "source",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "notes",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone",
+        "description": ""
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "assigned_to",
+        "type": "string",
+        "format": "text",
+        "description": ""
+      },
+      {
+        "name": "display_order",
+        "type": "integer",
+        "format": "integer",
+        "description": ""
+      },
+      {
+        "name": "received_amount",
+        "type": "number",
+        "format": "numeric",
+        "description": ""
+      }
+    ]
+  },
+  "milestone_instances": {
+    "rowCount": null,
+    "exists": false,
+    "columns": []
+  },
+  "estimate_line_items": {
+    "rowCount": null,
+    "exists": false,
+    "columns": []
+  }
+}
