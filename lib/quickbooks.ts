@@ -86,6 +86,8 @@ export interface QbLineItemInput {
   amount: number
   qty: number
   unitPrice: number
+  /** QB service item to bill against. Omitted → the generic "Services" item. */
+  itemRef?: { value: string; name: string }
 }
 
 /**
@@ -313,6 +315,7 @@ function toLine(item: QbLineItemInput): QBOLineItem {
     SalesItemLineDetail: {
       UnitPrice: Math.round(item.unitPrice * 100) / 100,
       Qty: item.qty,
+      ...(item.itemRef && { ItemRef: item.itemRef }),
     },
   }
 }

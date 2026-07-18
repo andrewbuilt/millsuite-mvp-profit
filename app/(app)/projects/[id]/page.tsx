@@ -90,6 +90,7 @@ import {
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import QbPushModal from '@/components/QbPushModal'
 import { invoicingMode } from '@/lib/org-settings'
+import { buildRichDescription, DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-description'
 import { type EstimatePdfPayload } from '@/lib/estimate-pdf'
 import SendEstimateModal from '@/components/estimates/SendEstimateModal'
 import ReparseModal from '@/components/reparse/ReparseModal'
@@ -139,6 +140,10 @@ interface Subproject {
   description: string | null
   activity_type: string | null
   material_finish: string | null
+  quality_type: string | null
+  details_json: unknown
+  exclusions_json: unknown
+  spec_lines_json: unknown
   dimensions: string | null
   linear_feet: number | null
   consumable_markup_pct: number | null
@@ -225,6 +230,8 @@ interface QbLine {
   subId: string
   desc: string
   spec: string
+  /** Subproject activity type → QB service item (ItemRef) on push. */
+  activityType: string
   qty: string
   rate: number
   amount: number
@@ -543,7 +550,10 @@ export default function ProjectCoverPage() {
           desc: isInstallSub(sub)
             ? 'Installation'
             : `${sub.name} — custom millwork`,
-          spec: buildDefaultSpec(sub),
+          // Rich scope description (material / details / exclusions) — the same
+          // text the QB line item gets on push. Editable in the preview.
+          spec: buildRichDescription(sub),
+          activityType: sub.activity_type || DEFAULT_ACTIVITY_TYPE,
           qty: '1',
           rate: price,
           amount: price,
@@ -826,6 +836,8 @@ export default function ProjectCoverPage() {
       projectId,
       customerName: project?.client_name,
       lineItems: qbLines.map((l) => ({
+        subprojectId: l.subId,
+        activityType: l.activityType,
         description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
         amount: l.amount,
         qty: Number(l.qty) || 1,
@@ -2617,26 +2629,6 @@ function QbPreviewModal({
 // ── Default client-facing spec seed ──
 // Pulls whatever structural facts we already have on the subproject + a
 // generic exclusions list. Users overwrite this in the modal before sending.
-function buildDefaultSpec(sub: Subproject): string {
-  // Prefer the subproject's real description (migrated from Built OS or entered
-  // by hand) — it carries material, dimensions, details, and exclusions, and is
-  // exactly what should show on the QuickBooks line item. Use it verbatim; only
-  // fall back to a generated spec when there's no description.
-  const desc = (sub.description || '').trim()
-  if (desc) return desc
-  const parts: string[] = []
-  if (sub.linear_feet) parts.push(`${sub.linear_feet} LF`)
-  if (sub.activity_type) parts.push(sub.activity_type)
-  if (sub.material_finish) parts.push(sub.material_finish)
-  const lead = parts.length
-    ? parts.join(' · ') + '.'
-    : 'Scope per attached drawings.'
-  const exclusions = isInstallSub(sub)
-    ? '\nExcludes: electrical, plumbing, drywall repair, disposal of existing cabinetry.'
-    : '\nExcludes: appliances, plumbing, countertops, backsplash, paint touch-up after install.'
-  return lead + exclusions
-}
-
 // ── Shop-rate-not-configured banner ──
 // Surfaces the NULL state of orgs.shop_rate so the operator understands
 // why the project's labor / install / breakdown numbers are zero. Links

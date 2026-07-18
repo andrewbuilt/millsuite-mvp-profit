@@ -9,8 +9,11 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
   findOrCreateCustomer,
   createInvoice,
+  strictCacheItemLookup,
+  CacheMissError,
   type QbLineItemInput,
 } from '@/lib/quickbooks'
+import { DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-description'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,6 +35,39 @@ export async function POST(req: NextRequest) {
   if (!(await projectBelongsToOrg(body.projectId, caller.orgId))) return notFound()
 
   try {
+    // Map each line's activity type to a real QB service item (ItemRef) via a
+    // strict cache match. A miss surfaces as a 422 with the offending activity
+    // type so the UI can prompt "sync your QB items" — never a silent fallback.
+    let lineItems: QbLineItemInput[]
+    try {
+      lineItems = await Promise.all(
+        (body.lineItems as any[]).map(async (l) => {
+          const activityType = (l.activityType || DEFAULT_ACTIVITY_TYPE) as string
+          const itemRef = await strictCacheItemLookup(caller.orgId, activityType)
+          return {
+            description: l.description,
+            amount: l.amount,
+            qty: l.qty,
+            unitPrice: l.unitPrice,
+            itemRef,
+          } as QbLineItemInput
+        }),
+      )
+    } catch (err) {
+      if (err instanceof CacheMissError) {
+        return NextResponse.json(
+          {
+            error:
+              `Activity type "${err.activityType}" isn't in your QuickBooks item list. ` +
+              `Sync your QB items (Settings → QuickBooks), or fix the subproject's activity type.`,
+            missing_activity: err.activityType,
+          },
+          { status: 422 },
+        )
+      }
+      throw err
+    }
+
     const customerName: string = body.customerName || 'Customer'
     const customerQboId = await findOrCreateCustomer(
       caller.orgId,
@@ -43,7 +79,7 @@ export async function POST(req: NextRequest) {
     const { invoiceId: qbInvoiceId, docNumber, totalAmt } = await createInvoice(caller.orgId, {
       customerQboId,
       customerName,
-      lineItems: body.lineItems as QbLineItemInput[],
+      lineItems,
       dueDate: body.dueDate,
       memo: body.memo,
     })
