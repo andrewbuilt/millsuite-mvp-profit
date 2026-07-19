@@ -142,11 +142,11 @@ _6a-3 fully built + pushed + verified live on Boyd (below). Migrations `065` + `
 
 **6b. STAGED rollout — one job at a time; prompt Andrew, wait for his check; nothing else until signed off. Progress 2026-07-18:**
 
-**Finding — Arnold & Pendry are FINISHED jobs in Built** (`status = complete` since April), so the migration brought them in as read-only frozen snapshots. **Andrew's call: don't pull in finished projects at all.** → **NEW pending change (not yet built):** the migration should **skip** completed/installed Built projects entirely rather than snapshot them (`scripts/migrate-built/entities.ts` — the `stage === 'installed'` snapshot branch + the project/subproject/milestone selects should exclude them; log the skipped count). This drops Arnold + Pendry from the migration; the effective active test set is DPR (+ other active jobs on the full run).
+**Skip finished jobs — BUILT (`b622683`).** Andrew's call: don't pull completed jobs in at all (no snapshot). `selectProjectsToMigrate` excludes Built `installed`/`complete` (even via `--project`); the projects log reports the skip count; the chunk-5 snapshot branch is removed (defensive `continue` for any stage==='installed' that slips through). Full dry-run: **70 open leads + 9 projects (skipping 3 lost leads, 6 finished projects), 0 snapshots.** _(Snapshot path + `built_archive` (migration 063) now unused — column left in place, harmless.)_
 
 1. **Boyd – Anchor Bar Kissimmee** (`1bf0ebf8-…`, active `fifty_fifty`) — the fresh end-to-end test after 6a-2/6a-3 (Andrew deleted the 3 originals + brought this in): $96,414 @ 7.76%, Δ0%, 7 subs (5 millwork w/ activity types + scope, 1 install block w/ 2g×16d prefill + "includes install" + autofilled terms, 1 Millwork Payment Terms w/ autofilled boilerplate), milestones 50/25/25. Install double-count caught + fixed (`9a36ed8`), re-run clean. _Andrew verifying the install-once number in the app._
-2. **DPR** (`64550bcb`): earlier signed off on data + scope/description. Arnold/Pendry: finished → **skip** once the skip-finished change lands.
-3. **Then the full run** `npx tsx scripts/migrate-built/migrate.ts` (all active jobs; finished skipped) + the inventory doc's checklist — row counts reconcile through `migration_id_map`, FKs resolve, re-run = zero duplicates. _Optional: read-only `reconcile.ts`._
+2. **DPR** (`64550bcb`): earlier signed off on data + scope/description (since deleted by Andrew). Arnold/Pendry: finished → now auto-skipped.
+3. **Then the full run** `npx tsx scripts/migrate-built/migrate.ts` (79 active jobs; 6 finished + 3 lost auto-skipped) + the inventory doc's checklist — row counts reconcile through `migration_id_map`, FKs resolve, re-run = zero duplicates. _Optional: read-only `reconcile.ts`._ **Blocked on Andrew's Boyd sign-off.**
 
 **Cutover** (freeze Built OS writes, archive repo, retire deploy) stays in the inventory doc — only after the full run is verified.
 
