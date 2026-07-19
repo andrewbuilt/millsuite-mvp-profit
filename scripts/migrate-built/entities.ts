@@ -232,10 +232,15 @@ async function selectLeadsToMigrate(ctx: Ctx): Promise<any[]> {
   return data || []
 }
 
+// Built project statuses we treat as "finished" — skipped entirely (Andrew's
+// call: don't migrate completed jobs, don't snapshot them either).
+const FINISHED_PROJECT_STATUSES = ['installed', 'complete']
+
 async function selectProjectsToMigrate(ctx: Ctx): Promise<any[]> {
   const { built, scope } = ctx
   if (scope.id && scope.kind !== 'project') return []
-  let q = built.from('projects').select('*')
+  // Skip finished jobs — even when a finished project is passed via --project.
+  let q = built.from('projects').select('*').not('status', 'in', '("installed","complete")')
   if (scope.kind === 'project' && scope.id) q = q.eq('id', scope.id)
   q = withLimit(q, ctx)
   const { data, error } = await q
@@ -255,14 +260,23 @@ export async function migrateProjects(ctx: Ctx): Promise<void> {
   const leads = await selectLeadsToMigrate(ctx)
   const projects = await selectProjectsToMigrate(ctx)
 
-  // Count lost leads we're intentionally skipping (only when not scoped).
+  // Count the rows we're intentionally skipping (only when not scoped).
   if (!ctx.scope.id) {
     const { count: lost } = await built
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'lost')
-    console.log(`  projects: ${leads.length} from open leads + ${projects.length} from projects` +
-      (lost ? ` (skipping ${lost} lost leads)` : ''))
+    const { count: finished } = await built
+      .from('projects')
+      .select('id', { count: 'exact', head: true })
+      .in('status', FINISHED_PROJECT_STATUSES)
+    const skips: string[] = []
+    if (lost) skips.push(`${lost} lost leads`)
+    if (finished) skips.push(`${finished} finished projects`)
+    console.log(
+      `  projects: ${leads.length} from open leads + ${projects.length} from projects` +
+        (skips.length ? ` (skipping ${skips.join(', ')})` : ''),
+    )
   } else {
     console.log(`  projects: ${leads.length} lead(s) + ${projects.length} project(s) in scope`)
   }
@@ -636,74 +650,11 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       .single()
     if (!proj) continue
 
-    // ── Chunk 5: completed jobs → read-only snapshot ──
-    // Don't re-model old estimates. Stash the raw spec lines in built_archive
-    // and represent the project with ONE summary line = its frozen total.
-    // NB: proj.stage is the MillSuite lifecycle stage we mapped in chunk 3
-    // (projectStatusToStage: Built 'installed'/'complete' → 'installed'), read
-    // back off the migrated project row — NOT the raw Built status. Leads never
-    // map to 'installed' (max 'sold'), so this gate only ever catches completed
-    // Built projects, which is exactly the snapshot set.
-    if (proj.stage === 'installed') {
-      const { data: snapSubs } = await ms
-        .from('subprojects')
-        .select('id, name, spec_lines_json, pricing_lines_json')
-        .eq('project_id', msProjectId)
-        .order('sort_order')
-      const bid = Number(proj.bid_total) || 0
-      report.push({
-        project: proj.name,
-        stage: proj.stage,
-        bid: Math.round(bid),
-        cost: Math.round(bid),
-        marginPct: 0,
-        appliedMarginPct: 0,
-        reconstructed: Math.round(bid),
-        deltaPct: 0,
-        hours: 0,
-        estHours: proj.estimated_hours != null ? Number(proj.estimated_hours) : null,
-        status: 'snapshot',
-      })
-      snapshots++
-      if (opts.dryRun) continue
-
-      const archive = {
-        migrated_from: 'built_os',
-        migrated_at: new Date().toISOString(),
-        subprojects: (snapSubs || []).map((s) => ({
-          name: s.name,
-          spec_lines_json: s.spec_lines_json ?? null,
-          pricing_lines_json: s.pricing_lines_json ?? null,
-        })),
-      }
-      const subIds = (snapSubs || []).map((s) => s.id)
-      if (subIds.length > 0) {
-        const { error: delErr } = await ms.from('estimate_lines').delete().in('subproject_id', subIds)
-        if (delErr) throw new Error(`clear snapshot lines for ${proj.name}: ${delErr.message}`)
-      }
-      if (bid > 0 && subIds.length > 0) {
-        // lump/(1+markup) so the auto consumable markup lands the rollup
-        // exactly on bid_total at margin 0.
-        const lump = Math.round(bid / (1 + consumableMarkup))
-        const { error } = await ms
-          .from('estimate_lines')
-          .insert(estimateLineRow(subIds[0], 0, 'Built OS migration — frozen total (see archive)', lump, {}))
-        if (error) throw new Error(`insert snapshot line for ${proj.name}: ${error.message}`)
-        linesWritten++
-      }
-      const { error: snapUpdErr } = await ms
-        .from('projects')
-        .update({
-          built_archive: archive,
-          target_margin_pct: 0,
-          labor_margin_pct: 0,
-          material_margin_pct: 0,
-          consumable_margin_pct: 0,
-        })
-        .eq('id', msProjectId)
-      if (snapUpdErr) throw new Error(`update snapshot project ${proj.name}: ${snapUpdErr.message}`)
-      continue
-    }
+    // Finished jobs are excluded upstream (selectProjectsToMigrate skips Built
+    // 'installed'/'complete'), so no snapshotting — Andrew's call is to not pull
+    // completed jobs in at all. Defensive: if an installed-stage project ever
+    // slips through, skip it rather than re-model or snapshot it.
+    if (proj.stage === 'installed') continue
 
     const { data: subs } = await ms
       .from('subprojects')
