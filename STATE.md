@@ -4,16 +4,16 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-07-18 · **Branch:** `main`
+**Last updated:** 2026-07-20 · **Branch:** `main`
 
 ---
 
 ## ⛔ CURRENT FOCUS — read this first (set by Andrew, 2026-07-18)
 
-**Boyd signed off 2026-07-18.** Migration machinery is done and verified — but **Andrew's call: the full 85-project run is PARKED until his todo queue ships** (see "Andrew's queue" in On deck — that queue is now the active work, roughly in listed order).
+**Boyd signed off 2026-07-18.** Migration machinery is done and verified — full 85-project run **PARKED until Andrew's todo queue ships**, then he says go.
+- **Andrew's queue (On deck): items 1–6 SHIPPED 2026-07-20.** Only **item 7** remains — Installation & terms as their own modal/object — and it's **Cowork-planning only (do NOT build from the queue line)**. So the queue is effectively clear pending that planning pass.
 - Do NOT run the full migration yet. It runs only when Andrew explicitly says so.
-- Work the queue one item at a time: build ONE item → prompt Andrew to check it → WAIT → next.
-- Item 7 (installation/terms modal) is Cowork-planning only — don't build it from the queue line.
+- Next natural step: Andrew verifies the shipped queue items, decides on item 7 (plan in Cowork) and/or gives the go-ahead for the full migration run.
 
 **How to communicate with Andrew (applies to every session):**
 - Plain language. Short. No long explanations or jargon walls.
@@ -195,11 +195,11 @@ Small/quick (each its own commit) — **ALL SHIPPED 2026-07-20:**
 4. ✅ **"Start a blank project" → real button** (`67334a5`) — outlined button, not a text link.
 5. ✅ **Kanban "New project" button** (`6bfaa9a`) — header button → /sales.
 
-Bigger (scope briefly before building):
+Bigger:
 
-6. **Estimate sent-status + estimates list view** — Andrew's definition (2026-07-18): an "open estimate" = one that's **been sent to the client**. Two parts:
-   - **Sent status:** today "Send estimate" opens the mock-email modal + PDF download, but nothing records that it went out. At the bottom of the project page, replace the single button with three actions: **"Email estimate" / "Download estimate" / "Mark as sent"**. Mark-as-sent stamps a sent date on the estimate (new column or estimate_pdfs row — check what migration 060 stored); emailing/downloading can prompt "mark as sent?" but only the explicit mark sets it.
-   - **List view:** roster of all sent/open estimates — date sent, client, project, amount, status (open → closes when the project sells or is lost), search/filter — alongside the existing Invoices list.
+6. ✅ **Estimate sent-status + estimates list view — SHIPPED 2026-07-20** (`9d07bad` + `78b470d`). An "open estimate" = one marked sent.
+   - **Sent status** (`9d07bad`): project action bar now has **Email estimate / Download estimate / Mark as sent** (three buttons, was one). Mark-as-sent stamps `projects.estimate_sent_at` (already existed, migration 060) → shows a green "Sent <date>" that re-stamps on click. Rendering/downloading the PDF **no longer** auto-marks sent (removed the stamp from `app/api/estimates/[projectId]/pdf`). _(Didn't add the "mark as sent?" prompt after email/download — the explicit button is the only setter; add the prompt later if Andrew wants it.)_
+   - **List view** (`78b470d`): new **`/estimates`** page — sent estimates across projects (estimate #, project, client, sent date, amount, status open/won/lost from the sales stage), search + status/client filters + sort, row → project. Added to the **Sales** nav dropdown + the auth-context reserved-route set.
 
 Needs discussion + prototype first (Cowork planning pass, do not build from this line):
 
