@@ -26,7 +26,7 @@ import {
 } from '@/lib/sales'
 import { useConfirm } from '@/components/confirm-dialog'
 import Link from 'next/link'
-import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2 } from 'lucide-react'
+import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus } from 'lucide-react'
 
 function fmtMoney(n: number | null | undefined) {
   if (n == null || n === 0) return '—'
@@ -136,6 +136,12 @@ function KanbanInner() {
               and opens the pre-production workflow.
             </p>
           </div>
+          <Link
+            href="/sales"
+            className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors"
+          >
+            <Plus className="w-4 h-4" /> New project
+          </Link>
         </div>
 
         {loading ? (
