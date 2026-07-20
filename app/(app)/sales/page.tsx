@@ -646,13 +646,13 @@ function SalesInner() {
             )}
 
             {canParse && !parsed && !parsing && (
-              <div className="mt-5 text-center text-xs text-[#6B7280]">
-                No drawings yet?{' '}
+              <div className="mt-5 flex flex-col items-center gap-2">
+                <span className="text-xs text-[#6B7280]">No drawings yet?</span>
                 <button
                   onClick={() => setShowBlankForm((v) => !v)}
-                  className="text-[#2563EB] hover:underline"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-[#2563EB] bg-white border border-[#2563EB] rounded-lg hover:bg-[#EFF6FF] transition-colors"
                 >
-                  Start a blank project
+                  <Plus className="w-4 h-4" /> Start a blank project
                 </button>
               </div>
             )}
