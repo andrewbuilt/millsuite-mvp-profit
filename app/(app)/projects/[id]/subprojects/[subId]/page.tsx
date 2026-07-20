@@ -22,6 +22,7 @@ import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { resolveBucketMargins } from '@/lib/pricing'
 import { normalizeItemName } from '@/lib/subproject-description'
+import { recomputeProjectBidTotal } from '@/lib/project-totals'
 import { useConfirm } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import {
@@ -140,7 +141,7 @@ export default function SubprojectEditorPage() {
   const { id: projectId, subId } = useParams() as { id: string; subId: string }
   const router = useRouter()
   const { org } = useAuth()
-  const { confirm } = useConfirm()
+  const { confirm, alert: showAlert } = useConfirm()
 
   const [project, setProject] = useState<ProjectRow | null>(null)
   const [subproject, setSubproject] = useState<SubprojectRow | null>(null)
@@ -302,6 +303,30 @@ export default function SubprojectEditorPage() {
       cancelled = true
     }
   }, [org?.id, projectId, subId])
+
+  // Delete this subproject. estimate_lines + line options cascade (001 FKs);
+  // time entries set-null (clock-ins survive). Route back to the project.
+  const [deleting, setDeleting] = useState(false)
+  async function handleDeleteSubproject() {
+    if (!subproject || deleting) return
+    const ok = await confirm({
+      title: 'Delete subproject?',
+      message: `"${subproject.name}" and its estimate lines will be permanently removed. This can't be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })
+    if (!ok) return
+    setDeleting(true)
+    const { error } = await supabase.from('subprojects').delete().eq('id', subId)
+    if (error) {
+      setDeleting(false)
+      await showAlert({ title: 'Could not delete', message: error.message })
+      return
+    }
+    // Keep the project's bid_total honest after the row is gone.
+    void recomputeProjectBidTotal(projectId)
+    router.replace(`/projects/${projectId}`)
+  }
 
   const itemsById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
 
@@ -735,12 +760,21 @@ export default function SubprojectEditorPage() {
                 line table as a full-width dashed CTA, matching the style of
                 "+ Add subproject" on the project page. */}
             {project && isPresold(project.stage) && (
-              <button
-                onClick={() => setCloneOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] hover:text-[#111] transition-colors"
-              >
-                <Copy className="w-3.5 h-3.5" /> Clone from past
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCloneOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#6B7280] bg-white border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] hover:text-[#111] transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Clone from past
+                </button>
+                <button
+                  onClick={handleDeleteSubproject}
+                  disabled={deleting}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#B91C1C] bg-white border border-[#FECACA] rounded-lg hover:bg-[#FEF2F2] transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
             )}
           </div>
 
