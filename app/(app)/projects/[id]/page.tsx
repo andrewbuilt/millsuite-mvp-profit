@@ -612,24 +612,10 @@ export default function ProjectCoverPage() {
     }
   }
 
-  // Item 1: refresh on tab focus / page-show. Pre-prod approve clicks
-  // happen on a different page; without this hook the banner + status
-  // pills would show stale "approvals pending" until a hard reload.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    function onFocus() {
-      reload()
-    }
-    function onVisibility() {
-      if (document.visibilityState === 'visible') reload()
-    }
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [reload])
+  // (Removed the refresh-on-tab-focus hook — it re-ran the full rollup load on
+  // every return to the tab, which read as a jarring reload. The page already
+  // loads fresh on navigation; approval-status staleness from another tab is a
+  // narrow edge not worth the constant refetch.)
 
   // ── Project-level rollup (summed across subs) ──
 
