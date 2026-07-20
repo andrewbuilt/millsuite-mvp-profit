@@ -124,9 +124,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
+    // The user id we've already loaded data for. Supabase fires
+    // onAuthStateChange (TOKEN_REFRESHED / SIGNED_IN) every time the tab
+    // regains focus and the token is refreshed; without this guard we'd
+    // re-setAuthUser + re-fetch user/org on every focus, churning the context
+    // value and making every page look like it reloaded. We only react when
+    // the *user* actually changes (real sign-in / sign-out).
+    const loadedUserId = { current: null as string | null }
+
     // Check current session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
+        loadedUserId.current = session.user.id
         setAuthUser(session.user)
         loadUserData(session.user.id).finally(() => setLoading(false))
       } else {
@@ -136,10 +145,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setAuthUser(session.user)
-        loadUserData(session.user.id)
+      const nextUser = session?.user ?? null
+      if (nextUser) {
+        // Same user (e.g. token refresh on tab focus) — don't churn state.
+        if (loadedUserId.current === nextUser.id) return
+        loadedUserId.current = nextUser.id
+        setAuthUser(nextUser)
+        loadUserData(nextUser.id)
       } else {
+        loadedUserId.current = null
         setAuthUser(null)
         setUser(null)
         setOrg(null)
