@@ -139,9 +139,11 @@ export async function POST(
   await supabaseAdmin
     .from('projects')
     .update({
+      // NB: estimate_sent_at is NOT set here — rendering/downloading the PDF no
+      // longer marks the estimate "sent". Only the explicit "Mark as sent"
+      // action on the project page stamps it (an estimate is "open" once sent).
       estimate_pdf_url: cacheBustedUrl,
       estimate_number: estimateNumber,
-      estimate_sent_at: new Date().toISOString(),
       estimate_snapshot_json: { estimateNumber, estimateDate, lineItems: body.lineItems, schedule, totals, terms },
     })
     .eq('id', projectId)

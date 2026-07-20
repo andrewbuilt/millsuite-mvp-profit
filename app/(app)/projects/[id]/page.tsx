@@ -50,6 +50,8 @@ import {
   Copy,
   Wrench,
   GripVertical,
+  Mail,
+  Check,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
@@ -93,7 +95,7 @@ import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import QbPushModal from '@/components/QbPushModal'
 import { invoicingMode } from '@/lib/org-settings'
 import { buildRichDescription, DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-description'
-import { type EstimatePdfPayload } from '@/lib/estimate-pdf'
+import { type EstimatePdfPayload, downloadEstimatePdf } from '@/lib/estimate-pdf'
 import SendEstimateModal from '@/components/estimates/SendEstimateModal'
 import ReparseModal from '@/components/reparse/ReparseModal'
 import { Trash2, AlertCircle } from 'lucide-react'
@@ -764,6 +766,33 @@ export default function ProjectCoverPage() {
   function showToast(msg: string) {
     setToast(msg)
     setTimeout(() => setToast(null), 2600)
+  }
+
+  // ── Estimate: direct download + explicit "mark as sent" ──
+  const [downloadingEstimate, setDownloadingEstimate] = useState(false)
+  async function handleDownloadEstimate() {
+    if (downloadingEstimate) return
+    setDownloadingEstimate(true)
+    try {
+      await downloadEstimatePdf(projectId, buildEstimatePayload())
+    } catch (err: any) {
+      showToast(err?.message || 'Could not download the estimate.')
+    } finally {
+      setDownloadingEstimate(false)
+    }
+  }
+  async function handleMarkEstimateSent() {
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('projects')
+      .update({ estimate_sent_at: now })
+      .eq('id', projectId)
+    if (error) {
+      showToast('Could not mark the estimate sent.')
+      return
+    }
+    setProject((p) => (p ? ({ ...p, estimate_sent_at: now } as typeof p) : p))
+    showToast('Estimate marked as sent.')
   }
 
   // ── Reorder subprojects (drag handle → persist sort_order) ──
@@ -1582,7 +1611,11 @@ export default function ProjectCoverPage() {
             (((project as any).intake_context as any).source_pdf_paths as string[]).length > 0
           }
           onReparse={() => setReparseOpen(true)}
-          onDownloadEstimate={() => setSendEstimateOpen(true)}
+          onEmailEstimate={() => setSendEstimateOpen(true)}
+          onDownloadEstimate={handleDownloadEstimate}
+          downloadingEstimate={downloadingEstimate}
+          onMarkEstimateSent={handleMarkEstimateSent}
+          estimateSentAt={(project as { estimate_sent_at?: string | null }).estimate_sent_at ?? null}
           onMarkSold={handleMarkSold}
           onAdvance={async (toStage) => {
             if (toStage === 'production') {
@@ -3059,7 +3092,11 @@ function StageActionBar({
   canStartProduction,
   hasReparseable,
   onReparse,
+  onEmailEstimate,
   onDownloadEstimate,
+  downloadingEstimate,
+  onMarkEstimateSent,
+  estimateSentAt,
   onMarkSold,
   onAdvance,
 }: {
@@ -3071,7 +3108,11 @@ function StageActionBar({
   canStartProduction: boolean
   hasReparseable: boolean
   onReparse: () => void
+  onEmailEstimate: () => void
   onDownloadEstimate: () => void
+  downloadingEstimate: boolean
+  onMarkEstimateSent: () => void
+  estimateSentAt: string | null
   onMarkSold: () => void
   onAdvance: (toStage: ProjectStage) => Promise<void>
 }) {
@@ -3084,11 +3125,30 @@ function StageActionBar({
 
   return (
     <div className="max-w-[1240px] mx-auto mt-6 bg-white border border-[#E5E7EB] rounded-xl px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div className="flex gap-2 flex-wrap">
-        <button onClick={onDownloadEstimate} className={secondary}>
-          <FileText className="w-4 h-4" />
-          Send estimate
+      <div className="flex gap-2 flex-wrap items-center">
+        <button onClick={onEmailEstimate} className={secondary}>
+          <Mail className="w-4 h-4" />
+          Email estimate
         </button>
+        <button onClick={onDownloadEstimate} disabled={downloadingEstimate} className={secondary}>
+          <FileText className="w-4 h-4" />
+          {downloadingEstimate ? 'Downloading…' : 'Download estimate'}
+        </button>
+        {estimateSentAt ? (
+          <button
+            onClick={onMarkEstimateSent}
+            title="Update the sent date (e.g. after re-sending a revised estimate)"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0] transition-colors"
+          >
+            <Check className="w-4 h-4" />
+            Sent {new Date(estimateSentAt).toLocaleDateString()}
+          </button>
+        ) : (
+          <button onClick={onMarkEstimateSent} className={secondary}>
+            <Check className="w-4 h-4" />
+            Mark as sent
+          </button>
+        )}
         {hasReparseable && (
           <button
             onClick={onReparse}
