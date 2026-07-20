@@ -49,6 +49,7 @@ import {
   Plus,
   Copy,
   Wrench,
+  GripVertical,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
@@ -779,6 +780,22 @@ export default function ProjectCoverPage() {
     setTimeout(() => setToast(null), 2600)
   }
 
+  // ── Reorder subprojects (drag handle → persist sort_order) ──
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  async function reorderSubprojects(from: number, to: number) {
+    if (from === to || from < 0 || to < 0 || from >= cards.length || to >= cards.length) return
+    const next = [...cards]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    // Optimistic: renumber sort_order to match the new positions.
+    setCards(next.map((c, i) => ({ ...c, sub: { ...c.sub, sort_order: i } })))
+    await Promise.all(
+      next.map((c, i) =>
+        supabase.from('subprojects').update({ sort_order: i }).eq('id', c.sub.id),
+      ),
+    )
+  }
+
   // ── Add install block (project-level) ──
   // Creates the project's install subproject in one click: an install activity
   // type + the QB item's install terms auto-filled as the description. Install
@@ -1053,8 +1070,9 @@ export default function ProjectCoverPage() {
                   No subprojects yet.
                 </div>
               )}
-              {cards.map(({ sub, rollup, lineCount, finishSpecCount, installPrefillCost }) => {
+              {cards.map(({ sub, rollup, lineCount, finishSpecCount, installPrefillCost }, index) => {
                 const install = isInstallSub(sub)
+                const canReorder = isPresold(project.stage) && cards.length > 1
                 const subTotalWithInstall = rollup.total + installPrefillCost
                 // Item 3 of post-sale-2: badge depends on stage + live
                 // approval-status readiness, not the legacy
@@ -1074,15 +1092,43 @@ export default function ProjectCoverPage() {
                 const actualPctOfEst =
                   rollup.totalHours > 0 ? (actualHrs / rollup.totalHours) * 100 : 0
                 return (
-                  <Link
+                  <div
                     key={sub.id}
-                    href={`/projects/${projectId}/subprojects/${sub.id}`}
-                    className={`block bg-white border rounded-xl px-5 py-4 transition-all hover:border-[#2563EB] hover:shadow-sm ${
-                      install
-                        ? 'border-dashed border-[#D1D5DB]'
-                        : 'border-[#E5E7EB]'
-                    }`}
+                    onDragOver={canReorder ? (e) => e.preventDefault() : undefined}
+                    onDrop={
+                      canReorder
+                        ? () => {
+                            if (dragIndex !== null) reorderSubprojects(dragIndex, index)
+                            setDragIndex(null)
+                          }
+                        : undefined
+                    }
+                    className={`flex items-stretch gap-1.5 ${dragIndex === index ? 'opacity-50' : ''}`}
                   >
+                    {canReorder && (
+                      <div
+                        draggable
+                        onDragStart={(e) => {
+                          setDragIndex(index)
+                          e.dataTransfer.effectAllowed = 'move'
+                          // Firefox won't start a drag without data set.
+                          e.dataTransfer.setData('text/plain', String(index))
+                        }}
+                        onDragEnd={() => setDragIndex(null)}
+                        title="Drag to reorder"
+                        className="flex-shrink-0 flex items-center px-0.5 text-[#D1D5DB] hover:text-[#6B7280] cursor-grab active:cursor-grabbing"
+                      >
+                        <GripVertical className="w-4 h-4" />
+                      </div>
+                    )}
+                    <Link
+                      href={`/projects/${projectId}/subprojects/${sub.id}`}
+                      className={`flex-1 min-w-0 block bg-white border rounded-xl px-5 py-4 transition-all hover:border-[#2563EB] hover:shadow-sm ${
+                        install
+                          ? 'border-dashed border-[#D1D5DB]'
+                          : 'border-[#E5E7EB]'
+                      }`}
+                    >
                     <div className="grid grid-cols-[1fr_auto] gap-5 items-center">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2.5 mb-1">
@@ -1217,7 +1263,8 @@ export default function ProjectCoverPage() {
                         </div>
                       </div>
                     </div>
-                  </Link>
+                    </Link>
+                  </div>
                 )
               })}
               {/* Add subproject — jumps into the new-subproject form, which
