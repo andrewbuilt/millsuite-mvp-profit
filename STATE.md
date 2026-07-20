@@ -10,10 +10,10 @@
 
 ## ⛔ CURRENT FOCUS — read this first (set by Andrew, 2026-07-18)
 
-**The ONLY active work is the migration test projects + the QB-mapping work.** Status: **6a-2 + 6a-3 BUILT, pushed, and verified live** (064/065/066 run on prod, QB items synced). Fresh end-to-end test = **Boyd – Anchor Bar Kissimmee** (Andrew deleted the 3 originals). Remaining: Andrew's final sign-off on Boyd → the "skip finished projects" change → the full 6b run. Until Andrew signs off:
-- Do NOT run the full 85-project migration.
-- Do NOT start any other item in this file, even if it looks quick.
-- The loop is: do ONE thing → prompt Andrew to check it in the app → WAIT for his answer → fix if wrong → re-run → repeat.
+**Boyd signed off 2026-07-18.** Migration machinery is done and verified — but **Andrew's call: the full 85-project run is PARKED until his todo queue ships** (see "Andrew's queue" in On deck — that queue is now the active work, roughly in listed order).
+- Do NOT run the full migration yet. It runs only when Andrew explicitly says so.
+- Work the queue one item at a time: build ONE item → prompt Andrew to check it → WAIT → next.
+- Item 7 (installation/terms modal) is Cowork-planning only — don't build it from the queue line.
 
 **How to communicate with Andrew (applies to every session):**
 - Plain language. Short. No long explanations or jargon walls.
@@ -185,7 +185,25 @@ Keep simple: internal mark-approved stays (`approveCo()`); don't reuse `lib/appr
 
 ## On deck — scoped, not started
 
-### ~~Slide-out side nav~~ → shipped as a TOP NAV (2026-06-19)
+### Andrew's queue — added 2026-07-18. **ACTIVE as of Boyd sign-off** (the full migration run waits until this queue ships — see ⛔ CURRENT FOCUS).
+
+Small/quick (each its own commit) — **ALL SHIPPED 2026-07-20:**
+
+1. ✅ **Delete subproject** (`373f49b`) — Delete button on the sub header (pre-sale only), confirm dialog, cascade cleanup, recompute bid + route back.
+2. ✅ **Reorder subprojects** (`8aa2105`) — drag handle (grip) on each card, native HTML5 DnD, persists `sort_order` (pre-sale, >1 card).
+3. ✅ **Refresh-on-return glitch** (`c9dacf9` + `9f35b20`) — auth-context churned user/org/authUser on every token refresh (tab focus) → guarded to only react on real sign-in/out; also removed the project page's own focus/visibilitychange reload hook.
+4. ✅ **"Start a blank project" → real button** (`67334a5`) — outlined button, not a text link.
+5. ✅ **Kanban "New project" button** (`6bfaa9a`) — header button → /sales.
+
+Bigger (scope briefly before building):
+
+6. **Estimate sent-status + estimates list view** — Andrew's definition (2026-07-18): an "open estimate" = one that's **been sent to the client**. Two parts:
+   - **Sent status:** today "Send estimate" opens the mock-email modal + PDF download, but nothing records that it went out. At the bottom of the project page, replace the single button with three actions: **"Email estimate" / "Download estimate" / "Mark as sent"**. Mark-as-sent stamps a sent date on the estimate (new column or estimate_pdfs row — check what migration 060 stored); emailing/downloading can prompt "mark as sent?" but only the explicit mark sets it.
+   - **List view:** roster of all sent/open estimates — date sent, client, project, amount, status (open → closes when the project sells or is lost), search/filter — alongside the existing Invoices list.
+
+Needs discussion + prototype first (Cowork planning pass, do not build from this line):
+
+7. `[unscoped]` **Installation & terms as their own modal/object** — today install is a modified subproject (6a-3's install block). Andrew wants to explore a dedicated modal/flow for installation + terms instead. Prototype in Cowork before any code.
 
 **Shipped as a hoisted top bar, not a drawer** (Andrew preferred the top bar) — see "Where things stand" → "Top nav shipped." The drawer spec is **superseded**; nothing left here. (Department-view reorg remains the separate `[ongoing]` item in "Next.")
 
