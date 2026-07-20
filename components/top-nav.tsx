@@ -42,6 +42,7 @@ const NAV: GroupSpec[] = [
     feature: 'sales',
     children: [
       { href: '/sales/kanban', label: 'Kanban', feature: 'sales' },
+      { href: '/estimates', label: 'Estimates', feature: 'sales' },
       { href: '/invoices', label: 'Invoices', feature: 'invoices' },
       { href: '/clients', label: 'Clients', feature: 'sales' },
     ],
