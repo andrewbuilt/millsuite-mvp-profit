@@ -24,6 +24,13 @@ import {
 } from '@/lib/composer'
 import type { ProductKey } from '@/lib/products'
 import { computeCoClientPrice, type PricingInputs } from '@/lib/change-orders'
+import { loadComposerRateBook } from '@/lib/composer-loader'
+import { createCarcassMaterial } from '@/lib/rate-book-materials'
+import {
+  createDoorTypeMaterial,
+  createDoorTypeMaterialFinish,
+  type DoorMaterialCostUnit,
+} from '@/lib/door-types'
 
 type SlotKey =
   | 'qty'
@@ -108,7 +115,12 @@ function slotValueLabel(slotKey: SlotKey, slots: ComposerSlots, qty: number, rb:
   }
 }
 
+const ADD_NEW = '__add_new__'
+// Slots whose "+ Add new" writes to the rate book (material / finish swaps).
+const ADDABLE: SlotKey[] = ['carcassMaterial', 'doorMaterialId', 'doorFinishId']
+
 export default function SlotCoEditor({
+  orgId,
   productKey,
   qty,
   productSlots,
@@ -117,6 +129,7 @@ export default function SlotCoEditor({
   pricing,
   onChange,
 }: {
+  orgId: string
   productKey: ProductKey
   qty: number
   productSlots: ComposerSlots
@@ -125,15 +138,27 @@ export default function SlotCoEditor({
   pricing: PricingInputs
   onChange: (result: SlotCoResult | null) => void
 }) {
+  // Local rate book so "+ Add new" can refresh it after writing a material.
+  const [rb, setRb] = useState(rateBook)
+  useEffect(() => setRb(rateBook), [rateBook])
+
   const [slotKey, setSlotKey] = useState<SlotKey | ''>('')
   const [proposed, setProposed] = useState('')
+  // "+ Add new" inline form state.
+  const [addName, setAddName] = useState('')
+  const [addA, setAddA] = useState('') // cost/sheet-cost/labor-per-door
+  const [addB, setAddB] = useState('') // sheets-per-lf / material-per-door
+  const [addUnit, setAddUnit] = useState<DoorMaterialCostUnit>('lf')
+  const [addSaving, setAddSaving] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+  const adding = proposed === ADD_NEW
 
   const originalDraft: ComposerDraft = useMemo(
     () => ({ productId: productKey, qty, slots: productSlots }),
     [productKey, qty, productSlots],
   )
   const proposedDraft: ComposerDraft | null = useMemo(() => {
-    if (!slotKey || proposed === '') return null
+    if (!slotKey || proposed === '' || proposed === ADD_NEW) return null
     if (slotKey === 'qty') {
       const n = Number(proposed)
       return Number.isFinite(n) && n > 0 ? { ...originalDraft, qty: n } : null
@@ -146,10 +171,10 @@ export default function SlotCoEditor({
     return { ...originalDraft, slots: { ...originalDraft.slots, [slotKey]: proposed } }
   }, [slotKey, proposed, originalDraft])
 
-  const origBd = useMemo(() => computeBreakdown(originalDraft, rateBook, defaults), [originalDraft, rateBook, defaults])
+  const origBd = useMemo(() => computeBreakdown(originalDraft, rb, defaults), [originalDraft, rb, defaults])
   const propBd = useMemo(
-    () => (proposedDraft ? computeBreakdown(proposedDraft, rateBook, defaults) : null),
-    [proposedDraft, rateBook, defaults],
+    () => (proposedDraft ? computeBreakdown(proposedDraft, rb, defaults) : null),
+    [proposedDraft, rb, defaults],
   )
 
   const materialDelta = propBd ? propBd.materialSubtotal - origBd.materialSubtotal : 0
@@ -159,9 +184,62 @@ export default function SlotCoEditor({
     [propBd, materialDelta, laborDelta, pricing],
   )
 
-  const origLabel = slotKey ? slotValueLabel(slotKey, productSlots, qty, rateBook) : ''
+  const origLabel = slotKey ? slotValueLabel(slotKey, productSlots, qty, rb) : ''
   const propLabel =
-    slotKey && proposedDraft ? slotValueLabel(slotKey, proposedDraft.slots, proposedDraft.qty, rateBook) : ''
+    slotKey && proposedDraft ? slotValueLabel(slotKey, proposedDraft.slots, proposedDraft.qty, rb) : ''
+
+  // ── "+ Add new" → create the material in the rate book, reload, select it ──
+  async function handleAddNew() {
+    if (!slotKey || !ADDABLE.includes(slotKey)) return
+    if (!addName.trim()) {
+      setAddError('Name is required.')
+      return
+    }
+    setAddSaving(true)
+    setAddError(null)
+    try {
+      let newId = ''
+      if (slotKey === 'carcassMaterial') {
+        const m = await createCarcassMaterial({
+          org_id: orgId,
+          name: addName.trim(),
+          sheet_cost: Number(addA) || 0,
+          sheets_per_lf: Number(addB) || 0,
+        })
+        newId = m?.id ?? ''
+      } else if (slotKey === 'doorMaterialId') {
+        if (!productSlots.doorTypeId) throw new Error('This line has no door type to scope the material to.')
+        const m = await createDoorTypeMaterial({
+          org_id: orgId,
+          door_type_id: productSlots.doorTypeId,
+          material_name: addName.trim(),
+          cost_value: Number(addA) || 0,
+          cost_unit: addUnit,
+        })
+        newId = m?.id ?? ''
+      } else if (slotKey === 'doorFinishId') {
+        if (!productSlots.doorMaterialId) throw new Error('This line has no door material to scope the finish to.')
+        const f = await createDoorTypeMaterialFinish({
+          org_id: orgId,
+          door_type_material_id: productSlots.doorMaterialId,
+          finish_name: addName.trim(),
+          labor_hours_per_door: Number(addA) || 0,
+          material_per_door: Number(addB) || 0,
+        })
+        newId = f?.id ?? ''
+      }
+      const fresh = await loadComposerRateBook(orgId)
+      setRb(fresh)
+      setProposed(newId)
+      setAddName('')
+      setAddA('')
+      setAddB('')
+    } catch (err: any) {
+      setAddError(err?.message || 'Could not add to the rate book.')
+    } finally {
+      setAddSaving(false)
+    }
+  }
 
   // Emit the result up whenever it's complete.
   useEffect(() => {
@@ -232,13 +310,72 @@ export default function SlotCoEditor({
             ) : (
               <select value={proposed} onChange={(e) => setProposed(e.target.value)} className={`${field} bg-white`}>
                 <option value="">Pick…</option>
-                {slotOptions(slotKey, rateBook).map((o) => (
+                {slotOptions(slotKey, rb).map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.name}
                   </option>
                 ))}
+                {ADDABLE.includes(slotKey) && <option value={ADD_NEW}>+ Add new (feeds rate book)</option>}
               </select>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* "+ Add new" inline form — writes the material into the rate book. */}
+      {slotKey && adding && ADDABLE.includes(slotKey) && (
+        <div className="border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-3 mb-3">
+          <div className="text-[11px] font-semibold text-[#1D4ED8] uppercase tracking-wider mb-2">
+            New {SLOT_LABELS[slotKey].toLowerCase()} → rate book
+          </div>
+          <input
+            value={addName}
+            onChange={(e) => setAddName(e.target.value)}
+            placeholder="Name"
+            className={`${field} mb-2`}
+            autoFocus
+          />
+          {slotKey === 'carcassMaterial' && (
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <input value={addA} onChange={(e) => setAddA(e.target.value)} inputMode="decimal" placeholder="Sheet cost $" className={`${field} font-mono text-right`} />
+              <input value={addB} onChange={(e) => setAddB(e.target.value)} inputMode="decimal" placeholder="Sheets / LF" className={`${field} font-mono text-right`} />
+            </div>
+          )}
+          {slotKey === 'doorMaterialId' && (
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <input value={addA} onChange={(e) => setAddA(e.target.value)} inputMode="decimal" placeholder="Cost $" className={`${field} font-mono text-right`} />
+              <select value={addUnit} onChange={(e) => setAddUnit(e.target.value as DoorMaterialCostUnit)} className={`${field} bg-white`}>
+                {(['lf', 'sheet', 'bf', 'ea', 'lump'] as DoorMaterialCostUnit[]).map((u) => (
+                  <option key={u} value={u}>
+                    per {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {slotKey === 'doorFinishId' && (
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <input value={addA} onChange={(e) => setAddA(e.target.value)} inputMode="decimal" placeholder="Labor hr / door" className={`${field} font-mono text-right`} />
+              <input value={addB} onChange={(e) => setAddB(e.target.value)} inputMode="decimal" placeholder="Material $ / door" className={`${field} font-mono text-right`} />
+            </div>
+          )}
+          {addError && <div className="text-[11px] text-[#B91C1C] mb-2">{addError}</div>}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setProposed('')}
+              className="text-[12px] px-3 py-1.5 border border-[#E5E7EB] bg-white rounded-lg hover:bg-[#F9FAFB]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleAddNew}
+              disabled={addSaving}
+              className="text-[12px] px-3 py-1.5 bg-[#2563EB] text-white rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50"
+            >
+              {addSaving ? 'Adding…' : 'Add to rate book'}
+            </button>
           </div>
         </div>
       )}

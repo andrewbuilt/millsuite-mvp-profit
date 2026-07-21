@@ -326,6 +326,7 @@ export default function CreateChangeOrderModal({
             {useSlotEditor && selectedLine ? (
               <SlotCoEditor
                 key={selectedLine.id}
+                orgId={orgId}
                 productKey={selectedLine.productKey!}
                 qty={selectedLine.qty}
                 productSlots={selectedLine.productSlots!}
