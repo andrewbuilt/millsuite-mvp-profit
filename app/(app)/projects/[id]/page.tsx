@@ -1723,6 +1723,29 @@ export default function ProjectCoverPage() {
                       {money(proj.priceTotal)}
                     </span>
                   </div>
+                  {/* Approved change orders roll on top of the frozen project
+                      price (Option A) into a current contract total. */}
+                  {sumApprovedNetChange(changeOrders) !== 0 && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-[#6B7280] uppercase tracking-wider">
+                          Approved change orders
+                        </span>
+                        <span className="font-mono tabular-nums text-[#15803D]">
+                          {sumApprovedNetChange(changeOrders) < 0 ? '−' : '+'}
+                          {money(Math.abs(sumApprovedNetChange(changeOrders)))}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between pt-2 border-t border-[#E5E7EB]">
+                        <span className="text-[11px] font-semibold text-[#111] uppercase tracking-wider">
+                          Contract total
+                        </span>
+                        <span className="text-[18px] font-semibold font-mono text-[#111] tabular-nums">
+                          {money(proj.priceTotal + sumApprovedNetChange(changeOrders))}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
