@@ -4,15 +4,16 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-07-20 · **Branch:** `main`
+**Last updated:** 2026-07-21 · **Branch:** `main`
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (set by Andrew, 2026-07-18)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-07-21)
 
-**Boyd signed off 2026-07-18. Queue items 1–6 shipped 2026-07-20. Item 7 (Installation & terms modal) is fully scoped but BACK-BURNERED by Andrew 2026-07-20 — do not build until he brings it back.**
-- **Active list = "Demo feedback queue" (On deck, added 2026-07-20).** Each item gets a dig-deeper pass with Andrew (Cowork) before building — none are build-ready as written except where the entry says otherwise.
-- Do NOT run the full 85-project migration yet. It runs only when Andrew explicitly says so.
+**Active build = the Change Order system** (Demo feedback queue item 4). Well underway — the full CO spec lives in the "Change Orders — RESUMED" section under Parked (it is NOT parked; that's just where the spec physically sits). **Done so far:** migration `067`, the two-mode modal (Spec change | Custom to the approved prototype), real composer-slot spec editing + "+ Add new" (feeds rate book), CO PDF, dashboard, open-CO flags, and the Send/Accept/Decline/Delete lifecycle. **Remaining CO work (heavier — money/QB + one migration):** step 3 (free-path propagation), step 4 (priced billing → rolling CO invoice + QB + receivable + re-tally), step 7 (documents section + migration). See the CO build-progress notes in that section for exact commits + what's next.
+- Migration `067` run on prod. No pending migration until step 7.
+- Do NOT run the full 85-project migration yet — only when Andrew says so.
+- Other demo-feedback items (format estimate PDF, rate-book fix/upgrade, /me edits, freeform-line modal overhaul) + back-burnered Item 7 (installation/terms modal) stay queued — don't start them until CO is done or Andrew redirects.
 
 **How to communicate with Andrew (applies to every session):**
 - Plain language. Short. No long explanations or jargon walls.

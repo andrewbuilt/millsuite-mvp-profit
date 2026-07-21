@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CO modal prototype — one modal, Spec change | Custom toggle (approved by Andrew 2026-07-21)</title>
+<style>
+  :root{
+    --bg:#fff; --bg2:#F3F4F6; --text:#111; --text2:#6B7280; --text3:#9CA3AF;
+    --border:#E5E7EB; --teal-bg:#E1F5EE; --teal:#0F6E56; --teal-dark:#04342C;
+    --blue-bg:#EFF6FF; --blue-border:#BFDBFE; --blue:#1D4ED8; --r:8px; --rl:12px;
+  }
+  body{font-family:ui-sans-serif,system-ui,sans-serif; background:#495060; margin:0; padding:24px; display:flex; justify-content:center;}
+  .modal{background:var(--bg); border-radius:var(--rl); width:100%; max-width:560px; overflow:hidden;}
+  .hdr{display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid var(--border);}
+  .seg{display:flex; background:var(--bg2); border-radius:var(--r); padding:2px; margin:14px 20px;}
+  .seg button{flex:1; border:none; background:transparent; font-size:13px; padding:7px; border-radius:6px; color:var(--text2); cursor:pointer;}
+  .seg button.on{background:var(--bg); color:var(--text); box-shadow:0 1px 2px rgba(0,0,0,.08);}
+  .sec{padding:0 20px;}
+  .label{font-size:11px; color:var(--text2); margin-bottom:3px;}
+  .caps{font-size:11px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:.04em;}
+  .hint{font-size:11px; color:var(--text3);}
+  input,select{width:100%; box-sizing:border-box; font-size:13px; padding:8px 10px; border:1px solid var(--border); border-radius:var(--r);}
+  .ctx{background:var(--bg2); border-radius:var(--r); padding:10px 12px; margin-bottom:12px;}
+  .row{display:grid; gap:6px; margin-bottom:10px;}
+  .net{display:flex; justify-content:space-between; align-items:center; background:var(--teal-bg); border-radius:var(--r); padding:10px 14px; margin-bottom:4px;}
+  .net span:first-child{font-size:12px; color:var(--teal);}
+  .net span:last-child{font-size:16px; font-weight:600; font-family:ui-monospace,monospace; color:var(--teal-dark);}
+  .ftr{display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-top:1px solid var(--border);}
+  .btn{font-size:13px; padding:8px 14px; border:1px solid var(--border); background:var(--bg); border-radius:var(--r); cursor:pointer;}
+  .btn.primary{background:var(--blue-bg); border-color:var(--blue-border); color:var(--blue);}
+  .shared{border-top:1px solid var(--border); padding-top:12px; margin:0 20px;}
+  label.chk{font-size:12px; color:var(--text2);}
+</style>
+</head>
+<body>
+<!--
+BEHAVIOR SPEC (matches STATE.md "Change Orders — RESUMED" section):
+- ONE button (subproject header, post-sold) opens THIS ONE modal. No chooser, no second modal.
+- Segmented toggle switches Spec change | Custom. Everything below the mode section
+  (title, checkboxes, net change, footer) is SHARED and identical in both modes.
+- SPEC MODE: context card shows the line being changed (qty/spec string known from the line).
+  "What's changing?" options are DERIVED from the product's slot definitions (same source
+  as the composer — drawers included, never hardcoded). Original is read-only; Proposed
+  lists rate-book options for that slot + "+ Add new" which is the composer's own
+  add-material flow as a shared component (writes the rate book). Net change = composer math.
+  Labor delta comes with the slot choice automatically.
+- CUSTOM MODE: free description, MULTIPLE material lines (desc/qty/unit cost + vendor
+  checkbox = not in rate book), labor hours by dept (flow into subproject dept hours on
+  Accept → schedule/capacity see it), client price = cost through project margins, editable.
+  $0 = documentation-only. NOTHING in custom mode enters the rate book.
+- V1 rules: whole-line changes only; one change per CO.
+- Title auto-generates from the change; user can edit. "No charge" + "Drawing revision
+  required" checkboxes shared. Create as draft -> normal CO lifecycle
+  (draft -> sent -> accepted/declined; accepted priced COs bill to the rolling CO invoice).
+-->
+<div class="modal">
+  <div class="hdr">
+    <div>
+      <div style="font-size:16px; font-weight:600;">New change order</div>
+      <div style="font-size:12px; color:var(--text2);">Main bar · CO-03</div>
+    </div>
+    <span style="color:var(--text3);">✕</span>
+  </div>
+
+  <div class="seg" id="seg">
+    <button data-m="spec" class="on">Spec change</button>
+    <button data-m="custom">Custom</button>
+  </div>
+
+  <div class="sec" id="mode-spec">
+    <div class="ctx">
+      <div class="caps">Changing</div>
+      <div style="font-size:13px; font-weight:600; margin-top:2px;">Base cabinet · 8 LF</div>
+      <div class="hint">Prefin Walnut · Slab door · Walnut veneer · Matte clear · 2 Legra drawers</div>
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">What's changing? <span class="hint">— derived from product slots (drawers included)</span></div>
+        <select><option>Door type</option><option>Carcass material</option><option>Door material</option><option>Door finish</option><option>Drawer type</option><option>Drawer count</option></select>
+      </div>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 24px 1fr; align-items:end;">
+      <div><div class="label">Original</div><input value="Slab" disabled /></div>
+      <div style="text-align:center; padding-bottom:9px; color:var(--text3);">→</div>
+      <div><div class="label">Proposed</div><select><option>Micro Shaker</option><option>Shaker</option><option>Slim Shaker</option><option>+ Add new (feeds rate book)</option></select></div>
+    </div>
+    <div class="net"><span>Net change · composer math · qty from line (8 LF)</span><span>+$649</span></div>
+    <div class="hint" style="margin-bottom:12px;">Labor delta included automatically. Rate book updated only via "+ Add new".</div>
+  </div>
+
+  <div class="sec" id="mode-custom" style="display:none;">
+    <div class="row">
+      <div>
+        <div class="label">What's the change?</div>
+        <input placeholder="e.g. Client-supplied brass rail, vendor cost update" />
+      </div>
+    </div>
+    <div class="caps" style="margin-bottom:6px;">Materials</div>
+    <div class="row" style="grid-template-columns:2fr 60px 90px 24px; align-items:center; margin-bottom:6px;">
+      <input value="Brass rail — Vendor: Hardware Co" style="font-size:12px;" />
+      <input value="12" style="font-size:12px; text-align:center;" />
+      <input value="$48.00" style="font-size:12px; text-align:right;" />
+      <span style="color:var(--text3);">🗑</span>
+    </div>
+    <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
+      <button class="btn" style="font-size:12px; padding:5px 10px;">+ Material line</button>
+      <label class="chk"><input type="checkbox" checked /> Vendor item (not in rate book)</label>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+      <span class="caps">Labor — hours by dept</span>
+      <span class="hint" style="font-family:ui-monospace,monospace;">6.0 hr · $433</span>
+    </div>
+    <div class="row" style="grid-template-columns:repeat(5,1fr); margin-bottom:12px;">
+      <div><div class="hint" style="text-align:center;">ENG</div><input value="1" style="text-align:center; font-size:12px;" /></div>
+      <div><div class="hint" style="text-align:center;">CNC</div><input value="0" style="text-align:center; font-size:12px;" /></div>
+      <div><div class="hint" style="text-align:center;">ASM</div><input value="3" style="text-align:center; font-size:12px;" /></div>
+      <div><div class="hint" style="text-align:center;">FIN</div><input value="0" style="text-align:center; font-size:12px;" /></div>
+      <div><div class="hint" style="text-align:center;">INS</div><input value="2" style="text-align:center; font-size:12px;" /></div>
+    </div>
+    <div class="net"><span>Client price · cost through project margins · editable</span><span>+$1,552</span></div>
+    <div class="hint" style="margin-bottom:12px;">$0 = no-cost change (documentation only). Nothing here enters the rate book. Dept hours flow to schedule on accept.</div>
+  </div>
+
+  <div class="shared">
+    <div class="row">
+      <div>
+        <div class="label">Title (auto)</div>
+        <input id="title" value="Door type: Slab → Micro Shaker" />
+      </div>
+    </div>
+    <div style="display:flex; gap:16px; margin-bottom:12px;">
+      <label class="chk"><input type="checkbox" checked /> Drawing revision required</label>
+      <label class="chk"><input type="checkbox" /> No charge</label>
+    </div>
+  </div>
+
+  <div class="ftr">
+    <span id="net" style="font-size:13px; font-family:ui-monospace,monospace; color:var(--teal); font-weight:600;">Net change +$649</span>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">Cancel</button>
+      <button class="btn primary">Create as draft</button>
+    </div>
+  </div>
+</div>
+<script>
+const spec=document.getElementById('mode-spec'), custom=document.getElementById('mode-custom');
+const title=document.getElementById('title'), net=document.getElementById('net');
+document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{
+  const m=b.dataset.m;
+  spec.style.display=m==='spec'?'block':'none';
+  custom.style.display=m==='custom'?'block':'none';
+  title.value=m==='spec'?'Door type: Slab → Micro Shaker':'Custom: Brass rail (vendor)';
+  net.textContent=m==='spec'?'Net change +$649':'Net change +$1,552';
+  document.querySelectorAll('#seg button').forEach(x=>x.classList.toggle('on',x===b));
+});
+</script>
+</body>
+</html>
