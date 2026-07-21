@@ -96,6 +96,7 @@ import {
 } from '@/lib/invoices'
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import QbPushModal from '@/components/QbPushModal'
+import ProjectDocuments from '@/components/projects/ProjectDocuments'
 import { invoicingMode } from '@/lib/org-settings'
 import { buildRichDescription, DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-description'
 import {
@@ -944,6 +945,11 @@ export default function ProjectCoverPage() {
   const coInvoices = invoices
     .filter((i) => coInvoiceIds.has(i.id) && i.status !== 'void')
     .sort((a, b) => a.invoice_number.localeCompare(b.invoice_number))
+  // Contract invoice(s) for the Documents section = non-void invoices that
+  // aren't CO invoices.
+  const contractInvoices = invoices
+    .filter((i) => !coInvoiceIds.has(i.id) && i.status !== 'void')
+    .sort((a, b) => a.invoice_number.localeCompare(b.invoice_number))
 
   // ── Estimate PDF (MillSuite-native; available in both modes) ──
   // Builds the same computed lines shown on screen so the PDF total reconciles
@@ -1623,6 +1629,17 @@ export default function ProjectCoverPage() {
                 </div>
               </div>
             )}
+
+            {/* Documents (CO step 7) — every doc tied to the project in one
+                place: estimate, contract + CO invoices, and manual links. */}
+            <ProjectDocuments
+              projectId={projectId}
+              contractInvoices={contractInvoices}
+              coInvoices={coInvoices}
+              onDownloadEstimate={async () => {
+                await downloadEstimatePdf(projectId, buildEstimatePayload())
+              }}
+            />
           </div>
 
           {/* RIGHT — financial panel */}
