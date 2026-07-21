@@ -529,6 +529,10 @@ export default function InvoiceDetailPage() {
                 <span className="px-3 py-1.5 text-[12px] text-[#15803D] inline-flex items-center gap-1.5">
                   ✓ In QuickBooks
                 </span>
+              ) : totals.total < 0 ? (
+                <span className="px-3 py-1.5 text-[12px] text-[#B45309] inline-flex items-center gap-1.5">
+                  Credit — issue a credit memo in QuickBooks
+                </span>
               ) : (
                 <button
                   onClick={handlePushToQb}

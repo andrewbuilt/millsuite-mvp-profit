@@ -522,27 +522,34 @@ export async function finalizeFreeCo(coId: string): Promise<void> {
 // ── Priced path: rolling per-project CO invoice (step 4) ──
 
 /**
- * Find the project's existing rolling CO invoice, if any. One CO invoice per
- * project — approved COs append to it as lines. Located via any sibling CO's
- * `co_invoice_id` link (migration 067). A voided invoice doesn't count (a new
- * one gets created on the next accept).
+ * Find the project's OPEN CO invoice — the current un-pushed batch. COs append
+ * to it until it's pushed to QuickBooks; once pushed (`qbo_invoice_id` set) it
+ * LOCKS (batch-and-lock, Andrew 2026-07-21) and the next accepted CO opens a
+ * fresh invoice, so each QB invoice is pushed exactly once and MillSuite always
+ * matches QB. Voided + already-pushed invoices are skipped.
  */
 async function findCoInvoiceId(projectId: string): Promise<string | null> {
-  const { data } = await supabase
+  const { data: cos } = await supabase
     .from('change_orders')
     .select('co_invoice_id')
     .eq('project_id', projectId)
     .not('co_invoice_id', 'is', null)
-    .limit(1)
-  const id = (data && (data[0] as { co_invoice_id: string | null } | undefined)?.co_invoice_id) || null
-  if (!id) return null
+  const ids = Array.from(
+    new Set(
+      ((cos as { co_invoice_id: string | null }[] | null) || [])
+        .map((c) => c.co_invoice_id)
+        .filter((x): x is string => !!x),
+    ),
+  )
+  if (ids.length === 0) return null
   const { data: inv } = await supabase
     .from('client_invoices')
-    .select('id, status')
-    .eq('id', id)
-    .maybeSingle()
-  if (!inv || (inv as { status: string }).status === 'void') return null
-  return id
+    .select('id')
+    .in('id', ids)
+    .is('qbo_invoice_id', null)
+    .neq('status', 'void')
+    .limit(1)
+  return (inv && (inv[0] as { id: string } | undefined)?.id) || null
 }
 
 /**
