@@ -360,10 +360,14 @@ export async function listCoMaterials(orgId: string): Promise<CoMaterial[]> {
 
 /** Next sequential CO number for a project (CO-01, CO-02, …). */
 async function nextCoNumber(projectId: string): Promise<number> {
+  // Must exclude null co_number rows: Postgres sorts DESC as NULLS FIRST, so
+  // a single legacy/null-numbered CO would win .limit(1) and peg every new
+  // number at 1. Filtering nulls makes the max reflect real CO numbers.
   const { data } = await supabase
     .from('change_orders')
     .select('co_number')
     .eq('project_id', projectId)
+    .not('co_number', 'is', null)
     .order('co_number', { ascending: false })
     .limit(1)
   const max = data && data[0]?.co_number ? Number(data[0].co_number) : 0
@@ -634,6 +638,26 @@ export async function voidCo(coId: string): Promise<void> {
   if (error) throw error
 }
 
+/**
+ * Hard-delete a change order. Used from the CO dashboard to clean up
+ * void/declined rows for good (voidCo only flips state; this removes the
+ * record). Guarded to non-live states so an approved/billed CO can't be
+ * silently deleted out from under its invoice.
+ */
+export async function deleteCo(coId: string): Promise<void> {
+  const { data: co } = await supabase
+    .from('change_orders')
+    .select('state')
+    .eq('id', coId)
+    .maybeSingle()
+  const state = (co as { state: CoState } | null)?.state
+  if (state === 'approved') {
+    throw new Error('An approved change order cannot be deleted — void its invoice first.')
+  }
+  const { error } = await supabase.from('change_orders').delete().eq('id', coId)
+  if (error) throw error
+}
+
 // ── QB handoff (D3) ──
 
 /**
@@ -808,6 +832,14 @@ export async function draftCoFromApprovalCard(
  * The CO row itself remains the canonical audit record (original_line_snapshot
  * is frozen at draft time and can be replayed).
  */
+/** SlotCoEditor slot label → approval-card label (proposeSlotsFromComposerLine).
+ *  Only the three slots that get approval cards need aliasing; the rest have no
+ *  card and simply resolve to no match. */
+const APPROVAL_CARD_LABEL_ALIAS: Record<string, string> = {
+  'Door material': 'Door/drawer material',
+  'Door finish': 'Exterior finish',
+}
+
 export async function applyApprovedCo(
   coId: string,
   opts: {
@@ -853,11 +885,18 @@ export async function applyApprovedCo(
     slotLabelFromCo = slotPrefixMatch[1].trim()
     slotValueFromCo = slotPrefixMatch[2].trim() || null
     if (!approvalItemId && co.subproject_id) {
+      // The CO's slot labels (SlotCoEditor SLOT_LABEL) don't all match the
+      // approval-card labels (proposeSlotsFromComposerLine): the composer
+      // names them "Door material" / "Door finish", the cards name them
+      // "Door/drawer material" / "Exterior finish". Alias before matching so
+      // the card actually gets updated. (Carcass material already matches;
+      // slots with no card — door type, drawer type, etc. — just find none.)
+      const cardLabel = APPROVAL_CARD_LABEL_ALIAS[slotLabelFromCo] ?? slotLabelFromCo
       const { data: matched } = await supabase
         .from('approval_items')
         .select('id, state')
         .eq('subproject_id', co.subproject_id)
-        .eq('label', slotLabelFromCo)
+        .eq('label', cardLabel)
         .maybeSingle()
       if (matched?.id) approvalItemId = matched.id
     }

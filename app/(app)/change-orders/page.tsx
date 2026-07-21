@@ -7,9 +7,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, X } from 'lucide-react'
+import { Search, Trash2, X } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { useConfirm } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
+import { deleteCo } from '@/lib/change-orders'
 
 interface CoRow {
   id: string
@@ -36,6 +38,7 @@ const STATE_TONE: Record<string, { bg: string; fg: string; label: string }> = {
 export default function ChangeOrdersPage() {
   const { user } = useAuth()
   const router = useRouter()
+  const { confirm } = useConfirm()
   const orgId = user?.org_id
 
   const [loading, setLoading] = useState(true)
@@ -82,6 +85,26 @@ export default function ChangeOrdersPage() {
     else arr.sort((a, b) => (b.client_price ?? 0) - (a.client_price ?? 0))
     return arr
   }, [filtered, sortKey])
+
+  async function handleDelete(r: CoRow) {
+    const ok = await confirm({
+      title: `Delete CO-${String(r.co_number ?? 0).padStart(2, '0')}?`,
+      message: `Permanently removes "${r.title}". This can't be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })
+    if (!ok) return
+    try {
+      await deleteCo(r.id)
+      setRows((prev) => prev.filter((x) => x.id !== r.id))
+    } catch (e) {
+      await confirm({
+        title: 'Could not delete',
+        message: e instanceof Error ? e.message : 'Failed to delete the change order.',
+        confirmLabel: 'OK',
+      })
+    }
+  }
 
   const openSummary = useMemo(() => {
     let count = 0
@@ -169,12 +192,14 @@ export default function ChangeOrdersPage() {
             {sorted.map((r) => {
               const tone = STATE_TONE[r.state] || STATE_TONE.draft
               const price = Number(r.client_price) || 0
+              const removable = r.state === 'void' || r.state === 'rejected'
               return (
-                <button
+                <div
                   key={r.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => router.push(`/projects/${r.project_id}`)}
-                  className="w-full text-left grid grid-cols-[70px_1fr_1fr_110px_110px_90px] px-4 py-2.5 items-center border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors"
+                  className="w-full text-left grid grid-cols-[70px_1fr_1fr_110px_110px_90px] px-4 py-2.5 items-center border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors cursor-pointer"
                 >
                   <div className="text-[12px] font-mono text-[#6B7280]">CO-{String(r.co_number ?? 0).padStart(2, '0')}</div>
                   <div className="text-[12.5px] text-[#374151] truncate pr-2">{r.title}</div>
@@ -186,12 +211,25 @@ export default function ChangeOrdersPage() {
                   <div className="text-[12.5px] font-mono tabular-nums text-right text-[#111]">
                     {price === 0 ? '—' : `+$${price.toLocaleString()}`}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex items-center justify-end gap-1.5">
                     <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full" style={{ backgroundColor: tone.bg, color: tone.fg }}>
                       {tone.label}
                     </span>
+                    {removable && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDelete(r)
+                        }}
+                        title="Delete change order"
+                        className="p-0.5 text-[#9CA3AF] hover:text-[#DC2626]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
-                </button>
+                </div>
               )
             })}
           </div>
