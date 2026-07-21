@@ -33,12 +33,18 @@ import {
   type ChangeOrder,
 } from '@/lib/change-orders'
 import { LABOR_DEPTS, LABOR_DEPT_LABEL, type LaborDept } from '@/lib/rate-book-seed'
+import type { ComposerRateBook, ComposerDefaults, ComposerSlots } from '@/lib/composer'
+import type { ProductKey } from '@/lib/products'
+import SlotCoEditor, { type SlotCoResult } from '@/components/changeorders/SlotCoEditor'
 
 export interface CoSpecLine {
   id: string
   label: string
   qty: number
   unitCost: number
+  /** Composer lines carry these → slot-aware spec editing; null otherwise. */
+  productKey: ProductKey | null
+  productSlots: ComposerSlots | null
 }
 
 interface Props {
@@ -48,6 +54,8 @@ interface Props {
   orgId: string
   specLines: CoSpecLine[]
   pricing: PricingInputs
+  composerRateBook?: ComposerRateBook | null
+  composerDefaults?: ComposerDefaults | null
   onClose: () => void
   onCreated: (co: ChangeOrder) => void
 }
@@ -77,10 +85,13 @@ export default function CreateChangeOrderModal({
   orgId,
   specLines,
   pricing,
+  composerRateBook,
+  composerDefaults,
   onClose,
   onCreated,
 }: Props) {
   const [mode, setMode] = useState<Mode>('spec')
+  const [slotResult, setSlotResult] = useState<SlotCoResult | null>(null)
 
   // ── Spec mode ──
   const [specLineId, setSpecLineId] = useState(specLines[0]?.id ?? '')
@@ -127,6 +138,14 @@ export default function CreateChangeOrderModal({
 
   // ── Spec-mode math ──
   const selectedLine = specLines.find((s) => s.id === specLineId)
+  // Composer lines with a loaded rate book → slot-aware editing (the meaty
+  // path). Otherwise the interim material-unit-cost delta.
+  const useSlotEditor = !!(
+    selectedLine?.productKey &&
+    selectedLine?.productSlots &&
+    composerRateBook &&
+    composerDefaults
+  )
   const oldUnit = selectedLine?.unitCost ?? 0
   const qtyN = numParse(qty) || 1
   const newUnit = moneyParse(newUnitStr)
@@ -137,12 +156,12 @@ export default function CreateChangeOrderModal({
   const customHours = LABOR_DEPTS.reduce((s, d) => s + numParse(hours[d]), 0)
   const customLaborCost = customHours * (Number(pricing.shopRate) || 0)
 
-  const materialCost = mode === 'spec' ? specMaterialCost : customMaterialCost
-  const laborCost = mode === 'spec' ? 0 : customLaborCost
-  const suggested = useMemo(
-    () => computeCoClientPrice(materialCost, laborCost, pricing),
-    [materialCost, laborCost, pricing],
-  )
+  const materialCost = mode === 'spec' ? (useSlotEditor ? slotResult?.materialDelta ?? 0 : specMaterialCost) : customMaterialCost
+  const laborCost = mode === 'spec' ? (useSlotEditor ? slotResult?.laborDelta ?? 0 : 0) : customLaborCost
+  const suggested = useMemo(() => {
+    if (mode === 'spec' && useSlotEditor) return slotResult?.clientPrice ?? 0
+    return computeCoClientPrice(materialCost, laborCost, pricing)
+  }, [mode, useSlotEditor, slotResult, materialCost, laborCost, pricing])
   useEffect(() => {
     if (!priceTouched) setPriceInput(suggested ? String(suggested) : '')
   }, [suggested, priceTouched])
@@ -151,12 +170,15 @@ export default function CreateChangeOrderModal({
 
   // Auto title (unless the user edited it).
   const autoTitle = useMemo(() => {
+    if (mode === 'spec' && useSlotEditor) {
+      return slotResult?.title || `Change: ${selectedLine?.label ?? 'Spec'}`
+    }
     if (mode === 'spec') {
       const spec = selectedLine?.label ?? 'Spec'
       return materialQuery.trim() ? `${spec} → ${materialQuery.trim()}` : `Change: ${spec}`
     }
     return customDesc.trim() ? `Custom: ${customDesc.trim()}` : 'Custom change'
-  }, [mode, selectedLine, materialQuery, customDesc])
+  }, [mode, useSlotEditor, slotResult, selectedLine, materialQuery, customDesc])
   useEffect(() => {
     if (!titleTouched) setTitle(autoTitle)
   }, [autoTitle, titleTouched])
@@ -168,9 +190,19 @@ export default function CreateChangeOrderModal({
   }, [materials, materialQuery])
 
   async function handleSave() {
-    if (mode === 'spec' && !specLineId) {
-      setError('Pick the spec that’s changing.')
-      return
+    if (mode === 'spec') {
+      if (!specLineId) {
+        setError('Pick the spec line.')
+        return
+      }
+      if (useSlotEditor && !slotResult) {
+        setError('Pick what’s changing and a proposed value.')
+        return
+      }
+      if (!useSlotEditor && !materialQuery.trim()) {
+        setError('Enter the new material.')
+        return
+      }
     }
     if (mode === 'custom' && !customDesc.trim()) {
       setError('Describe the change.')
@@ -181,9 +213,8 @@ export default function CreateChangeOrderModal({
     const deptHours: Record<string, number> = {}
     if (mode === 'custom') for (const d of LABOR_DEPTS) deptHours[`labor_hours_${d}`] = numParse(hours[d])
     const proposed =
-      mode === 'spec'
-        ? { material: materialQuery.trim(), quantity: qtyN, material_cost_per_lf: newUnit }
-        : {
+      mode === 'custom'
+        ? {
             material: customDesc.trim(),
             notes: JSON.stringify({
               materials: matLines
@@ -197,12 +228,20 @@ export default function CreateChangeOrderModal({
             }),
             ...deptHours,
           }
+        : useSlotEditor && slotResult
+          ? { material: `${slotResult.slotLabel}: ${slotResult.propLabel}` }
+          : { material: materialQuery.trim(), quantity: qtyN, material_cost_per_lf: newUnit }
+    const original =
+      mode === 'spec'
+        ? useSlotEditor && slotResult
+          ? { label: selectedLine?.label ?? '', material: `${slotResult.slotLabel}: ${slotResult.origLabel}`, notes: specLineId }
+          : { label: selectedLine?.label ?? '', notes: specLineId }
+        : {}
     const co = await createChangeOrderV2({
       project_id: projectId,
       subproject_id: subprojectId,
       title: title.trim() || autoTitle,
-      original_line_snapshot:
-        mode === 'spec' ? { label: selectedLine?.label ?? '', notes: specLineId } : {},
+      original_line_snapshot: original,
       proposed_line: proposed,
       material_cost: materialCost,
       labor_cost: laborCost,
@@ -267,8 +306,15 @@ export default function CreateChangeOrderModal({
               </div>
             </div>
             <div className="mb-2.5">
-              <div className={cLabel}>What’s changing?</div>
-              <select value={specLineId} onChange={(e) => setSpecLineId(e.target.value)} className={`${field} bg-white`}>
+              <div className={cLabel}>Spec line</div>
+              <select
+                value={specLineId}
+                onChange={(e) => {
+                  setSpecLineId(e.target.value)
+                  setSlotResult(null)
+                }}
+                className={`${field} bg-white`}
+              >
                 {specLines.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.label}
@@ -276,64 +322,80 @@ export default function CreateChangeOrderModal({
                 ))}
               </select>
             </div>
-            <div className="grid grid-cols-[1fr_20px_1fr] items-end gap-2 mb-2.5">
-              <div>
-                <div className={cLabel}>Original</div>
-                <input value={selectedLine?.label ?? ''} disabled className={`${field} bg-[#F9FAFB] text-[#6B7280]`} />
-              </div>
-              <div className="text-center pb-2 text-[#9CA3AF]">→</div>
-              <div ref={matBoxRef} className="relative">
-                <div className={cLabel}>Proposed</div>
-                <input
-                  value={materialQuery}
-                  onChange={(e) => {
-                    setMaterialQuery(e.target.value)
-                    setShowMatList(true)
-                  }}
-                  onFocus={() => setShowMatList(true)}
-                  placeholder="Type a material…"
-                  className={field}
-                />
-                {showMatList && matMatches.length > 0 && (
-                  <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-[#E5E7EB] rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                    {matMatches.map((m) => (
-                      <button
-                        key={m.name}
-                        type="button"
-                        onClick={() => {
-                          setMaterialQuery(m.name)
-                          if (m.costPerLf > 0) setNewUnitStr(String(m.costPerLf))
-                          setShowMatList(false)
-                        }}
-                        className="w-full text-left px-3 py-2 text-[13px] hover:bg-[#F9FAFB] flex justify-between gap-3"
-                      >
-                        <span className="text-[#111] truncate">{m.name}</span>
-                        {m.costPerLf > 0 && (
-                          <span className="text-[11px] font-mono text-[#9CA3AF]">${m.costPerLf}/lf</span>
-                        )}
-                      </button>
-                    ))}
+
+            {useSlotEditor && selectedLine ? (
+              <SlotCoEditor
+                key={selectedLine.id}
+                productKey={selectedLine.productKey!}
+                qty={selectedLine.qty}
+                productSlots={selectedLine.productSlots!}
+                rateBook={composerRateBook!}
+                defaults={composerDefaults!}
+                pricing={pricing}
+                onChange={setSlotResult}
+              />
+            ) : (
+              <>
+                <div className="grid grid-cols-[1fr_20px_1fr] items-end gap-2 mb-2.5">
+                  <div>
+                    <div className={cLabel}>Original</div>
+                    <input value={selectedLine?.label ?? ''} disabled className={`${field} bg-[#F9FAFB] text-[#6B7280]`} />
                   </div>
-                )}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 mb-2.5">
-              <div>
-                <div className={cLabel}>Qty (from line)</div>
-                <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" className={`${field} font-mono text-right`} />
-              </div>
-              <div>
-                <div className={cLabel}>New unit cost ($)</div>
-                <input value={newUnitStr} onChange={(e) => setNewUnitStr(e.target.value)} inputMode="decimal" placeholder="0" className={`${field} font-mono text-right`} />
-                <div className="text-[10.5px] text-[#9CA3AF] mt-0.5">current: ${oldUnit.toLocaleString()}/unit</div>
-              </div>
-            </div>
-            <div className="flex justify-between items-center bg-[#E1F5EE] rounded-lg px-3.5 py-2.5 mb-3">
-              <span className="text-[12px] text-[#0F6E56]">Material change · qty from line</span>
-              <span className="text-[16px] font-semibold font-mono text-[#04342C]">
-                {specMaterialCost < 0 ? '−' : '+'}${Math.abs(Math.round(specMaterialCost)).toLocaleString()}
-              </span>
-            </div>
+                  <div className="text-center pb-2 text-[#9CA3AF]">→</div>
+                  <div ref={matBoxRef} className="relative">
+                    <div className={cLabel}>Proposed</div>
+                    <input
+                      value={materialQuery}
+                      onChange={(e) => {
+                        setMaterialQuery(e.target.value)
+                        setShowMatList(true)
+                      }}
+                      onFocus={() => setShowMatList(true)}
+                      placeholder="Type a material…"
+                      className={field}
+                    />
+                    {showMatList && matMatches.length > 0 && (
+                      <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-[#E5E7EB] rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        {matMatches.map((m) => (
+                          <button
+                            key={m.name}
+                            type="button"
+                            onClick={() => {
+                              setMaterialQuery(m.name)
+                              if (m.costPerLf > 0) setNewUnitStr(String(m.costPerLf))
+                              setShowMatList(false)
+                            }}
+                            className="w-full text-left px-3 py-2 text-[13px] hover:bg-[#F9FAFB] flex justify-between gap-3"
+                          >
+                            <span className="text-[#111] truncate">{m.name}</span>
+                            {m.costPerLf > 0 && (
+                              <span className="text-[11px] font-mono text-[#9CA3AF]">${m.costPerLf}/lf</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-2.5">
+                  <div>
+                    <div className={cLabel}>Qty (from line)</div>
+                    <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" className={`${field} font-mono text-right`} />
+                  </div>
+                  <div>
+                    <div className={cLabel}>New unit cost ($)</div>
+                    <input value={newUnitStr} onChange={(e) => setNewUnitStr(e.target.value)} inputMode="decimal" placeholder="0" className={`${field} font-mono text-right`} />
+                    <div className="text-[10.5px] text-[#9CA3AF] mt-0.5">current: ${oldUnit.toLocaleString()}/unit</div>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center bg-[#E1F5EE] rounded-lg px-3.5 py-2.5 mb-3">
+                  <span className="text-[12px] text-[#0F6E56]">Material change · qty from line</span>
+                  <span className="text-[16px] font-semibold font-mono text-[#04342C]">
+                    {specMaterialCost < 0 ? '−' : '+'}${Math.abs(Math.round(specMaterialCost)).toLocaleString()}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         )}
 

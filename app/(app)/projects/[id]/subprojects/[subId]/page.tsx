@@ -333,41 +333,26 @@ export default function SubprojectEditorPage() {
 
   const itemsById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
 
-  // Spec options for the CO modal — one entry PER SPEC, not per line. A
-  // composer line bundles many specs (material · back · door · veneer · finish
-  // · drawers) into its description; split those out so a CO can target one.
-  // Single-spec lines keep their current qty + material unit cost (from the
-  // buildup) for delta pricing; composer sub-specs start at $0/unit (per-spec
-  // cost isn't broken out — the operator enters old + new).
+  // Spec lines for the CO modal — one entry PER LINE. Composer lines carry
+  // product_key + product_slots so the modal's spec-change mode does real
+  // slot-aware editing (SlotCoEditor); non-composer lines carry a material unit
+  // cost for the interim delta path.
   const coSpecLines = useMemo(
     () =>
-      lines.flatMap((line) => {
+      lines.map((line) => {
         const item = line.rate_book_item_id ? itemsById.get(line.rate_book_item_id) ?? null : null
         const opts = lineOptions.get(line.id) || []
         const b = computeLineBuildup(line, item, opts, pricingCtx)
         const qty = Number(line.quantity) || 1
         const lineUnit = qty > 0 ? b.materialCost / qty : b.materialCost
-        const desc = line.spec_label || line.description || item?.name || 'Line'
-        let tokens = desc.split(' · ').map((t) => t.trim()).filter(Boolean)
-        // Composer lines lead with the product label ("Base cabinet · …") —
-        // drop it so only the actual specs are listed.
-        if (line.product_key && tokens.length > 1) tokens = tokens.slice(1)
-        if (tokens.length <= 1) {
-          return [
-            {
-              id: line.id,
-              label: tokens[0] || 'Line',
-              qty,
-              unitCost: Math.round(lineUnit * 100) / 100,
-            },
-          ]
-        }
-        return tokens.map((tok, i) => ({
-          id: `${line.id}#${i}`,
-          label: tok,
+        return {
+          id: line.id,
+          label: line.spec_label || line.description || item?.name || 'Line',
           qty,
-          unitCost: 0,
-        }))
+          unitCost: Math.round(lineUnit * 100) / 100,
+          productKey: (line.product_key as ProductKey | null) ?? null,
+          productSlots: (line.product_slots as ComposerSlots | null) ?? null,
+        }
       }),
     [lines, itemsById, lineOptions, pricingCtx],
   )
@@ -1412,6 +1397,8 @@ export default function SubprojectEditorPage() {
           orgId={org.id}
           specLines={coSpecLines}
           pricing={coPricing}
+          composerRateBook={composerRateBook}
+          composerDefaults={composerDefaults}
           onClose={() => setNewCoOpen(false)}
           onCreated={() => {
             setNewCoOpen(false)
