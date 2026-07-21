@@ -66,6 +66,14 @@ export interface ChangeOrder {
   qb_handoff_note: string | null
   created_at: string
   updated_at: string
+  // v2 (migration 067) — Andrew's 2026-07-20 flow:
+  co_number: number | null
+  material_cost: number | null
+  labor_cost: number | null
+  client_price: number | null
+  internal_cost_delta: number | null
+  drawing_revision_required: boolean
+  co_invoice_id: string | null
 }
 
 // ── Reads ──
@@ -208,6 +216,34 @@ export function computeNetChange(
 }
 
 /**
+ * v2 (Andrew's flow): the client price for a change where the operator enters
+ * material + labor cost directly. Runs those through the project's margins
+ * (same pricer as the bid) so the CO reads consistently with the contract.
+ * Consumables derive from material × the org markup. The modal shows this as
+ * the default; the operator can override the final number.
+ */
+export function computeCoClientPrice(
+  materialCost: number,
+  laborCost: number,
+  inputs: PricingInputs,
+): number {
+  const mat = Number(materialCost) || 0
+  const lab = Number(laborCost) || 0
+  const consumables = mat * ((Number(inputs.consumableMarkupPct) || 0) / 100)
+  return Math.round(
+    priceSnapshot(
+      {
+        materialCost: mat,
+        consumablesCost: consumables,
+        laborCost: lab,
+        totalCost: mat + consumables + lab,
+      },
+      inputs,
+    ),
+  )
+}
+
+/**
  * Enrich a rate-book-backed snapshot with material + labor numbers pulled
  * from the variant + item records. Mutation-free: returns a new snapshot.
  * Labor hours = base item hours × variant multipliers. LF stays as provided
@@ -288,6 +324,67 @@ export async function createChangeOrder(
     .single()
   if (error) {
     console.error('createChangeOrder', error)
+    return null
+  }
+  return data as ChangeOrder
+}
+
+/** Next sequential CO number for a project (CO-01, CO-02, …). */
+async function nextCoNumber(projectId: string): Promise<number> {
+  const { data } = await supabase
+    .from('change_orders')
+    .select('co_number')
+    .eq('project_id', projectId)
+    .order('co_number', { ascending: false })
+    .limit(1)
+  const max = data && data[0]?.co_number ? Number(data[0].co_number) : 0
+  return max + 1
+}
+
+/**
+ * v2 create (Andrew's flow): the operator picked the spec that's changing, set
+ * the new material, and entered material + labor cost; `client_price` is the
+ * margin-priced amount (0 = a free CO). Auto-assigns the next CO number and
+ * starts in `draft`. `net_change` = client_price so the Option-A contract
+ * display (sumApprovedNetChange) tallies correctly once approved.
+ */
+export async function createChangeOrderV2(input: {
+  project_id: string
+  subproject_id?: string | null
+  title: string
+  original_line_snapshot?: LineSnapshot
+  proposed_line?: LineSnapshot
+  material_cost: number
+  labor_cost: number
+  client_price: number
+  internal_cost_delta?: number | null
+  drawing_revision_required?: boolean
+}): Promise<ChangeOrder | null> {
+  const co_number = await nextCoNumber(input.project_id)
+  const price = Number(input.client_price) || 0
+  const { data, error } = await supabase
+    .from('change_orders')
+    .insert({
+      project_id: input.project_id,
+      subproject_id: input.subproject_id ?? null,
+      title: input.title,
+      original_line_snapshot: input.original_line_snapshot ?? {},
+      proposed_line: input.proposed_line ?? {},
+      net_change: price,
+      no_price_change: price === 0,
+      state: 'draft' as CoState,
+      qb_handoff_state: 'not_yet' as QbHandoffState,
+      co_number,
+      material_cost: input.material_cost,
+      labor_cost: input.labor_cost,
+      client_price: price,
+      internal_cost_delta: input.internal_cost_delta ?? null,
+      drawing_revision_required: input.drawing_revision_required ?? false,
+    })
+    .select()
+    .single()
+  if (error) {
+    console.error('createChangeOrderV2', error)
     return null
   }
   return data as ChangeOrder
