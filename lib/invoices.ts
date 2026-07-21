@@ -599,6 +599,78 @@ export async function syncInvoiceFromMilestoneReceived(
   return inv.invoice_number
 }
 
+/** Append a single line item to an existing invoice, then recompute totals
+ *  and status from the full line set. Unlike updateInvoiceLineItems (which
+ *  delete+re-inserts every line), this preserves the existing rows — used by
+ *  the rolling change-order invoice, which grows one CO line at a time. If a
+ *  new line pushes total above amount_received, a previously 'paid' invoice
+ *  falls back to 'partial'. Returns the refreshed invoice. */
+export async function appendInvoiceLine(
+  invoiceId: string,
+  line: Partial<InvoiceLineItem>,
+): Promise<Invoice> {
+  const { data: existingRaw } = await supabase
+    .from('client_invoice_line_items')
+    .select('sort_order, quantity, unit_price, amount')
+    .eq('invoice_id', invoiceId)
+  const existing = existingRaw || []
+  const nextSort =
+    existing.reduce((m, r: any) => Math.max(m, Number(r.sort_order) || 0), -1) + 1
+
+  const insertRow = {
+    invoice_id: invoiceId,
+    sort_order: line.sort_order ?? nextSort,
+    description: line.description ?? '',
+    quantity: num(line.quantity || 1),
+    unit: line.unit ?? null,
+    unit_price: num(line.unit_price),
+    amount: num(line.amount || num(line.quantity || 1) * num(line.unit_price)),
+    source_type: line.source_type ?? null,
+    source_id: line.source_id ?? null,
+  }
+  const { error: insErr } = await supabase
+    .from('client_invoice_line_items')
+    .insert(insertRow)
+  if (insErr) {
+    console.error('appendInvoiceLine insert', insErr)
+    throw new Error(insErr.message || 'Failed to append invoice line')
+  }
+
+  const { data: invRaw, error: invErr } = await supabase
+    .from('client_invoices')
+    .select(INVOICE_COLUMNS)
+    .eq('id', invoiceId)
+    .single()
+  if (invErr || !invRaw) {
+    throw new Error(invErr?.message || 'Invoice not found')
+  }
+  const current = normalizeInvoice(invRaw)
+  const totals = recomputeInvoiceTotals(
+    [...existing, insertRow].map((li: any) => ({
+      quantity: num(li.quantity),
+      unit_price: num(li.unit_price),
+      amount: num(li.amount),
+    })),
+    current.tax_pct,
+  )
+  const nowIso = new Date().toISOString()
+  const baseStatus = current.status === 'void' ? 'sent' : current.status
+  const next = nextStatusFromReceived(baseStatus, totals.total, current.amount_received, nowIso)
+  await updateInvoice(invoiceId, {
+    subtotal: totals.subtotal,
+    tax_amount: totals.tax_amount,
+    total: totals.total,
+    status: next.status,
+    paid_at: next.paid_at,
+  })
+  const { data: fresh } = await supabase
+    .from('client_invoices')
+    .select(INVOICE_COLUMNS)
+    .eq('id', invoiceId)
+    .single()
+  return fresh ? normalizeInvoice(fresh) : current
+}
+
 /** Stamp a draft invoice as sent. PR-2 will replace this with a real
  *  send pipeline (PDF render + email template); for now it's a status
  *  flip + sent_at timestamp + milestone-status update. */

@@ -90,6 +90,7 @@ import {
   createInvoice,
   isOverdue as isInvoiceOverdue,
   type InvoiceStatus,
+  type Invoice,
 } from '@/lib/invoices'
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import QbPushModal from '@/components/QbPushModal'
@@ -320,6 +321,7 @@ export default function ProjectCoverPage() {
   )
   const [cards, setCards] = useState<SubCardData[]>([])
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
+  const [invoices, setInvoices] = useState<Invoice[]>([])
   // Item 1 of post-sale-2: per-sub readiness map from
   // subproject_approval_status. Drives the AttentionStrip banner +
   // the subproject card badge so they don't lie about "approvals
@@ -498,6 +500,7 @@ export default function ProjectCoverPage() {
     // the linked invoice's status. Void invoices are excluded so the
     // milestone reverts to its normal manual toggle.
     const invs = await loadInvoicesForProject(projectId)
+    setInvoices(invs)
     const milestoneMap = new Map<
       string,
       { id: string; status: InvoiceStatus; invoice_number: string; due_date: string }
@@ -611,7 +614,12 @@ export default function ProjectCoverPage() {
       } else if (action === 'delete') {
         await voidCo(co.id)
       }
-      if (action !== 'pdf') refreshCOs()
+      if (action !== 'pdf') {
+        refreshCOs()
+        // Accepting a priced CO opens/appends the rolling CO invoice; reload
+        // so the invoice summary + totals reflect it.
+        if (action === 'accept') reload()
+      }
     } catch (err: any) {
       showToast(err?.message || 'Change order action failed.')
     } finally {
@@ -919,6 +927,14 @@ export default function ProjectCoverPage() {
   }
 
   const qbTotal = qbLines.reduce((s, l) => s + (l.amount || 0), 0)
+
+  // Rolling CO invoice (step 4): one per project, linked from any accepted CO
+  // via co_invoice_id. Surfaced as an outstanding-balance row in the CO section.
+  const coInvoiceId = changeOrders.find((c) => c.co_invoice_id)?.co_invoice_id ?? null
+  const coInvoice =
+    coInvoiceId
+      ? invoices.find((i) => i.id === coInvoiceId && i.status !== 'void') ?? null
+      : null
 
   // ── Estimate PDF (MillSuite-native; available in both modes) ──
   // Builds the same computed lines shown on screen so the PDF total reconciles
@@ -1500,6 +1516,34 @@ export default function ProjectCoverPage() {
                         +${sumApprovedNetChange(changeOrders).toLocaleString()}
                       </span>
                     </div>
+                  )}
+                  {/* Rolling CO invoice — the receivable for approved priced COs.
+                      Shows outstanding balance; links to the invoice detail. */}
+                  {coInvoice && (
+                    <a
+                      href={`/invoices/${coInvoice.id}`}
+                      className="flex items-center justify-between px-4 py-2.5 bg-white border-t border-[#E5E7EB] hover:bg-[#F9FAFB]"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[12px] font-medium text-[#111]">
+                          Change order invoice · {coInvoice.invoice_number}
+                        </div>
+                        <div className="text-[11px] text-[#9CA3AF]">
+                          {money(coInvoice.total)} billed
+                          {coInvoice.amount_received > 0
+                            ? ` · ${money(coInvoice.amount_received)} received`
+                            : ''}
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-[13px] font-mono tabular-nums font-semibold text-[#B45309]">
+                          {money(coInvoice.total - coInvoice.amount_received)}
+                        </div>
+                        <div className="text-[10px] text-[#9CA3AF] uppercase tracking-wider">
+                          outstanding
+                        </div>
+                      </div>
+                    </a>
                   )}
                 </div>
               </div>

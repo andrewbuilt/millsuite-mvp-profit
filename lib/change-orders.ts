@@ -10,6 +10,7 @@
 
 import { supabase } from './supabase'
 import { recomputeProjectBidTotal } from './project-totals'
+import { createInvoice, appendInvoiceLine } from './invoices'
 import {
   computeBucketedPrice,
   type BucketMargins,
@@ -460,6 +461,21 @@ export async function approveCo(coId: string, note?: string): Promise<void> {
   } catch (err) {
     console.error('approveCo: bid_total recompute', err)
   }
+  // Step 4 — priced path: a priced CO ($client_price > 0) bills to the
+  // project's rolling CO invoice on accept. Free ($0) COs go through
+  // finalizeFreeCo, never here, so this only ever runs for real charges.
+  try {
+    const { data: coFull } = await supabase
+      .from('change_orders')
+      .select('*')
+      .eq('id', coId)
+      .maybeSingle()
+    if (coFull && (Number((coFull as ChangeOrder).client_price) || 0) > 0) {
+      await appendCoToRollingInvoice(coFull as ChangeOrder)
+    }
+  } catch (err) {
+    console.error('approveCo: rolling CO invoice', err)
+  }
 }
 
 /**
@@ -497,6 +513,107 @@ export async function finalizeFreeCo(coId: string): Promise<void> {
   } catch (err) {
     console.error('finalizeFreeCo: bid_total recompute', err)
   }
+}
+
+// ── Priced path: rolling per-project CO invoice (step 4) ──
+
+/**
+ * Find the project's existing rolling CO invoice, if any. One CO invoice per
+ * project — approved COs append to it as lines. Located via any sibling CO's
+ * `co_invoice_id` link (migration 067). A voided invoice doesn't count (a new
+ * one gets created on the next accept).
+ */
+async function findCoInvoiceId(projectId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('change_orders')
+    .select('co_invoice_id')
+    .eq('project_id', projectId)
+    .not('co_invoice_id', 'is', null)
+    .limit(1)
+  const id = (data && (data[0] as { co_invoice_id: string | null } | undefined)?.co_invoice_id) || null
+  if (!id) return null
+  const { data: inv } = await supabase
+    .from('client_invoices')
+    .select('id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (!inv || (inv as { status: string }).status === 'void') return null
+  return id
+}
+
+/**
+ * Step 4 — priced path. When a priced CO ($client_price > 0) is accepted, its
+ * amount lands on the project's ROLLING CO invoice (one per project): the first
+ * accepted CO creates the invoice, later ones append a line. Line carries
+ * `source_type='change_order'` + `source_id=co.id`; the CO's `co_invoice_id`
+ * links back. Free ($0) COs never reach this (finalizeFreeCo, not approveCo).
+ *
+ * Idempotent: a CO that already has `co_invoice_id` is skipped (a double-accept
+ * won't double-bill). This writes the MillSuite invoice only — the QB push
+ * mirrors the contract flow and is operator-initiated separately.
+ */
+async function appendCoToRollingInvoice(co: ChangeOrder): Promise<void> {
+  const price = Number(co.client_price) || 0
+  if (price <= 0) return
+  if (co.co_invoice_id) return // already billed
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, org_id, client_id')
+    .eq('id', co.project_id)
+    .maybeSingle()
+  const proj = project as { org_id: string | null; client_id: string | null } | null
+  if (!proj?.org_id) {
+    console.error('appendCoToRollingInvoice: no org for project', co.project_id)
+    return
+  }
+
+  const desc = `CO-${String(co.co_number ?? 0).padStart(2, '0')} — ${co.title}`
+  const line = {
+    description: desc,
+    quantity: 1,
+    unit_price: price,
+    amount: price,
+    source_type: 'change_order' as const,
+    source_id: co.id,
+  }
+
+  const existingInvoiceId = await findCoInvoiceId(co.project_id)
+  if (existingInvoiceId) {
+    await appendInvoiceLine(existingInvoiceId, line)
+    await supabase
+      .from('change_orders')
+      .update({ co_invoice_id: existingInvoiceId })
+      .eq('id', co.id)
+    return
+  }
+
+  // First accepted CO on this project — open the rolling invoice.
+  const { data: org } = await supabase
+    .from('orgs')
+    .select('default_tax_pct')
+    .eq('id', proj.org_id)
+    .maybeSingle()
+  const taxPct = Number((org as { default_tax_pct: number | null } | null)?.default_tax_pct) || 0
+  const today = new Date().toISOString().slice(0, 10)
+  const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+  const inv = await createInvoice({
+    invoice: {
+      org_id: proj.org_id,
+      project_id: co.project_id,
+      client_id: proj.client_id ?? null,
+      invoice_date: today,
+      due_date: due,
+      tax_pct: taxPct,
+      notes: 'Change order invoice',
+    },
+    lineItems: [{ sort_order: 0, ...line }],
+    markSent: true,
+  })
+  await supabase
+    .from('change_orders')
+    .update({ co_invoice_id: inv.id })
+    .eq('id', co.id)
 }
 
 export async function rejectCo(coId: string, note?: string): Promise<void> {
