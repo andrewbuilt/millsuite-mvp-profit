@@ -91,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // which are public so a logged-out manager/worker can sign in there.
   const RESERVED_TOP_LEVEL = new Set([
     'api', 'join', 'login', 'signup', 'pricing', 'cancellation-policy',
-    'capacity', 'clients', 'dashboard', 'estimates', 'invoices', 'me', 'projects',
+    'capacity', 'change-orders', 'clients', 'dashboard', 'estimates', 'invoices', 'me', 'projects',
     'qb-reconciliation', 'rate-book', 'reports', 'sales', 'schedule',
     'settings', 'suggestions', 'team', 'time',
   ])
