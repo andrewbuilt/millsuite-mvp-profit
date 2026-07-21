@@ -42,6 +42,8 @@ import Link from 'next/link'
 import {
   ArrowLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2,
   Circle,
   FileText,
@@ -90,6 +92,7 @@ import {
   createInvoice,
   getInvoice,
   isOverdue as isInvoiceOverdue,
+  qbInvoiceUrl,
   type InvoiceStatus,
   type Invoice,
   type InvoiceLineItem,
@@ -102,6 +105,7 @@ import { buildRichDescription, DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-de
 import {
   loadChangeOrdersForProject,
   sumApprovedNetChange,
+  openCoCount,
   sendCoToClient,
   approveCo,
   rejectCo,
@@ -324,6 +328,7 @@ export default function ProjectCoverPage() {
   )
   const [cards, setCards] = useState<SubCardData[]>([])
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
+  const [coListOpen, setCoListOpen] = useState(false)
   const [invoices, setInvoices] = useState<Invoice[]>([])
   // Item 1 of post-sale-2: per-sub readiness map from
   // subproject_approval_status. Drives the AttentionStrip banner +
@@ -950,6 +955,9 @@ export default function ProjectCoverPage() {
   const contractInvoices = invoices
     .filter((i) => !coInvoiceIds.has(i.id) && i.status !== 'void')
     .sort((a, b) => a.invoice_number.localeCompare(b.invoice_number))
+  // Stage-progression button moved below the project price (from the old
+  // bottom action bar). One button per stage.
+  const stageCover = project ? coverStageOf(project.stage) : null
 
   // ── Estimate PDF (MillSuite-native; available in both modes) ──
   // Builds the same computed lines shown on screen so the PDF total reconciles
@@ -1457,9 +1465,31 @@ export default function ProjectCoverPage() {
                 so the project view shows scope changes + the additive total. */}
             {changeOrders.length > 0 && (
               <div className="mt-6">
-                <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
-                  Change orders
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setCoListOpen((v) => !v)}
+                  className="w-full flex items-center gap-2 mb-2 group"
+                >
+                  {coListOpen ? (
+                    <ChevronUp className="w-3.5 h-3.5 text-[#9CA3AF]" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-[#9CA3AF]" />
+                  )}
+                  <span className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider group-hover:text-[#6B7280]">
+                    Change orders
+                  </span>
+                  <span className="text-[11px] text-[#9CA3AF]">
+                    {changeOrders.length} total
+                    {openCoCount(changeOrders) > 0 ? ` · ${openCoCount(changeOrders)} open` : ''}
+                  </span>
+                  {sumApprovedNetChange(changeOrders) !== 0 && (
+                    <span className="ml-auto text-[12px] font-mono tabular-nums font-semibold text-[#15803D]">
+                      {sumApprovedNetChange(changeOrders) < 0 ? '−' : '+'}
+                      {money(Math.abs(sumApprovedNetChange(changeOrders)))} approved
+                    </span>
+                  )}
+                </button>
+                {coListOpen && (
                 <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
                   {changeOrders.map((co) => {
                     const price = Number(co.client_price) || 0
@@ -1602,7 +1632,14 @@ export default function ProjectCoverPage() {
                         {qbMode && (
                           <div className="flex items-center justify-end gap-2 mt-2">
                             {inv.qbo_invoice_id ? (
-                              <span className="text-[11px] text-[#15803D]">✓ In QuickBooks</span>
+                              <a
+                                href={qbInvoiceUrl(inv.qbo_invoice_id)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-[#15803D] hover:underline"
+                              >
+                                ✓ View in QuickBooks ↗
+                              </a>
                             ) : isCredit ? (
                               <span className="text-[11px] text-[#B45309]">
                                 Credit — issue a credit memo in QuickBooks for{' '}
@@ -1627,6 +1664,7 @@ export default function ProjectCoverPage() {
                     )
                   })}
                 </div>
+                )}
               </div>
             )}
 
@@ -1639,6 +1677,12 @@ export default function ProjectCoverPage() {
               onDownloadEstimate={async () => {
                 await downloadEstimatePdf(projectId, buildEstimatePayload())
               }}
+              onEmailEstimate={() => setSendEstimateOpen(true)}
+              onMarkEstimateSent={handleMarkEstimateSent}
+              estimateSentAt={(project as { estimate_sent_at?: string | null }).estimate_sent_at ?? null}
+              onCreateContractInvoice={() =>
+                qbMode ? setProjectInvoiceOpen(true) : setAdHocInvoiceOpen(true)
+              }
             />
           </div>
 
@@ -1784,6 +1828,68 @@ export default function ProjectCoverPage() {
                 </div>
               </div>
 
+              {/* Stage action — moved here from the old bottom bar. One
+                  primary button per stage + a Pre-production link once sold. */}
+              <div className="mt-4 pt-4 border-t border-[#F3F4F6] flex flex-wrap items-center gap-2">
+                {stageCover === 'bidding' && (
+                  <button
+                    onClick={handleMarkSold}
+                    disabled={cards.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Mark as sold
+                  </button>
+                )}
+                {stageCover === 'sold' && readyForProduction && (
+                  <button
+                    onClick={handleStartProduction}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
+                  >
+                    Start production
+                  </button>
+                )}
+                {stageCover === 'production' && (
+                  <button
+                    onClick={async () => {
+                      await updateProjectStage(projectId, 'installed')
+                      setProject((p) => (p ? { ...p, stage: 'installed' } : p))
+                      showToast('Marked installed.')
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
+                  >
+                    Mark installed
+                  </button>
+                )}
+                {stageCover === 'installed' && (
+                  <button
+                    onClick={async () => {
+                      await updateProjectStage(projectId, 'complete')
+                      setProject((p) => (p ? { ...p, stage: 'complete' } : p))
+                      showToast('Marked complete.')
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
+                  >
+                    Mark complete
+                  </button>
+                )}
+                {stageCover === 'complete' && (
+                  <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#DCFCE7] text-[#15803D]">
+                    <CheckCircle2 className="w-4 h-4" /> Complete
+                  </span>
+                )}
+                {(stageCover === 'sold' ||
+                  stageCover === 'production' ||
+                  stageCover === 'installed' ||
+                  stageCover === 'complete') && (
+                  <Link
+                    href={`/projects/${projectId}/pre-production`}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] border border-[#E5E7EB] transition-colors"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Pre-production
+                  </Link>
+                )}
+              </div>
+
               {/* Hours rollup — surfaces the time-clock actuals that
                   proj.actualByDept already aggregates. Per-dept est vs
                   actual with thresholded %, plus a totals line. Empty
@@ -1796,18 +1902,6 @@ export default function ProjectCoverPage() {
                 totalActualMinutes={proj.actualMinutes}
                 projectId={projectId}
               />
-
-              {/* One project invoice = the contract. QB mode pushes it to QB;
-                  internal mode opens the invoice builder. */}
-              <div className="mt-4 pt-4 border-t border-[#F3F4F6] flex items-center justify-end">
-                <button
-                  type="button"
-                  onClick={() => (qbMode ? setProjectInvoiceOpen(true) : setAdHocInvoiceOpen(true))}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] text-[#2563EB] hover:bg-[#EFF6FF] rounded-md"
-                >
-                  + Create project invoice
-                </button>
-              </div>
 
               {/* Milestones — per-project builder */}
               <MilestoneBuilder
@@ -1954,33 +2048,6 @@ export default function ProjectCoverPage() {
           </div>
         </div>
 
-        {/* Stage-aware action bar */}
-        <StageActionBar
-          stage={project.stage}
-          projectId={projectId}
-          canSell={cards.length > 0}
-          canStartProduction={readyForProduction}
-          hasReparseable={
-            Array.isArray(((project as any).intake_context as any)?.source_pdf_paths) &&
-            (((project as any).intake_context as any).source_pdf_paths as string[]).length > 0
-          }
-          onReparse={() => setReparseOpen(true)}
-          onEmailEstimate={() => setSendEstimateOpen(true)}
-          onDownloadEstimate={handleDownloadEstimate}
-          downloadingEstimate={downloadingEstimate}
-          onMarkEstimateSent={handleMarkEstimateSent}
-          estimateSentAt={(project as { estimate_sent_at?: string | null }).estimate_sent_at ?? null}
-          onMarkSold={handleMarkSold}
-          onAdvance={async (toStage) => {
-            if (toStage === 'production') {
-              await handleStartProduction()
-              return
-            }
-            await updateProjectStage(projectId, toStage)
-            setProject((p) => (p ? { ...p, stage: toStage } : p))
-            showToast(`Moved to ${toStage.replace('_', ' ')}.`)
-          }}
-        />
       </div>
 
       {/* Send estimate (MillSuite-native PDF — both modes) */}
@@ -2221,12 +2288,6 @@ function ProjectHoursSection({
       ) : (
         <div className="flex items-center justify-between gap-2 py-2 text-[12.5px] text-[#6B7280]">
           <span>No time clocked yet</span>
-          <Link
-            href={`/time?project=${projectId}`}
-            className="text-[#2563EB] hover:underline"
-          >
-            Start tracking →
-          </Link>
         </div>
       )}
     </div>
@@ -3452,124 +3513,6 @@ function AttentionStrip({
             </Link>
           )
         })()}
-      </div>
-    </div>
-  )
-}
-
-function StageActionBar({
-  stage,
-  projectId,
-  canSell,
-  canStartProduction,
-  hasReparseable,
-  onReparse,
-  onEmailEstimate,
-  onDownloadEstimate,
-  downloadingEstimate,
-  onMarkEstimateSent,
-  estimateSentAt,
-  onMarkSold,
-  onAdvance,
-}: {
-  stage: ProjectStage
-  projectId: string
-  canSell: boolean
-  /** Gates the Start production button — only shown when the project has
-   *  cleared the readiness gate (all approvals + deposit). */
-  canStartProduction: boolean
-  hasReparseable: boolean
-  onReparse: () => void
-  onEmailEstimate: () => void
-  onDownloadEstimate: () => void
-  downloadingEstimate: boolean
-  onMarkEstimateSent: () => void
-  estimateSentAt: string | null
-  onMarkSold: () => void
-  onAdvance: (toStage: ProjectStage) => Promise<void>
-}) {
-  const cover = coverStageOf(stage)
-
-  const secondary =
-    'inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors border border-[#E5E7EB]'
-  const primary =
-    'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
-
-  return (
-    <div className="max-w-[1240px] mx-auto mt-6 bg-white border border-[#E5E7EB] rounded-xl px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div className="flex gap-2 flex-wrap items-center">
-        <button onClick={onEmailEstimate} className={secondary}>
-          <Mail className="w-4 h-4" />
-          Email estimate
-        </button>
-        <button onClick={onDownloadEstimate} disabled={downloadingEstimate} className={secondary}>
-          <FileText className="w-4 h-4" />
-          {downloadingEstimate ? 'Downloading…' : 'Download estimate'}
-        </button>
-        {estimateSentAt ? (
-          <button
-            onClick={onMarkEstimateSent}
-            title="Update the sent date (e.g. after re-sending a revised estimate)"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0] transition-colors"
-          >
-            <Check className="w-4 h-4" />
-            Sent {new Date(estimateSentAt).toLocaleDateString()}
-          </button>
-        ) : (
-          <button onClick={onMarkEstimateSent} className={secondary}>
-            <Check className="w-4 h-4" />
-            Mark as sent
-          </button>
-        )}
-        {hasReparseable && (
-          <button
-            onClick={onReparse}
-            className={secondary}
-            title="Re-run the parser against the original drawings and review what changed"
-          >
-            <FileText className="w-4 h-4" />
-            Re-parse drawings
-          </button>
-        )}
-        {(cover === 'sold' || cover === 'production' || cover === 'installed' || cover === 'complete') && (
-          <Link href={`/projects/${projectId}/pre-production`} className={secondary}>
-            <CheckCircle2 className="w-4 h-4" />
-            Pre-production
-          </Link>
-        )}
-      </div>
-      <div className="flex gap-2 items-center flex-wrap">
-        {cover === 'bidding' && (
-          <button
-            onClick={onMarkSold}
-            disabled={!canSell}
-            className={primary}
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            Mark as sold
-          </button>
-        )}
-        {cover === 'sold' && canStartProduction && (
-          <button onClick={() => onAdvance('production')} className={primary}>
-            Start production
-          </button>
-        )}
-        {cover === 'production' && (
-          <button onClick={() => onAdvance('installed')} className={primary}>
-            Mark installed
-          </button>
-        )}
-        {cover === 'installed' && (
-          <button onClick={() => onAdvance('complete')} className={primary}>
-            Mark complete
-          </button>
-        )}
-        {cover === 'complete' && (
-          <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#DCFCE7] text-[#15803D]">
-            <CheckCircle2 className="w-4 h-4" />
-            Complete
-          </span>
-        )}
       </div>
     </div>
   )

@@ -9,7 +9,7 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react'
-import { Download, ExternalLink, FileText, Plus, Trash2, X } from 'lucide-react'
+import { Check, Download, ExternalLink, FileText, Mail, Plus, Trash2, X } from 'lucide-react'
 import {
   loadProjectDocuments,
   addProjectDocument,
@@ -27,11 +27,19 @@ export default function ProjectDocuments({
   contractInvoices,
   coInvoices,
   onDownloadEstimate,
+  onEmailEstimate,
+  onMarkEstimateSent,
+  estimateSentAt,
+  onCreateContractInvoice,
 }: {
   projectId: string
   contractInvoices: InvoiceRef[]
   coInvoices: InvoiceRef[]
   onDownloadEstimate: () => void | Promise<void>
+  onEmailEstimate: () => void
+  onMarkEstimateSent: () => void
+  estimateSentAt: string | null
+  onCreateContractInvoice: () => void
 }) {
   const [docs, setDocs] = useState<ProjectDocument[]>([])
   const [adding, setAdding] = useState(false)
@@ -80,42 +88,72 @@ export default function ProjectDocuments({
         Documents
       </div>
       <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
-        {/* Estimate */}
+        {/* Estimate — with its actions (moved off the old bottom bar). */}
         <div className={rowCls}>
           <div className={leftCls}>
             <FileText className={iconCls} />
             <span className="text-[13px] text-[#111] truncate">Estimate</span>
           </div>
-          <button
-            onClick={async () => {
-              setDownloading(true)
-              try {
-                await onDownloadEstimate()
-              } finally {
-                setDownloading(false)
-              }
-            }}
-            disabled={downloading}
-            className={`${linkCls} disabled:opacity-50`}
-          >
-            <Download className="w-3 h-3" /> {downloading ? 'Generating…' : 'Download'}
-          </button>
+          <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+            <button onClick={onEmailEstimate} className={linkCls}>
+              <Mail className="w-3 h-3" /> Email
+            </button>
+            <button
+              onClick={async () => {
+                setDownloading(true)
+                try {
+                  await onDownloadEstimate()
+                } finally {
+                  setDownloading(false)
+                }
+              }}
+              disabled={downloading}
+              className={`${linkCls} disabled:opacity-50`}
+            >
+              <Download className="w-3 h-3" /> {downloading ? 'Generating…' : 'Download'}
+            </button>
+            {estimateSentAt ? (
+              <button
+                onClick={onMarkEstimateSent}
+                title="Update the sent date (e.g. after re-sending a revised estimate)"
+                className="text-[11px] px-2 py-1 rounded-md border border-[#BBF7D0] bg-[#DCFCE7] text-[#15803D] hover:bg-[#BBF7D0] inline-flex items-center gap-1"
+              >
+                <Check className="w-3 h-3" /> Sent {new Date(estimateSentAt).toLocaleDateString()}
+              </button>
+            ) : (
+              <button onClick={onMarkEstimateSent} className={linkCls}>
+                <Check className="w-3 h-3" /> Mark as sent
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Contract invoice(s) */}
-        {contractInvoices.map((inv) => (
-          <div key={inv.id} className={rowCls}>
+        {/* Contract invoice(s) — or a create action when none exists yet. */}
+        {contractInvoices.length === 0 ? (
+          <div className={rowCls}>
             <div className={leftCls}>
               <FileText className={iconCls} />
-              <span className="text-[13px] text-[#111] truncate">
-                Contract invoice · {inv.invoice_number}
-              </span>
+              <span className="text-[13px] text-[#6B7280]">Contract invoice</span>
             </div>
-            <a href={`/invoices/${inv.id}`} className={linkCls}>
-              Open →
-            </a>
+            <button onClick={onCreateContractInvoice} className={`${linkCls} text-[#2563EB] border-[#BFDBFE]`}>
+              <Plus className="w-3 h-3" /> Create
+            </button>
           </div>
-        ))}
+        ) : (
+          contractInvoices.map((inv) => (
+            <div key={inv.id} className={rowCls}>
+              <div className={leftCls}>
+                <FileText className={iconCls} />
+                <span className="text-[13px] text-[#111] truncate">
+                  Contract invoice · {inv.invoice_number}
+                </span>
+              </div>
+              <a href={`/invoices/${inv.id}`} className={linkCls}>
+                Open →
+              </a>
+            </div>
+          ))
+        )}
 
         {/* CO invoice(s) */}
         {coInvoices.map((inv) => (
