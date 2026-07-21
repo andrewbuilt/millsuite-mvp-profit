@@ -88,9 +88,11 @@ import {
 import {
   loadInvoicesForProject,
   createInvoice,
+  getInvoice,
   isOverdue as isInvoiceOverdue,
   type InvoiceStatus,
   type Invoice,
+  type InvoiceLineItem,
 } from '@/lib/invoices'
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import QbPushModal from '@/components/QbPushModal'
@@ -367,6 +369,9 @@ export default function ProjectCoverPage() {
   // (projectInvoiceOpen); internal mode builds it via the ad-hoc modal.
   // Replaces per-milestone invoicing.
   const [projectInvoiceOpen, setProjectInvoiceOpen] = useState(false)
+  // Manual push of the rolling CO invoice to QuickBooks (step 4b, QB mode).
+  const [coPushOpen, setCoPushOpen] = useState(false)
+  const [coPushLines, setCoPushLines] = useState<InvoiceLineItem[]>([])
   const [adHocInvoiceOpen, setAdHocInvoiceOpen] = useState(false)
   // Send-estimate modal (MillSuite-native PDF).
   const [sendEstimateOpen, setSendEstimateOpen] = useState(false)
@@ -1042,6 +1047,44 @@ export default function ProjectCoverPage() {
     await reload()
   }
 
+  // ── Rolling CO invoice → QuickBooks (step 4b; manual, operator-initiated) ──
+  // Load the CO invoice's current lines and open the preview modal. From there
+  // the operator confirms the push. Only offered in QB mode, before a push.
+  async function openCoPush() {
+    if (!coInvoiceId) return
+    const full = await getInvoice(coInvoiceId)
+    if (!full) {
+      showToast('Could not load the change-order invoice.')
+      return
+    }
+    setCoPushLines(full.lineItems)
+    setCoPushOpen(true)
+  }
+
+  async function pushCoInvoiceToQb() {
+    if (!coInvoice) return
+    const data = await qbPost('/api/qb/push-invoice', {
+      projectId,
+      customerName: project?.client_name,
+      invoiceId: coInvoice.id, // route stamps qbo_invoice_id back onto this row
+      lineItems: coPushLines.map((l) => ({
+        // CO lines aren't tied to a subproject activity; map to the org's
+        // default QB item. Operator reviews in the preview before pushing.
+        activityType: DEFAULT_ACTIVITY_TYPE,
+        description: l.description,
+        amount: l.amount,
+        qty: Number(l.quantity) || 1,
+        unitPrice: l.unit_price,
+      })),
+      memo: 'Change orders',
+    })
+    setCoPushOpen(false)
+    showToast(
+      `Change-order invoice ${coInvoice.invoice_number} pushed to QuickBooks${data.docNumber ? ` (QB #${data.docNumber})` : ''}.`,
+    )
+    await reload()
+  }
+
   // ── Render states ──
 
   if (loading || !project) {
@@ -1518,32 +1561,46 @@ export default function ProjectCoverPage() {
                     </div>
                   )}
                   {/* Rolling CO invoice — the receivable for approved priced COs.
-                      Shows outstanding balance; links to the invoice detail. */}
+                      Shows outstanding balance; links to the invoice detail +
+                      (QB mode) a manual push to QuickBooks. */}
                   {coInvoice && (
-                    <a
-                      href={`/invoices/${coInvoice.id}`}
-                      className="flex items-center justify-between px-4 py-2.5 bg-white border-t border-[#E5E7EB] hover:bg-[#F9FAFB]"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-[12px] font-medium text-[#111]">
-                          Change order invoice · {coInvoice.invoice_number}
-                        </div>
-                        <div className="text-[11px] text-[#9CA3AF]">
-                          {money(coInvoice.total)} billed
-                          {coInvoice.amount_received > 0
-                            ? ` · ${money(coInvoice.amount_received)} received`
-                            : ''}
+                    <div className="px-4 py-2.5 bg-white border-t border-[#E5E7EB]">
+                      <div className="flex items-center justify-between">
+                        <a href={`/invoices/${coInvoice.id}`} className="min-w-0 hover:underline">
+                          <div className="text-[12px] font-medium text-[#111]">
+                            Change order invoice · {coInvoice.invoice_number}
+                          </div>
+                          <div className="text-[11px] text-[#9CA3AF]">
+                            {money(coInvoice.total)} billed
+                            {coInvoice.amount_received > 0
+                              ? ` · ${money(coInvoice.amount_received)} received`
+                              : ''}
+                          </div>
+                        </a>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-[13px] font-mono tabular-nums font-semibold text-[#B45309]">
+                            {money(coInvoice.total - coInvoice.amount_received)}
+                          </div>
+                          <div className="text-[10px] text-[#9CA3AF] uppercase tracking-wider">
+                            outstanding
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="text-[13px] font-mono tabular-nums font-semibold text-[#B45309]">
-                          {money(coInvoice.total - coInvoice.amount_received)}
+                      {qbMode && (
+                        <div className="flex items-center justify-end gap-2 mt-2">
+                          {coInvoice.qbo_invoice_id ? (
+                            <span className="text-[11px] text-[#15803D]">✓ In QuickBooks</span>
+                          ) : (
+                            <button
+                              onClick={openCoPush}
+                              className="text-[11px] px-2 py-1 rounded-md border border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8] hover:bg-[#DBEAFE]"
+                            >
+                              Push to QuickBooks
+                            </button>
+                          )}
                         </div>
-                        <div className="text-[10px] text-[#9CA3AF] uppercase tracking-wider">
-                          outstanding
-                        </div>
-                      </div>
-                    </a>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1903,6 +1960,24 @@ export default function ProjectCoverPage() {
           total={qbTotal}
           onPush={pushProjectInvoiceToQb}
           onClose={() => setProjectInvoiceOpen(false)}
+        />
+      )}
+
+      {coPushOpen && coInvoice && (
+        <QbPushModal
+          kind="invoice"
+          projectName={`${project.name} — change orders`}
+          clientName={project.client_name}
+          lines={coPushLines.map((l) => ({
+            desc: l.description,
+            qty: Number(l.quantity) || 1,
+            rate: l.unit_price,
+            amount: l.amount,
+          }))}
+          scheduleRows={[]}
+          total={coPushLines.reduce((s, l) => s + (Number(l.amount) || 0), 0)}
+          onPush={pushCoInvoiceToQb}
+          onClose={() => setCoPushOpen(false)}
         />
       )}
 

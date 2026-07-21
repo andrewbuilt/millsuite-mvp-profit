@@ -44,6 +44,7 @@ export interface Invoice {
   pdf_url: string | null
   sent_at: string | null
   paid_at: string | null
+  qbo_invoice_id: string | null
   created_at: string
   updated_at: string
 }
@@ -76,7 +77,7 @@ export interface InvoicePayment {
 const INVOICE_COLUMNS =
   'id, org_id, project_id, client_id, invoice_number, invoice_date, due_date, status, ' +
   'subtotal, tax_pct, tax_amount, total, amount_received, notes, internal_notes, ' +
-  'linked_milestone_id, pdf_url, sent_at, paid_at, created_at, updated_at'
+  'linked_milestone_id, pdf_url, sent_at, paid_at, qbo_invoice_id, created_at, updated_at'
 
 const LINE_COLUMNS =
   'id, invoice_id, sort_order, description, quantity, unit, unit_price, amount, source_type, source_id'
