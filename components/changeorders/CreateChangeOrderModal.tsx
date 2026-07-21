@@ -29,6 +29,10 @@ import { LABOR_DEPTS, LABOR_DEPT_LABEL, type LaborDept } from '@/lib/rate-book-s
 export interface CoSpecLine {
   id: string
   label: string
+  /** Current qty on the line (prefills the CO qty). */
+  qty: number
+  /** Current material unit cost on the line (the "old" side of the delta). */
+  unitCost: number
 }
 
 interface Props {
@@ -86,6 +90,13 @@ export default function CreateChangeOrderModal({
     listCoMaterials(orgId).then(setMaterials)
   }, [orgId])
 
+  // Selecting a spec pulls its current qty in (the CO prices the delta on it).
+  useEffect(() => {
+    const line = specLines.find((s) => s.id === specLineId)
+    if (line) setQty(String(line.qty))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specLineId])
+
   // Close the material dropdown on outside click.
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -103,9 +114,14 @@ export default function CreateChangeOrderModal({
     return materials.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 8)
   }, [materials, materialQuery])
 
+  const selectedLine = specLines.find((s) => s.id === specLineId)
+  const oldUnit = selectedLine?.unitCost ?? 0
   const qtyN = numParse(qty) || 1
-  const unitN = moneyParse(unitCost)
-  const materialCost = qtyN * unitN
+  const newUnit = moneyParse(unitCost)
+  const oldTotal = oldUnit * qtyN
+  const newTotal = newUnit * qtyN
+  // CO material cost = the delta (new − old) × qty. Negative = a credit.
+  const materialCost = newTotal - oldTotal
   const totalHours = LABOR_DEPTS.reduce((s, d) => s + numParse(hours[d]), 0)
   const laborCost = totalHours * (Number(pricing.shopRate) || 0)
 
@@ -143,7 +159,7 @@ export default function CreateChangeOrderModal({
       proposed_line: {
         material: materialQuery.trim(),
         quantity: qtyN,
-        material_cost_per_lf: unitN,
+        material_cost_per_lf: newUnit,
         ...deptHours,
       },
       material_cost: materialCost,
@@ -246,8 +262,8 @@ export default function CreateChangeOrderModal({
             </div>
           </div>
 
-          {/* 3. Qty × unit cost = material cost */}
-          <div className="grid grid-cols-[90px_1fr_auto] gap-3 items-end">
+          {/* 3. Qty (pulled from the line) + new unit cost → material delta */}
+          <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className={label}>Qty</span>
               <input
@@ -256,9 +272,10 @@ export default function CreateChangeOrderModal({
                 inputMode="decimal"
                 className={`${field} font-mono tabular-nums text-right`}
               />
+              <span className="text-[10.5px] text-[#9CA3AF] block mt-0.5">from the spec line</span>
             </label>
             <label className="block">
-              <span className={label}>Unit cost ($)</span>
+              <span className={label}>New unit cost ($)</span>
               <input
                 value={unitCost}
                 onChange={(e) => setUnitCost(e.target.value)}
@@ -266,12 +283,27 @@ export default function CreateChangeOrderModal({
                 placeholder="0"
                 className={`${field} font-mono tabular-nums text-right`}
               />
+              <span className="text-[10.5px] text-[#9CA3AF] block mt-0.5">
+                current: ${oldUnit.toLocaleString()}/unit
+              </span>
             </label>
-            <div className="text-right pb-2">
-              <div className={label}>Material</div>
-              <div className="text-[15px] font-semibold font-mono tabular-nums text-[#111]">
-                ${Math.round(materialCost).toLocaleString()}
-              </div>
+          </div>
+
+          {/* Material delta = (new − old) × qty */}
+          <div className="px-3 py-2.5 bg-white border border-[#E5E7EB] rounded-lg text-[12px] font-mono tabular-nums">
+            <div className="flex justify-between text-[#6B7280]">
+              <span>Current material</span>
+              <span>{qtyN} × ${oldUnit.toLocaleString()} = ${Math.round(oldTotal).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-[#6B7280] mt-0.5">
+              <span>New material</span>
+              <span>{qtyN} × ${newUnit.toLocaleString()} = ${Math.round(newTotal).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between font-semibold text-[#111] mt-1 pt-1 border-t border-[#F3F4F6]">
+              <span>Material change</span>
+              <span className={materialCost < 0 ? 'text-[#B45309]' : ''}>
+                {materialCost < 0 ? '−' : ''}${Math.abs(Math.round(materialCost)).toLocaleString()}
+              </span>
             </div>
           </div>
 

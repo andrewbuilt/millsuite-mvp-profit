@@ -333,6 +333,27 @@ export default function SubprojectEditorPage() {
 
   const itemsById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
 
+  // Spec lines for the CO modal — each with its current qty + current material
+  // unit cost (from the line buildup), so a CO can price the material *delta*
+  // (new unit − old unit) × qty.
+  const coSpecLines = useMemo(
+    () =>
+      lines.map((line) => {
+        const item = line.rate_book_item_id ? itemsById.get(line.rate_book_item_id) ?? null : null
+        const opts = lineOptions.get(line.id) || []
+        const b = computeLineBuildup(line, item, opts, pricingCtx)
+        const qty = Number(line.quantity) || 1
+        const unitCost = qty > 0 ? b.materialCost / qty : b.materialCost
+        return {
+          id: line.id,
+          label: line.spec_label || line.description || item?.name || 'Line',
+          qty,
+          unitCost: Math.round(unitCost * 100) / 100,
+        }
+      }),
+    [lines, itemsById, lineOptions, pricingCtx],
+  )
+
   // ── Autocomplete ──
   const matches = useMemo(() => {
     const q = addQuery.trim().toLowerCase()
@@ -1371,13 +1392,7 @@ export default function SubprojectEditorPage() {
           subprojectId={subId}
           subprojectName={subproject.name}
           orgId={org.id}
-          specLines={lines.map((l) => ({
-            id: l.id,
-            label:
-              l.spec_label ||
-              l.description ||
-              (itemsById.get(l.rate_book_item_id ?? '')?.name ?? 'Line'),
-          }))}
+          specLines={coSpecLines}
           pricing={coPricing}
           onClose={() => setNewCoOpen(false)}
           onCreated={() => {
