@@ -1419,7 +1419,19 @@ export default function ProjectCoverPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="text-[13px] text-[#111] truncate">{co.title}</div>
-                            <div className="text-[11px] text-[#9CA3AF]">{stateLabel}</div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[11px] text-[#9CA3AF]">{stateLabel}</span>
+                              {price === 0 && co.state === 'approved' && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[#F3F4F6] text-[#6B7280]">
+                                  Applied · no invoice
+                                </span>
+                              )}
+                              {co.drawing_revision_required && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
+                                  Drawing revision required
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="text-[13px] font-mono tabular-nums font-semibold flex-shrink-0">
                             {price === 0 ? (

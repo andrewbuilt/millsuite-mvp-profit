@@ -462,6 +462,43 @@ export async function approveCo(coId: string, note?: string): Promise<void> {
   }
 }
 
+/**
+ * Free-path finalize (step 3, Andrew's 2026-07-20 model). A $0 change order
+ * needs no client price approval and produces NO invoice — it only documents
+ * the change and propagates it. Called right after createChangeOrderV2 when
+ * client_price === 0, so a free CO applies immediately instead of sitting in
+ * draft waiting for Send/Accept.
+ *
+ * Flips state → approved and runs applyApprovedCo (spec flip on the linked
+ * approval card + estimate line — the same propagation the priced Accept uses).
+ * drawing_revision_required is already stored on the row from create. Never
+ * touches any invoice — that's the priced path (step 4) only, which is why this
+ * is a separate function from approveCo rather than a call to it.
+ */
+export async function finalizeFreeCo(coId: string): Promise<void> {
+  const { error } = await supabase
+    .from('change_orders')
+    .update({ state: 'approved' as CoState, updated_at: new Date().toISOString() })
+    .eq('id', coId)
+  if (error) throw error
+  try {
+    await applyApprovedCo(coId)
+  } catch (err) {
+    console.error('finalizeFreeCo: applyApprovedCo failed (state already flipped)', err)
+  }
+  try {
+    const { data: coRow } = await supabase
+      .from('change_orders')
+      .select('project_id')
+      .eq('id', coId)
+      .maybeSingle()
+    const projectId = (coRow as { project_id: string | null } | null)?.project_id
+    if (projectId) void recomputeProjectBidTotal(projectId)
+  } catch (err) {
+    console.error('finalizeFreeCo: bid_total recompute', err)
+  }
+}
+
 export async function rejectCo(coId: string, note?: string): Promise<void> {
   const patch: any = {
     state: 'rejected' as CoState,

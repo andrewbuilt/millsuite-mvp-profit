@@ -27,6 +27,7 @@ import { X, Trash2 } from 'lucide-react'
 import {
   computeCoClientPrice,
   createChangeOrderV2,
+  finalizeFreeCo,
   listCoMaterials,
   type CoMaterial,
   type PricingInputs,
@@ -253,6 +254,18 @@ export default function CreateChangeOrderModal({
       setSaving(false)
       setError('Could not create the change order.')
       return
+    }
+    // Step 3 — free path: a $0 CO needs no client approval and no invoice. It
+    // propagates immediately (spec flip + approval card; drawing flag already
+    // stored) instead of sitting in draft for the Send/Accept lifecycle.
+    if (clientPrice === 0) {
+      try {
+        await finalizeFreeCo(co.id)
+        co.state = 'approved'
+      } catch (err) {
+        // Non-fatal: the CO row exists either way. Log and still hand back.
+        console.error('finalizeFreeCo', err)
+      }
     }
     onCreated(co)
   }
@@ -546,7 +559,7 @@ export default function CreateChangeOrderModal({
               disabled={saving}
               className="text-[13px] px-3.5 py-2 bg-[#EFF6FF] border border-[#BFDBFE] text-[#1D4ED8] font-medium rounded-lg hover:bg-[#DBEAFE] disabled:opacity-50"
             >
-              {saving ? 'Creating…' : 'Create as draft'}
+              {saving ? 'Creating…' : clientPrice === 0 ? 'Create & apply' : 'Create as draft'}
             </button>
           </div>
         </div>
