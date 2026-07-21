@@ -82,6 +82,7 @@ import {
 } from '@/lib/composer-staleness'
 import { isPresold, type ProjectStage } from '@/lib/types'
 import { CreateCoModal, type CreateCoModalSeed } from '@/components/change-orders'
+import CreateChangeOrderModal from '@/components/changeorders/CreateChangeOrderModal'
 
 // ── Formatting ──
 
@@ -170,6 +171,8 @@ export default function SubprojectEditorPage() {
   const [freeformLineId, setFreeformLineId] = useState<string | null>(null)
   // Create-CO modal seed. null = closed; non-null = open + line-seeded.
   const [coSeed, setCoSeed] = useState<CreateCoModalSeed | null>(null)
+  // New (v2) header CO modal — Andrew's direct material/labor-cost flow.
+  const [newCoOpen, setNewCoOpen] = useState(false)
   // Install prefill values — loaded + kept in sync by InstallPrefill via its
   // onChange. We hold them here so the subproject total + header strip can
   // reflect the install cost without needing to refetch.
@@ -776,6 +779,16 @@ export default function SubprojectEditorPage() {
                 </button>
               </div>
             )}
+            {/* CO entry — post-sold only (the estimate is locked; a CO is the
+                change path). Andrew's flow: header button → direct-cost modal. */}
+            {project && !isPresold(project.stage) && (
+              <button
+                onClick={() => setNewCoOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#2563EB] bg-white border border-[#2563EB] rounded-lg hover:bg-[#EFF6FF] transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Change order
+              </button>
+            )}
           </div>
 
           {/* Subproject scope — activity type (→ QB item), rich description
@@ -1348,6 +1361,20 @@ export default function SubprojectEditorPage() {
           onClose={() => setCoSeed(null)}
           onCreated={async () => {
             setCoSeed(null)
+          }}
+        />
+      )}
+
+      {newCoOpen && subproject && (
+        <CreateChangeOrderModal
+          projectId={projectId}
+          subprojectId={subId}
+          subprojectName={subproject.name}
+          pricing={coPricing}
+          onClose={() => setNewCoOpen(false)}
+          onCreated={() => {
+            setNewCoOpen(false)
+            router.push(`/projects/${projectId}`)
           }}
         />
       )}

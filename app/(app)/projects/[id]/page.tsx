@@ -95,6 +95,11 @@ import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import QbPushModal from '@/components/QbPushModal'
 import { invoicingMode } from '@/lib/org-settings'
 import { buildRichDescription, DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-description'
+import {
+  loadChangeOrdersForProject,
+  sumApprovedNetChange,
+  type ChangeOrder,
+} from '@/lib/change-orders'
 import { type EstimatePdfPayload, downloadEstimatePdf } from '@/lib/estimate-pdf'
 import SendEstimateModal from '@/components/estimates/SendEstimateModal'
 import ReparseModal from '@/components/reparse/ReparseModal'
@@ -309,6 +314,7 @@ export default function ProjectCoverPage() {
     ],
   )
   const [cards, setCards] = useState<SubCardData[]>([])
+  const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
   // Item 1 of post-sale-2: per-sub readiness map from
   // subproject_approval_status. Drives the AttentionStrip banner +
   // the subproject card badge so they don't lie about "approvals
@@ -575,6 +581,17 @@ export default function ProjectCoverPage() {
   useEffect(() => {
     reload()
   }, [reload])
+
+  // Change orders for the project (v2 flow). Loaded separately from the rollup.
+  useEffect(() => {
+    let cancelled = false
+    loadChangeOrdersForProject(projectId).then((cos) => {
+      if (!cancelled) setChangeOrders(cos)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
 
   // Recompute the derived "ready for production" gate whenever the project
   // or its approval / deposit inputs change. Read-only — production starts
@@ -1309,6 +1326,63 @@ export default function ProjectCoverPage() {
                 </div>
               )}
             </div>
+
+            {/* Change orders (v2). Created from a subproject header; listed here
+                so the project view shows scope changes + the additive total. */}
+            {changeOrders.length > 0 && (
+              <div className="mt-6">
+                <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
+                  Change orders
+                </div>
+                <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
+                  {changeOrders.map((co) => {
+                    const price = Number(co.client_price) || 0
+                    const stateLabel =
+                      co.state === 'approved'
+                        ? 'Accepted'
+                        : co.state === 'rejected'
+                          ? 'Declined'
+                          : co.state === 'sent_to_client'
+                            ? 'Sent'
+                            : co.state === 'void'
+                              ? 'Void'
+                              : 'Draft'
+                    return (
+                      <div
+                        key={co.id}
+                        className="flex items-center gap-3 px-4 py-2.5 border-b border-[#F3F4F6] last:border-b-0"
+                      >
+                        <div className="text-[11px] font-mono font-semibold text-[#6B7280] w-12 flex-shrink-0">
+                          CO-{String(co.co_number ?? 0).padStart(2, '0')}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] text-[#111] truncate">{co.title}</div>
+                          <div className="text-[11px] text-[#9CA3AF]">{stateLabel}</div>
+                        </div>
+                        <div className="text-[13px] font-mono tabular-nums font-semibold flex-shrink-0">
+                          {price === 0 ? (
+                            <span className="text-[#6B7280]">No charge</span>
+                          ) : (
+                            <span className="text-[#111]">+${price.toLocaleString()}</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {/* Additive contract total (Option A: bid_total frozen). */}
+                  {sumApprovedNetChange(changeOrders) > 0 && (
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-[#F9FAFB] border-t border-[#E5E7EB]">
+                      <span className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">
+                        + Approved change orders
+                      </span>
+                      <span className="text-[13px] font-mono tabular-nums font-semibold text-[#15803D]">
+                        +${sumApprovedNetChange(changeOrders).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* RIGHT — financial panel */}
