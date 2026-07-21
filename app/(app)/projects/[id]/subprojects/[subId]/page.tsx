@@ -81,7 +81,6 @@ import {
   findStaleLines,
 } from '@/lib/composer-staleness'
 import { isPresold, type ProjectStage } from '@/lib/types'
-import { CreateCoModal, type CreateCoModalSeed } from '@/components/change-orders'
 import CreateChangeOrderModal from '@/components/changeorders/CreateChangeOrderModal'
 
 // ── Formatting ──
@@ -169,8 +168,6 @@ export default function SubprojectEditorPage() {
   // Freeform modal — set to a line id to open. Used both for click-to-edit
   // on existing freeform rows AND for auto-open after a freeform Enter add.
   const [freeformLineId, setFreeformLineId] = useState<string | null>(null)
-  // Create-CO modal seed. null = closed; non-null = open + line-seeded.
-  const [coSeed, setCoSeed] = useState<CreateCoModalSeed | null>(null)
   // New (v2) header CO modal — Andrew's direct material/labor-cost flow.
   const [newCoOpen, setNewCoOpen] = useState(false)
   // Install prefill values — loaded + kept in sync by InstallPrefill via its
@@ -544,43 +541,6 @@ export default function SubprojectEditorPage() {
     }
   }
 
-  // Build a CreateCoModalSeed from a clicked line + its computed buildup.
-  // Locks the modal to this subproject; passes the composer's product
-  // key + slots so the modal can show a slot-aware editor (Issue 21).
-  // Lines that aren't composer-origin (no product_key) can't seed —
-  // operator can still use the top-level "+ New CO" panel button.
-  function openCoFromLine(
-    line: EstimateLine,
-    item: RateBookItemRow | null,
-    _buildup: { materialCost: number },
-  ) {
-    if (!subproject) return
-    if (!line.product_key || !line.product_slots) {
-      setAddError(
-        "Change orders from a line require a composer-built line. Use the top-level CO panel for legacy lines.",
-      )
-      return
-    }
-    const productLabel =
-      line.product_key === 'base'
-        ? 'Base cabinet'
-        : line.product_key === 'upper'
-          ? 'Upper cabinet'
-          : line.product_key === 'full'
-            ? 'Full height'
-            : line.product_key
-    setCoSeed({
-      subprojectId: subId,
-      subprojectName: subproject.name,
-      lineId: line.id,
-      productKey: line.product_key as ProductKey,
-      productSlots: line.product_slots as unknown as ComposerSlots,
-      qty: Number(line.quantity) || 0,
-      productLabel,
-      description: item?.name || line.description || productLabel,
-    })
-  }
-
   async function toggleLineOption(lineId: string, option: RateBookOptionRow) {
     const current = lineOptions.get(lineId) || []
     const already = current.some((o) => o.option.id === option.id)
@@ -747,7 +707,7 @@ export default function SubprojectEditorPage() {
               Locked — sold
             </div>
             <div className="text-[12px] text-[#1E3A8A] mt-0.5">
-              The estimate is locked. Click <b>CO</b> on any line row below
+              The estimate is locked. Use the <b>Change order</b> button above
               to draft a change order — that's the only edit path post-sale.
             </div>
           </div>
@@ -1009,20 +969,9 @@ export default function SubprojectEditorPage() {
                       {fmtMoney(b.lineTotal)}
                     </div>
                     <div className="flex items-center justify-end gap-2">
-                      {/* CO stays visible in BOTH stages — pre-sold it's
-                          optional, post-sold it's the only edit path
-                          (Issue D). */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openCoFromLine(line, item, b)
-                        }}
-                        title="Create change order from this line"
-                        className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] hover:text-[#2563EB]"
-                      >
-                        CO
-                      </button>
-                      {/* Trash gates pre-sold; CO replaces deletion post-sold. */}
+                      {/* Change orders are created from the header "Change
+                          order" button (post-sold). The old per-line "CO"
+                          link was retired. */}
                       {editable && (
                         <button
                           onClick={(e) => {
@@ -1370,21 +1319,6 @@ export default function SubprojectEditorPage() {
             setEditingLineId(null)
             const fresh = await loadEstimateLines(subId)
             setLines(fresh)
-          }}
-        />
-      )}
-
-      {coSeed && subproject && (
-        <CreateCoModal
-          projectId={projectId}
-          pricing={coPricing}
-          subprojects={[{ id: subId, name: subproject.name }]}
-          seed={coSeed}
-          composerRateBook={composerRateBook}
-          composerDefaults={composerDefaults}
-          onClose={() => setCoSeed(null)}
-          onCreated={async () => {
-            setCoSeed(null)
           }}
         />
       )}
