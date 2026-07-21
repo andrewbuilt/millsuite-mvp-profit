@@ -936,6 +936,13 @@ async function recomputeInvoiceFromPayments(invoiceId: string): Promise<Invoice>
  *  when status='sent' (not partial/paid/void/draft) and due_date is
  *  before today. List + detail views call this to show the overdue
  *  pill. */
+/** Deep link to an invoice inside QuickBooks Online (production company).
+ *  Used by the "View in QuickBooks" links once an invoice carries a
+ *  qbo_invoice_id from a push. */
+export function qbInvoiceUrl(qboInvoiceId: string): string {
+  return `https://app.qbo.intuit.com/app/invoice?txnId=${qboInvoiceId}`
+}
+
 export function isOverdue(inv: Pick<Invoice, 'status' | 'due_date'>): boolean {
   if (inv.status !== 'sent') return false
   const today = new Date().toISOString().slice(0, 10)

@@ -38,6 +38,7 @@ import {
   updateInvoiceLineItems,
   voidInvoice,
   voidInvoicePayment,
+  qbInvoiceUrl,
   INVOICE_STATUS_LABEL,
   INVOICE_STATUS_TONE,
   type Invoice,
@@ -526,9 +527,14 @@ export default function InvoiceDetailPage() {
             )}
             {qbMode && !isVoid && (
               invoice.qbo_invoice_id ? (
-                <span className="px-3 py-1.5 text-[12px] text-[#15803D] inline-flex items-center gap-1.5">
-                  ✓ In QuickBooks
-                </span>
+                <a
+                  href={qbInvoiceUrl(invoice.qbo_invoice_id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 text-[12px] text-[#15803D] hover:underline inline-flex items-center gap-1.5"
+                >
+                  ✓ View in QuickBooks ↗
+                </a>
               ) : totals.total < 0 ? (
                 <span className="px-3 py-1.5 text-[12px] text-[#B45309] inline-flex items-center gap-1.5">
                   Credit — issue a credit memo in QuickBooks
