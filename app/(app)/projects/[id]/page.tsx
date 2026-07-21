@@ -98,8 +98,13 @@ import { buildRichDescription, DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-de
 import {
   loadChangeOrdersForProject,
   sumApprovedNetChange,
+  sendCoToClient,
+  approveCo,
+  rejectCo,
+  voidCo,
   type ChangeOrder,
 } from '@/lib/change-orders'
+import { downloadChangeOrderPdf } from '@/lib/change-order-pdf'
 import { type EstimatePdfPayload, downloadEstimatePdf } from '@/lib/estimate-pdf'
 import SendEstimateModal from '@/components/estimates/SendEstimateModal'
 import ReparseModal from '@/components/reparse/ReparseModal'
@@ -583,15 +588,36 @@ export default function ProjectCoverPage() {
   }, [reload])
 
   // Change orders for the project (v2 flow). Loaded separately from the rollup.
-  useEffect(() => {
-    let cancelled = false
-    loadChangeOrdersForProject(projectId).then((cos) => {
-      if (!cancelled) setChangeOrders(cos)
-    })
-    return () => {
-      cancelled = true
-    }
+  const refreshCOs = useCallback(() => {
+    loadChangeOrdersForProject(projectId).then(setChangeOrders)
   }, [projectId])
+  useEffect(() => {
+    refreshCOs()
+  }, [refreshCOs])
+
+  const [coBusy, setCoBusy] = useState<string | null>(null)
+  async function handleCoAction(co: ChangeOrder, action: 'send' | 'accept' | 'decline' | 'delete' | 'pdf') {
+    if (coBusy) return
+    setCoBusy(co.id)
+    try {
+      if (action === 'pdf') {
+        await downloadChangeOrderPdf(co.id)
+      } else if (action === 'send') {
+        await sendCoToClient(co.id)
+      } else if (action === 'accept') {
+        await approveCo(co.id)
+      } else if (action === 'decline') {
+        await rejectCo(co.id)
+      } else if (action === 'delete') {
+        await voidCo(co.id)
+      }
+      if (action !== 'pdf') refreshCOs()
+    } catch (err: any) {
+      showToast(err?.message || 'Change order action failed.')
+    } finally {
+      setCoBusy(null)
+    }
+  }
 
   // Recompute the derived "ready for production" gate whenever the project
   // or its approval / deposit inputs change. Read-only — production starts
@@ -1347,23 +1373,74 @@ export default function ProjectCoverPage() {
                             : co.state === 'void'
                               ? 'Void'
                               : 'Draft'
+                    const busy = coBusy === co.id
+                    const dim = co.state === 'rejected' || co.state === 'void'
+                    const actBtn =
+                      'text-[11px] px-2 py-1 rounded-md border transition-colors disabled:opacity-50'
                     return (
                       <div
                         key={co.id}
-                        className="flex items-center gap-3 px-4 py-2.5 border-b border-[#F3F4F6] last:border-b-0"
+                        className={`px-4 py-2.5 border-b border-[#F3F4F6] last:border-b-0 ${dim ? 'opacity-60' : ''}`}
                       >
-                        <div className="text-[11px] font-mono font-semibold text-[#6B7280] w-12 flex-shrink-0">
-                          CO-{String(co.co_number ?? 0).padStart(2, '0')}
+                        <div className="flex items-center gap-3">
+                          <div className="text-[11px] font-mono font-semibold text-[#6B7280] w-12 flex-shrink-0">
+                            CO-{String(co.co_number ?? 0).padStart(2, '0')}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13px] text-[#111] truncate">{co.title}</div>
+                            <div className="text-[11px] text-[#9CA3AF]">{stateLabel}</div>
+                          </div>
+                          <div className="text-[13px] font-mono tabular-nums font-semibold flex-shrink-0">
+                            {price === 0 ? (
+                              <span className="text-[#6B7280]">No charge</span>
+                            ) : (
+                              <span className="text-[#111]">+${price.toLocaleString()}</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[13px] text-[#111] truncate">{co.title}</div>
-                          <div className="text-[11px] text-[#9CA3AF]">{stateLabel}</div>
-                        </div>
-                        <div className="text-[13px] font-mono tabular-nums font-semibold flex-shrink-0">
-                          {price === 0 ? (
-                            <span className="text-[#6B7280]">No charge</span>
-                          ) : (
-                            <span className="text-[#111]">+${price.toLocaleString()}</span>
+                        <div className="flex items-center gap-1.5 mt-2 pl-[60px]">
+                          <button
+                            onClick={() => handleCoAction(co, 'pdf')}
+                            disabled={busy}
+                            className={`${actBtn} border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB]`}
+                          >
+                            PDF
+                          </button>
+                          {co.state === 'draft' && (
+                            <>
+                              <button
+                                onClick={() => handleCoAction(co, 'send')}
+                                disabled={busy}
+                                className={`${actBtn} border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]`}
+                              >
+                                Send
+                              </button>
+                              <button
+                                onClick={() => handleCoAction(co, 'delete')}
+                                disabled={busy}
+                                className={`${actBtn} border-[#FECACA] text-[#B91C1C] hover:bg-[#FEF2F2]`}
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                          {co.state === 'sent_to_client' && (
+                            <>
+                              <button
+                                onClick={() => handleCoAction(co, 'accept')}
+                                disabled={busy}
+                                className={`${actBtn} border-[#BBF7D0] bg-[#DCFCE7] text-[#15803D]`}
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={() => handleCoAction(co, 'decline')}
+                                disabled={busy}
+                                className={`${actBtn} border-[#FECACA] text-[#B91C1C] hover:bg-[#FEF2F2]`}
+                              >
+                                Decline
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
