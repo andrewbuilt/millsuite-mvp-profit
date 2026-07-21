@@ -840,6 +840,11 @@ const APPROVAL_CARD_LABEL_ALIAS: Record<string, string> = {
   'Door finish': 'Exterior finish',
 }
 
+/** Human CO label for audit notes — "CO-05" when numbered, else "change order". */
+function coNumberLabel(coNumber: number | null | undefined): string {
+  return coNumber ? `CO-${String(coNumber).padStart(2, '0')}` : 'change order'
+}
+
 export async function applyApprovedCo(
   coId: string,
   opts: {
@@ -853,7 +858,7 @@ export async function applyApprovedCo(
   const { data: co, error } = await supabase
     .from('change_orders')
     .select(
-      'id, approval_item_id, subproject_id, proposed_line, original_line_snapshot, state',
+      'id, co_number, approval_item_id, subproject_id, proposed_line, original_line_snapshot, state',
     )
     .eq('id', coId)
     .maybeSingle()
@@ -971,7 +976,7 @@ export async function applyApprovedCo(
     await supabase.from('item_revisions').insert({
       approval_item_id: approvalItemId,
       action: 'material_changed',
-      note: `Applied via change order ${coId.slice(0, 8)}: ${oldDisp} → ${newDisp}`,
+      note: `Applied via ${coNumberLabel(co.co_number)}: ${oldDisp} → ${newDisp}`,
     })
 
     // 2. Update the source estimate_line's finish_specs jsonb in place.

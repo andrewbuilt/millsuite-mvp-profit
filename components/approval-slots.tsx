@@ -15,7 +15,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, Clock, Send, RotateCcw, Link2, Lock, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import { CheckCircle2, Clock, Send, RotateCcw, Link2, Lock, ChevronDown, ChevronUp } from 'lucide-react'
 import { useConfirm } from '@/components/confirm-dialog'
 import {
   ApprovalItem,
@@ -212,22 +212,8 @@ function SlotCard(p: SlotCardProps) {
           {item.state !== 'approved' && item.ball_in_court && (
             <BallChip party={item.ball_in_court} tone={tone} days={days} />
           )}
-          {/* Per-spec CO entry. Hidden when the spec is approved
-              (locked) or the spec didn't come from a composer slot.
-              Click → parent opens CreateCoModal pre-scoped to this
-              spec; CO auto-finalizes when the spec is approved. */}
-          {p.canCreateCo && (
-            <button
-              type="button"
-              onClick={p.onCreateCo}
-              disabled={p.isBusy}
-              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-[#2563EB] hover:text-[#2563EB] text-neutral-700 disabled:opacity-50"
-              title="Draft a change order on this spec — auto-approves when the spec lands"
-            >
-              <Plus className="w-3 h-3" />
-              CO
-            </button>
-          )}
+          {/* The per-spec "+ CO" button was retired — change orders are
+              created from the "Change order" button in the subproject header. */}
           <button onClick={p.onToggleExpanded} className="text-neutral-500 hover:text-neutral-800 p-1">
             {p.isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
