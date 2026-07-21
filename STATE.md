@@ -196,6 +196,12 @@ _6a-3 fully built + pushed + verified live on Boyd (below). Migrations `065` + `
 
 **Post-QB-push safety — batch-and-lock + credit flag — BUILT 2026-07-21 (`b8e6844`, tsc clean).** Andrew's decision so post-push COs never under-bill: a CO invoice **locks once pushed to QB** (`findCoInvoiceId` returns only the open, un-pushed, non-void invoice) → the next accepted CO opens a **fresh** CO invoice. Each QB invoice is pushed exactly once; MillSuite always matches QB. Project page now lists **all** CO invoices per project, each with its own outstanding + QB status ("Not in QuickBooks yet" + Push, or "✓ In QuickBooks"). A **net-credit batch** (total < 0) can't be a QB invoice → flagged "issue a credit memo in QuickBooks for $X" (project row + invoice detail), operator handles the credit memo by hand. _Live QB test still pending Andrew._
 
+**Project-page UI pass — 2026-07-21 (Andrew, QB push confirmed working live):** (`280f97e`, `c028949`)
+- **"View in QuickBooks ↗" links** on pushed invoices (CO rows + invoice detail) via `qbInvoiceUrl` (prod QBO deep link `app.qbo.intuit.com/app/invoice?txnId=`).
+- **CO list collapsible** — collapsed header shows "N total · N open · $X approved"; defaults collapsed.
+- **Bottom stage action bar removed.** Estimate actions (Email / Download / Mark-as-sent + Sent-date) moved onto the Documents "Estimate" row. Stage button (Mark as sold / Start production / Mark installed / Mark complete / Complete) + Pre-production link moved **below the Project price** in the financial panel.
+- **Removed "Start tracking" + "+ Create project invoice" links.** Contract-invoice creation preserved as a "Create" action in the Documents section (shown only when no contract invoice exists yet) so the QB/internal invoice flow isn't lost.
+
 **Demo-feedback fixes — 2026-07-21 (Andrew, after eyeballing 4a/4b live):**
 - **Approval-card audit note** (`5650336`) — the sample-history note now reads "Applied via CO-05: …" instead of the raw UUID prefix; **"+ CO" button removed from the pre-production approval cards** (COs come from the subproject header button).
 - **Push to QB on the invoice detail page** (`f959eb5`) — `/invoices/{id}` gets a "Push to QuickBooks" button (QB mode, not-yet-pushed) → "✓ In QuickBooks" once done. General (works for CO + contract invoices); lines map to the default QB item.
