@@ -329,6 +329,34 @@ export async function createChangeOrder(
   return data as ChangeOrder
 }
 
+/** Rate-book materials for the CO modal's "new material" autocomplete. Distinct
+ *  material names across the org's rate-book variants, with a representative
+ *  cost/LF. Empty until the org's rate book has materials. */
+export interface CoMaterial {
+  name: string
+  costPerLf: number
+}
+export async function listCoMaterials(orgId: string): Promise<CoMaterial[]> {
+  const { data, error } = await supabase
+    .from('rate_book_material_variants')
+    .select('material_name, material_cost_per_lf, rate_book_items!inner(org_id)')
+    .eq('rate_book_items.org_id', orgId)
+  if (error) {
+    console.error('listCoMaterials', error)
+    return []
+  }
+  const byName = new Map<string, number>()
+  for (const r of (data || []) as any[]) {
+    const name = String(r.material_name || '').trim()
+    if (!name) continue
+    const cost = Number(r.material_cost_per_lf) || 0
+    if (!byName.has(name)) byName.set(name, cost)
+  }
+  return Array.from(byName.entries())
+    .map(([name, costPerLf]) => ({ name, costPerLf }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
 /** Next sequential CO number for a project (CO-01, CO-02, …). */
 async function nextCoNumber(projectId: string): Promise<number> {
   const { data } = await supabase

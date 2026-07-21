@@ -1,32 +1,42 @@
 'use client'
 
 // ============================================================================
-// CreateChangeOrderModal — Andrew's 2026-07-20 CO flow.
+// CreateChangeOrderModal — Andrew's 2026-07-20 CO flow (v2 modal, 07-21 rework).
 // ============================================================================
-// Launched from the subproject header (sold onward). The operator describes the
-// change, sets the new material/finish, and enters material + labor cost; the
-// modal prices it through the project margins (computeCoClientPrice) and shows
-// the client price prominently — editable, because Andrew's default is "any
-// cost difference gets billed; $0 is only for a true no-cost swap." Saves a
-// draft CO (createChangeOrderV2); the downstream send / accept / bill flow is
-// later slices.
+// Launched from the subproject header (sold onward).
+//   1. Current Spec — dropdown of the subproject's spec lines (which is changing)
+//   2. New material — type-ahead against the rate-book materials
+//   3. Qty — multiplier on the material unit cost
+//   4. Labor — per-department hours (eng/cnc/assembly/finish/install) that roll
+//      up into one labor line at the shop rate
+// Material cost = qty × unit cost; labor cost = Σ hours × shop rate; the client
+// price runs both through the project margins (editable; $0 = no-charge). Saves
+// a draft CO (createChangeOrderV2), stashing the detail in the snapshot jsonb.
 // ============================================================================
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import {
   computeCoClientPrice,
   createChangeOrderV2,
+  listCoMaterials,
+  type CoMaterial,
   type PricingInputs,
   type ChangeOrder,
 } from '@/lib/change-orders'
+import { LABOR_DEPTS, LABOR_DEPT_LABEL, type LaborDept } from '@/lib/rate-book-seed'
+
+export interface CoSpecLine {
+  id: string
+  label: string
+}
 
 interface Props {
   projectId: string
   subprojectId: string
   subprojectName: string
-  /** Current spec being changed (prefill for "what's changing"), optional. */
-  currentSpec?: string | null
+  orgId: string
+  specLines: CoSpecLine[]
   pricing: PricingInputs
   onClose: () => void
   onCreated: (co: ChangeOrder) => void
@@ -36,62 +46,110 @@ function moneyParse(input: string): number {
   const n = parseFloat(input.replace(/[$,\s]/g, ''))
   return Number.isFinite(n) ? n : 0
 }
+function numParse(input: string): number {
+  const n = parseFloat(input)
+  return Number.isFinite(n) ? n : 0
+}
+const emptyHours: Record<LaborDept, string> = {
+  eng: '',
+  cnc: '',
+  assembly: '',
+  finish: '',
+  install: '',
+}
 
 export default function CreateChangeOrderModal({
   projectId,
   subprojectId,
   subprojectName,
-  currentSpec,
+  orgId,
+  specLines,
   pricing,
   onClose,
   onCreated,
 }: Props) {
-  const [title, setTitle] = useState('')
-  const [oldSpec, setOldSpec] = useState(currentSpec || '')
-  const [newMaterial, setNewMaterial] = useState('')
-  const [materialCost, setMaterialCost] = useState('')
-  const [laborCost, setLaborCost] = useState('')
+  const [specLineId, setSpecLineId] = useState(specLines[0]?.id ?? '')
+  const [materialQuery, setMaterialQuery] = useState('')
+  const [materials, setMaterials] = useState<CoMaterial[]>([])
+  const [showMatList, setShowMatList] = useState(false)
+  const [unitCost, setUnitCost] = useState('')
+  const [qty, setQty] = useState('1')
+  const [hours, setHours] = useState<Record<LaborDept, string>>(emptyHours)
   const [priceInput, setPriceInput] = useState('')
   const [priceTouched, setPriceTouched] = useState(false)
   const [drawingRev, setDrawingRev] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const matBoxRef = useRef<HTMLDivElement>(null)
 
-  const matN = moneyParse(materialCost)
-  const labN = moneyParse(laborCost)
+  useEffect(() => {
+    listCoMaterials(orgId).then(setMaterials)
+  }, [orgId])
 
-  // Suggested client price = material + labor through the project margins.
+  // Close the material dropdown on outside click.
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (matBoxRef.current && !matBoxRef.current.contains(e.target as Node)) {
+        setShowMatList(false)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  const matMatches = useMemo(() => {
+    const q = materialQuery.trim().toLowerCase()
+    if (!q) return materials.slice(0, 8)
+    return materials.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 8)
+  }, [materials, materialQuery])
+
+  const qtyN = numParse(qty) || 1
+  const unitN = moneyParse(unitCost)
+  const materialCost = qtyN * unitN
+  const totalHours = LABOR_DEPTS.reduce((s, d) => s + numParse(hours[d]), 0)
+  const laborCost = totalHours * (Number(pricing.shopRate) || 0)
+
   const suggested = useMemo(
-    () => computeCoClientPrice(matN, labN, pricing),
-    [matN, labN, pricing],
+    () => computeCoClientPrice(materialCost, laborCost, pricing),
+    [materialCost, laborCost, pricing],
   )
-
-  // Keep the price field synced to the suggestion until the user edits it.
   useEffect(() => {
     if (!priceTouched) setPriceInput(suggested ? String(suggested) : '')
   }, [suggested, priceTouched])
 
   const clientPrice = priceTouched ? moneyParse(priceInput) : suggested
   const isFree = clientPrice === 0
-  const internalCostDelta = matN + labN // free-CO margin erosion
+
+  const specLabel = specLines.find((s) => s.id === specLineId)?.label ?? ''
 
   async function handleSave() {
-    if (!title.trim()) {
-      setError('Describe what’s changing.')
+    if (!specLineId) {
+      setError('Pick the spec that’s changing.')
+      return
+    }
+    if (!materialQuery.trim()) {
+      setError('Enter the new material.')
       return
     }
     setSaving(true)
     setError(null)
+    const deptHours: Record<string, number> = {}
+    for (const d of LABOR_DEPTS) deptHours[`labor_hours_${d}`] = numParse(hours[d])
     const co = await createChangeOrderV2({
       project_id: projectId,
       subproject_id: subprojectId,
-      title: title.trim(),
-      original_line_snapshot: oldSpec.trim() ? { label: oldSpec.trim() } : {},
-      proposed_line: newMaterial.trim() ? { material: newMaterial.trim() } : {},
-      material_cost: matN,
-      labor_cost: labN,
+      title: `${specLabel} → ${materialQuery.trim()}`,
+      original_line_snapshot: { label: specLabel, notes: specLineId },
+      proposed_line: {
+        material: materialQuery.trim(),
+        quantity: qtyN,
+        material_cost_per_lf: unitN,
+        ...deptHours,
+      },
+      material_cost: materialCost,
+      labor_cost: laborCost,
       client_price: clientPrice,
-      internal_cost_delta: isFree ? internalCostDelta : null,
+      internal_cost_delta: isFree ? materialCost + laborCost : null,
       drawing_revision_required: drawingRev,
     })
     if (!co) {
@@ -112,7 +170,7 @@ export default function CreateChangeOrderModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[520px] bg-white rounded-2xl shadow-xl"
+        className="w-full max-w-[540px] bg-white rounded-2xl shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
@@ -126,69 +184,130 @@ export default function CreateChangeOrderModal({
         </div>
 
         <div className="px-5 py-4 space-y-4">
+          {/* 1. Current spec — which line is changing */}
           <label className="block">
-            <span className={label}>What’s changing</span>
-            <input
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Upgrade doors from maple to walnut"
-              className={field}
-            />
+            <span className={label}>Current spec</span>
+            {specLines.length > 0 ? (
+              <select
+                value={specLineId}
+                onChange={(e) => setSpecLineId(e.target.value)}
+                className={`${field} bg-white`}
+              >
+                {specLines.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="mt-1 text-[12.5px] text-[#9CA3AF] italic">
+                No spec lines on this subproject.
+              </div>
+            )}
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className={label}>Current spec</span>
+          {/* 2. New material — rate-book type-ahead */}
+          <div className="block" ref={matBoxRef}>
+            <span className={label}>New material</span>
+            <div className="relative">
               <input
-                value={oldSpec}
-                onChange={(e) => setOldSpec(e.target.value)}
-                placeholder="e.g. Maple"
+                value={materialQuery}
+                onChange={(e) => {
+                  setMaterialQuery(e.target.value)
+                  setShowMatList(true)
+                }}
+                onFocus={() => setShowMatList(true)}
+                placeholder="Start typing — e.g. Walnut"
                 className={field}
               />
-            </label>
-            <label className="block">
-              <span className={label}>New material / finish</span>
-              <input
-                value={newMaterial}
-                onChange={(e) => setNewMaterial(e.target.value)}
-                placeholder="e.g. Walnut"
-                className={field}
-              />
-            </label>
+              {showMatList && matMatches.length > 0 && (
+                <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-[#E5E7EB] rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                  {matMatches.map((m) => (
+                    <button
+                      key={m.name}
+                      type="button"
+                      onClick={() => {
+                        setMaterialQuery(m.name)
+                        if (m.costPerLf > 0) setUnitCost(String(m.costPerLf))
+                        setShowMatList(false)
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-[#F9FAFB] flex items-center justify-between gap-3"
+                    >
+                      <span className="text-[#111] truncate">{m.name}</span>
+                      {m.costPerLf > 0 && (
+                        <span className="text-[11px] font-mono tabular-nums text-[#9CA3AF] flex-shrink-0">
+                          ${m.costPerLf}/lf
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* 3. Qty × unit cost = material cost */}
+          <div className="grid grid-cols-[90px_1fr_auto] gap-3 items-end">
             <label className="block">
-              <span className={label}>Material cost ($)</span>
+              <span className={label}>Qty</span>
               <input
-                value={materialCost}
-                onChange={(e) => setMaterialCost(e.target.value)}
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                inputMode="decimal"
+                className={`${field} font-mono tabular-nums text-right`}
+              />
+            </label>
+            <label className="block">
+              <span className={label}>Unit cost ($)</span>
+              <input
+                value={unitCost}
+                onChange={(e) => setUnitCost(e.target.value)}
                 inputMode="decimal"
                 placeholder="0"
                 className={`${field} font-mono tabular-nums text-right`}
               />
             </label>
-            <label className="block">
-              <span className={label}>Labor cost ($)</span>
-              <input
-                value={laborCost}
-                onChange={(e) => setLaborCost(e.target.value)}
-                inputMode="decimal"
-                placeholder="0"
-                className={`${field} font-mono tabular-nums text-right`}
-              />
-            </label>
+            <div className="text-right pb-2">
+              <div className={label}>Material</div>
+              <div className="text-[15px] font-semibold font-mono tabular-nums text-[#111]">
+                ${Math.round(materialCost).toLocaleString()}
+              </div>
+            </div>
           </div>
 
-          {/* Client price — the billed number, prominent (Andrew: any cost
-              difference gets billed; $0 = a true no-cost swap only). */}
+          {/* 4. Labor by department → one rolled-up labor line */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className={label}>Labor — hours by department</span>
+              <span className="text-[11px] font-mono tabular-nums text-[#6B7280]">
+                {totalHours.toFixed(1)} hr · ${Math.round(laborCost).toLocaleString()}
+              </span>
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              {LABOR_DEPTS.map((d) => (
+                <label key={d} className="block">
+                  <span className="text-[9.5px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+                    {LABOR_DEPT_LABEL[d]}
+                  </span>
+                  <input
+                    value={hours[d]}
+                    onChange={(e) => setHours((h) => ({ ...h, [d]: e.target.value }))}
+                    inputMode="decimal"
+                    placeholder="0"
+                    className="mt-1 w-full px-2 py-1.5 text-sm font-mono tabular-nums text-center border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Client price */}
           <div className="px-3 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <span className={label}>Client price</span>
                 <div className="text-[11px] text-[#9CA3AF] mt-0.5">
-                  Material + labor through your margins. Set to $0 for a no-charge change.
+                  Material + labor through your margins. $0 = no-charge change.
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -208,10 +327,7 @@ export default function CreateChangeOrderModal({
             {priceTouched && suggested !== clientPrice && (
               <button
                 type="button"
-                onClick={() => {
-                  setPriceTouched(false)
-                  setError(null)
-                }}
+                onClick={() => setPriceTouched(false)}
                 className="mt-2 text-[11px] font-semibold text-[#2563EB] hover:text-[#1D4ED8]"
               >
                 Reset to suggested (${suggested.toLocaleString()})
@@ -221,9 +337,7 @@ export default function CreateChangeOrderModal({
               {isFree ? (
                 <span className="text-[#6B7280]">No charge — free change (paper trail only)</span>
               ) : (
-                <span className="text-[#15803D]">
-                  Billed: ${clientPrice.toLocaleString()}
-                </span>
+                <span className="text-[#15803D]">Billed: ${clientPrice.toLocaleString()}</span>
               )}
             </div>
           </div>

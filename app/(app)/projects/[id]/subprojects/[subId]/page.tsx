@@ -1365,11 +1365,19 @@ export default function SubprojectEditorPage() {
         />
       )}
 
-      {newCoOpen && subproject && (
+      {newCoOpen && subproject && org?.id && (
         <CreateChangeOrderModal
           projectId={projectId}
           subprojectId={subId}
           subprojectName={subproject.name}
+          orgId={org.id}
+          specLines={lines.map((l) => ({
+            id: l.id,
+            label:
+              l.spec_label ||
+              l.description ||
+              (itemsById.get(l.rate_book_item_id ?? '')?.name ?? 'Line'),
+          }))}
           pricing={coPricing}
           onClose={() => setNewCoOpen(false)}
           onCreated={() => {
