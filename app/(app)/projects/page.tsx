@@ -102,6 +102,7 @@ export default function ProjectsPage() {
 
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [enriched, setEnriched] = useState<Record<string, Enriched>>({})
+  const [coOpen, setCoOpen] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
 
   const [query, setQuery] = useState('')
@@ -123,6 +124,21 @@ export default function ProjectsPage() {
       const rows = (data || []) as ProjectRow[]
       if (cancelled) return
       setProjects(rows)
+
+      // Open change orders (draft / sent) per project — for the card badge.
+      supabase
+        .from('change_orders')
+        .select('project_id, projects!inner(org_id)')
+        .eq('projects.org_id', orgId)
+        .in('state', ['draft', 'sent_to_client'])
+        .then(({ data: cos }) => {
+          if (cancelled) return
+          const counts: Record<string, number> = {}
+          for (const c of (cos || []) as { project_id: string }[]) {
+            counts[c.project_id] = (counts[c.project_id] || 0) + 1
+          }
+          setCoOpen(counts)
+        })
 
       // Enrich each project once. Hours for all; readiness only for sold
       // projects (the only ones that split into pre vs. ready). Per-project
@@ -309,6 +325,7 @@ export default function ProjectsPage() {
               key={p.id}
               project={p}
               enriched={enriched[p.id]}
+              openCos={coOpen[p.id] || 0}
               onOpen={() => router.push(`/projects/${p.id}`)}
             />
           ))}
@@ -334,13 +351,17 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 function ProjectCard({
   project: p,
   enriched: e,
+  openCos,
   onOpen,
 }: {
   project: ProjectRow
   enriched: Enriched | undefined
+  openCos: number
   onOpen: () => void
 }) {
   const pill = e ? BUCKET_PILL[e.bucket] : null
+  // A CO on an in-production job is the loud case.
+  const coInProduction = p.stage === 'production' || p.stage === 'installed'
   return (
     <button
       onClick={onOpen}
@@ -351,14 +372,30 @@ function ProjectCard({
         <span className="font-semibold text-[#111] text-[14px] leading-tight">
           {p.name}
         </span>
-        {pill && (
-          <span
-            className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded-full border flex-shrink-0"
-            style={{ background: pill.bg, color: pill.fg, borderColor: pill.border }}
-          >
-            {pill.label}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {openCos > 0 && (
+            <span
+              className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded-full border"
+              style={
+                coInProduction
+                  ? { background: '#FEE2E2', color: '#B91C1C', borderColor: '#FCA5A5' }
+                  : { background: '#FFFBEB', color: '#92400E', borderColor: '#FDE68A' }
+              }
+              title={`${openCos} open change order${openCos === 1 ? '' : 's'}`}
+            >
+              {coInProduction ? '⚠ ' : ''}
+              {openCos} CO
+            </span>
+          )}
+          {pill && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded-full border"
+              style={{ background: pill.bg, color: pill.fg, borderColor: pill.border }}
+            >
+              {pill.label}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Line 2: client */}

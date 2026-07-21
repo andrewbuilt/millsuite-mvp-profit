@@ -1113,6 +1113,37 @@ export default function ProjectCoverPage() {
 
       {!isPresold(project.stage) && <SoldLockBanner projectId={projectId} />}
       {org && org.shop_rate == null && <ShopRateNotConfiguredBanner />}
+      {(() => {
+        const openCos = changeOrders.filter(
+          (c) => c.state === 'draft' || c.state === 'sent_to_client',
+        )
+        if (openCos.length === 0) return null
+        // A CO on an in-production job is a big deal → loud red.
+        const inProduction = project.stage === 'production' || project.stage === 'installed'
+        const n = openCos.length
+        return (
+          <div className="px-8 pt-4">
+            <div
+              className={`max-w-[1240px] mx-auto px-4 py-3 rounded-xl border ${
+                inProduction
+                  ? 'bg-[#FEF2F2] border-[#FCA5A5]'
+                  : 'bg-[#FFFBEB] border-[#FDE68A]'
+              }`}
+            >
+              <div className={`text-[13px] font-semibold ${inProduction ? 'text-[#B91C1C]' : 'text-[#92400E]'}`}>
+                {inProduction ? '⚠ ' : ''}
+                {n} open change order{n === 1 ? '' : 's'}
+                {inProduction ? ' on an in-production job' : ''}
+              </div>
+              <div className={`text-[12px] mt-0.5 ${inProduction ? 'text-[#991B1B]' : 'text-[#78350F]'}`}>
+                {inProduction
+                  ? 'Review before it affects work already underway — send + get client sign-off, then Accept below.'
+                  : 'Send them to the client and Accept once approved (in the Change orders section below).'}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Main grid */}
       <div className="px-8 py-6">
