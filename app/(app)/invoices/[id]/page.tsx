@@ -49,6 +49,8 @@ import { downloadInvoicePdf } from '@/lib/invoice-pdf'
 import SendInvoiceModal from '@/components/invoices/SendInvoiceModal'
 import RecordPaymentModal from '@/components/invoices/RecordPaymentModal'
 import { supabase } from '@/lib/supabase'
+import { invoicingMode } from '@/lib/org-settings'
+import { DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-description'
 
 // react-pdf's <PDFViewer> needs to be client-only. The viewer file
 // imports react-pdf's browser entry, which trips SSR if loaded
@@ -132,6 +134,8 @@ export default function InvoiceDetailPage() {
   const [sendModalOpen, setSendModalOpen] = useState(false)
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
+  const [qbMode, setQbMode] = useState(false)
+  const [pushingQb, setPushingQb] = useState(false)
   // Record-payment modal: null = closed, an empty object = create
   // mode, an InvoicePayment row = edit mode for that row.
   const [paymentModal, setPaymentModal] = useState<
@@ -176,13 +180,14 @@ export default function InvoiceDetailPage() {
         const { data: org } = await supabase
           .from('orgs')
           .select(
-            'name, business_address, business_city, business_state, business_zip, business_phone, business_email, invoice_email_template',
+            'name, business_address, business_city, business_state, business_zip, business_phone, business_email, invoice_email_template, invoicing_mode',
           )
           .eq('id', user.org_id)
           .single()
         if (!cancelled && org) {
           setOrgHeader(org as OrgInvoiceHeader)
           setEmailTemplate((org as any).invoice_email_template ?? null)
+          setQbMode(invoicingMode(org as any) === 'quickbooks')
         }
 
         const { data: proj } = await supabase
@@ -346,6 +351,49 @@ export default function InvoiceDetailPage() {
     }
   }
 
+  // Push this invoice to QuickBooks (QB mode, not yet pushed). Mirrors the
+  // project-page push: creates a QB invoice from the current lines and stamps
+  // qbo_invoice_id back so incoming payments can match. Lines map to the org's
+  // default QB item (invoice lines don't carry a per-line activity type).
+  async function handlePushToQb() {
+    if (!invoice) return
+    setError(null)
+    setPushingQb(true)
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const res = await fetch('/api/qb/push-invoice', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({
+          projectId: invoice.project_id,
+          invoiceId: invoice.id,
+          customerName: client?.name,
+          lineItems: lines.map((l) => ({
+            activityType: DEFAULT_ACTIVITY_TYPE,
+            description: l.description,
+            amount: +(l.quantity * l.unit_price).toFixed(2),
+            qty: l.quantity || 1,
+            unitPrice: l.unit_price,
+          })),
+          memo: invoice.notes || undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'QuickBooks push failed')
+      const refreshed = await getInvoice(invoice.id)
+      if (refreshed) setInvoice(refreshed.invoice)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to push to QuickBooks')
+    } finally {
+      setPushingQb(false)
+    }
+  }
+
   async function handleVoid() {
     if (!invoice) return
     const ok = await confirm({
@@ -475,6 +523,21 @@ export default function InvoiceDetailPage() {
               >
                 <CreditCard className="w-3.5 h-3.5" /> Record payment
               </button>
+            )}
+            {qbMode && !isVoid && (
+              invoice.qbo_invoice_id ? (
+                <span className="px-3 py-1.5 text-[12px] text-[#15803D] inline-flex items-center gap-1.5">
+                  ✓ In QuickBooks
+                </span>
+              ) : (
+                <button
+                  onClick={handlePushToQb}
+                  disabled={pushingQb || lines.length === 0}
+                  className="px-3 py-1.5 text-[12px] font-medium text-[#1D4ED8] border border-[#BFDBFE] bg-[#EFF6FF] hover:bg-[#DBEAFE] rounded-md inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {pushingQb ? 'Pushing…' : 'Push to QuickBooks'}
+                </button>
+              )
             )}
             {!isVoid && (
               <button
