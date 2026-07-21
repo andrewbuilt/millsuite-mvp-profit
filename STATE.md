@@ -10,10 +10,9 @@
 
 ## ⛔ CURRENT FOCUS — read this first (set by Andrew, 2026-07-18)
 
-**Boyd signed off 2026-07-18.** Migration machinery is done and verified — full 85-project run **PARKED until Andrew's todo queue ships**, then he says go.
-- **Andrew's queue (On deck): items 1–6 SHIPPED 2026-07-20.** Only **item 7** remains — Installation & terms as their own modal/object — and it's **Cowork-planning only (do NOT build from the queue line)**. So the queue is effectively clear pending that planning pass.
-- Do NOT run the full migration yet. It runs only when Andrew explicitly says so.
-- Next natural step: Andrew verifies the shipped queue items, decides on item 7 (plan in Cowork) and/or gives the go-ahead for the full migration run.
+**Boyd signed off 2026-07-18. Queue items 1–6 shipped 2026-07-20. Item 7 (Installation & terms modal) is fully scoped but BACK-BURNERED by Andrew 2026-07-20 — do not build until he brings it back.**
+- **Active list = "Demo feedback queue" (On deck, added 2026-07-20).** Each item gets a dig-deeper pass with Andrew (Cowork) before building — none are build-ready as written except where the entry says otherwise.
+- Do NOT run the full 85-project migration yet. It runs only when Andrew explicitly says so.
 
 **How to communicate with Andrew (applies to every session):**
 - Plain language. Short. No long explanations or jargon walls.
@@ -154,23 +153,38 @@ _6a-3 fully built + pushed + verified live on Boyd (below). Migrations `065` + `
 
 ## Parked — resume later
 
-### Change Orders — finish the last mile  _(estimates+invoices rebuild landed & live 2026-06-19; this is what's left of the item)_
+### Change Orders — RESUMED + rescoped with Andrew 2026-07-20 (demo feedback queue item 4; Cowork planning pass)
 
-**⏸ PAUSED — Andrew is getting his team's input before we build this.** The review + plan below are ready to resume when he's back. (Key open question from the review: how COs are created/surfaced — the engine is slot/line-seeded from the pre-production page, not a free-form modal — and how an approved CO bills as its own invoice.)
+**Andrew's model — two situations, ONE flow:**
+- **Situation 1, free change** (e.g. SW White Flour → Farrow & Ball white): no charge to client, but must propagate everywhere + leave a paper trail.
+- **Situation 2, priced change** (e.g. maple → walnut): same propagation, but needs a priced mini-estimate the client approves BEFORE anything moves, then billing.
 
-The estimates-in-MillSuite + invoices-to-QB rebuild is **done and live** (see "Where things stand"). The remaining piece is **Change Orders**, which are **~80% already built** — schema `002_preprod_approval_schema.sql` (+ RLS `018`; `client_invoice_line_items.source_type` includes `'change_order'` in `041`), logic `lib/change-orders.ts` (`loadChangeOrdersForProject`/`createChangeOrder`/`approveCo`/`rejectCo`/`voidCo`/`sumApprovedNetChange`), UI `components/change-orders.tsx`, manual billing via `AddLineItemPicker` "From change order". It's just **not mounted on the main project page**.
+**Decisions from the planning pass (defaults Andrew can flip with one line):**
+- One entry point: a **"Change"** action on a spec/line (the engine is already slot/line-seeded — keep that) → describe change → **"Does this change the price?"** branch.
+- **Free CO:** record CO (price $0) + optional **internal cost-delta field** (SW→F&B is free to the client but not to us — track margin erosion) → propagate immediately → re-issue the approval card → flag a **drawing revision required** (we flag it, we don't pretend to edit drawings) → add a **$0 line to the contract invoice** ("CO-01 — finish changed to …"): documents the change on paper the client has, amounts untouched, QB-safe.
+- **Priced CO:** draft mini-estimate (same pricing engine, cost + margin) → send PDF (estimate-style) → **client approves by reply; internal mark-approved** (`approveCo()`, no client portal in v1) → ONLY THEN propagate + approval card + drawing flag → bill to a **rolling per-project CO invoice** (one CO invoice per project, approved COs append as lines — not N tiny invoices; QB mode pushes/updates it like the contract flow, `source_type='change_order'` lines already exist in 041).
+- **Sequencing rule (hard):** priced CO touches NO project data until approved. Free CO propagates immediately.
+- **Contract invoice amounts are NEVER edited** (payments/QB watcher match against it). Display stays **Option A**: "Original contract / + approved COs / = current" via `sumApprovedNetChange`; `bid_total` frozen.
 
-**Model (locked):** a CO is a separate estimate for added/changed scope, created during production, approved (internal mark), then billed as **its own separate invoice** — never edits the contract invoice. Contract total uses **Option A**: `bid_total` frozen; approved COs shown additively (`sumApprovedNetChange`).
+**Already built (~80%, from June):** schema `002` (+ RLS `018`, `041` line source_type), `lib/change-orders.ts` (create/approve/reject/void/sum), `components/change-orders.tsx`, `AddLineItemPicker` "From change order". Not mounted on the project page.
+
+**Andrew's flow (2026-07-20, confirmed with corrections):** client requests change → **CO button in the subproject header** (consistent spot, available from `sold` onward — pre-production COs are real) → modal: pick the finish/material spec that's changing, set the new material (type a name; picking from a unified materials list = later, ties to the rate-book upgrade), enter **material cost + labor cost** → modal shows the **client price through the project margins** (override allowed). **Default expectation (Andrew): any cost difference gets billed — $0 is only for true no-cost swaps**, so the modal should make the billed price prominent, not buried → save → **dedicated CO PDF** (its own template, NOT the estimate template) → email to client (reuse queue-6 send/mark-sent pattern) → client approves verbally/email → **mark Accepted** (Decline + Delete also; statuses exist) → **priced: line lands on the rolling per-project CO invoice → QB. Free ($0): NO invoice at all** — the CO record + PDF is the paper trail → project financials show the CO below the project price and **re-tally the total** (Option A: `bid_total` frozen, `sumApprovedNetChange` additive) + a **receivable row in the payment/milestone section** so it shows as outstanding → **new approval card on the pre-pro page** for the changed spec (price approval ≠ finish approval — the card tracks the finish) → materials approved → production. **Guard: a CO during production gates only its own card/work, never re-locks the project.** Propagation (subproject spec data, approval card, drawing-revision flag) runs on Accept for priced COs, immediately for free ones. Drawings: flag/checklist only — nobody expects the system to edit drawings.
+
+#### Build progress (2026-07-21) — **migration `067` run on prod** (change_orders v2 cols: co_number, material_cost, labor_cost, client_price, internal_cost_delta, drawing_revision_required, co_invoice_id). `lib/change-orders`: `computeCoClientPrice` + `createChangeOrderV2` (`6d73761`).
 
 #### Build (commit each)
-1. **Surface it** on `app/(app)/projects/[id]/page.tsx`: mount `ChangeOrders` + a free-form "+ New change order", gated to production+ (`!isPresold(stage)`).
-2. **Contract-total display (Option A):** "Original contract / + approved COs / = current" via `sumApprovedNetChange(cos)`. Display only; `bid_total` doesn't move.
-3. **CO PDF:** clone the estimate PDF (`components/estimates/EstimatePdf.tsx` + `app/api/estimates/[projectId]/pdf`) → `components/changeorders/ChangeOrderPdf.tsx` + `app/api/change-orders/[id]/pdf/route.ts` + `lib/change-order-pdf.ts`; "Download PDF" per CO.
-4. **One-click billing on approval:** `buildInvoiceFromChangeOrder(coId)` in `lib/change-orders.ts`. Approved, not-yet-invoiced CO → **Internal:** `CreateInvoiceModal` seeded with the CO line; **QB:** mirror the project-invoice flow (push to QB → record the MillSuite invoice → link `qbo_invoice_id`). Guard void/decline once billed. CO = its own separate invoice; never edits the contract invoice.
+1. ✅ **Mount + entry point** (`d0da11c`): `CreateChangeOrderModal` (describe change → current spec/new material → material+labor cost → margin-priced client price, editable, $0=no-charge → drawing-rev checkbox); **"Change order" button in the subproject header, post-sold only**; change-orders list on the project page (CO-0N, title, state, price/"No charge" + additive approved total, Option A). _Old per-line CO buttons + line-seeded `CreateCoModal` left in place — remove once the new flow is signed off._
+2. **CO PDF (own template)** — `components/changeorders/ChangeOrderPdf.tsx` + route: header "Change Order #N", project/client, old → new spec, price delta (or "No charge"), accept-by line. Not a restyled estimate.
+3. **Free path:** $0 CO + internal cost-delta field (migration) + immediate propagation + approval card + drawing flag. No invoice.
+4. **Priced path:** accept → propagation + rolling CO invoice (create on first accepted CO; QB push mirrors contract flow) + financials re-tally + receivable row ("CO-01 — $4,200 outstanding") in the payment section.
+5. **CO dashboard:** open-CO roster like the estimates list — date, project, client, delta, status (draft/sent/accepted/declined), search/filter — next to Estimates + Invoices.
+6. **Open-CO flags:** badge on the project card (projects dashboard) + banner on the project detail page while any CO is draft/sent. **A CO on an in-production project is rare = a major issue (Andrew): escalate to a loud red warning** — red banner on the project detail + red badge on the card, visually distinct from the normal open-CO flag.
+7. **Documents section** on project detail: Estimate, contract invoice, CO invoice, Drive folder + **"+ document link"** for arbitrary Drive/file URLs (small `project_documents` table or jsonb, idempotent migration).
+8. ~~Approval-card rework~~ — **DROPPED from this project (Andrew 2026-07-20): current cards are fine for now.** Revisit down the road if needed; COs use the existing cards as-is.
 
-Keep simple: internal mark-approved stays (`approveCo()`); don't reuse `lib/approvals.ts` (spec-sample sign-off); leave the slot-seeded spec-CO write-back alone.
+Keep simple: don't reuse `lib/approvals.ts` (spec-sample sign-off); leave the slot-seeded spec-CO write-back alone.
 
-**Verify:** create → approve → bills as its own invoice (QB: new QB invoice / internal: prefilled); contract invoice untouched; double-billing blocked; CO total shows additively.
+**Verify (live, with Andrew, one at a time):** (a) free CO — $0, propagates immediately, approval card appears, NO invoice anywhere; (b) priced CO — nothing changes until Accept, then specs flip, CO invoice in MillSuite + QB, financials re-tally, receivable shows outstanding; (c) second accepted CO appends to the same CO invoice; (d) CO dashboard lists open COs; flags show on card + detail; (e) Documents section links resolve; (f) a during-production CO doesn't re-lock the project.
 
 #### Follow-ups from the rebuild (not blockers)
 - **Internal-mode "Create project invoice"** still opens the blank builder — auto-seed it with the contract (mirror the QB path / add a `CreateInvoiceModal` `project` mode).
@@ -185,7 +199,15 @@ Keep simple: internal mark-approved stays (`approveCo()`); don't reuse `lib/appr
 
 ## On deck — scoped, not started
 
-### Andrew's queue — added 2026-07-18. **ACTIVE as of Boyd sign-off** (the full migration run waits until this queue ships — see ⛔ CURRENT FOCUS).
+### Demo feedback queue — added 2026-07-20 (from Andrew's demo). **This is the active list.** Each item needs a dig-deeper pass with Andrew in Cowork before building — treat all as `[unscoped]` unless noted.
+
+1. `[unscoped]` **Format the estimate PDF** — layout/formatting pass on `components/estimates/EstimatePdf.tsx`. Overlaps two parked notes: the "Estimate/CO PDF layout + logo polish" follow-up (Change Orders section) and the unbuilt `orgs.logo_url` logo upload (vanity-login leftovers). Get Andrew's specifics (what looks wrong, reference examples) before touching it.
+2. `[unscoped]` **Fix + upgrade the rate book** — Andrew says it needs fixing and upgrading; capture the actual pain points (what's broken, what's missing) in a planning pass. Possible tie-in: the deferred learning loop (actuals → rate book confidence).
+3. `[unscoped]` **Edit the team clock app** (`/me`) — Andrew has edits from real use; collect the list.
+4. **Build the CO (Change Order) system — SCOPED 2026-07-20, ACTIVE.** Full rescoped spec lives in the "Change Orders — RESUMED" section (still physically under "Parked" — it is NOT parked anymore). Two-situation model (free vs priced), one flow. Build from that spec.
+5. `[unscoped]` **Overhaul the "Freeform line" modal** (subproject detail): Andrew's starting list — add a **vendor checkbox**, support **multiple material lines**, add a **labor field**. Dig deeper on exact behavior (what does the vendor flag drive — PO? cost source?; how do multiple materials roll up; is labor hours-by-dept or a dollar field) before building.
+
+### Andrew's queue — added 2026-07-18. Items 1–6 **SHIPPED 2026-07-20**; item 7 **back-burnered** (spec kept below).
 
 Small/quick (each its own commit) — **ALL SHIPPED 2026-07-20:**
 
@@ -203,7 +225,11 @@ Bigger:
 
 Needs discussion + prototype first (Cowork planning pass, do not build from this line):
 
-7. `[unscoped]` **Installation & terms as their own modal/object** — today install is a modified subproject (6a-3's install block). Andrew wants to explore a dedicated modal/flow for installation + terms instead. Prototype in Cowork before any code.
+7. **⏸ BACK-BURNERED 2026-07-20 (Andrew's call — keep the spec, don't build until he brings it back.)** **Installation & terms modal — scoped 2026-07-19 (Cowork; prototype approved in chat).** Decisions locked: install is **one per project** (not per-subproject), shows as **its own line** on the estimate PDF, and maps to **its own QB invoice line** (Installation service item via the synced items cache). Terms = **org-default boilerplate text**, editable per project. **Andrew's hard requirement: the current per-sub install → QB flow works perfectly — the modal must reach QB with the same accuracy, verified live, before the old path is removed.**
+   - **Data:** project-level install columns (guys, days, complexity_pct, rate_per_hour, included — idempotent migration, run on prod first) + `orgs.default_terms` + `projects.terms_override`. One-time backfill: sum existing per-sub install prefills into the project-level fields.
+   - **Modal** (from the approved prototype): Installation section (4 inputs + computed cost/hours line, "includes installation" toggle), Terms textarea (badge shows org-default vs edited; default template editable in Settings), and a **"How this lands" preview** — estimate PDF line, QB invoice line, and a live check that "Installation" matches a synced QB item (red warning + "sync items" link on miss).
+   - **Est/PDF/QB:** install cost joins the project rollup as today (hours still feed the Install dept for capacity/schedule); PDF renders "Installation — $X" as a line + the terms block (terms already print); QB push appends the Installation line with strict ItemRef match (mirror the subproject pattern).
+   - **Rollout order (do not skip):** build alongside the existing per-sub install path → backfill Boyd → **push a real Boyd invoice to QB and Andrew verifies the Installation line + item + amount in QB** → only after his sign-off, remove the per-sub install UI (last commit; data stays).
 
 **Shipped as a hoisted top bar, not a drawer** (Andrew preferred the top bar) — see "Where things stand" → "Top nav shipped." The drawer spec is **superseded**; nothing left here. (Department-view reorg remains the separate `[ongoing]` item in "Next.")
 
