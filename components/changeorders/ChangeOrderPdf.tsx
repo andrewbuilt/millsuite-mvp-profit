@@ -4,13 +4,15 @@
 // app/api/change-orders/[id]/pdf.
 // ============================================================================
 
-import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { pdfLogoOk } from '@/components/estimates/EstimatePdf'
 
 export interface ChangeOrderPdfProps {
   coNumber: string // e.g. "CO-03"
   coDate: string // ISO
   org: {
     name: string
+    logo_url?: string | null
     business_address?: string | null
     business_city?: string | null
     business_state?: string | null
@@ -103,6 +105,9 @@ export function ChangeOrderPdf({
       <Page size="LETTER" style={S.page}>
         <View style={S.headerRow}>
           <View>
+            {pdfLogoOk(org.logo_url) ? (
+              <Image src={org.logo_url} style={{ maxWidth: 170, maxHeight: 52, marginBottom: 8, objectFit: 'contain' }} />
+            ) : null}
             <Text style={S.orgName}>{org.name}</Text>
             {orgAddr ? <Text style={S.orgLine}>{orgAddr}</Text> : null}
             {org.business_phone ? <Text style={S.orgLine}>{org.business_phone}</Text> : null}

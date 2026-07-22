@@ -114,7 +114,7 @@ export async function POST(
     supabaseAdmin
       .from('orgs')
       .select(
-        'name, business_address, business_city, business_state, business_zip, business_phone, business_email',
+        'name, logo_url, business_address, business_city, business_state, business_zip, business_phone, business_email',
       )
       .eq('id', invoice.org_id)
       .single(),

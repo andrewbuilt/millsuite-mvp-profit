@@ -66,7 +66,7 @@ export async function POST(
     supabaseAdmin
       .from('orgs')
       .select(
-        'name, business_address, business_city, business_state, business_zip, business_phone, business_email, estimate_prefix, next_estimate_number, estimate_footer_text',
+        'name, logo_url, business_address, business_city, business_state, business_zip, business_phone, business_email, estimate_prefix, next_estimate_number, estimate_footer_text',
       )
       .eq('id', callerOrgId)
       .single(),

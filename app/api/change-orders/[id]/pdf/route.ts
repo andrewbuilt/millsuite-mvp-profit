@@ -47,7 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const [orgRes, cliRes] = await Promise.all([
     supabaseAdmin
       .from('orgs')
-      .select('name, business_address, business_city, business_state, business_zip, business_phone, business_email')
+      .select('name, logo_url, business_address, business_city, business_state, business_zip, business_phone, business_email')
       .eq('id', callerOrgId)
       .single(),
     (project as any).client_id

@@ -11,7 +11,8 @@
 // (no Tailwind — react-pdf has its own StyleSheet).
 // ============================================================================
 
-import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { pdfLogoOk } from '@/components/estimates/EstimatePdf'
 import type { Invoice, InvoiceLineItem, InvoicePayment } from '@/lib/invoices'
 
 export interface InvoicePdfProps {
@@ -20,6 +21,7 @@ export interface InvoicePdfProps {
   payments: InvoicePayment[]
   org: {
     name: string
+    logo_url?: string | null
     business_address?: string | null
     business_city?: string | null
     business_state?: string | null
@@ -265,6 +267,9 @@ export function InvoicePdf({
         {/* Header */}
         <View style={styles.headerRow}>
           <View>
+            {pdfLogoOk(org.logo_url) ? (
+              <Image src={org.logo_url} style={{ maxWidth: 170, maxHeight: 52, marginBottom: 8, objectFit: 'contain' }} />
+            ) : null}
             <Text style={styles.orgName}>{org.name || 'Your Company'}</Text>
             {org.business_address ? (
               <Text style={styles.orgLine}>{org.business_address}</Text>

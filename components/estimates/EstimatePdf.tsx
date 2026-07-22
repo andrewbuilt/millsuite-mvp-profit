@@ -11,7 +11,13 @@
 // the PDF total reconciles with what the operator sees).
 // ============================================================================
 
-import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+
+/** react-pdf <Image> renders raster only (no SVG) — show the logo when it's a
+ *  PNG/JPG/etc., otherwise fall back to the org name text. */
+export function pdfLogoOk(url: string | null | undefined): url is string {
+  return !!url && !/\.svg(\?|$)/i.test(url)
+}
 
 export interface EstimatePdfLine {
   description: string
@@ -34,6 +40,7 @@ export interface EstimatePdfProps {
   validUntil?: string | null // ISO
   org: {
     name: string
+    logo_url?: string | null
     business_address?: string | null
     business_city?: string | null
     business_state?: string | null
@@ -179,6 +186,9 @@ export function EstimatePdf({
         {/* Header */}
         <View style={styles.headerRow}>
           <View>
+            {pdfLogoOk(org.logo_url) ? (
+              <Image src={org.logo_url} style={{ maxWidth: 170, maxHeight: 52, marginBottom: 8, objectFit: 'contain' }} />
+            ) : null}
             <Text style={styles.orgName}>{org.name || 'Your Company'}</Text>
             {org.business_address ? <Text style={styles.orgLine}>{org.business_address}</Text> : null}
             {cityLine ? <Text style={styles.orgLine}>{cityLine}</Text> : null}
