@@ -239,7 +239,7 @@ export default function EstimatesPage() {
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => router.push(`/projects/${r.id}`)}
+                  onClick={() => router.push(`/estimates/${r.id}`)}
                   className="w-full text-left grid grid-cols-[120px_1fr_1fr_120px_120px_90px] px-4 py-2.5 items-center border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors"
                 >
                   <div className="text-[12.5px] font-mono text-[#111]">
