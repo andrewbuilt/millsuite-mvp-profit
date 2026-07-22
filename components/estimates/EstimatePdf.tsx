@@ -102,11 +102,13 @@ const styles = StyleSheet.create({
   tableRule: { borderTopWidth: 1, borderTopColor: COLORS.rule, marginBottom: 4 },
   tableHeaderRow: { flexDirection: 'row', paddingTop: 4, paddingBottom: 6 },
   tableRow: { flexDirection: 'row', paddingVertical: 5, borderBottomWidth: 0.5, borderBottomColor: COLORS.hairline },
-  cellDesc: { flexGrow: 1, paddingRight: 8 },
-  cellQty: { width: 48, textAlign: 'right', paddingRight: 6 },
-  cellUnit: { width: 48, textAlign: 'right', paddingRight: 6 },
-  cellRate: { width: 70, textAlign: 'right', paddingRight: 6 },
-  cellAmount: { width: 78, textAlign: 'right' },
+  // flexShrink:0 on the numeric cells + flexBasis:0 on desc locks the columns
+  // so the header and every row line up even when a description wraps long.
+  cellDesc: { flexGrow: 1, flexShrink: 1, flexBasis: 0, paddingRight: 8 },
+  cellQty: { width: 48, flexShrink: 0, textAlign: 'right', paddingRight: 6 },
+  cellUnit: { width: 48, flexShrink: 0, textAlign: 'right', paddingRight: 6 },
+  cellRate: { width: 70, flexShrink: 0, textAlign: 'right', paddingRight: 6 },
+  cellAmount: { width: 78, flexShrink: 0, textAlign: 'right' },
   headerText: {
     fontSize: 8,
     fontFamily: 'Helvetica-Bold',
@@ -221,9 +223,22 @@ export function EstimatePdf({
           <Text style={[styles.headerText, styles.cellRate]}>Rate</Text>
           <Text style={[styles.headerText, styles.cellAmount]}>Amount</Text>
         </View>
-        {lines.map((li, i) => (
+        {lines.map((li, i) => {
+          // Split the first line (subproject name) off so we can bold it and
+          // put a gap before the description body — easier to scan.
+          const nl = li.description.indexOf('\n')
+          const titleLine = nl >= 0 ? li.description.slice(0, nl) : li.description
+          const bodyLines = nl >= 0 ? li.description.slice(nl + 1).replace(/^\n+/, '') : ''
+          return (
           <View key={i} style={styles.tableRow} wrap={false}>
-            <Text style={[styles.bodyText, styles.cellDesc]}>{li.description}</Text>
+            <View style={styles.cellDesc}>
+              <Text style={[styles.bodyText, styles.blockBold]}>{titleLine}</Text>
+              {bodyLines ? (
+                <Text style={[styles.bodyText, { marginTop: 5, color: COLORS.fg, lineHeight: 1.45 }]}>
+                  {bodyLines}
+                </Text>
+              ) : null}
+            </View>
             <Text style={[styles.monoRight, styles.cellQty]}>{li.quantity}</Text>
             <Text style={[styles.bodyText, styles.cellUnit, { textAlign: 'right' }]}>{li.unit ?? '—'}</Text>
             <Text style={[styles.monoRight, styles.cellRate]}>{money(li.unit_price)}</Text>
@@ -231,7 +246,8 @@ export function EstimatePdf({
               {money(li.amount > 0 ? li.amount : li.quantity * li.unit_price)}
             </Text>
           </View>
-        ))}
+          )
+        })}
 
         {/* Totals */}
         <View style={styles.totalsWrap}>

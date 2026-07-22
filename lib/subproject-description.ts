@@ -114,7 +114,9 @@ export function buildRichDescription(sub: SubprojectScope): string {
   if (details.length > 0) {
     lines.push('')
     lines.push('Description - ' + stripBullet(details[0]))
-    for (let i = 1; i < details.length; i++) lines.push('- ' + stripBullet(details[i]))
+    // Continuation blocks (Dimensions / Details / etc.) render without a
+    // leading "- " — cleaner in the estimate + QB description.
+    for (let i = 1; i < details.length; i++) lines.push(stripBullet(details[i]))
   }
 
   // "Includes install" subs bill their own install — call it out on the line.

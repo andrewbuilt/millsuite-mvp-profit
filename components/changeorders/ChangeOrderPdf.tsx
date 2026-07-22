@@ -67,7 +67,13 @@ const S = StyleSheet.create({
 
 function money(n: number): string {
   const v = Math.round(Math.abs(n)).toLocaleString('en-US')
-  return `${n < 0 ? '−' : ''}$${v}`
+  // ASCII hyphen — the PDF Helvetica font has no U+2212 minus glyph.
+  return `${n < 0 ? '-' : ''}$${v}`
+}
+/** The built-in PDF Helvetica font can't render arrow/minus glyphs (they show
+ *  as a stray apostrophe). Swap them for ASCII before drawing text. */
+function pdfSafe(s: string | null | undefined): string {
+  return (s ?? '').replace(/→/g, '->').replace(/[−–—]/g, '-')
 }
 function fmtDate(iso: string): string {
   const d = new Date(iso + (iso.length <= 10 ? 'T12:00:00Z' : ''))
@@ -123,13 +129,13 @@ export function ChangeOrderPdf({
         </View>
 
         <View style={S.rule} />
-        <Text style={S.title}>{title}</Text>
+        <Text style={S.title}>{pdfSafe(title)}</Text>
 
         {(originalLabel || proposedLabel) && !hasMaterials ? (
           <View style={S.changeRow}>
-            <Text style={S.chip}>{originalLabel || '—'}</Text>
-            <Text style={S.arrow}>→</Text>
-            <Text style={S.chip}>{proposedLabel || '—'}</Text>
+            <Text style={S.chip}>{pdfSafe(originalLabel) || '—'}</Text>
+            <Text style={S.arrow}>{'->'}</Text>
+            <Text style={S.chip}>{pdfSafe(proposedLabel) || '—'}</Text>
           </View>
         ) : null}
 
