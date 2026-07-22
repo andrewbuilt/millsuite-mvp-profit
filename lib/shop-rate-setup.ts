@@ -228,8 +228,11 @@ export interface ShopRateSetup {
   billable: BillableHoursInputs
 }
 
-export async function loadShopRateSetup(orgId: string): Promise<ShopRateSetup> {
-  const { data, error } = await supabase
+export async function loadShopRateSetup(
+  orgId: string,
+  client: typeof supabase = supabase,
+): Promise<ShopRateSetup> {
+  const { data, error } = await client
     .from('orgs')
     .select('shop_rate, overhead_inputs, team_members, billable_hours_inputs')
     .eq('id', orgId)

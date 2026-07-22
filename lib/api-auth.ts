@@ -22,6 +22,7 @@ import { supabaseAdmin } from './supabase-admin'
 export interface ApiCaller {
   orgId: string
   userId: string | null
+  role: string
   plan: string
   planStatus: string
   trialEndsAt: string | null
@@ -45,7 +46,7 @@ export async function resolveApiCaller(
 
   const { data: row } = await supabaseAdmin
     .from('users')
-    .select('id, org_id')
+    .select('id, org_id, role')
     .eq('auth_user_id', data.user.id)
     .single()
   if (!row?.org_id) return null
@@ -59,6 +60,7 @@ export async function resolveApiCaller(
   return {
     orgId: row.org_id as string,
     userId: (row as { id?: string }).id ?? null,
+    role: (row as { role?: string }).role ?? 'member',
     plan: (org?.plan as string) ?? 'starter',
     planStatus: (org?.plan_status as string) ?? 'pending',
     trialEndsAt: (org?.trial_ends_at as string | null) ?? null,

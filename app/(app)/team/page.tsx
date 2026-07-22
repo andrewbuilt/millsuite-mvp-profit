@@ -28,6 +28,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useConfirm } from '@/components/confirm-dialog'
 import { Trash2, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
+import HolidaysAndPtoSection from '@/components/team/HolidaysAndPtoSection'
 import {
   loadShopRateSetup,
   saveShopRateInputs,
@@ -93,6 +94,9 @@ function TeamContent() {
   })
   const [shopRate, setShopRate] = useState(0)
   const [loaded, setLoaded] = useState(false)
+  // Owner-only: compensation figures. Server-authoritative (the /api/team/setup
+  // route strips comp for non-owners) + a secure default of false.
+  const [canSeeComp, setCanSeeComp] = useState(false)
   const [savingRate, setSavingRate] = useState(false)
   const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
   // Shop-rate extras (chunk C).
@@ -109,17 +113,26 @@ function TeamContent() {
     if (!org?.id) return
     let cancelled = false
     ;(async () => {
-      const setup = await loadShopRateSetup(org.id)
+      // Load via the server route so comp is stripped server-side for
+      // non-owners (never ships to their client).
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const res = await fetch('/api/team/setup', {
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+      })
+      const setup = await res.json()
       const { data: depts } = await supabase
         .from('departments')
         .select('*')
         .eq('org_id', org.id)
         .order('display_order')
       if (cancelled) return
-      setTeam(setup.team)
-      setOverhead(setup.overhead)
+      setTeam(setup.team || [])
+      setOverhead(setup.overhead || {})
       setBillable(setup.billable)
-      setShopRate(setup.shopRate)
+      setShopRate(setup.shopRate || 0)
+      setCanSeeComp(!!setup.canSeeComp)
       setDepartments(depts || [])
       setLoaded(true)
 
@@ -205,17 +218,19 @@ function TeamContent() {
     }
   }
 
-  // Debounced persist of team_members on any change. Mirrors the
-  // /settings page's auto-save shape so the two surfaces stay in sync.
+  // Debounced persist of team_members on any change. OWNER-ONLY: for
+  // non-owners `team` has comp stripped to 0, so persisting it would wipe
+  // everyone's comp — never write it. (Non-owners also don't get the editable
+  // roster, so there's nothing to save.)
   useEffect(() => {
-    if (!org?.id || !loaded) return
+    if (!org?.id || !loaded || !canSeeComp) return
     const t = setTimeout(() => {
       saveShopRateInputs(org.id, { team }).catch((e) =>
         console.warn('team save', e),
       )
     }, 600)
     return () => clearTimeout(t)
-  }, [team, org?.id, loaded])
+  }, [team, org?.id, loaded, canSeeComp])
 
   const derivedRate = useMemo(
     () => computeDerivedShopRate(overhead, team, billable),
@@ -475,7 +490,9 @@ function TeamContent() {
         Team & Departments
       </h1>
 
-      {showRateBanner && (
+      {/* Shop rate + comp are owner-only (money). Admins/managers see the
+          roster, departments, and time-off without any dollar figures. */}
+      {canSeeComp && showRateBanner && (
         <div className="mb-5 px-4 py-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl flex items-center justify-between gap-3 flex-wrap">
           <div className="text-sm text-[#92400E]">
             Shop rate may have changed: current{' '}
@@ -491,21 +508,26 @@ function TeamContent() {
           </button>
         </div>
       )}
-      {rateSavedAt && !showRateBanner && (
+      {canSeeComp && rateSavedAt && !showRateBanner && (
         <div className="mb-5 px-4 py-3 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl text-sm text-[#065F46]">
           Shop rate saved at <span className="font-mono">${shopRate.toFixed(2)}/hr</span>.
         </div>
       )}
 
-      <ShopRatePanel
-        breakEven={breakEven}
-        shopRate={shopRate}
-        saving={savingRate}
-        onSave={promoteDerivedRate}
-        snapshots={snapshots}
-        alerts={rateAlerts}
-      />
+      {canSeeComp && (
+        <ShopRatePanel
+          breakEven={breakEven}
+          shopRate={shopRate}
+          saving={savingRate}
+          onSave={promoteDerivedRate}
+          snapshots={snapshots}
+          alerts={rateAlerts}
+        />
+      )}
 
+      {/* Departments + team roster (edits team_members, which carries comp) —
+          owner-only. Managers/admins see just time-off below. */}
+      {canSeeComp && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Departments */}
         <div>
@@ -685,21 +707,8 @@ function TeamContent() {
                   </div>
                 </div>
                 <div className="flex items-center gap-4 mb-2">
-                  <div className="flex items-center gap-1.5">
-                    <label className="text-xs text-[#9CA3AF]">Annual Comp</label>
-                    <span className="text-xs text-[#9CA3AF]">$</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      defaultValue={member.annual_comp?.toString() || ''}
-                      onBlur={(e) => {
-                        const val = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0
-                        patchMember(member.id, { annual_comp: val })
-                      }}
-                      className="w-28 text-right text-sm font-mono tabular-nums px-2 py-1 bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] transition-colors"
-                      placeholder="0"
-                    />
-                  </div>
+                  {/* Annual Comp lives in Settings → Team & comp (owner-only),
+                      not here — keeps salaries off the team page. */}
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() =>
@@ -829,6 +838,7 @@ function TeamContent() {
           )}
         </div>
       </div>
+      )}
 
       {ptoReady && (
         <PtoSection
@@ -842,6 +852,10 @@ function TeamContent() {
           onSaveBands={updatePolicyBands}
         />
       )}
+
+      {/* Company holidays + manual PTO (moved here from owner-only Settings so
+          managers can run time-off). Visible to all /team viewers. */}
+      {org?.id && <HolidaysAndPtoSection orgId={org.id} team={team} />}
     </div>
   )
 }

@@ -79,6 +79,7 @@ export default function TopNav() {
   const pathname = usePathname()
   const { user, org, signOut } = useAuth()
   const isMember = user?.role === 'member'
+  const isOwner = user?.role === 'owner'
   const plan = org?.plan || 'starter'
 
   const groups: GroupSpec[] = isMember
@@ -147,7 +148,7 @@ export default function TopNav() {
               </a>
             </div>
           )}
-          {!isMember && (
+          {isOwner && (
             <Link
               href="/settings"
               className={`px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${

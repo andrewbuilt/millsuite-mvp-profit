@@ -1,8 +1,10 @@
 'use client'
 
-// RoleGate — keeps member-role users (workers) inside the worker app.
-// Owners/admins see everything; members only ever belong on /me (the phone
-// worker app). Client-side only: the real protection is at the data layer.
+// RoleGate — role-based route guard.
+//   - members (workers): confined to /me.
+//   - admins: everything EXCEPT /settings (owner-only; comp lives there).
+//   - owners: everything.
+// Client-side only: the real protection is at the data layer.
 
 import { useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
@@ -20,11 +22,16 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loading) return
     if (!user) return
-    if (user.role !== 'member') return
 
-    const allowed = MEMBER_ALLOWED_PREFIXES.some(p => pathname.startsWith(p))
-    if (!allowed) {
-      router.replace(MEMBER_HOME)
+    if (user.role === 'member') {
+      const allowed = MEMBER_ALLOWED_PREFIXES.some((p) => pathname.startsWith(p))
+      if (!allowed) router.replace(MEMBER_HOME)
+      return
+    }
+
+    // Settings is owner-only (compensation lives there); bounce admins.
+    if (user.role !== 'owner' && pathname.startsWith('/settings')) {
+      router.replace('/dashboard')
     }
   }, [user, loading, pathname, router])
 
