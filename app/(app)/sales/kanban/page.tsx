@@ -25,6 +25,7 @@ import {
   updateProjectStage,
 } from '@/lib/sales'
 import { useConfirm } from '@/components/confirm-dialog'
+import NewProjectModal from '@/components/sales/NewProjectModal'
 import Link from 'next/link'
 import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus } from 'lucide-react'
 
@@ -61,6 +62,7 @@ function KanbanInner() {
   const [noteFor, setNoteFor] = useState<SalesProject | null>(null)
   const [noteBody, setNoteBody] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+  const [newOpen, setNewOpen] = useState(false)
 
   useEffect(() => {
     if (!org?.id) return
@@ -136,12 +138,12 @@ function KanbanInner() {
               and opens the pre-production workflow.
             </p>
           </div>
-          <Link
-            href="/sales"
+          <button
+            onClick={() => setNewOpen(true)}
             className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors"
           >
             <Plus className="w-4 h-4" /> New project
-          </Link>
+          </button>
         </div>
 
         {loading ? (
@@ -270,6 +272,17 @@ function KanbanInner() {
             </div>
           </div>
         </div>
+      )}
+
+      {newOpen && org?.id && (
+        <NewProjectModal
+          orgId={org.id}
+          onClose={() => setNewOpen(false)}
+          onCreated={(p) => {
+            setNewOpen(false)
+            setProjects((prev) => [p, ...prev])
+          }}
+        />
       )}
     </>
   )
