@@ -8,12 +8,13 @@
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-07-21)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-07-22)
 
-**Active build = the Change Order system** (Demo feedback queue item 4). Well underway — the full CO spec lives in the "Change Orders — RESUMED" section under Parked (it is NOT parked; that's just where the spec physically sits). **Done so far:** migration `067`, the two-mode modal (Spec change | Custom to the approved prototype), real composer-slot spec editing + "+ Add new" (feeds rate book), CO PDF, dashboard, open-CO flags, the Send/Accept/Decline/Delete lifecycle, **step 3 (free path)**, **step 4a (rolling CO invoice, MillSuite side)**, and **step 4b (manual "Push to QuickBooks" button)**. **Remaining CO work:** step 7 (documents section + migration) — plus Andrew's live QB test of 4b. Change Orders are nearly done. See the CO build-progress notes in that section for exact commits + what's next.
-- Migration `067` run on prod. No pending migration until step 7.
-- Do NOT run the full 85-project migration yet — only when Andrew says so.
-- Other demo-feedback items (format estimate PDF, rate-book fix/upgrade, /me edits, freeform-line modal overhaul) + back-burnered Item 7 (installation/terms modal) stay queued — don't start them until CO is done or Andrew redirects.
+**Change Order system — COMPLETE & shipped** (steps 1–7, free + priced paths, batch-and-lock QB safety, Documents section, all demo-feedback fixes). Full detail in the "Change Orders — RESUMED" section. Only open item = Andrew's live QB push test + eyeball. QB push confirmed working live 2026-07-21.
+
+**Now on: Demo-feedback item 1 — estimate/CO PDF formatting + logo upload — SHIPPED 2026-07-22.** PDF formatting fixes (estimate columns/spacing/dashes, CO `->` arrow glyph) + org logo (`orgs.logo_url`) across header / logins / estimate·invoice·CO PDFs. **Migration `069_org_logo.sql` run on prod 2026-07-22.** Details under "Demo feedback queue" item 1 + the PDF/logo notes.
+- Do NOT run the full 85-project Built-OS migration yet — only when Andrew says so.
+- Remaining demo-feedback items (rate-book fix/upgrade #2, /me edits #3, freeform-line modal #5) + back-burnered installation/terms modal stay queued & `[unscoped]` — scope with Andrew before building.
 
 **How to communicate with Andrew (applies to every session):**
 - Plain language. Short. No long explanations or jargon walls.
@@ -242,7 +243,7 @@ Keep simple: don't reuse `lib/approvals.ts` (spec-sample sign-off); the slot-see
 
 ### Demo feedback queue — added 2026-07-20 (from Andrew's demo). **This is the active list.** Each item needs a dig-deeper pass with Andrew in Cowork before building — treat all as `[unscoped]` unless noted.
 
-1. `[unscoped]` **Format the estimate PDF** — layout/formatting pass on `components/estimates/EstimatePdf.tsx`. Overlaps two parked notes: the "Estimate/CO PDF layout + logo polish" follow-up (Change Orders section) and the unbuilt `orgs.logo_url` logo upload (vanity-login leftovers). Get Andrew's specifics (what looks wrong, reference examples) before touching it.
+1. ✅ **Estimate/CO PDF formatting + logo upload — SHIPPED 2026-07-22** (`1fc29fc`, `f8e132e`, `9c42cf0`). **PDF formatting:** EstimatePdf columns locked (`flexShrink:0` on Qty/Unit/Rate/Amount) so header + rows align; subproject name bolded with a gap before the description body; leading `- ` dropped from Dimensions/Details/Exclusions continuation lines (in `buildRichDescription`, so screen + QB match too). ChangeOrderPdf: Helvetica can't render `→`/`−` (showed as a stray apostrophe) → `pdfSafe` swaps to `->` and ASCII `-`. **Logo:** migration `069_org_logo.sql` (`orgs.logo_url`, **run on prod 2026-07-22**); `POST/DELETE /api/org/logo` (service-role upload to the existing public `invoice-pdfs` bucket under `logos/{orgId}/…`, so no new bucket); Settings → Business Info upload/replace/remove; renders in top-nav (replaces the MillSuite wordmark when set), both shop-login variants, and all 3 PDFs (`pdfLogoOk` — react-pdf `<Image>` is raster-only, SVG falls back to the org name). _Left for Andrew: upload a logo + eyeball the PDFs/header/login._
 2. `[unscoped]` **Fix + upgrade the rate book** — Andrew says it needs fixing and upgrading; capture the actual pain points (what's broken, what's missing) in a planning pass. Possible tie-in: the deferred learning loop (actuals → rate book confidence).
 3. `[unscoped]` **Edit the team clock app** (`/me`) — Andrew has edits from real use; collect the list.
 4. ✅ **CO (Change Order) system — SHIPPED 2026-07-21/22.** Full build (steps 1–7, free + priced paths, batch-and-lock QB safety, Documents section, all demo-feedback fixes) — details in the "Change Orders — RESUMED" section. Remaining is only Andrew's live QB test + eyeball.
@@ -314,7 +315,7 @@ We define one item at a time, just before building it; the spec lands in "Now" w
 
 - QB mode = **estimates stay in MillSuite (PDF); one project invoice pushes to QB** (estimate→QB push and per-milestone invoicing are retired). If a stray "we never send to QuickBooks" line turns up anywhere, clean it up.
 - **Production is a manual step** (shipped 2026-06-23) — `sold → production` no longer auto-advances; the readiness-gated "Start production" button (project page + Ready banner) is the only path, and it's the only thing that seeds schedule allocations. Existing `production` projects unaffected. "Ready for production" is **derived**, not a stored stage. **Deposit signal** = the contract invoice's `amount_received > 0` (not a milestone flipped to "received").
-- **Latest DB migration is `068`** (`068_project_documents.sql`, CO Documents section — **run on prod 2026-07-21**). `067` change_orders v2 run 2026-07-21; `066`/`065`/`064` run 2026-07-18. Run any new migration against prod Supabase before deploying.
+- **Latest DB migration is `069`** (`069_org_logo.sql`, `orgs.logo_url` — **run on prod 2026-07-22**). `068` project_documents run 2026-07-21; `067` change_orders v2 run 2026-07-21; `066`/`065`/`064` run 2026-07-18. Run any new migration against prod Supabase before deploying.
 - **Install subs price via the install prefill only, never an estimate line** (migration `9a36ed8`). An install-activity subproject (`isInstallActivity`) carries install_guys/days + install_included=true and NO estimate lines; its cost = guys×days×8×rate×(1+complexity). Counting both a line and the prefill double-counts install (the bug fixed on Boyd). The migration script skips lines for install subs and folds the prefill into the verifier buckets.
 - **supabase-js gotcha:** a `.select(..., { head: true, count: 'exact' })` query returns `{ error: null, count: null }` for a **missing** table (no error) — use a real non-head select to detect table existence (see `scripts/migrate-built/migrate.ts` preflight).
 - **Per-person `hours_per_week` drives capacity + the shop rate now** (chunk A1) — `deptDailyHoursByTeam` (Σ members' hours_per_week/5) replaced headcount × dept.hours_per_day in `/capacity` + `/schedule`; `sumBillableHoursYear` replaced the uniform denominator in `computeDerivedShopRate`. 40h/wk = 8h/day so seeded 8h depts are unchanged; `dept.hours_per_day` is no longer the capacity multiplier. Inactive members drop out of both.
