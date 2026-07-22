@@ -66,6 +66,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 28,
   },
+  logo: { height: 26, marginBottom: 10, objectFit: 'contain' },
   orgName: {
     fontSize: 16,
     fontFamily: 'Helvetica-Bold',
@@ -236,6 +237,13 @@ function fmt$(n: number): string {
   return `$${(n || 0).toFixed(2)}`
 }
 
+/** The built-in PDF Helvetica font has no arrow/minus glyph (they render as a
+ *  stray apostrophe). CO line descriptions carry "→"; read it as " to " here so
+ *  it renders cleanly. */
+function pdfText(s: string): string {
+  return (s ?? '').replace(/\s*→\s*/g, ' to ').replace(/[−–—]/g, '-')
+}
+
 function fmtDate(iso: string): string {
   if (!iso) return '—'
   const d = new Date(iso + 'T12:00:00Z')
@@ -268,7 +276,7 @@ export function InvoicePdf({
         <View style={styles.headerRow}>
           <View>
             {pdfLogoOk(org.logo_url) ? (
-              <Image src={org.logo_url} style={{ maxWidth: 170, maxHeight: 52, marginBottom: 8, objectFit: 'contain' }} />
+              <Image src={org.logo_url} style={styles.logo} />
             ) : null}
             <Text style={styles.orgName}>{org.name || 'Your Company'}</Text>
             {org.business_address ? (
@@ -330,7 +338,7 @@ export function InvoicePdf({
         </View>
         {lineItems.map((li) => (
           <View key={li.id} style={styles.tableRow} wrap={false}>
-            <Text style={[styles.bodyText, styles.cellDesc]}>{li.description}</Text>
+            <Text style={[styles.bodyText, styles.cellDesc]}>{pdfText(li.description)}</Text>
             <Text style={[styles.monoRight, styles.cellQty]}>{li.quantity}</Text>
             <Text style={[styles.bodyText, styles.cellUnit, { textAlign: 'right' }]}>
               {li.unit ?? '—'}

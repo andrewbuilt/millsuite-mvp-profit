@@ -4,8 +4,19 @@
 // app/api/change-orders/[id]/pdf.
 // ============================================================================
 
-import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { Document, Image, Page, Path, StyleSheet, Svg, Text, View } from '@react-pdf/renderer'
 import { pdfLogoOk } from '@/components/estimates/EstimatePdf'
+
+/** A right-pointing arrow drawn as vector (the Helvetica font can't render a
+ *  → glyph). Used between the original/proposed chips. */
+function ArrowGlyph() {
+  return (
+    <Svg width={18} height={10} viewBox="0 0 18 10" style={{ marginHorizontal: 8 }}>
+      <Path d="M0.5 5 L15 5" stroke="#9CA3AF" strokeWidth={1.3} />
+      <Path d="M10.5 1 L15.5 5 L10.5 9" stroke="#9CA3AF" strokeWidth={1.3} fill="none" />
+    </Svg>
+  )
+}
 
 export interface ChangeOrderPdfProps {
   coNumber: string // e.g. "CO-03"
@@ -36,6 +47,7 @@ const C = { ink: '#111', fg: '#374151', meta: '#6B7280', dim: '#9CA3AF', hair: '
 const S = StyleSheet.create({
   page: { paddingTop: 48, paddingHorizontal: 48, paddingBottom: 48, fontSize: 10.5, color: C.ink, fontFamily: 'Helvetica' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 28 },
+  logo: { height: 26, marginBottom: 10, objectFit: 'contain' },
   orgName: { fontSize: 16, fontFamily: 'Helvetica-Bold', marginBottom: 4 },
   orgLine: { fontSize: 9.5, color: C.meta, lineHeight: 1.4 },
   docLabel: { fontSize: 20, fontFamily: 'Helvetica-Bold', letterSpacing: 2, textAlign: 'right', marginBottom: 4 },
@@ -73,9 +85,10 @@ function money(n: number): string {
   return `${n < 0 ? '-' : ''}$${v}`
 }
 /** The built-in PDF Helvetica font can't render arrow/minus glyphs (they show
- *  as a stray apostrophe). Swap them for ASCII before drawing text. */
+ *  as a stray apostrophe). In text, read "→" as " to "; the visual arrow
+ *  between chips is drawn as vector (ArrowGlyph). */
 function pdfSafe(s: string | null | undefined): string {
-  return (s ?? '').replace(/→/g, '->').replace(/[−–—]/g, '-')
+  return (s ?? '').replace(/\s*→\s*/g, ' to ').replace(/[−–—]/g, '-')
 }
 function fmtDate(iso: string): string {
   const d = new Date(iso + (iso.length <= 10 ? 'T12:00:00Z' : ''))
@@ -106,7 +119,7 @@ export function ChangeOrderPdf({
         <View style={S.headerRow}>
           <View>
             {pdfLogoOk(org.logo_url) ? (
-              <Image src={org.logo_url} style={{ maxWidth: 170, maxHeight: 52, marginBottom: 8, objectFit: 'contain' }} />
+              <Image src={org.logo_url} style={S.logo} />
             ) : null}
             <Text style={S.orgName}>{org.name}</Text>
             {orgAddr ? <Text style={S.orgLine}>{orgAddr}</Text> : null}
@@ -139,7 +152,7 @@ export function ChangeOrderPdf({
         {(originalLabel || proposedLabel) && !hasMaterials ? (
           <View style={S.changeRow}>
             <Text style={S.chip}>{pdfSafe(originalLabel) || '—'}</Text>
-            <Text style={S.arrow}>{'->'}</Text>
+            <ArrowGlyph />
             <Text style={S.chip}>{pdfSafe(proposedLabel) || '—'}</Text>
           </View>
         ) : null}

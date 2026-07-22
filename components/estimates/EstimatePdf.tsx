@@ -86,6 +86,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 28,
   },
+  // Logo scaled to roughly the doc-label height; explicit height so react-pdf
+  // reserves space (no header overlap). width auto-scales by aspect ratio.
+  logo: { height: 26, marginBottom: 10, objectFit: 'contain' },
   orgName: { fontSize: 16, fontFamily: 'Helvetica-Bold', color: COLORS.ink, marginBottom: 4 },
   orgLine: { fontSize: 9.5, color: COLORS.meta, lineHeight: 1.4 },
   docLabel: { fontSize: 22, fontFamily: 'Helvetica-Bold', letterSpacing: 3, textAlign: 'right', marginBottom: 4 },
@@ -187,7 +190,7 @@ export function EstimatePdf({
         <View style={styles.headerRow}>
           <View>
             {pdfLogoOk(org.logo_url) ? (
-              <Image src={org.logo_url} style={{ maxWidth: 170, maxHeight: 52, marginBottom: 8, objectFit: 'contain' }} />
+              <Image src={org.logo_url} style={styles.logo} />
             ) : null}
             <Text style={styles.orgName}>{org.name || 'Your Company'}</Text>
             {org.business_address ? <Text style={styles.orgLine}>{org.business_address}</Text> : null}
@@ -241,14 +244,13 @@ export function EstimatePdf({
           const bodyLines = nl >= 0 ? li.description.slice(nl + 1).replace(/^\n+/, '') : ''
           return (
           <View key={i} style={styles.tableRow} wrap={false}>
-            <View style={styles.cellDesc}>
-              <Text style={[styles.bodyText, styles.blockBold]}>{titleLine}</Text>
-              {bodyLines ? (
-                <Text style={[styles.bodyText, { marginTop: 5, color: COLORS.fg, lineHeight: 1.45 }]}>
-                  {bodyLines}
-                </Text>
-              ) : null}
-            </View>
+            {/* Single Text (not a nested View) so react-pdf sizes the row
+                height correctly — a View here made rows overlap. Bold title,
+                blank line, then the body in a lighter tone. */}
+            <Text style={[styles.bodyText, styles.cellDesc]}>
+              <Text style={styles.blockBold}>{titleLine}</Text>
+              {bodyLines ? <Text style={{ color: COLORS.fg }}>{'\n\n' + bodyLines}</Text> : null}
+            </Text>
             <Text style={[styles.monoRight, styles.cellQty]}>{li.quantity}</Text>
             <Text style={[styles.bodyText, styles.cellUnit, { textAlign: 'right' }]}>{li.unit ?? '—'}</Text>
             <Text style={[styles.monoRight, styles.cellRate]}>{money(li.unit_price)}</Text>
