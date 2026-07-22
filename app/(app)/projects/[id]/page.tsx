@@ -346,11 +346,6 @@ export default function ProjectCoverPage() {
   const [loading, setLoading] = useState(true)
   const [historicalOpen, setHistoricalOpen] = useState(false)
   const [qbLines, setQbLines] = useState<QbLine[]>([])
-  const [qbTerms] = useState(
-    'Estimate valid for 30 days. 30% deposit due at contract signing. ' +
-      'Remaining balance billed per production milestones. Lead time quoted ' +
-      'separately. Change orders in writing only.'
-  )
   const [toast, setToast] = useState<string | null>(null)
   const [historical, setHistorical] = useState<
     { id: string; name: string; client: string | null; meta: string; total: number }[]
@@ -358,6 +353,20 @@ export default function ProjectCoverPage() {
   const [milestones, setMilestones] = useState<ProjectMilestone[]>([])
   const [milestonesDirty, setMilestonesDirty] = useState(false)
   const [milestonesSaving, setMilestonesSaving] = useState(false)
+
+  // Estimate terms — derive the deposit % from the ACTUAL payment schedule
+  // (first milestone) so the terms line can't contradict the printed schedule.
+  // No milestones → drop the deposit sentence (the schedule is the truth).
+  const qbTerms = useMemo(() => {
+    const depositPct =
+      milestones.length > 0 && milestones[0].pct > 0 ? Math.round(milestones[0].pct) : null
+    const depositSentence = depositPct ? `${depositPct}% deposit due at contract signing. ` : ''
+    return (
+      `Estimate valid for 30 days. ${depositSentence}` +
+      'Remaining balance billed per production milestones. Lead time quoted ' +
+      'separately. Change orders in writing only.'
+    )
+  }, [milestones])
 
   // Derived "ready for production" gate (computed async by the effect
   // below) + the in-flight flag for the manual Start production action.
