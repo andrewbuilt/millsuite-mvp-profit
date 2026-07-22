@@ -1464,11 +1464,11 @@ export default function ProjectCoverPage() {
             {/* Change orders (v2). Created from a subproject header; listed here
                 so the project view shows scope changes + the additive total. */}
             {changeOrders.length > 0 && (
-              <div className="mt-6">
+              <div className="mt-6 bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setCoListOpen((v) => !v)}
-                  className="w-full flex items-center gap-2 mb-2 group"
+                  className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#F9FAFB] focus:outline-none group"
                 >
                   {coListOpen ? (
                     <ChevronUp className="w-3.5 h-3.5 text-[#9CA3AF]" />
@@ -1490,7 +1490,7 @@ export default function ProjectCoverPage() {
                   )}
                 </button>
                 {coListOpen && (
-                <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
+                <div className="border-t border-[#E5E7EB]">
                   {changeOrders.map((co) => {
                     const price = Number(co.client_price) || 0
                     // A free ($0) CO applies on creation but the physical
@@ -1683,6 +1683,7 @@ export default function ProjectCoverPage() {
               onCreateContractInvoice={() =>
                 qbMode ? setProjectInvoiceOpen(true) : setAdHocInvoiceOpen(true)
               }
+              canCreateContractInvoice={!qbMode}
             />
           </div>
 

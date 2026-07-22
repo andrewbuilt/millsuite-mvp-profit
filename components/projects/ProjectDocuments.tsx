@@ -31,6 +31,7 @@ export default function ProjectDocuments({
   onMarkEstimateSent,
   estimateSentAt,
   onCreateContractInvoice,
+  canCreateContractInvoice,
 }: {
   projectId: string
   contractInvoices: InvoiceRef[]
@@ -40,6 +41,9 @@ export default function ProjectDocuments({
   onMarkEstimateSent: () => void
   estimateSentAt: string | null
   onCreateContractInvoice: () => void
+  /** MillSuite-native contract invoicing is for non-QB users; QB users
+   *  invoice in QuickBooks, so the "Create" affordance is hidden for them. */
+  canCreateContractInvoice: boolean
 }) {
   const [docs, setDocs] = useState<ProjectDocument[]>([])
   const [adding, setAdding] = useState(false)
@@ -128,17 +132,20 @@ export default function ProjectDocuments({
           </div>
         </div>
 
-        {/* Contract invoice(s) — or a create action when none exists yet. */}
+        {/* Contract invoice(s). MillSuite-native; only offer "Create" for
+            non-QB users (QB users invoice in QuickBooks). */}
         {contractInvoices.length === 0 ? (
-          <div className={rowCls}>
-            <div className={leftCls}>
-              <FileText className={iconCls} />
-              <span className="text-[13px] text-[#6B7280]">Contract invoice</span>
+          canCreateContractInvoice ? (
+            <div className={rowCls}>
+              <div className={leftCls}>
+                <FileText className={iconCls} />
+                <span className="text-[13px] text-[#6B7280]">Contract invoice</span>
+              </div>
+              <button onClick={onCreateContractInvoice} className={`${linkCls} text-[#2563EB] border-[#BFDBFE]`}>
+                <Plus className="w-3 h-3" /> Create
+              </button>
             </div>
-            <button onClick={onCreateContractInvoice} className={`${linkCls} text-[#2563EB] border-[#BFDBFE]`}>
-              <Plus className="w-3 h-3" /> Create
-            </button>
-          </div>
+          ) : null
         ) : (
           contractInvoices.map((inv) => (
             <div key={inv.id} className={rowCls}>
