@@ -655,22 +655,28 @@ export async function createApprovalItemsFromProposals(
   const subIds = Array.from(new Set(proposals.map((p) => p.subproject_id)))
   const { data: existing } = await supabase
     .from('approval_items')
-    .select('subproject_id, label, material, finish')
+    .select('subproject_id, label, material, finish, source_estimate_line_id')
     .in('subproject_id', subIds)
 
-  const k = (r: { subproject_id: string; label: string; material: string | null; finish: string | null }) =>
+  // Spec key merges same-spec cards across lines (two lines both "White oak
+  // carcass" → one card). Line key catches a slot whose card already exists
+  // for this exact line even if its material/finish drifted — which happens
+  // after a spec-change CO updates the card but not product_slots; without
+  // this, the re-seed would insert a SECOND card for the same slot.
+  const specK = (r: { subproject_id: string; label: string; material: string | null; finish: string | null }) =>
     `${r.subproject_id}::${r.label}::${r.material ?? ''}::${r.finish ?? ''}`
-  const existingKey = new Set((existing || []).map((r: any) => k(r)))
+  const lineK = (r: { subproject_id: string; label: string; source_estimate_line_id: string | null }) =>
+    `${r.subproject_id}::${r.label}::${r.source_estimate_line_id ?? ''}`
+  const existingSpec = new Set((existing || []).map((r: any) => specK(r)))
+  const existingLine = new Set((existing || []).map((r: any) => lineK(r)))
 
   // Dedupe within the incoming proposals too — multiple lines on the same
-  // sub with the same (label, material, finish) collapse to one card. First
-  // proposal wins for source_estimate_line_id, which is fine — the card
-  // represents the spec, not the line, and both lines share it.
-  const seenProp = new Set<string>()
+  // sub with the same (label, material, finish) collapse to one card.
+  const seenSpec = new Set<string>()
   const uniqueProposals = proposals.filter((p) => {
-    const key = k(p)
-    if (seenProp.has(key) || existingKey.has(key)) return false
-    seenProp.add(key)
+    if (existingSpec.has(specK(p)) || existingLine.has(lineK(p))) return false
+    if (seenSpec.has(specK(p))) return false
+    seenSpec.add(specK(p))
     return true
   })
 
