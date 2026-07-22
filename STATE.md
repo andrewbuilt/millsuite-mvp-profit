@@ -17,6 +17,7 @@
 **Also shipped 2026-07-22 (roster detail pages + subproject tweak):**
 - **Detail pages for all three rosters** — estimates (`/estimates/[projectId]`, `a8d7344`), change orders (`/change-orders/[id]`, `c5e1604`), matching the existing invoice detail. Rows open a read-only detail window (with actions) instead of jumping to the project.
 - **Subproject "+ Custom item or vendor product" button** (`802704e`) replaced the freeform rate-book search box → opens the `FreeformLineModal` (the custom modal). Composer above stays the rate-book path. _(This is the entry point for the still-unscoped item #5 freeform-modal overhaul; some search-box code is now dead — harmless.)_
+- **ACTIVE: "Fix list — added 2026-07-22" (under Now) — 5 items from Andrew's live use. Work these next, one at a time.**
 - Do NOT run the full 85-project Built-OS migration yet — only when Andrew says so.
 - Remaining demo-feedback items (rate-book fix/upgrade #2, /me edits #3, freeform-line modal #5) + back-burnered installation/terms modal stay queued & `[unscoped]` — scope with Andrew before building.
 
@@ -70,7 +71,17 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Projects dashboard + lifecycle — QA fixes  _(found 2026-06-23 in live QA)_
+### Fix list — added 2026-07-22 (Andrew, from live use). Work in order, one at a time.
+
+1. ✅ **CO approval card duplicates — FIXED 2026-07-22 (`2a6b1a1`, tsc clean; pending Andrew verify).** Root cause was NOT `applyApprovedCo` (it correctly updates the matched card) — it's the **pre-production self-heal re-seed** (`seedApprovalItemsFromEstimate` → `createApprovalItemsFromProposals`, runs on every pre-pro page load). Its dedup keyed on `(subproject,label,material,finish)`; a spec CO updates the card's finish but leaves `product_slots` stale, so the re-seed re-proposed the OLD value, didn't match the updated card, and inserted a SECOND card. Fix: also skip a proposal when a card already exists for `(subproject,label,source_estimate_line_id)` — the line's slot already has its card even if a CO changed the value. Same-spec cross-line merge preserved via the spec key. **Caveat: prevents NEW dupes only — a project that already has a duplicate card (e.g. Andrew's test project) keeps it; delete the stale card manually.** Test with a fresh spec CO.
+2. **Project stuck in Pre-Production despite everything approved + downpayment marked received.** This is almost certainly the ALREADY-SCOPED bug below ("Projects dashboard + lifecycle — QA fixes" #2): marking the deposit milestone received **no-ops when no contract invoice exists**, so `amount_received` stays 0 and `isReadyForProduction` never passes. **Build that existing spec now** (auto-create contract invoice on sold + one-click "Mark deposit received" + consistent milestone toggle). Verify on Andrew's actual stuck project — check its readiness gates one by one and tell him which one was false.
+3. **Kanban "+ New project" should open a create modal** (project name + client picker/create) right there, instead of bouncing to the sales page. On save: create as `new_lead`, card appears in the kanban.
+4. **Estimate PDF terms text contradicts the payment schedule.** Footer terms default says "30% deposit" while the schedule says 50/25/25 (screenshot). Fix: the terms **template** should not hardcode a deposit % — derive it from the project's actual payment schedule (first milestone %) when rendering, e.g. "{deposit_pct}% deposit due at contract signing", or drop the % sentence from the default text and show the schedule (already printed) as the source of truth. Also update Built's seeded default in Settings so new orgs don't inherit the mismatch.
+5. **Hide salaries from the team.** Andrew's design: **remove Annual Comp from /team entirely** (comp lives ONLY in Settings); **lock /settings to owner role** (admins/members get no entry — hide the nav link + route-gate); **move the Holidays & PTO section from /settings to /team** so managers can still run time-off without seeing money. Check: the shop-rate panel on /team also exposes total comp ("Annual team comp $1,038,000") — that panel must move to Settings (owner-only) too, or hide its dollar figures for non-owners. Mind `loadShopRateSetup` reads on /team for non-owner viewers (capacity math needs hours, not comp — split the read if needed so comp never ships to non-owner clients).
+
+**Verify:** (1) a spec CO leaves exactly ONE card per slot, showing the new spec, pending; (2) Andrew's stuck project reaches Ready and Start production works — both deposit paths; (3) kanban modal creates a lead in place; (4) PDF terms match the schedule on a 50/25/25 project; (5) a member/admin login sees no comp anywhere (team page, settings blocked), Holidays & PTO works from /team, and owner still sees everything.
+
+### Projects dashboard + lifecycle — QA fixes  _(found 2026-06-23 in live QA — **fix-list item 2 above builds this**)_
 
 **Deposit → Ready: the invoice is the money truth; both QB and manual feed it.** (Andrew's intent: the *correct* path is QB sees the payment → watcher applies it → project goes Ready; plus a *manual* mark for testing / payments taken outside QB. **Keep the deposit gate on the invoice's `amount_received` — do NOT gate on milestone status.**)
 
