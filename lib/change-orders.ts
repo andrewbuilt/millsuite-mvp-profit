@@ -97,6 +97,20 @@ export async function loadChangeOrdersForProject(
   return (data || []) as ChangeOrder[]
 }
 
+/** Load a single change order by id (the CO detail page). */
+export async function loadChangeOrder(id: string): Promise<ChangeOrder | null> {
+  const { data, error } = await supabase
+    .from('change_orders')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (error) {
+    console.error('loadChangeOrder', error)
+    return null
+  }
+  return (data as ChangeOrder) ?? null
+}
+
 /**
  * Load COs on a single subproject. Used when surfacing the CO panel inside
  * the subproject expanded view.

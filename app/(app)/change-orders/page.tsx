@@ -198,7 +198,7 @@ export default function ChangeOrdersPage() {
                   key={r.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => router.push(`/projects/${r.project_id}`)}
+                  onClick={() => router.push(`/change-orders/${r.id}`)}
                   className="w-full text-left grid grid-cols-[70px_1fr_1fr_110px_110px_90px] px-4 py-2.5 items-center border-b border-[#F3F4F6] last:border-b-0 hover:bg-[#F9FAFB] transition-colors cursor-pointer"
                 >
                   <div className="text-[12px] font-mono text-[#6B7280]">CO-{String(r.co_number ?? 0).padStart(2, '0')}</div>
