@@ -19,6 +19,7 @@ import {
   findInvoiceForMilestone,
   ensureContractInvoice,
   recordInvoicePayment,
+  projectInvoicingMode,
 } from './invoices'
 
 export type MilestoneTrigger =
@@ -184,12 +185,19 @@ export async function markMilestoneReceived(
   }
   // Move real money on the invoice — otherwise this is a dead toggle that
   // sets a status but never raises amount_received (the bug that stranded
-  // projects in Pre-Production). Two cases, both non-fatal:
+  // projects in Pre-Production). INTERNAL mode only: in QB mode the system
+  // never creates/records internal invoice payments — money comes from the QB
+  // watcher, so the milestone toggle is projection-only. Two internal cases,
+  // both non-fatal:
   //   - the milestone HAS a linked invoice → settle its outstanding balance.
   //   - no linked invoice → record this milestone's amount on the project's
   //     contract invoice (creating it if missing) so the deposit signal + AR
   //     actually move.
   try {
+    if (data?.project_id && (await projectInvoicingMode(data.project_id as string)) === 'quickbooks') {
+      // QB mode: leave invoices to QB + the watcher.
+      return data ? rowToMilestone(data as Raw, 0) : null
+    }
     const linked = await findInvoiceForMilestone(milestoneId)
     if (linked) {
       await syncInvoiceFromMilestoneReceived(milestoneId, paymentDate, 'manual')

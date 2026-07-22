@@ -23,7 +23,12 @@
 import { supabase } from './supabase'
 import { loadSubprojectStatusMap } from './subproject-status'
 import { seedAllocationsForProduction } from './schedule-seed'
-import { ensureContractInvoice, findContractInvoice, recordInvoicePayment } from './invoices'
+import {
+  ensureContractInvoice,
+  findContractInvoice,
+  recordInvoicePayment,
+  projectInvoicingMode,
+} from './invoices'
 
 /**
  * Derived readiness gate for the Pre-Production → In Production transition.
@@ -61,21 +66,43 @@ export async function isReadyForProduction(projectId: string): Promise<boolean> 
  * is in."
  */
 export async function isDepositReceived(projectId: string): Promise<boolean> {
+  // Manual override (QB failsafe) short-circuits the gate.
+  const { data: p } = await supabase
+    .from('projects')
+    .select('deposit_override')
+    .eq('id', projectId)
+    .maybeSingle()
+  if ((p as { deposit_override?: boolean } | null)?.deposit_override) return true
   const inv = await findContractInvoice(projectId)
   if (!inv) return false
   return inv.total > 0 && inv.amount_received > 0
 }
 
 /**
- * Manual deposit path (testing + payments taken outside QB). Ensures the
- * project has a contract invoice, then records a deposit payment so
- * amount_received > 0 → the readiness gate passes. Idempotent: a no-op once
- * the invoice already has money. Deposit amount = the first milestone's amount
- * (the deposit %), else 30% of the total, capped at the outstanding balance.
- * Returns true when the deposit is (now) in, false when there's nothing to
- * invoice (no positive project total).
+ * Move the project past the deposit gate. Mode-aware:
+ *   - QB mode: a manual OVERRIDE (rare failsafe — payment forthcoming / the QB
+ *     connection is messed up). Sets projects.deposit_override; NO internal
+ *     invoice is created. The normal QB path is the watcher marking the pushed
+ *     contract invoice paid.
+ *   - internal mode: records a real deposit payment on the contract invoice
+ *     (creating it from bid_total if missing). Deposit = first milestone amount
+ *     (the deposit %), else 30% of total, capped at the balance. Idempotent.
+ * Returns true when the gate will now pass, false when there's nothing to
+ * invoice (internal mode, no positive total).
  */
 export async function markDepositReceived(projectId: string): Promise<boolean> {
+  if ((await projectInvoicingMode(projectId)) === 'quickbooks') {
+    const { error } = await supabase
+      .from('projects')
+      .update({ deposit_override: true })
+      .eq('id', projectId)
+    if (error) {
+      console.error('markDepositReceived override', error)
+      return false
+    }
+    return true
+  }
+
   const inv = await ensureContractInvoice(projectId)
   if (!inv) return false
   if (inv.amount_received > 0) return true // deposit already in

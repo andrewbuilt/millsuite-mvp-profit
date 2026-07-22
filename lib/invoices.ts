@@ -425,13 +425,37 @@ export async function findContractInvoice(projectId: string): Promise<Invoice | 
   return active.find((i) => !coIds.has(i.id)) ?? null
 }
 
-/** Ensure the project has a contract invoice; create a minimal one from the
- *  project's `bid_total` when missing (so the manual deposit path always has
- *  something to record against). Returns null when the project has no positive
- *  total to invoice. */
+/** The project's org invoicing mode. QB mode = never fabricate internal
+ *  invoices (the contract invoice comes from the QB push; payments come from
+ *  the QB watcher). */
+export async function projectInvoicingMode(
+  projectId: string,
+): Promise<'quickbooks' | 'internal'> {
+  const { data: p } = await supabase
+    .from('projects')
+    .select('org_id')
+    .eq('id', projectId)
+    .maybeSingle()
+  const orgId = (p as { org_id?: string | null } | null)?.org_id
+  if (!orgId) return 'internal'
+  const { data: o } = await supabase
+    .from('orgs')
+    .select('invoicing_mode')
+    .eq('id', orgId)
+    .maybeSingle()
+  return (o as { invoicing_mode?: string | null } | null)?.invoicing_mode === 'quickbooks'
+    ? 'quickbooks'
+    : 'internal'
+}
+
+/** Ensure the project has a contract invoice, creating a minimal one from
+ *  `bid_total` only in INTERNAL mode. In QB mode the system never fabricates an
+ *  invoice — the contract invoice is created by the QB push — so this returns
+ *  the existing one or null. Returns null when there's no positive total. */
 export async function ensureContractInvoice(projectId: string): Promise<Invoice | null> {
   const existing = await findContractInvoice(projectId)
   if (existing) return existing
+  if ((await projectInvoicingMode(projectId)) === 'quickbooks') return null
   const { data: p } = await supabase
     .from('projects')
     .select('org_id, client_id, name, bid_total')

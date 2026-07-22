@@ -299,6 +299,7 @@ export default function ProjectCoverPage() {
   const { id: projectId } = useParams() as { id: string }
   const router = useRouter()
   const { org } = useAuth()
+  const { confirm } = useConfirm()
 
   const shopRate = org?.shop_rate ?? 0
   const pricingCtx: PricingContext = useMemo(
@@ -665,20 +666,32 @@ export default function ProjectCoverPage() {
 
   async function handleMarkDeposit() {
     if (markingDeposit) return
+    // QB mode: this is a manual OVERRIDE (rare failsafe) — no internal invoice
+    // is created; it just pushes past the deposit gate. Confirm to avoid a
+    // mis-click, since the real path is the QB watcher.
+    if (qbMode) {
+      const ok = await confirm({
+        title: 'Override the deposit check?',
+        message:
+          'Use only when a QuickBooks payment is confirmed or forthcoming and the sync hasn’t caught it yet. This pushes the project past the deposit gate without recording a payment.',
+        confirmLabel: 'Override — deposit forthcoming',
+      })
+      if (!ok) return
+    }
     setMarkingDeposit(true)
     try {
-      const ok = await markDepositReceived(projectId)
-      if (!ok) {
+      const done = await markDepositReceived(projectId)
+      if (!done) {
         showToast('No project total to invoice yet — add priced subprojects first.')
         return
       }
       setDepositReceived(true)
-      showToast('Deposit recorded on the contract invoice.')
+      showToast(qbMode ? 'Deposit override applied.' : 'Deposit recorded on the contract invoice.')
       const ready = await isReadyForProduction(projectId)
       setReadyForProduction(ready)
       reload()
     } catch (err: any) {
-      showToast(err?.message || 'Could not record the deposit.')
+      showToast(err?.message || 'Could not mark the deposit.')
     } finally {
       setMarkingDeposit(false)
     }
@@ -1880,10 +1893,23 @@ export default function ProjectCoverPage() {
                   <button
                     onClick={handleMarkDeposit}
                     disabled={markingDeposit}
-                    title="Record the deposit on the contract invoice (manual / outside-QB). Creates the invoice if needed."
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0] disabled:opacity-50 transition-colors"
+                    title={
+                      qbMode
+                        ? 'Override the deposit gate (rare failsafe — QB payment forthcoming). No internal invoice is created.'
+                        : 'Record the deposit on the contract invoice. Creates the invoice if needed.'
+                    }
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${
+                      qbMode
+                        ? 'text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] hover:bg-[#FDE68A]'
+                        : 'text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0]'
+                    }`}
                   >
-                    <CheckCircle2 className="w-4 h-4" /> {markingDeposit ? 'Recording…' : 'Mark deposit received'}
+                    <CheckCircle2 className="w-4 h-4" />{' '}
+                    {markingDeposit
+                      ? 'Working…'
+                      : qbMode
+                        ? 'Override: deposit forthcoming'
+                        : 'Mark deposit received'}
                   </button>
                 )}
                 {stageCover === 'production' && (
