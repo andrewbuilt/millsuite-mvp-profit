@@ -104,10 +104,21 @@ export default function TopNav() {
             className="flex items-center gap-2 text-base font-semibold tracking-tight text-[#111] rounded-lg px-1.5 py-1 hover:bg-[#F9FAFB] transition-colors"
             aria-label="Dashboard"
           >
-            <MLogo size={20} color="#111" />
-            <span className="hidden sm:inline">MillSuite</span>
+            {org?.logo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={org.logo_url}
+                alt={org.name}
+                className="h-6 w-auto max-w-[160px] object-contain"
+              />
+            ) : (
+              <>
+                <MLogo size={20} color="#111" />
+                <span className="hidden sm:inline">MillSuite</span>
+              </>
+            )}
           </Link>
-          {org && (
+          {org && !org.logo_url && (
             <span className="text-xs text-[#9CA3AF] hidden xl:inline truncate max-w-[140px]">
               · {org.name}
             </span>

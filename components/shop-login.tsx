@@ -22,6 +22,7 @@ export default function ShopLogin({ variant }: { variant: 'manager' | 'employee'
   const landing = variant === 'employee' ? '/me' : '/dashboard'
 
   const [orgName, setOrgName] = useState<string | null>(null)
+  const [orgLogo, setOrgLogo] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -40,12 +41,14 @@ export default function ShopLogin({ variant }: { variant: 'manager' | 'employee'
     if (!shop) return
     supabase
       .from('orgs')
-      .select('name')
+      .select('name, logo_url')
       .eq('slug', shop)
       .single()
       .then(({ data }) => {
-        if (data) setOrgName(data.name)
-        else setNotFound(true)
+        if (data) {
+          setOrgName(data.name)
+          setOrgLogo((data as { logo_url?: string | null }).logo_url ?? null)
+        } else setNotFound(true)
       })
   }, [shop])
 
@@ -91,6 +94,14 @@ export default function ShopLogin({ variant }: { variant: 'manager' | 'employee'
         ) : (
           <div className="bg-white rounded-2xl p-8">
             <div className="mb-6 text-center">
+              {orgLogo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={orgLogo}
+                  alt={orgName || 'Shop'}
+                  className="h-12 w-auto max-w-[200px] object-contain mx-auto mb-3"
+                />
+              ) : null}
               <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#2563EB] mb-1">
                 {kicker}
               </div>

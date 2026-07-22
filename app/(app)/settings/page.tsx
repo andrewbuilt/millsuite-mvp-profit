@@ -104,6 +104,52 @@ export default function SettingsPage() {
   const [businessZip, setBusinessZip] = useState('')
   const [businessPhone, setBusinessPhone] = useState('')
   const [businessEmail, setBusinessEmail] = useState('')
+  const [logoBusy, setLogoBusy] = useState(false)
+  const [logoError, setLogoError] = useState('')
+
+  async function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setLogoBusy(true)
+    setLogoError('')
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/org/logo', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: fd,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Upload failed.')
+      await refreshOrg()
+    } catch (err) {
+      setLogoError(err instanceof Error ? err.message : 'Logo upload failed.')
+    } finally {
+      setLogoBusy(false)
+    }
+  }
+
+  async function handleLogoRemove() {
+    setLogoBusy(true)
+    setLogoError('')
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      await fetch('/api/org/logo', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+      })
+      await refreshOrg()
+    } finally {
+      setLogoBusy(false)
+    }
+  }
 
   // Invoicing settings — feed the create-invoice modal prefill and the
   // numbering sequence. nextInvoiceNumber is shown read-only with a
@@ -935,6 +981,28 @@ export default function SettingsPage() {
               <label className="text-sm text-[#6B7280]">Email</label>
               <input type="text" value={businessEmail} onChange={e => setBusinessEmail(e.target.value)} className="w-64 px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors" placeholder="info@yourbusiness.com" />
             </div>
+            <div className="flex items-center justify-between py-2 border-t border-[#F3F4F6]">
+              <div>
+                <label className="text-sm text-[#6B7280]">Logo</label>
+                <p className="text-[11px] text-[#9CA3AF]">Shows on the header, login pages, and PDFs. PNG/JPG/SVG, under 2 MB.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                {org?.logo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={org.logo_url} alt="Logo" className="h-9 w-auto max-w-[120px] object-contain border border-[#E5E7EB] rounded bg-white" />
+                ) : (
+                  <span className="text-xs text-[#9CA3AF]">No logo</span>
+                )}
+                <label className={`text-xs px-2.5 py-1.5 border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] ${logoBusy ? 'opacity-50' : 'cursor-pointer'}`}>
+                  {logoBusy ? 'Uploading…' : org?.logo_url ? 'Replace' : 'Upload'}
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" className="hidden" onChange={handleLogoFile} disabled={logoBusy} />
+                </label>
+                {org?.logo_url && (
+                  <button type="button" onClick={handleLogoRemove} disabled={logoBusy} className="text-xs text-[#B91C1C] hover:underline disabled:opacity-50">Remove</button>
+                )}
+              </div>
+            </div>
+            {logoError && <div className="text-xs text-[#B91C1C] text-right">{logoError}</div>}
           </div>
         </div>
 
