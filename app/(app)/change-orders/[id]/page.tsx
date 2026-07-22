@@ -218,26 +218,34 @@ export default function ChangeOrderDetailPage() {
             </div>
           </div>
 
-          {/* The change */}
+          {/* The change — mirrors the PDF: the chips (or materials) show the
+              change, so the title is only kept for custom COs (where it holds
+              the description), not as a redundant echo of the chips. */}
           <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 py-4">
             <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-2">Change</div>
-            <div className="text-[15px] font-semibold text-[#111] mb-3">{co.title}</div>
 
             {materials ? (
-              <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
-                {materials.map((m, i) => (
-                  <div key={i} className="flex items-center justify-between px-3 py-2 border-b border-[#F3F4F6] last:border-b-0 text-[12.5px]">
-                    <span className="text-[#111]">{m.desc}{m.vendor ? <span className="text-[#9CA3AF]"> · vendor</span> : null}</span>
-                    <span className="font-mono tabular-nums text-[#374151]">{m.qty} × {money(m.unit_cost)} = {money(m.qty * m.unit_cost)}</span>
-                  </div>
-                ))}
-              </div>
+              <>
+                {co.title && (
+                  <div className="text-[15px] font-semibold text-[#111] mb-3">{co.title}</div>
+                )}
+                <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+                  {materials.map((m, i) => (
+                    <div key={i} className="flex items-center justify-between px-3 py-2 border-b border-[#F3F4F6] last:border-b-0 text-[12.5px]">
+                      <span className="text-[#111]">{m.desc}{m.vendor ? <span className="text-[#9CA3AF]"> · vendor</span> : null}</span>
+                      <span className="font-mono tabular-nums text-[#374151]">{m.qty} × {money(m.unit_cost)} = {money(m.qty * m.unit_cost)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
             ) : originalLabel || proposedLabel ? (
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[12.5px] px-2 py-1 rounded-md bg-[#F9FAFB] border border-[#E5E7EB]">{originalLabel || '—'}</span>
+                <span className="text-[13px] px-2.5 py-1.5 rounded-md bg-[#F9FAFB] border border-[#E5E7EB]">{originalLabel || '—'}</span>
                 <span className="text-[#9CA3AF]">→</span>
-                <span className="text-[12.5px] px-2 py-1 rounded-md bg-[#F9FAFB] border border-[#E5E7EB]">{proposedLabel || '—'}</span>
+                <span className="text-[13px] px-2.5 py-1.5 rounded-md bg-[#F9FAFB] border border-[#E5E7EB]">{proposedLabel || '—'}</span>
               </div>
+            ) : co.title ? (
+              <div className="text-[15px] font-semibold text-[#111]">{co.title}</div>
             ) : null}
 
             {co.drawing_revision_required && (
