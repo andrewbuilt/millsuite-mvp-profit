@@ -127,7 +127,7 @@ import {
 import ClientPicker from '@/components/project/ClientPicker'
 import NewSubprojectModal from '@/components/project/NewSubprojectModal'
 import { useConfirm } from '@/components/confirm-dialog'
-import { isReadyForProduction, startProduction } from '@/lib/project-stage'
+import { isReadyForProduction, startProduction, isDepositReceived, markDepositReceived } from '@/lib/project-stage'
 
 // ── Types ──
 
@@ -361,6 +361,8 @@ export default function ProjectCoverPage() {
   // Derived "ready for production" gate (computed async by the effect
   // below) + the in-flight flag for the manual Start production action.
   const [readyForProduction, setReadyForProduction] = useState(false)
+  const [depositReceived, setDepositReceived] = useState(true)
+  const [markingDeposit, setMarkingDeposit] = useState(false)
   const [startingProduction, setStartingProduction] = useState(false)
   const [newSubOpen, setNewSubOpen] = useState(false)
   // Milestone id → linked-invoice summary. Drives both the "Generate
@@ -645,17 +647,42 @@ export default function ProjectCoverPage() {
   useEffect(() => {
     if (!project || project.stage !== 'sold') {
       setReadyForProduction(false)
+      setDepositReceived(true)
       return
     }
     let cancelled = false
     isReadyForProduction(projectId).then((ready) => {
       if (!cancelled) setReadyForProduction(ready)
     })
+    isDepositReceived(projectId).then((got) => {
+      if (!cancelled) setDepositReceived(got)
+    })
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, project?.stage, subStatusMap, milestones])
+
+  async function handleMarkDeposit() {
+    if (markingDeposit) return
+    setMarkingDeposit(true)
+    try {
+      const ok = await markDepositReceived(projectId)
+      if (!ok) {
+        showToast('No project total to invoice yet — add priced subprojects first.')
+        return
+      }
+      setDepositReceived(true)
+      showToast('Deposit recorded on the contract invoice.')
+      const ready = await isReadyForProduction(projectId)
+      setReadyForProduction(ready)
+      reload()
+    } catch (err: any) {
+      showToast(err?.message || 'Could not record the deposit.')
+    } finally {
+      setMarkingDeposit(false)
+    }
+  }
 
   // Operator-driven sold → production transition — the only writer. Guards
   // on the readiness gate, flips the stage, and seeds schedule allocations
@@ -1847,6 +1874,16 @@ export default function ProjectCoverPage() {
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
                   >
                     Start production
+                  </button>
+                )}
+                {stageCover === 'sold' && !depositReceived && (
+                  <button
+                    onClick={handleMarkDeposit}
+                    disabled={markingDeposit}
+                    title="Record the deposit on the contract invoice (manual / outside-QB). Creates the invoice if needed."
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0] disabled:opacity-50 transition-colors"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> {markingDeposit ? 'Recording…' : 'Mark deposit received'}
                   </button>
                 )}
                 {stageCover === 'production' && (

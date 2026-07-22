@@ -12,18 +12,18 @@
 //   2. the project has ≥1 subproject and EVERY subproject's
 //      ready_for_scheduling flag is true (specs + drawings approved)
 //   3. the deposit is in — the project's contract invoice (client_invoices)
-//      has amount_received > 0. Post invoicing-rebuild, milestones are
-//      projection-only and a milestone only flips to 'received' once the
-//      invoice is FULLY paid, so the old "deposit milestone received" gate
-//      is unreliable; the invoice's received amount is the real signal.
-//      (Both the QB watcher applying a draw and the manual
-//      markMilestoneReceived path raise amount_received, so this catches
-//      both.)
+//      has amount_received > 0. Both signals feed it: the QB watcher applies a
+//      real draw, and the manual paths (the "Mark deposit received" button and
+//      the milestone RECEIVED toggle) record a payment on the contract invoice
+//      via ensureContractInvoice + recordInvoicePayment — creating the invoice
+//      first when one doesn't exist yet (the bug that stranded projects in
+//      Pre-Production: the milestone toggle used to no-op with no invoice).
 // ============================================================================
 
 import { supabase } from './supabase'
 import { loadSubprojectStatusMap } from './subproject-status'
 import { seedAllocationsForProduction } from './schedule-seed'
+import { ensureContractInvoice, recordInvoicePayment } from './invoices'
 
 /**
  * Derived readiness gate for the Pre-Production → In Production transition.
@@ -69,6 +69,45 @@ export async function isDepositReceived(projectId: string): Promise<boolean> {
     .maybeSingle()
   if (!inv) return false
   return Number(inv.total) > 0 && Number(inv.amount_received) > 0
+}
+
+/**
+ * Manual deposit path (testing + payments taken outside QB). Ensures the
+ * project has a contract invoice, then records a deposit payment so
+ * amount_received > 0 → the readiness gate passes. Idempotent: a no-op once
+ * the invoice already has money. Deposit amount = the first milestone's amount
+ * (the deposit %), else 30% of the total, capped at the outstanding balance.
+ * Returns true when the deposit is (now) in, false when there's nothing to
+ * invoice (no positive project total).
+ */
+export async function markDepositReceived(projectId: string): Promise<boolean> {
+  const inv = await ensureContractInvoice(projectId)
+  if (!inv) return false
+  if (inv.amount_received > 0) return true // deposit already in
+  const balance = +(inv.total - inv.amount_received).toFixed(2)
+  if (balance <= 0) return true
+
+  const { data: ms } = await supabase
+    .from('cash_flow_receivables')
+    .select('amount')
+    .eq('project_id', projectId)
+    .eq('type', 'receivable')
+    .order('created_at', { ascending: true })
+    .limit(1)
+  const firstAmt = ms && ms[0] ? Number((ms[0] as { amount: number | null }).amount) || 0 : 0
+  const deposit = firstAmt > 0 ? firstAmt : Math.round(inv.total * 0.3)
+  const amount = Math.min(deposit, balance)
+  if (amount <= 0) return true
+
+  await recordInvoicePayment({
+    invoice_id: inv.id,
+    amount,
+    payment_date: new Date().toISOString().slice(0, 10),
+    payment_method: null,
+    reference: null,
+    notes: 'Deposit — marked received (manual)',
+  })
+  return true
 }
 
 /**

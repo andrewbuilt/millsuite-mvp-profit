@@ -14,7 +14,12 @@
 // ============================================================================
 
 import { supabase } from './supabase'
-import { syncInvoiceFromMilestoneReceived } from './invoices'
+import {
+  syncInvoiceFromMilestoneReceived,
+  findInvoiceForMilestone,
+  ensureContractInvoice,
+  recordInvoicePayment,
+} from './invoices'
 
 export type MilestoneTrigger =
   | 'signing'        // deposit at contract signing
@@ -177,13 +182,34 @@ export async function markMilestoneReceived(
     console.error('markMilestoneReceived', error)
     throw error
   }
-  // Reverse-sync: if a non-void invoice is linked to this milestone
-  // and still has an outstanding balance, auto-record the balance as
-  // a payment so the invoice flips to 'paid' alongside the milestone.
-  // Failure here is non-fatal — the milestone flip already succeeded
-  // and the operator can record the payment manually if needed.
+  // Move real money on the invoice — otherwise this is a dead toggle that
+  // sets a status but never raises amount_received (the bug that stranded
+  // projects in Pre-Production). Two cases, both non-fatal:
+  //   - the milestone HAS a linked invoice → settle its outstanding balance.
+  //   - no linked invoice → record this milestone's amount on the project's
+  //     contract invoice (creating it if missing) so the deposit signal + AR
+  //     actually move.
   try {
-    await syncInvoiceFromMilestoneReceived(milestoneId, paymentDate, 'manual')
+    const linked = await findInvoiceForMilestone(milestoneId)
+    if (linked) {
+      await syncInvoiceFromMilestoneReceived(milestoneId, paymentDate, 'manual')
+    } else if (data?.project_id) {
+      const inv = await ensureContractInvoice(data.project_id as string)
+      if (inv) {
+        const balance = +(inv.total - inv.amount_received).toFixed(2)
+        const amt = Math.min(Number((data as Raw).amount) || 0, balance)
+        if (amt > 0) {
+          await recordInvoicePayment({
+            invoice_id: inv.id,
+            amount: amt,
+            payment_date: paymentDate,
+            payment_method: null,
+            reference: null,
+            notes: `${(data as Raw).milestone_label || 'Milestone'} — marked received`,
+          })
+        }
+      }
+    }
   } catch (e) {
     console.warn('markMilestoneReceived → invoice sync', e)
   }

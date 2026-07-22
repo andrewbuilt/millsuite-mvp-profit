@@ -410,6 +410,64 @@ export async function createInvoice(args: {
   return normalized
 }
 
+/** The project's contract invoice — the one-per-project invoice, NOT a
+ *  change-order invoice. Newest non-void. Used by the deposit path so the
+ *  readiness gate has an invoice to read `amount_received` from. */
+export async function findContractInvoice(projectId: string): Promise<Invoice | null> {
+  const active = (await loadInvoicesForProject(projectId)).filter((i) => i.status !== 'void')
+  if (active.length === 0) return null
+  const { data: cos } = await supabase
+    .from('change_orders')
+    .select('co_invoice_id')
+    .eq('project_id', projectId)
+    .not('co_invoice_id', 'is', null)
+  const coIds = new Set(((cos as { co_invoice_id: string | null }[] | null) || []).map((c) => c.co_invoice_id))
+  return active.find((i) => !coIds.has(i.id)) ?? null
+}
+
+/** Ensure the project has a contract invoice; create a minimal one from the
+ *  project's `bid_total` when missing (so the manual deposit path always has
+ *  something to record against). Returns null when the project has no positive
+ *  total to invoice. */
+export async function ensureContractInvoice(projectId: string): Promise<Invoice | null> {
+  const existing = await findContractInvoice(projectId)
+  if (existing) return existing
+  const { data: p } = await supabase
+    .from('projects')
+    .select('org_id, client_id, name, bid_total')
+    .eq('id', projectId)
+    .maybeSingle()
+  const proj = p as { org_id: string | null; client_id: string | null; name: string; bid_total: number | null } | null
+  const total = Number(proj?.bid_total) || 0
+  if (!proj?.org_id || total <= 0) return null
+  const today = new Date().toISOString().slice(0, 10)
+  const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+  return createInvoice({
+    invoice: {
+      org_id: proj.org_id,
+      project_id: projectId,
+      client_id: proj.client_id ?? null,
+      invoice_date: today,
+      due_date: due,
+      tax_pct: 0,
+      notes: 'Contract invoice',
+    },
+    lineItems: [
+      {
+        sort_order: 0,
+        description: `${proj.name} — project total`,
+        quantity: 1,
+        unit: null,
+        unit_price: total,
+        amount: total,
+        source_type: 'subproject',
+        source_id: null,
+      },
+    ],
+    markSent: true,
+  })
+}
+
 export async function updateInvoice(
   id: string,
   patch: Partial<Invoice>,
