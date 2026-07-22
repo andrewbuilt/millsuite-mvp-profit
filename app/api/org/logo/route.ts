@@ -5,7 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const BUCKET = 'invoice-pdfs' // existing public bucket; logos live under logos/
+const BUCKET = 'org-logos' // public bucket, image mime types (migration 070)
 
 const EXT: Record<string, string> = {
   'image/png': 'png',
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer())
-  const path = `logos/${caller.orgId}/${Date.now()}.${ext}`
+  const path = `${caller.orgId}/${Date.now()}.${ext}`
   const { error: upErr } = await supabaseAdmin.storage
     .from(BUCKET)
     .upload(path, buffer, { contentType: type, upsert: true })
