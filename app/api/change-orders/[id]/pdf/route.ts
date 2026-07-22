@@ -78,6 +78,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
   }
 
+  // Subproject name → the CO heading (the spec change shows in the chips
+  // below, so the title needn't repeat it).
+  let subprojectName: string | null = null
+  if ((co as any).subproject_id) {
+    const { data: sub } = await supabaseAdmin
+      .from('subprojects')
+      .select('name')
+      .eq('id', (co as any).subproject_id)
+      .single()
+    subprojectName = (sub as { name?: string } | null)?.name ?? null
+  }
+
   const coNumber = `CO-${String((co as any).co_number ?? 0).padStart(2, '0')}`
   const element = React.createElement(ChangeOrderPdf, {
     coNumber,
@@ -85,6 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     org,
     project: { name: (project as any).name },
     client,
+    subprojectName,
     title: (co as any).title || 'Change order',
     originalLabel: (co as any).original_line_snapshot?.material || (co as any).original_line_snapshot?.label || null,
     proposedLabel: (co as any).proposed_line?.material || null,

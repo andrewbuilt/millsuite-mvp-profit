@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 28,
   },
-  logo: { height: 26, marginBottom: 10, objectFit: 'contain' },
+  logo: { height: 26, marginBottom: 10, alignSelf: 'flex-start' },
   orgName: {
     fontSize: 16,
     fontFamily: 'Helvetica-Bold',

@@ -33,6 +33,8 @@ export interface ChangeOrderPdfProps {
   }
   project: { name: string } | null
   client: { name: string; address?: string | null; email?: string | null; phone?: string | null } | null
+  /** Subproject the CO is on — used as the heading. */
+  subprojectName?: string | null
   title: string
   originalLabel?: string | null
   proposedLabel?: string | null
@@ -47,7 +49,7 @@ const C = { ink: '#111', fg: '#374151', meta: '#6B7280', dim: '#9CA3AF', hair: '
 const S = StyleSheet.create({
   page: { paddingTop: 48, paddingHorizontal: 48, paddingBottom: 48, fontSize: 10.5, color: C.ink, fontFamily: 'Helvetica' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 28 },
-  logo: { height: 26, marginBottom: 10, objectFit: 'contain' },
+  logo: { height: 26, marginBottom: 10, alignSelf: 'flex-start' },
   orgName: { fontSize: 16, fontFamily: 'Helvetica-Bold', marginBottom: 4 },
   orgLine: { fontSize: 9.5, color: C.meta, lineHeight: 1.4 },
   docLabel: { fontSize: 20, fontFamily: 'Helvetica-Bold', letterSpacing: 2, textAlign: 'right', marginBottom: 4 },
@@ -60,6 +62,7 @@ const S = StyleSheet.create({
   meta: { fontSize: 9.5, color: C.meta, lineHeight: 1.4 },
   rule: { borderTopWidth: 1, borderTopColor: C.ink, marginBottom: 10, marginTop: 4 },
   title: { fontSize: 13, fontFamily: 'Helvetica-Bold', marginBottom: 10 },
+  subtitle: { fontSize: 10.5, color: C.meta, marginBottom: 12 },
   changeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   chip: { fontSize: 10.5, backgroundColor: '#F9FAFB', borderWidth: 0.5, borderColor: C.hair, borderRadius: 4, paddingVertical: 4, paddingHorizontal: 8 },
   arrow: { fontSize: 12, color: C.dim, marginHorizontal: 8 },
@@ -101,6 +104,7 @@ export function ChangeOrderPdf({
   org,
   project,
   client,
+  subprojectName,
   title,
   originalLabel,
   proposedLabel,
@@ -147,7 +151,10 @@ export function ChangeOrderPdf({
         </View>
 
         <View style={S.rule} />
-        <Text style={S.title}>{pdfSafe(title)}</Text>
+        {/* Heading = the subproject; the change itself shows in the chips /
+            materials below, so the old title (which echoed the change) is only
+            kept as a subtitle in custom mode where it holds the description. */}
+        <Text style={S.title}>{pdfSafe(subprojectName || title)}</Text>
 
         {(originalLabel || proposedLabel) && !hasMaterials ? (
           <View style={S.changeRow}>
@@ -155,6 +162,8 @@ export function ChangeOrderPdf({
             <ArrowGlyph />
             <Text style={S.chip}>{pdfSafe(proposedLabel) || '—'}</Text>
           </View>
+        ) : title && subprojectName && title !== subprojectName ? (
+          <Text style={S.subtitle}>{pdfSafe(title)}</Text>
         ) : null}
 
         {hasMaterials ? (

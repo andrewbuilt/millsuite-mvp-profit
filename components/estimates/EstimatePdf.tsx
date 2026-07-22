@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   },
   // Logo scaled to roughly the doc-label height; explicit height so react-pdf
   // reserves space (no header overlap). width auto-scales by aspect ratio.
-  logo: { height: 26, marginBottom: 10, objectFit: 'contain' },
+  logo: { height: 26, marginBottom: 10, alignSelf: 'flex-start' },
   orgName: { fontSize: 16, fontFamily: 'Helvetica-Bold', color: COLORS.ink, marginBottom: 4 },
   orgLine: { fontSize: 9.5, color: COLORS.meta, lineHeight: 1.4 },
   docLabel: { fontSize: 22, fontFamily: 'Helvetica-Bold', letterSpacing: 3, textAlign: 'right', marginBottom: 4 },
