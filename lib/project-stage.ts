@@ -23,7 +23,7 @@
 import { supabase } from './supabase'
 import { loadSubprojectStatusMap } from './subproject-status'
 import { seedAllocationsForProduction } from './schedule-seed'
-import { ensureContractInvoice, recordInvoicePayment } from './invoices'
+import { ensureContractInvoice, findContractInvoice, recordInvoicePayment } from './invoices'
 
 /**
  * Derived readiness gate for the Pre-Production → In Production transition.
@@ -53,22 +53,17 @@ export async function isReadyForProduction(projectId: string): Promise<boolean> 
 }
 
 /**
- * Deposit signal: the project's contract invoice has received money. We read
- * the latest non-void invoice for the project (one-invoice-per-project = the
- * contract; change-order invoices don't exist at the sold stage) and treat
- * amount_received > 0 as "the deposit / first draw is in."
+ * Deposit signal: the project's CONTRACT invoice has received money. Must read
+ * the contract invoice specifically (findContractInvoice) — NOT "the latest
+ * invoice", because a change-order invoice is more recent and its
+ * amount_received is 0, which would mask a paid contract and strand the project
+ * in Pre-Production (the bug). amount_received > 0 = "the deposit / first draw
+ * is in."
  */
 export async function isDepositReceived(projectId: string): Promise<boolean> {
-  const { data: inv } = await supabase
-    .from('client_invoices')
-    .select('total, amount_received, status')
-    .eq('project_id', projectId)
-    .neq('status', 'void')
-    .order('invoice_date', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const inv = await findContractInvoice(projectId)
   if (!inv) return false
-  return Number(inv.total) > 0 && Number(inv.amount_received) > 0
+  return inv.total > 0 && inv.amount_received > 0
 }
 
 /**
