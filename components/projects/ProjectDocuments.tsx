@@ -16,10 +16,12 @@ import {
   deleteProjectDocument,
   type ProjectDocument,
 } from '@/lib/project-documents'
+import { qbInvoiceUrl } from '@/lib/invoices'
 
 interface InvoiceRef {
   id: string
   invoice_number: string
+  qbo_invoice_id?: string | null
 }
 
 export default function ProjectDocuments({
@@ -31,7 +33,7 @@ export default function ProjectDocuments({
   onMarkEstimateSent,
   estimateSentAt,
   onCreateContractInvoice,
-  canCreateContractInvoice,
+  qbMode,
 }: {
   projectId: string
   contractInvoices: InvoiceRef[]
@@ -41,9 +43,9 @@ export default function ProjectDocuments({
   onMarkEstimateSent: () => void
   estimateSentAt: string | null
   onCreateContractInvoice: () => void
-  /** MillSuite-native contract invoicing is for non-QB users; QB users
-   *  invoice in QuickBooks, so the "Create" affordance is hidden for them. */
-  canCreateContractInvoice: boolean
+  /** QB mode: the "Create" contract invoice pushes to QuickBooks; the pushed
+   *  invoice then gets a "View in QuickBooks" link. */
+  qbMode: boolean
 }) {
   const [docs, setDocs] = useState<ProjectDocument[]>([])
   const [adding, setAdding] = useState(false)
@@ -132,49 +134,27 @@ export default function ProjectDocuments({
           </div>
         </div>
 
-        {/* Contract invoice(s). MillSuite-native; only offer "Create" for
-            non-QB users (QB users invoice in QuickBooks). */}
+        {/* Contract invoice(s). The "Create" action makes the invoice — in
+            QB mode it pushes to QuickBooks; the pushed row then links to QB. */}
         {contractInvoices.length === 0 ? (
-          canCreateContractInvoice ? (
-            <div className={rowCls}>
-              <div className={leftCls}>
-                <FileText className={iconCls} />
-                <span className="text-[13px] text-[#6B7280]">Contract invoice</span>
-              </div>
-              <button onClick={onCreateContractInvoice} className={`${linkCls} text-[#2563EB] border-[#BFDBFE]`}>
-                <Plus className="w-3 h-3" /> Create
-              </button>
+          <div className={rowCls}>
+            <div className={leftCls}>
+              <FileText className={iconCls} />
+              <span className="text-[13px] text-[#6B7280]">Contract invoice</span>
             </div>
-          ) : null
+            <button onClick={onCreateContractInvoice} className={`${linkCls} text-[#2563EB] border-[#BFDBFE]`}>
+              <Plus className="w-3 h-3" /> {qbMode ? 'Create in QuickBooks' : 'Create'}
+            </button>
+          </div>
         ) : (
           contractInvoices.map((inv) => (
-            <div key={inv.id} className={rowCls}>
-              <div className={leftCls}>
-                <FileText className={iconCls} />
-                <span className="text-[13px] text-[#111] truncate">
-                  Contract invoice · {inv.invoice_number}
-                </span>
-              </div>
-              <a href={`/invoices/${inv.id}`} className={linkCls}>
-                Open →
-              </a>
-            </div>
+            <InvoiceRow key={inv.id} label={`Contract invoice · ${inv.invoice_number}`} inv={inv} linkCls={linkCls} rowCls={rowCls} leftCls={leftCls} iconCls={iconCls} />
           ))
         )}
 
         {/* CO invoice(s) */}
         {coInvoices.map((inv) => (
-          <div key={inv.id} className={rowCls}>
-            <div className={leftCls}>
-              <FileText className={iconCls} />
-              <span className="text-[13px] text-[#111] truncate">
-                Change order invoice · {inv.invoice_number}
-              </span>
-            </div>
-            <a href={`/invoices/${inv.id}`} className={linkCls}>
-              Open →
-            </a>
-          </div>
+          <InvoiceRow key={inv.id} label={`Change order invoice · ${inv.invoice_number}`} inv={inv} linkCls={linkCls} rowCls={rowCls} leftCls={leftCls} iconCls={iconCls} />
         ))}
 
         {/* Manual links */}
@@ -245,6 +225,48 @@ export default function ProjectDocuments({
             </button>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** One invoice row: label + "Open →" (MillSuite detail) + a "View in
+ *  QuickBooks" link once the invoice has been pushed. */
+function InvoiceRow({
+  label,
+  inv,
+  rowCls,
+  leftCls,
+  iconCls,
+  linkCls,
+}: {
+  label: string
+  inv: InvoiceRef
+  rowCls: string
+  leftCls: string
+  iconCls: string
+  linkCls: string
+}) {
+  return (
+    <div className={rowCls}>
+      <div className={leftCls}>
+        <FileText className={iconCls} />
+        <span className="text-[13px] text-[#111] truncate">{label}</span>
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {inv.qbo_invoice_id && (
+          <a
+            href={qbInvoiceUrl(inv.qbo_invoice_id)}
+            target="_blank"
+            rel="noreferrer"
+            className={`${linkCls} text-[#15803D] border-[#BBF7D0]`}
+          >
+            QuickBooks ↗
+          </a>
+        )}
+        <a href={`/invoices/${inv.id}`} className={linkCls}>
+          Open →
+        </a>
       </div>
     </div>
   )
