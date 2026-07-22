@@ -1007,106 +1007,22 @@ export default function SubprojectEditorPage() {
             </button>
           )}
 
-          {/* Search-or-freeform add — pre-sold only. Post-sold the only
-              legitimate add path is a CO that creates a line on a sub. */}
+          {/* Custom item / vendor product — opens the freeform line modal.
+              Replaces the old rate-book search box; the composer above is the
+              rate-book path. Pre-sold only. */}
           {project && isPresold(project.stage) && (
-          <div className="relative mb-6">
-            <div className={`flex items-center gap-3 px-3 py-2.5 bg-white border rounded-lg transition-colors ${pendingAdd ? 'border-[#2563EB]' : 'border-dashed border-[#E5E7EB]'}`}>
-              <Plus className="w-4 h-4 text-[#9CA3AF]" />
-              {pendingAdd ? (
-                <>
-                  <span className="text-sm text-[#111] font-medium">{pendingAdd.name}</span>
-                  <span className="text-sm text-[#6B7280]">· how many {pendingAdd.unit}?</span>
-                  <input
-                    ref={addInputRef}
-                    autoFocus
-                    type="number"
-                    step="any"
-                    value={pendingQty}
-                    onChange={(e) => setPendingQty(e.target.value)}
-                    onKeyDown={onAddKeyDown}
-                    className="flex-1 bg-transparent border-none outline-none text-sm font-mono tabular-nums"
-                    placeholder={`Enter ${pendingAdd.unit} and press ⏎`}
-                  />
-                  <button onClick={cancelPending} className="text-[#9CA3AF] hover:text-[#111]" aria-label="Cancel">
-                    <X className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <input
-                    ref={addInputRef}
-                    value={addQuery}
-                    onChange={(e) => setAddQuery(e.target.value)}
-                    onKeyDown={onAddKeyDown}
-                    placeholder="Add line — type to search, or press ⏎ to add as freeform"
-                    className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-[#9CA3AF]"
-                  />
-                  <kbd className="px-1.5 py-0.5 text-[10px] text-[#9CA3AF] bg-[#F9FAFB] border border-[#E5E7EB] rounded font-mono">
-                    type to search
-                  </kbd>
-                </>
-              )}
+            <button
+              onClick={() => commitFreeformAdd('')}
+              className="block w-full mb-3 border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5 inline mr-1" />
+              Custom item or vendor product
+            </button>
+          )}
+          {addError && (
+            <div className="mb-6 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
+              Couldn&apos;t add line: {addError}
             </div>
-
-            {/* Autocomplete dropdown */}
-            {!pendingAdd && addQuery.length > 0 && (
-              <div className="absolute z-20 top-full left-0 right-0 mt-1 max-h-80 overflow-y-auto bg-white border border-[#E5E7EB] rounded-lg shadow-lg">
-                {groupedMatches.map(([groupKey, groupItems]) => (
-                  <div key={groupKey}>
-                    <div className="px-3 py-1.5 text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider bg-[#F9FAFB] border-b border-[#F3F4F6]">
-                      {groupKey === '__none__' ? 'Other' : resolveCategoryName(groupKey, items) || 'Category'}
-                    </div>
-                    {groupItems.map((m) => {
-                      const flatIdx = matches.indexOf(m)
-                      const highlighted = flatIdx === addHighlight
-                      const color = CONFIDENCE_COLOR[m.confidence as Confidence]
-                      return (
-                        <button
-                          key={m.id}
-                          onMouseEnter={() => setAddHighlight(flatIdx)}
-                          onClick={() => pickMatch(m)}
-                          className={`w-full text-left px-3 py-2 text-sm flex items-center gap-3 border-b border-[#F3F4F6] last:border-b-0 ${highlighted ? 'bg-[#EFF6FF]' : 'hover:bg-[#F9FAFB]'}`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[#111] font-medium truncate">{m.name}</span>
-                              <span className="text-[#9CA3AF] text-xs">· {m.unit}</span>
-                              <span
-                                className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-semibold rounded-full border uppercase tracking-wider"
-                                style={{ background: color.bg, color: color.fg, borderColor: color.border }}
-                              >
-                                {CONFIDENCE_LABEL[m.confidence as Confidence]}
-                              </span>
-                              {m.confidence_job_count > 0 && (
-                                <span className="text-[10px] text-[#9CA3AF]">· {m.confidence_job_count} jobs</span>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                ))}
-                {/* Freeform row */}
-                <button
-                  onMouseEnter={() => setAddHighlight(matches.length)}
-                  onClick={() => commitFreeformAdd(addQuery.trim())}
-                  className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-t border-[#E5E7EB] ${addHighlight === matches.length ? 'bg-[#EFF6FF]' : 'hover:bg-[#F9FAFB]'}`}
-                >
-                  <Plus className="w-3.5 h-3.5 text-[#6B7280]" />
-                  <span className="text-[#6B7280]">Add as freeform line:</span>
-                  <span className="text-[#111] font-medium">{addQuery.trim() || '…'}</span>
-                </button>
-              </div>
-            )}
-
-            {addError && (
-              <div className="mt-2 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-sm text-[#991B1B]">
-                Couldn&apos;t add line: {addError}
-              </div>
-            )}
-          </div>
           )}
 
           {/* Install prefill (Phase 12 item 9) — per-subproject install
