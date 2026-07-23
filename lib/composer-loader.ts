@@ -41,6 +41,7 @@ import {
   indexDoorTypeMaterials,
   indexDoorTypeMaterialFinishes,
 } from './door-types'
+import { listMaterials, indexMaterialsById } from './materials'
 
 /** Load + shape the composer's rate-book payload for an org. */
 export async function loadComposerRateBook(orgId: string): Promise<ComposerRateBook> {
@@ -57,6 +58,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     finishes,
     solidWoodTopCalibration,
     solidWoodComponents,
+    catalog,
   ] = await Promise.all([
     loadShopRate(orgId),
     loadCarcassLaborFromBaseCab(orgId),
@@ -70,10 +72,29 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     loadFinishes(orgId),
     loadSolidWoodTopCalibration(orgId),
     loadSolidWoodComponentsForComposer(orgId),
+    listMaterials(orgId),
   ])
 
   const carcassCalibrated =
     carcassLabor.eng + carcassLabor.cnc + carcassLabor.assembly + carcassLabor.finish > 0
+
+  // Master materials catalog is the price source (chunk B). Each pool row
+  // carries a material_id pointer (migration 072); we source its cost from the
+  // catalog and fall back to the legacy column only if a row isn't linked yet.
+  // Post-backfill the catalog values equal the legacy columns, so pricing is
+  // byte-identical — but editing a catalog row now reprices everything.
+  const catalogById = indexMaterialsById(catalog)
+  const catalogSheetCost = (materialId: string | null, legacy: number): number => {
+    const mat = materialId ? catalogById.get(materialId) : undefined
+    return mat ? mat.cost_value : legacy
+  }
+
+  // Door materials: overlay catalog cost_value/cost_unit before indexing so
+  // the by-type map + flat array both price from the catalog.
+  const pricedDoorTypeMaterials = doorTypeMaterials.map((m) => {
+    const mat = m.material_id ? catalogById.get(m.material_id) : undefined
+    return mat ? { ...m, cost_value: mat.cost_value, cost_unit: mat.cost_unit } : m
+  })
 
   return {
     shopRate,
@@ -82,7 +103,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     carcassMaterials: carcassMats.map((m) => ({
       id: m.id,
       name: m.name,
-      sheet_cost: Number(m.sheet_cost) || 0,
+      sheet_cost: catalogSheetCost(m.material_id, Number(m.sheet_cost) || 0),
       sheets_per_lf: Number(m.sheets_per_lf) || 0,
     })),
     extMaterials: extMats.map((m) => ({
@@ -93,12 +114,12 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     backPanelMaterials: backPanelMats.map((m) => ({
       id: m.id,
       name: m.name,
-      sheet_cost: Number(m.sheet_cost) || 0,
+      sheet_cost: catalogSheetCost(m.material_id, Number(m.sheet_cost) || 0),
     })),
     doorTypes,
-    doorTypeMaterials,
+    doorTypeMaterials: pricedDoorTypeMaterials,
     doorTypeMaterialFinishes,
-    doorTypeMaterialsByTypeId: indexDoorTypeMaterials(doorTypeMaterials),
+    doorTypeMaterialsByTypeId: indexDoorTypeMaterials(pricedDoorTypeMaterials),
     doorFinishesByMaterialId: indexDoorTypeMaterialFinishes(doorTypeMaterialFinishes),
     drawerStyles,
     finishes,

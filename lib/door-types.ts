@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { createMaterial, updateMaterial } from './materials'
 
 export type DoorMaterialCostUnit = 'sheet' | 'lf' | 'bf' | 'ea' | 'lump'
 
@@ -46,6 +47,10 @@ export interface DoorTypeMaterial {
   /** Board feet of solid wood per door. Persisted alongside the link so
    *  the modal can re-pop the calculator when re-opened. */
   bdft_per_unit: number | null
+  /** Pointer to the master catalog row (migration 072). The composer prices
+   *  from the catalog via this; `cost_value`/`cost_unit` above are the legacy
+   *  columns, kept in sync for rollback + parity. */
+  material_id: string | null
 }
 
 export interface DoorTypeMaterialFinish {
@@ -82,7 +87,7 @@ export async function listDoorTypes(orgId: string): Promise<DoorType[]> {
 }
 
 const DOOR_MATERIAL_COLUMNS =
-  'id, org_id, door_type_id, material_name, cost_value, cost_unit, notes, active, solid_wood_component_id, bdft_per_unit'
+  'id, org_id, door_type_id, material_name, cost_value, cost_unit, notes, active, solid_wood_component_id, bdft_per_unit, material_id'
 
 function normalizeDoorMaterial(r: any): DoorTypeMaterial {
   return {
@@ -99,6 +104,7 @@ function normalizeDoorMaterial(r: any): DoorTypeMaterial {
       r.bdft_per_unit === null || r.bdft_per_unit === undefined
         ? null
         : Number(r.bdft_per_unit),
+    material_id: r.material_id ?? null,
   }
 }
 
@@ -163,6 +169,19 @@ export async function createDoorTypeMaterial(input: {
   solid_wood_component_id?: string | null
   bdft_per_unit?: number | null
 }): Promise<DoorTypeMaterial | null> {
+  // Catalog is the price source (chunk B): mint the catalog row first, then
+  // the door-type material that points at it. cost_value/cost_unit stay on
+  // the legacy columns too for rollback + parity.
+  const material = await createMaterial({
+    org_id: input.org_id,
+    name: input.material_name,
+    cost_value: input.cost_value,
+    cost_unit: input.cost_unit,
+    notes: input.notes ?? null,
+    show_in_door: true,
+    solid_wood_component_id: input.solid_wood_component_id ?? null,
+    bdft_per_unit: input.bdft_per_unit ?? null,
+  })
   const { data, error } = await supabase
     .from('door_type_materials')
     .insert({
@@ -175,6 +194,7 @@ export async function createDoorTypeMaterial(input: {
       solid_wood_component_id: input.solid_wood_component_id ?? null,
       bdft_per_unit: input.bdft_per_unit ?? null,
       active: true,
+      material_id: material.id,
     })
     .select(DOOR_MATERIAL_COLUMNS)
     .single()
@@ -218,7 +238,22 @@ export async function updateDoorTypeMaterial(
     console.error('updateDoorTypeMaterial', error)
     throw new Error(error.message || 'Failed to update door material')
   }
-  return data ? normalizeDoorMaterial(data) : null
+  const result = data ? normalizeDoorMaterial(data) : null
+  // Catalog is the price source (chunk B): mirror the edit onto the linked
+  // catalog row so the composer (which reads the catalog) doesn't go stale.
+  if (result?.material_id) {
+    await updateMaterial(result.material_id, {
+      ...(patch.material_name !== undefined ? { name: patch.material_name } : {}),
+      ...(patch.cost_value !== undefined ? { cost_value: patch.cost_value } : {}),
+      ...(patch.cost_unit !== undefined ? { cost_unit: patch.cost_unit } : {}),
+      ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+      ...(patch.solid_wood_component_id !== undefined
+        ? { solid_wood_component_id: patch.solid_wood_component_id }
+        : {}),
+      ...(patch.bdft_per_unit !== undefined ? { bdft_per_unit: patch.bdft_per_unit } : {}),
+    })
+  }
+  return result
 }
 
 /** Recompute cost_value for every door_type_materials row that points at
@@ -252,8 +287,18 @@ export async function recalculateMaterialsForSolidWood(
       .from('door_type_materials')
       .update({ cost_value: next })
       .eq('id', m.id)
-    if (!error) touched++
-    else console.error('recalculateMaterialsForSolidWood update', m.id, error)
+    if (!error) {
+      touched++
+      // Catalog is the price source (chunk B): keep the linked catalog row in
+      // step with the recalculated cost so the composer reprices too.
+      if (m.material_id) {
+        try {
+          await updateMaterial(m.material_id, { cost_value: next })
+        } catch (e) {
+          console.error('recalculateMaterialsForSolidWood catalog sync', m.material_id, e)
+        }
+      }
+    } else console.error('recalculateMaterialsForSolidWood update', m.id, error)
   }
   return touched
 }

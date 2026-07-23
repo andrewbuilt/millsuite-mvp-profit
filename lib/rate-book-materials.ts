@@ -7,6 +7,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { createMaterial } from './materials'
 
 export interface RateBookCarcassMaterial {
   id: string
@@ -15,6 +16,9 @@ export interface RateBookCarcassMaterial {
   sheet_cost: number
   sheets_per_lf: number
   active: boolean
+  /** Pointer to the master catalog row (migration 072). The composer prices
+   *  from the catalog via this; `sheet_cost` above is the legacy column. */
+  material_id: string | null
 }
 
 export interface RateBookExtMaterial {
@@ -34,6 +38,8 @@ export interface RateBookBackPanelMaterial {
   name: string
   sheet_cost: number
   active: boolean
+  /** Pointer to the master catalog row (migration 072). */
+  material_id: string | null
 }
 
 // ── Reads ──
@@ -41,7 +47,7 @@ export interface RateBookBackPanelMaterial {
 export async function listCarcassMaterials(orgId: string): Promise<RateBookCarcassMaterial[]> {
   const { data, error } = await supabase
     .from('rate_book_carcass_materials')
-    .select('id, org_id, name, sheet_cost, sheets_per_lf, active')
+    .select('id, org_id, name, sheet_cost, sheets_per_lf, active, material_id')
     .eq('org_id', orgId)
     .eq('active', true)
     .order('name')
@@ -74,6 +80,16 @@ export async function createCarcassMaterial(input: {
   sheet_cost: number
   sheets_per_lf: number
 }): Promise<RateBookCarcassMaterial | null> {
+  // Catalog is the price source (chunk B): mint the catalog row first, then
+  // the membership row that points at it. sheet_cost stays on the legacy
+  // column too (rollback + parity), but the composer reads the catalog.
+  const material = await createMaterial({
+    org_id: input.org_id,
+    name: input.name,
+    cost_value: input.sheet_cost,
+    cost_unit: 'sheet',
+    show_in_carcass: true,
+  })
   const { data, error } = await supabase
     .from('rate_book_carcass_materials')
     .insert({
@@ -82,8 +98,9 @@ export async function createCarcassMaterial(input: {
       sheet_cost: input.sheet_cost,
       sheets_per_lf: input.sheets_per_lf,
       active: true,
+      material_id: material.id,
     })
-    .select()
+    .select('id, org_id, name, sheet_cost, sheets_per_lf, active, material_id')
     .single()
   if (error) {
     console.error('createCarcassMaterial', error)
@@ -162,7 +179,7 @@ export async function listBackPanelMaterials(
   if (catIds.length === 0) return []
   const { data, error } = await supabase
     .from('rate_book_items')
-    .select('id, org_id, name, sheet_cost, active')
+    .select('id, org_id, name, sheet_cost, active, material_id')
     .in('category_id', catIds)
     .eq('active', true)
     .order('name')
@@ -176,12 +193,14 @@ export async function listBackPanelMaterials(
     name: string
     sheet_cost: number | string
     active: boolean
+    material_id: string | null
   }>).map((r) => ({
     id: r.id,
     org_id: r.org_id,
     name: r.name,
     sheet_cost: Number(r.sheet_cost) || 0,
     active: r.active,
+    material_id: r.material_id ?? null,
   }))
 }
 
@@ -194,6 +213,15 @@ export async function createBackPanelMaterial(input: {
   if (!categoryId) {
     throw new Error('Failed to find or create back-panel-material category')
   }
+  // Catalog is the price source (chunk B): mint the catalog row, then the
+  // back-panel item that points at it.
+  const material = await createMaterial({
+    org_id: input.org_id,
+    name: input.name,
+    cost_value: input.sheet_cost,
+    cost_unit: 'sheet',
+    show_in_back_panel: true,
+  })
   const { data, error } = await supabase
     .from('rate_book_items')
     .insert({
@@ -203,8 +231,9 @@ export async function createBackPanelMaterial(input: {
       sheet_cost: input.sheet_cost,
       unit: 'lf',
       active: true,
+      material_id: material.id,
     })
-    .select('id, org_id, name, sheet_cost, active')
+    .select('id, org_id, name, sheet_cost, active, material_id')
     .single()
   if (error) {
     console.error('createBackPanelMaterial', error)
@@ -217,5 +246,6 @@ export async function createBackPanelMaterial(input: {
     name: data.name,
     sheet_cost: Number(data.sheet_cost) || 0,
     active: data.active,
+    material_id: data.material_id ?? null,
   }
 }
