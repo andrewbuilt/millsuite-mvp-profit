@@ -54,6 +54,7 @@ import {
 import SolidWoodWalkthrough from '@/components/walkthroughs/SolidWoodWalkthrough'
 import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 import { useConfirm } from '@/components/confirm-dialog'
+import MaterialsCatalog from '@/components/rate-book/MaterialsCatalog'
 
 // Upper / Full are multipliers on Base cabinet, not standalone rate
 // book rows. Surface them in the sidebar as derived read-only entries
@@ -124,6 +125,9 @@ export default function RateBookPage() {
 
   const [editOpen, setEditOpen] = useState(false)
   const [laborSettingsOpen, setLaborSettingsOpen] = useState(false)
+  // Top-level view: the item tree (default) or the master materials catalog
+  // (rate-book chunk B/C — one price list feeding every composer material slot).
+  const [view, setView] = useState<'items' | 'materials'>('items')
 
   // Solid-wood components live in their own table outside
   // rate_book_categories. Surfaced as a synthetic sidebar group below
@@ -321,6 +325,22 @@ export default function RateBookPage() {
           Prices live here and history gets written. Day-to-day pricing happens in projects — come back to audit, tune, or add items.
         </span>
         <div className="flex-1" />
+        {/* Items | Materials view toggle */}
+        <div className="inline-flex rounded-md border border-[#BFDBFE] overflow-hidden">
+          {(['items', 'materials'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                view === v
+                  ? 'bg-[#2563EB] text-white'
+                  : 'bg-white text-[#1E40AF] hover:bg-[#DBEAFE]'
+              }`}
+            >
+              {v === 'items' ? 'Items' : 'Materials'}
+            </button>
+          ))}
+        </div>
         <button
           onClick={() => setLaborSettingsOpen(true)}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[#1E40AF] hover:bg-[#DBEAFE] transition-colors text-[11px] font-medium"
@@ -329,7 +349,10 @@ export default function RateBookPage() {
         </button>
       </div>
 
-      {/* 3-pane grid */}
+      {view === 'materials' ? (
+        <MaterialsCatalog orgId={orgId} />
+      ) : (
+      /* 3-pane grid */
       <div className="flex-1 grid grid-cols-[260px_1fr_300px] overflow-hidden">
         {/* LEFT — Tree */}
         <aside className="border-r border-[#E5E7EB] bg-[#FAFAFA] overflow-y-auto flex flex-col">
@@ -696,6 +719,7 @@ export default function RateBookPage() {
           </div>
         </aside>
       </div>
+      )}
 
       {/* Edit modal */}
       {editOpen && selectedItem && (
