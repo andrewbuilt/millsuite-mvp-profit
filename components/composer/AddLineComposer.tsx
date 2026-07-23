@@ -6,8 +6,8 @@
 // Per BUILD-ORDER Phase 12 item 6 + specs/add-line-composer/index.html.
 //
 // Structure:
-//   1. Product picker — 6 tiles. Base/Upper/Full active. Drawer/LED stub.
-//      Countertop locked.
+//   1. Product picker — Base/Upper/Full + Solid Wood Top tiles (from
+//      PRODUCT_ORDER). Drawer + LED retired from the picker (chunk A).
 //   2. Composer — once a product is picked, slot UI on the left + live
 //      breakdown on the right.
 //   3. Save — writes one estimate_lines row via saveComposerLine; updates

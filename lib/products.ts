@@ -18,12 +18,10 @@
 //   qty × product.sheetsPerLfFace × sheet cost   (from the door/drawer
 //                                                 material template)
 //
-// V1 scope: Base, Upper, Full active. Drawer, LED, Countertop declared
-// but inactive — their tiles render as stubs in the composer grid.
-// Countertop is additionally marked `locked` because it's gated harder
-// than "coming later" per the spec ("Later" vs "Stub tile — later").
-// User-created products are explicitly out of scope for V1 — the list
-// here is the complete product space.
+// Picker scope: Base, Upper, Full, Solid Wood Top active (see
+// PRODUCT_ORDER). Drawer + LED keys are retired from the picker
+// (rate-book chunk A) but kept in PRODUCTS for legacy line / parser
+// resolution. Custom user-created products land in chunk E.
 // ============================================================================
 
 export type ProductUnit = 'lf' | 'each' | 'piece'
@@ -210,16 +208,19 @@ export const PRODUCTS: Record<ProductKey, Product> = {
 }
 
 /**
- * Tile render order for the composer grid. Active products first, then
- * inactive stubs, with countertop (locked) last. Keeps the grid layout
- * stable regardless of which Map iteration order Node picks.
+ * Tile render order for the composer "Add a line" grid. Keeps the grid
+ * layout stable regardless of which Map iteration order Node picks.
+ *
+ * Drawer + LED are intentionally NOT listed here (rate-book overhaul
+ * chunk A): standalone drawers never get priced, and LED returns as a
+ * calibrated *feature* (chunk D), not a product tile. Their keys stay in
+ * PRODUCTS / ProductKey below so legacy estimate lines + the parser paths
+ * that reference 'drawer'/'led' still resolve a label.
  */
 export const PRODUCT_ORDER: ProductKey[] = [
   'base',
   'upper',
   'full',
-  'drawer',
-  'led',
   'countertop',
 ]
 

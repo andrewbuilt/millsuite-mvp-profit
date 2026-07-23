@@ -5,8 +5,8 @@
 // ============================================================================
 // Three panes:
 //   Left   — category tree + search, with confidence badges on every item
-//   Middle — item detail with three tabs: Current | History | Changes
-//            (Current = price buildup; History = audit rows; Changes = upcoming)
+//   Middle — item detail with two tabs: Current | History
+//            (Current = price buildup; History = audit rows)
 //   Right  — options (stackable modifiers)
 //
 // Gear icon top-right opens the Shop Labor Rates modal.
@@ -116,7 +116,7 @@ export default function RateBookPage() {
   const [options, setOptions] = useState<RateBookOptionRow[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [tab, setTab] = useState<'current' | 'history' | 'changes'>('current')
+  const [tab, setTab] = useState<'current' | 'history'>('current')
   const [history, setHistory] = useState<RateBookItemHistoryRow[]>([])
   const [itemOptionIds, setItemOptionIds] = useState<Set<string>>(new Set())
   const [treeSearch, setTreeSearch] = useState('')
@@ -227,7 +227,14 @@ export default function RateBookPage() {
   // surfaces the multiplier explanation in the detail view.
   const filteredTree = useMemo(() => {
     const s = treeSearch.trim().toLowerCase()
-    return categories.map((cat) => {
+    return categories
+      // Legacy 'door_style' categories are dead post-migration 038: live
+      // door styles now live in `door_types` (edited via the DoorStyle
+      // walkthrough from the composer), and 038 flagged the old door_style
+      // rate_book_items inactive. Hide the category so its stale rows never
+      // surface in the roster. (Rate-book chunk A.)
+      .filter((cat) => cat.item_type !== 'door_style')
+      .map((cat) => {
       const catItems = items.filter((it) => it.category_id === cat.id)
       let allItems: RateBookItemRow[] = catItems
       if (cat.item_type === 'cabinet_style') {
@@ -614,7 +621,7 @@ export default function RateBookPage() {
 
               {/* Tabs */}
               <div className="flex border-b border-[#E5E7EB] mb-5">
-                {(['current', 'history', 'changes'] as const).map((t) => (
+                {(['current', 'history'] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setTab(t)}
@@ -624,7 +631,7 @@ export default function RateBookPage() {
                         : 'border-transparent text-[#6B7280] hover:text-[#374151]'
                     }`}
                   >
-                    {t === 'current' ? 'Current' : t === 'history' ? 'History' : 'Changes'}
+                    {t === 'current' ? 'Current' : 'History'}
                   </button>
                 ))}
               </div>
@@ -634,11 +641,6 @@ export default function RateBookPage() {
                 <CurrentTab item={selectedItem} buildup={buildup} />
               )}
               {tab === 'history' && <HistoryTab rows={history} />}
-              {tab === 'changes' && (
-                <div className="p-10 text-center text-[12px] text-[#9CA3AF] italic border border-dashed border-[#E5E7EB] rounded-lg">
-                  Changes tab — upcoming edits that are staged but not yet live. Phase 10 fills this in.
-                </div>
-              )}
             </div>
           )}
         </main>
@@ -966,6 +968,18 @@ const SYSTEM_ITEM_NAMES = new Set([
   'Slab',
 ])
 
+// Category item types whose MATERIAL is priced from the composer's pools
+// (carcass materials, door_type_materials, finish breakdown) — never from
+// the rate_book_items material fields. For these, the Edit-item material
+// mode + sheets/$-sheet/linear/lump inputs are dead, so we hide them.
+// Labor hours stay editable. (Rate-book chunk A.)
+const COMPOSER_DRIVEN_ITEM_TYPES = new Set([
+  'cabinet_style',
+  'door_style',
+  'drawer_style',
+  'finish',
+])
+
 /**
  * Field-relevance gate. Returns false → render the input disabled and
  * the label dimmed. Lives outside the component so consumers can pass
@@ -1069,6 +1083,10 @@ function EditItemModal({
   const canEditLump = isFieldRelevant('lump_cost', itemForGate, categoryItemType)
   const canEditHardware = isFieldRelevant('hardware_cost', itemForGate, categoryItemType)
   const isSystemItem = SYSTEM_ITEM_NAMES.has(item.name)
+  // Composer-driven items price material from the pools, not from these
+  // rows — hide the material mode + material inputs entirely (chunk A).
+  const isComposerDriven =
+    categoryItemType != null && COMPOSER_DRIVEN_ITEM_TYPES.has(categoryItemType)
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-6">
@@ -1121,20 +1139,22 @@ function EditItemModal({
                 <option value="job">JOB</option>
               </select>
             </Field>
-            <Field label="Material mode">
-              <select
-                className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
-                value={draft.material_mode}
-                onChange={(e) =>
-                  setDraft({ ...draft, material_mode: e.target.value as MaterialMode })
-                }
-              >
-                <option value="sheets">Sheets</option>
-                <option value="linear">Linear $</option>
-                <option value="lump">Lump sum</option>
-                <option value="none">No material</option>
-              </select>
-            </Field>
+            {!isComposerDriven && (
+              <Field label="Material mode">
+                <select
+                  className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
+                  value={draft.material_mode}
+                  onChange={(e) =>
+                    setDraft({ ...draft, material_mode: e.target.value as MaterialMode })
+                  }
+                >
+                  <option value="sheets">Sheets</option>
+                  <option value="linear">Linear $</option>
+                  <option value="lump">Lump sum</option>
+                  <option value="none">No material</option>
+                </select>
+              </Field>
+            )}
             <Field label="Confidence">
               <select
                 className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md"
@@ -1178,8 +1198,17 @@ function EditItemModal({
 
           {/* Material fields (conditional on mode). Label dimension is
               explicit ("Sheets per LF" / "Sheets per each") so the
-              operator doesn't have to guess what the input means. */}
-          {draft.material_mode === 'sheets' && (
+              operator doesn't have to guess what the input means.
+              Hidden entirely for composer-driven items — their material
+              is priced per line in the composer, not here (chunk A). */}
+          {isComposerDriven && (
+            <div className="rounded-md bg-[#F9FAFB] border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#6B7280] leading-snug">
+              Material for this item is priced <strong>per line in the composer</strong>{' '}
+              (carcass / door / finish material pools) — there's no material
+              cost to set here.
+            </div>
+          )}
+          {!isComposerDriven && draft.material_mode === 'sheets' && (
             <div className="grid grid-cols-3 gap-3">
               <Field label={`Sheets per ${draft.unit}`}>
                 <input
@@ -1214,7 +1243,7 @@ function EditItemModal({
               </Field>
             </div>
           )}
-          {draft.material_mode === 'linear' && (
+          {!isComposerDriven && draft.material_mode === 'linear' && (
             <div className="grid grid-cols-2 gap-3">
               <Field label={`$ per ${draft.unit}`}>
                 <input
@@ -1237,7 +1266,7 @@ function EditItemModal({
               </Field>
             </div>
           )}
-          {draft.material_mode === 'lump' && (
+          {!isComposerDriven && draft.material_mode === 'lump' && (
             <div className="grid grid-cols-2 gap-3">
               <Field label="Lump $">
                 <input
