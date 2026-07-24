@@ -69,11 +69,9 @@ import {
   type LastUsedPerProduct,
 } from '@/lib/composer-persist'
 import { createExtMaterial } from '@/lib/rate-book-materials'
-import { createMaterial } from '@/lib/materials'
+import { createMaterial, type Material } from '@/lib/materials'
 import {
-  createDoorTypeMaterial,
   createDoorTypeMaterialFinish,
-  indexDoorTypeMaterials,
   indexDoorTypeMaterialFinishes,
   type DoorMaterialCostUnit,
 } from '@/lib/door-types'
@@ -745,17 +743,43 @@ export default function AddLineComposer({
       {/* Door pricing v2: inline "+ Add material" modal. Scoped to the
           parent door type. On save, refreshes the rate book in place + sets
           the slot. */}
-      {addMaterialFor && rateBook && (
+      {addMaterialFor !== null && rateBook && (
         <AddDoorMaterialModal
           orgId={orgId}
           doorTypeId={addMaterialFor}
           onCancel={() => setAddMaterialFor(null)}
           onCreated={(created) => {
-            const nextMaterials = [...rateBook.doorTypeMaterials, created]
+            // created is a catalog Material (show_in_door). Shape it as a
+            // DoorTypeMaterial for the door dropdown + append to the catalog.
+            const shaped = {
+              id: created.id,
+              org_id: created.org_id,
+              door_type_id: '',
+              material_name: created.name,
+              cost_value: created.cost_value,
+              cost_unit: created.cost_unit,
+              notes: created.notes,
+              active: true,
+              solid_wood_component_id: created.solid_wood_component_id,
+              bdft_per_unit: created.bdft_per_unit,
+              material_id: created.id,
+            }
             setRateBook({
               ...rateBook,
-              doorTypeMaterials: nextMaterials,
-              doorTypeMaterialsByTypeId: indexDoorTypeMaterials(nextMaterials),
+              doorTypeMaterials: [...rateBook.doorTypeMaterials, shaped],
+              materials: [
+                ...rateBook.materials,
+                {
+                  id: created.id,
+                  name: created.name,
+                  cost_value: created.cost_value,
+                  cost_unit: created.cost_unit,
+                  show_in_carcass: created.show_in_carcass,
+                  show_in_door: created.show_in_door,
+                  show_in_back_panel: created.show_in_back_panel,
+                  show_in_shelf: created.show_in_shelf,
+                },
+              ],
             })
             setSlot('doorMaterialId', created.id)
             setSlot('doorFinishId', null)
@@ -764,18 +788,18 @@ export default function AddLineComposer({
         />
       )}
 
-      {/* "+ Add finish" — scoped to the parent door material. */}
+      {/* "+ Add finish" — scoped to the parent door TYPE (074). */}
       {addFinishFor && rateBook && (
         <AddDoorFinishModal
           orgId={orgId}
-          doorMaterialId={addFinishFor}
+          doorTypeId={addFinishFor}
           onCancel={() => setAddFinishFor(null)}
           onCreated={(created) => {
             const nextFinishes = [...rateBook.doorTypeMaterialFinishes, created]
             setRateBook({
               ...rateBook,
               doorTypeMaterialFinishes: nextFinishes,
-              doorFinishesByMaterialId: indexDoorTypeMaterialFinishes(nextFinishes),
+              doorFinishesByDoorTypeId: indexDoorTypeMaterialFinishes(nextFinishes),
             })
             setSlot('doorFinishId', created.id)
             setAddFinishFor(null)
@@ -924,7 +948,7 @@ function Composer(p: {
   onAddDoorMaterial: (doorTypeId: string) => void
   /** Door v2: open the inline "+ Add finish" form scoped to the
    *  selected door material. Adds a row to door_type_material_finishes. */
-  onAddDoorFinish: (doorMaterialId: string) => void
+  onAddDoorFinish: (doorTypeId: string) => void
   onDrawerUncalibratedPick: (styleId: string) => void
   onAddNewDrawerStyle: () => void
   onOpenFinishWalkthrough: (app: 'interior' | 'exterior') => void
@@ -1130,57 +1154,41 @@ function Composer(p: {
               )}
             </Field>
 
-            <Field label="Door material" hint="Picks scoped to the chosen door type.">
+            <Field label="Door material" hint="From the materials catalog (flagged for doors).">
+              <Dropdown
+                open={p.openDropdown === 'doorMaterialId'}
+                value={draft.slots.doorMaterialId}
+                options={rateBook.doorTypeMaterials.map((m) => ({
+                  id: m.id,
+                  name: m.material_name,
+                  meta: `$${m.cost_value}/${m.cost_unit}`,
+                }))}
+                browseAllOptions={rateBook.materials.map((m) => ({
+                  id: m.id,
+                  name: m.name,
+                  meta: `$${m.cost_value}/${MATERIAL_UNIT_ABBR[m.cost_unit]}`,
+                }))}
+                onToggle={() => p.toggleDropdown('doorMaterialId')}
+                onPick={(id) => {
+                  p.setSlot('doorMaterialId', id)
+                  p.toggleDropdown('doorMaterialId')
+                }}
+                onAddNew={() => p.onAddDoorMaterial(draft.slots.doorTypeId ?? '')}
+                addNewLabel="+ Add material"
+                placeholder="Choose…"
+              />
+            </Field>
+
+            <Field label="Door finish" hint="Finishes are set per door type.">
               {(() => {
                 const dtId = draft.slots.doorTypeId
-                const materials = dtId
-                  ? rateBook.doorTypeMaterialsByTypeId.get(dtId) ?? []
+                const finishes = dtId
+                  ? rateBook.doorFinishesByDoorTypeId.get(dtId) ?? []
                   : []
                 if (!dtId) {
                   return (
                     <div className="px-3 py-2 text-[12px] text-[#9CA3AF] italic border border-dashed border-[#E5E7EB] rounded-md">
                       Pick a door type first.
-                    </div>
-                  )
-                }
-                return (
-                  <Dropdown
-                    open={p.openDropdown === 'doorMaterialId'}
-                    value={draft.slots.doorMaterialId}
-                    options={materials.map((m) => ({
-                      id: m.id,
-                      name: m.material_name,
-                      meta: `$${m.cost_value}/${m.cost_unit}`,
-                    }))}
-                    onToggle={() => p.toggleDropdown('doorMaterialId')}
-                    onPick={(id) => {
-                      p.setSlot('doorMaterialId', id)
-                      // Picking a different material clears the finish.
-                      p.setSlot('doorFinishId', null)
-                      p.toggleDropdown('doorMaterialId')
-                    }}
-                    onAddNew={() => p.onAddDoorMaterial(dtId)}
-                    addNewLabel="+ Add material"
-                    placeholder={
-                      materials.length === 0
-                        ? 'No materials yet — + Add material'
-                        : 'Choose…'
-                    }
-                  />
-                )
-              })()}
-            </Field>
-
-            <Field label="Door finish" hint="Picks scoped to the chosen door material.">
-              {(() => {
-                const dmId = draft.slots.doorMaterialId
-                const finishes = dmId
-                  ? rateBook.doorFinishesByMaterialId.get(dmId) ?? []
-                  : []
-                if (!dmId) {
-                  return (
-                    <div className="px-3 py-2 text-[12px] text-[#9CA3AF] italic border border-dashed border-[#E5E7EB] rounded-md">
-                      Pick a door material first.
                     </div>
                   )
                 }
@@ -1198,7 +1206,7 @@ function Composer(p: {
                       p.setSlot('doorFinishId', id)
                       p.toggleDropdown('doorFinishId')
                     }}
-                    onAddNew={() => p.onAddDoorFinish(dmId)}
+                    onAddNew={() => p.onAddDoorFinish(dtId)}
                     addNewLabel="+ Add finish"
                     placeholder={
                       finishes.length === 0
@@ -2153,9 +2161,7 @@ function AddDoorMaterialModal(p: {
   orgId: string
   doorTypeId: string
   onCancel: () => void
-  onCreated: (
-    row: import('@/lib/door-types').DoorTypeMaterial,
-  ) => void
+  onCreated: (row: Material) => void
 }) {
   type Tab = 'sheet' | 'solid_wood'
   const [tab, setTab] = useState<Tab>('sheet')
@@ -2228,15 +2234,15 @@ function AddDoorMaterialModal(p: {
           setError('Cost needs a non-negative number.')
           return
         }
-        const created = await createDoorTypeMaterial({
+        const created = await createMaterial({
           org_id: p.orgId,
-          door_type_id: p.doorTypeId,
-          material_name: name.trim(),
+          name: name.trim(),
           cost_value: cv,
           cost_unit: costUnit,
           notes: notes.trim() || null,
+          show_in_door: true,
         })
-        if (created) p.onCreated(created)
+        p.onCreated(created)
       } else {
         if (!pickedWood) {
           setError('Pick a solid wood component.')
@@ -2247,17 +2253,16 @@ function AddDoorMaterialModal(p: {
           return
         }
         const finalName = woodMaterialName.trim() || pickedWood.name
-        const created = await createDoorTypeMaterial({
+        const created = await createMaterial({
           org_id: p.orgId,
-          door_type_id: p.doorTypeId,
-          material_name: finalName,
+          name: finalName,
           cost_value: derivedCost,
           cost_unit: 'ea',
-          notes: null,
+          show_in_door: true,
           solid_wood_component_id: pickedWood.id,
           bdft_per_unit: bdftNum,
         })
-        if (created) p.onCreated(created)
+        p.onCreated(created)
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to save material')
@@ -2483,7 +2488,7 @@ function AddDoorMaterialModal(p: {
 
 function AddDoorFinishModal(p: {
   orgId: string
-  doorMaterialId: string
+  doorTypeId: string
   onCancel: () => void
   onCreated: (
     row: import('@/lib/door-types').DoorTypeMaterialFinish,
@@ -2511,7 +2516,7 @@ function AddDoorFinishModal(p: {
     try {
       const created = await createDoorTypeMaterialFinish({
         org_id: p.orgId,
-        door_type_material_id: p.doorMaterialId,
+        door_type_id: p.doorTypeId,
         finish_name: name.trim(),
         labor_hours_per_door: h,
         material_per_door: m,

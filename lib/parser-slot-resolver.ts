@@ -98,25 +98,22 @@ export function resolveSlotsAgainstRateBook(
   const backPanel = matchByName(rb.backPanelMaterials, null) // parser doesn't extract back-panel today
 
   const doorType = matchByName(rb.doorTypes, h.door_style)
-  // DoorTypeMaterial / DoorTypeMaterialFinish carry the display
-  // name on a different field (material_name / finish_name) — wrap
-  // them as NamedRow so matchByName works without bespoke logic.
-  const doorMaterials = doorType
-    ? (rb.doorTypeMaterialsByTypeId.get(doorType.id) ?? []).map((m) => ({
-        id: m.id,
-        name: m.material_name,
-      }))
-    : []
+  // Door materials are catalog materials flagged show_in_door (074) — org-wide,
+  // not scoped to the door type. Wrap as NamedRow so matchByName works.
+  const doorMaterials = rb.doorTypeMaterials.map((m) => ({
+    id: m.id,
+    name: m.material_name,
+  }))
   const doorMaterial = matchByName(doorMaterials, h.door_material)
 
-  const doorFinishes = doorMaterial
-    ? (rb.doorFinishesByMaterialId.get(doorMaterial.id) ?? []).map((f) => ({
+  const doorFinishes = doorType
+    ? (rb.doorFinishesByDoorTypeId.get(doorType.id) ?? []).map((f) => ({
         id: f.id,
         name: f.finish_name,
       }))
     : []
-  // exterior_finish is the door-side finish hint — match against
-  // finishes scoped to the picked material.
+  // exterior_finish is the door-side finish hint — match against the door
+  // type's finishes.
   const doorFinish = matchByName(doorFinishes, h.exterior_finish)
 
   // Interior finish — handle the "prefinished" sentinel up front so

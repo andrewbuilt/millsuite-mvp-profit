@@ -181,14 +181,14 @@ export interface ComposerRateBook {
    *  shape as ext: just name + sheet_cost. Sourced from rate_book_items
    *  under a category whose item_type='back_panel_material'. */
   backPanelMaterials: ComposerExtMaterial[]
-  /** Door pricing v2 — door types, scoped materials, scoped finishes.
-   *  doorTypeMaterialsByTypeId / doorFinishesByMaterialId drive the
-   *  cascading composer dropdowns. Flat lookup arrays let id-based
-   *  resolves (approvals, summarizeSlots) skip iterating maps. */
+  /** Door pricing (post-074 flatten). Door MATERIALS are catalog materials
+   *  flagged show_in_door (shaped as DoorTypeMaterial for id/name/cost
+   *  resolution — doorMaterialId is the catalog id). Door FINISHES belong to
+   *  a door type; doorFinishesByDoorTypeId drives the finish dropdown, the
+   *  flat array resolves a finish id (pricing, summarizeSlots). */
   doorTypes: DoorType[]
-  doorTypeMaterialsByTypeId: Map<string, DoorTypeMaterial[]>
-  doorFinishesByMaterialId: Map<string, DoorTypeMaterialFinish[]>
   doorTypeMaterials: DoorTypeMaterial[]
+  doorFinishesByDoorTypeId: Map<string, DoorTypeMaterialFinish[]>
   doorTypeMaterialFinishes: DoorTypeMaterialFinish[]
   /** Drawer styles — same shape as the legacy ComposerDoorStyle. Per-drawer
    *  labor stored on rate_book_items.drawer_labor_hours_*. Base-only. */

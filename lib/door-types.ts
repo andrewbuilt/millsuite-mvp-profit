@@ -56,7 +56,11 @@ export interface DoorTypeMaterial {
 export interface DoorTypeMaterialFinish {
   id: string
   org_id: string
-  door_type_material_id: string
+  /** The door type this finish belongs to (migration 074). Finish labor is a
+   *  property of the door type, not the specific material. */
+  door_type_id: string
+  /** Legacy nesting key (pre-074) — kept for rollback, no longer read. */
+  door_type_material_id: string | null
   finish_name: string
   labor_hours_per_door: number
   material_per_door: number
@@ -142,7 +146,7 @@ export async function listDoorTypeMaterialFinishes(
 ): Promise<DoorTypeMaterialFinish[]> {
   const { data, error } = await supabase
     .from('door_type_material_finishes')
-    .select('id, org_id, door_type_material_id, finish_name, labor_hours_per_door, material_per_door, active')
+    .select('id, org_id, door_type_id, door_type_material_id, finish_name, labor_hours_per_door, material_per_door, active')
     .eq('org_id', orgId)
     .eq('active', true)
     .order('finish_name')
@@ -152,6 +156,7 @@ export async function listDoorTypeMaterialFinishes(
   }
   return ((data || []) as DoorTypeMaterialFinish[]).map((r) => ({
     ...r,
+    door_type_material_id: r.door_type_material_id ?? null,
     labor_hours_per_door: Number(r.labor_hours_per_door) || 0,
     material_per_door: Number(r.material_per_door) || 0,
   }))
@@ -305,7 +310,7 @@ export async function recalculateMaterialsForSolidWood(
 
 export async function createDoorTypeMaterialFinish(input: {
   org_id: string
-  door_type_material_id: string
+  door_type_id: string
   finish_name: string
   labor_hours_per_door: number
   material_per_door: number
@@ -314,13 +319,13 @@ export async function createDoorTypeMaterialFinish(input: {
     .from('door_type_material_finishes')
     .insert({
       org_id: input.org_id,
-      door_type_material_id: input.door_type_material_id,
+      door_type_id: input.door_type_id,
       finish_name: input.finish_name,
       labor_hours_per_door: input.labor_hours_per_door,
       material_per_door: input.material_per_door,
       active: true,
     })
-    .select('id, org_id, door_type_material_id, finish_name, labor_hours_per_door, material_per_door, active')
+    .select('id, org_id, door_type_id, door_type_material_id, finish_name, labor_hours_per_door, material_per_door, active')
     .single()
   if (error) {
     console.error('createDoorTypeMaterialFinish', error)
@@ -329,6 +334,7 @@ export async function createDoorTypeMaterialFinish(input: {
   return data
     ? {
         ...(data as DoorTypeMaterialFinish),
+        door_type_material_id: (data as DoorTypeMaterialFinish).door_type_material_id ?? null,
         labor_hours_per_door: Number(data.labor_hours_per_door) || 0,
         material_per_door: Number(data.material_per_door) || 0,
       }
@@ -458,14 +464,16 @@ export function indexDoorTypeMaterials(
   return map
 }
 
+/** Index finishes by door_type_id (migration 074) — finishes belong to a
+ *  door type now, not a specific material. */
 export function indexDoorTypeMaterialFinishes(
   rows: DoorTypeMaterialFinish[],
 ): Map<string, DoorTypeMaterialFinish[]> {
   const map = new Map<string, DoorTypeMaterialFinish[]>()
   for (const r of rows) {
-    const list = map.get(r.door_type_material_id) ?? []
+    const list = map.get(r.door_type_id) ?? []
     list.push(r)
-    map.set(r.door_type_material_id, list)
+    map.set(r.door_type_id, list)
   }
   return map
 }

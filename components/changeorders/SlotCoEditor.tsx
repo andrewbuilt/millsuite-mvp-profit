@@ -27,7 +27,6 @@ import { computeCoClientPrice, type PricingInputs } from '@/lib/change-orders'
 import { loadComposerRateBook } from '@/lib/composer-loader'
 import { createMaterial } from '@/lib/materials'
 import {
-  createDoorTypeMaterial,
   createDoorTypeMaterialFinish,
   type DoorMaterialCostUnit,
 } from '@/lib/door-types'
@@ -211,20 +210,20 @@ export default function SlotCoEditor({
         })
         newId = m.id
       } else if (slotKey === 'doorMaterialId') {
-        if (!productSlots.doorTypeId) throw new Error('This line has no door type to scope the material to.')
-        const m = await createDoorTypeMaterial({
+        // Door materials are catalog materials flagged show_in_door (074).
+        const m = await createMaterial({
           org_id: orgId,
-          door_type_id: productSlots.doorTypeId,
-          material_name: addName.trim(),
+          name: addName.trim(),
           cost_value: Number(addA) || 0,
           cost_unit: addUnit,
+          show_in_door: true,
         })
-        newId = m?.id ?? ''
+        newId = m.id
       } else if (slotKey === 'doorFinishId') {
-        if (!productSlots.doorMaterialId) throw new Error('This line has no door material to scope the finish to.')
+        if (!productSlots.doorTypeId) throw new Error('This line has no door type to scope the finish to.')
         const f = await createDoorTypeMaterialFinish({
           org_id: orgId,
-          door_type_material_id: productSlots.doorMaterialId,
+          door_type_id: productSlots.doorTypeId,
           finish_name: addName.trim(),
           labor_hours_per_door: Number(addA) || 0,
           material_per_door: Number(addB) || 0,

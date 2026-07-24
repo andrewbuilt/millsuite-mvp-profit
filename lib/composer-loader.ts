@@ -32,12 +32,11 @@ import type {
 import { listExtMaterials } from './rate-book-materials'
 import {
   listDoorTypes,
-  listDoorTypeMaterials,
   listDoorTypeMaterialFinishes,
-  indexDoorTypeMaterials,
   indexDoorTypeMaterialFinishes,
+  type DoorTypeMaterial,
 } from './door-types'
-import { listMaterials, indexMaterialsById } from './materials'
+import { listMaterials } from './materials'
 import { listLedTypes } from './led'
 
 /** Load + shape the composer's rate-book payload for an org. */
@@ -47,7 +46,6 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     carcassLabor,
     extMats,
     doorTypes,
-    doorTypeMaterials,
     doorTypeMaterialFinishes,
     drawerStyles,
     finishes,
@@ -60,7 +58,6 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     loadCarcassLaborFromBaseCab(orgId),
     listExtMaterials(orgId),
     listDoorTypes(orgId),
-    listDoorTypeMaterials(orgId),
     listDoorTypeMaterialFinishes(orgId),
     loadDrawerStyles(orgId),
     loadFinishes(orgId),
@@ -73,17 +70,26 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
   const carcassCalibrated =
     carcassLabor.eng + carcassLabor.cnc + carcassLabor.assembly + carcassLabor.finish > 0
 
-  // Master materials catalog (chunk B). Carcass + back-panel slots are now
-  // catalog-native: the full catalog drives "browse all" + pricing, and the
-  // show_in-filtered subsets are the quick-grab dropdown lists — all keyed on
-  // the catalog id. Door materials still come from door_type_materials (their
-  // finishes hang off them), but we overlay the catalog cost so a door
-  // material reprices from the catalog too.
-  const catalogById = indexMaterialsById(catalog)
-  const pricedDoorTypeMaterials = doorTypeMaterials.map((m) => {
-    const mat = m.material_id ? catalogById.get(m.material_id) : undefined
-    return mat ? { ...m, cost_value: mat.cost_value, cost_unit: mat.cost_unit } : m
-  })
+  // Master materials catalog (chunk B/C). Carcass, back-panel AND door
+  // materials are all catalog-native now: the full catalog drives "browse all"
+  // + pricing, the show_in-filtered subsets are the quick-grab lists, all
+  // keyed on the catalog id. Door materials = catalog rows flagged show_in_door
+  // (shaped as DoorTypeMaterial so id/name/cost resolves keep working, 074).
+  const doorCatalogMaterials: DoorTypeMaterial[] = catalog
+    .filter((m) => m.show_in_door)
+    .map((m) => ({
+      id: m.id,
+      org_id: orgId,
+      door_type_id: '',
+      material_name: m.name,
+      cost_value: m.cost_value,
+      cost_unit: m.cost_unit,
+      notes: null,
+      active: true,
+      solid_wood_component_id: null,
+      bdft_per_unit: null,
+      material_id: m.id,
+    }))
 
   return {
     shopRate,
@@ -111,10 +117,9 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
       .filter((m) => m.show_in_back_panel)
       .map((m) => ({ id: m.id, name: m.name, sheet_cost: m.cost_value })),
     doorTypes,
-    doorTypeMaterials: pricedDoorTypeMaterials,
+    doorTypeMaterials: doorCatalogMaterials,
     doorTypeMaterialFinishes,
-    doorTypeMaterialsByTypeId: indexDoorTypeMaterials(pricedDoorTypeMaterials),
-    doorFinishesByMaterialId: indexDoorTypeMaterialFinishes(doorTypeMaterialFinishes),
+    doorFinishesByDoorTypeId: indexDoorTypeMaterialFinishes(doorTypeMaterialFinishes),
     drawerStyles,
     finishes,
     ledTypes,
