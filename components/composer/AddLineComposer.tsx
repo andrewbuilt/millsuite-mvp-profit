@@ -444,6 +444,7 @@ export default function AddLineComposer({
           ...carry.slots,
           endPanels: 0,
           fillers: 0,
+          led: [], // LED is line-specific — don't carry footage to the next line.
           notes: '',
         }
         qty = carry.qty || 8
@@ -1281,6 +1282,81 @@ function Composer(p: {
             </section>
           )}
 
+          {/* LED — a calibrated feature (chunk D). Any cabinet run can carry
+              several LED runs (type + LF each). Hours flow to dept hours,
+              material to the line cost. */}
+          {(draft.productId === 'base' ||
+            draft.productId === 'upper' ||
+            draft.productId === 'full') && (
+            <section className="space-y-3">
+              <SectionHeader>LED</SectionHeader>
+              {(draft.slots.led ?? []).map((row, i) => {
+                const led = draft.slots.led ?? []
+                const patchRow = (patch: Partial<{ typeId: string | null; lf: number }>) =>
+                  p.setSlot(
+                    'led',
+                    led.map((r, j) => (j === i ? { ...r, ...patch } : r)),
+                  )
+                return (
+                  <div key={i} className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <Dropdown
+                        open={p.openDropdown === `led-${i}`}
+                        value={row.typeId}
+                        options={rateBook.ledTypes.map((t) => ({
+                          id: t.id,
+                          name: t.name + (t.calibrated ? '' : ' · not calibrated'),
+                          meta: `$${t.material_cost_per_lf}/LF`,
+                        }))}
+                        onToggle={() => p.toggleDropdown(`led-${i}`)}
+                        onPick={(id) => {
+                          p.toggleDropdown(`led-${i}`)
+                          patchRow({ typeId: id })
+                        }}
+                        placeholder="Choose LED type…"
+                      />
+                    </div>
+                    <div className="w-24">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-0.5">
+                        Linear ft
+                      </div>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        value={row.lf || ''}
+                        onChange={(e) => patchRow({ lf: Number(e.target.value) || 0 })}
+                        className="w-full bg-white border border-[#E5E7EB] rounded-md px-2.5 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => p.setSlot('led', led.filter((_, j) => j !== i))}
+                      className="h-9 w-9 rounded-md border border-[#E5E7EB] text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2]"
+                      title="Remove LED run"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )
+              })}
+              <button
+                type="button"
+                onClick={() =>
+                  p.setSlot('led', [...(draft.slots.led ?? []), { typeId: null, lf: 0 }])
+                }
+                className="text-[12px] font-medium text-[#2563EB] hover:underline"
+              >
+                + Add LED run
+              </button>
+              {rateBook.ledTypes.length === 0 && (
+                <div className="text-[11.5px] text-[#9CA3AF] italic">
+                  No LED types yet — define them in the rate book (Rate book → LEDs).
+                </div>
+              )}
+            </section>
+          )}
+
           <Field label="Notes">
             <input
               type="text"
@@ -1982,6 +2058,18 @@ function BreakdownPanel({
               }
             />
           )}
+        </>
+      )}
+
+      {(breakdown.ledLabor + breakdown.ledMaterial > 0 || breakdown.ledDetail) && (
+        <>
+          <BreakdownSection label="LED" />
+          <Row
+            label="LED"
+            detail={breakdown.ledDetail}
+            value={breakdown.ledLabor + breakdown.ledMaterial}
+            zero={breakdown.ledLabor + breakdown.ledMaterial === 0}
+          />
         </>
       )}
 

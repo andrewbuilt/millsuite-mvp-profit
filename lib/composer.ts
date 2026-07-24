@@ -60,6 +60,24 @@ export interface ComposerMaterial {
   show_in_shelf: boolean
 }
 
+/** An LED type (rate-book chunk D), calibrated per linear foot. */
+export interface ComposerLedType {
+  id: string
+  name: string
+  labor_hours_eng_per_lf: number
+  labor_hours_cnc_per_lf: number
+  labor_hours_assembly_per_lf: number
+  labor_hours_finish_per_lf: number
+  material_cost_per_lf: number
+  calibrated: boolean
+}
+
+/** One LED run on a line: a type + how many linear feet. */
+export interface ComposerLedRow {
+  typeId: string | null
+  lf: number
+}
+
 export interface ComposerDoorStyle {
   id: string
   name: string
@@ -176,6 +194,9 @@ export interface ComposerRateBook {
    *  labor stored on rate_book_items.drawer_labor_hours_*. Base-only. */
   drawerStyles: ComposerDoorStyle[]
   finishes: ComposerFinish[]
+  /** LED types (rate-book chunk D) — calibrated per LF. Cabinet lines add
+   *  LED rows (type + LF); hours flow to dept hours, material to line cost. */
+  ledTypes: ComposerLedType[]
   /** Solid Wood Top calibration — one row per org, written by
    *  SolidWoodTopWalkthrough. null when the operator hasn't run the
    *  walkthrough yet (composer surfaces a "Calibrate first" CTA). */
@@ -273,6 +294,9 @@ export interface ComposerSlots {
    *  drawerCount=0 + drawerStyle=null and the composer hides the section. */
   drawerCount: number
   drawerStyle: string | null
+  /** LED runs on this line (rate-book chunk D). Each row = a led type + LF.
+   *  Optional / defaults to [] so lines saved before LED existed read fine. */
+  led?: ComposerLedRow[]
   notes: string
   /** Door-side LF when it differs from the carcass run. null = match
    *  draft.qty (same LF for carcass + doors — every kitchen, most
@@ -323,6 +347,7 @@ export function emptySlots(): ComposerSlots {
     fillers: 0,
     drawerCount: 0,
     drawerStyle: null,
+    led: [],
     notes: '',
     qty_doors: null,
     // Solid Wood Top defaults — composer overlays these from the
@@ -450,6 +475,12 @@ export interface ComposerBreakdown {
   drawerMaterial: number
   drawerMaterialDetail: string | null
   drawerHardware: number
+
+  /** LED rollup (chunk D). ledLabor = Σ LF × per-LF dept hours × rate;
+   *  ledMaterial = Σ LF × material/LF; ledDetail = "8 LF Under-cabinet + …". */
+  ledLabor: number
+  ledMaterial: number
+  ledDetail: string | null
 
   interiorFinishLabor: number
   interiorFinishMaterial: number
@@ -785,6 +816,29 @@ export function computeBreakdown(
   const fillersLabor = (s.fillers || 0) * FILLER_LABOR_HR * rate
   const fillersMaterial = (s.fillers || 0) * FILLER_MATERIAL
 
+  // LED — a calibrated feature (chunk D). Each row is a led type + linear
+  // feet: labor hours/LF by dept flow into the line's dept hours, material
+  // $/LF into material. Multiple rows (under-cabinet + interior, …).
+  const ledRows = Array.isArray(s.led) ? s.led : []
+  const ledHoursByDept = { eng: 0, cnc: 0, assembly: 0, finish: 0 }
+  let ledMaterial = 0
+  const ledParts: string[] = []
+  for (const row of ledRows) {
+    const lf = Number(row?.lf) || 0
+    const lt = row?.typeId ? rb.ledTypes.find((t) => t.id === row.typeId) || null : null
+    if (!lt || lf <= 0) continue
+    ledHoursByDept.eng += lf * lt.labor_hours_eng_per_lf
+    ledHoursByDept.cnc += lf * lt.labor_hours_cnc_per_lf
+    ledHoursByDept.assembly += lf * lt.labor_hours_assembly_per_lf
+    ledHoursByDept.finish += lf * lt.labor_hours_finish_per_lf
+    ledMaterial += lf * lt.material_cost_per_lf
+    ledParts.push(`${lf} LF ${lt.name}`)
+  }
+  const ledHoursTotal =
+    ledHoursByDept.eng + ledHoursByDept.cnc + ledHoursByDept.assembly + ledHoursByDept.finish
+  const ledLabor = ledHoursTotal * rate
+  const ledDetail = ledParts.length ? ledParts.join(' + ') : null
+
   // Aggregate dept hours for the saved-line round-trip. End-panel hours
   // fold in as one full-door equivalent per panel: door-type hours per
   // dept × endPanels, plus the door-finish per-door hours into Finish.
@@ -796,21 +850,27 @@ export function computeBreakdown(
   const endPanelFinishHoursTotal = df ? df.labor_hours_per_door * endPanelsCount : 0
 
   const hoursByDept = {
-    eng: carcassHoursByDept.eng + doorHoursByDept.eng + drawerHoursByDept.eng + endPanelDoorEng,
-    cnc: carcassHoursByDept.cnc + doorHoursByDept.cnc + drawerHoursByDept.cnc + endPanelDoorCnc,
+    eng:
+      carcassHoursByDept.eng + doorHoursByDept.eng + drawerHoursByDept.eng + endPanelDoorEng +
+      ledHoursByDept.eng,
+    cnc:
+      carcassHoursByDept.cnc + doorHoursByDept.cnc + drawerHoursByDept.cnc + endPanelDoorCnc +
+      ledHoursByDept.cnc,
     assembly:
       carcassHoursByDept.assembly +
       doorHoursByDept.assembly +
       drawerHoursByDept.assembly +
       endPanelDoorAsm +
-      (s.fillers || 0) * FILLER_LABOR_HR,
+      (s.fillers || 0) * FILLER_LABOR_HR +
+      ledHoursByDept.assembly,
     finish:
       carcassHoursByDept.finish +
       doorHoursByDept.finish +
       drawerHoursByDept.finish +
       finishHoursTotal +
       endPanelDoorFin +
-      endPanelFinishHoursTotal,
+      endPanelFinishHoursTotal +
+      ledHoursByDept.finish,
     install: 0, // Cabinet products don't book install hours via the composer.
   }
 
@@ -821,7 +881,8 @@ export function computeBreakdown(
     interiorFinishLabor +
     doorFinishLabor +
     endPanelsLabor +
-    fillersLabor
+    fillersLabor +
+    ledLabor
 
   const materialSubtotal =
     carcassMaterial +
@@ -833,7 +894,8 @@ export function computeBreakdown(
     interiorFinishMaterial +
     doorFinishMaterial +
     endPanelsMaterial +
-    fillersMaterial
+    fillersMaterial +
+    ledMaterial
 
   const consumablesPct = Number(defaults.consumablesPct) || 0
   const wastePct = Number(defaults.wastePct) || 0
@@ -873,6 +935,10 @@ export function computeBreakdown(
     drawerMaterial,
     drawerMaterialDetail,
     drawerHardware,
+
+    ledLabor,
+    ledMaterial,
+    ledDetail,
 
     interiorFinishLabor,
     interiorFinishMaterial,
@@ -1058,6 +1124,9 @@ function computeBreakdownSolidWoodTop(
     drawerLaborDetail: null,
     drawerMaterial: 0,
     drawerMaterialDetail: null,
+    ledLabor: 0,
+    ledMaterial: 0,
+    ledDetail: null,
     drawerHardware: 0,
 
     interiorFinishLabor: 0,
@@ -1233,6 +1302,11 @@ export function summarizeSlots(
     bits.push(
       `${draft.slots.fillers} filler${draft.slots.fillers === 1 ? '' : 's'}`
     )
+  }
+  for (const row of draft.slots.led ?? []) {
+    const lf = Number(row?.lf) || 0
+    const lt = row?.typeId ? rb.ledTypes.find((t) => t.id === row.typeId) : null
+    if (lt && lf > 0) bits.push(`${lf} LF ${lt.name} LED`)
   }
   return bits.join(' · ')
 }
