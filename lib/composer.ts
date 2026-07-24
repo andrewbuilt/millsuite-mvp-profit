@@ -44,6 +44,22 @@ export interface ComposerExtMaterial {
   sheet_cost: number
 }
 
+/** A master-catalog material (rate-book chunk B). The composer resolves the
+ *  carcass + back-panel slots against the full catalog (so a "browse all"
+ *  pick prices even when it isn't flagged for that slot); the per-slot
+ *  quick-grab lists (carcassMaterials / backPanelMaterials) are the
+ *  show_in-filtered subset. cost_unit is 'sheet' for carcass/back panel. */
+export interface ComposerMaterial {
+  id: string
+  name: string
+  cost_value: number
+  cost_unit: 'sheet' | 'lf' | 'bf' | 'ea' | 'lump'
+  show_in_carcass: boolean
+  show_in_door: boolean
+  show_in_back_panel: boolean
+  show_in_shelf: boolean
+}
+
 export interface ComposerDoorStyle {
   id: string
   name: string
@@ -135,6 +151,11 @@ export interface ComposerRateBook {
    *  When false, the composer should surface "run BaseCabinetWalkthrough
    *  first" and block save. */
   carcassCalibrated: boolean
+  /** Full org materials catalog (rate-book chunk B) — drives "browse all"
+   *  in the composer slot dropdowns AND is the resolution source for carcass
+   *  + back-panel pricing. carcassMaterials / backPanelMaterials below are the
+   *  show_in-filtered quick-grab subsets for the default dropdown list. */
+  materials: ComposerMaterial[]
   carcassMaterials: ComposerCarcassMaterial[]
   extMaterials: ComposerExtMaterial[]
   /** Back-panel sheet stock, kept in its own pool so face stock (Walnut,
@@ -560,8 +581,10 @@ export function computeBreakdown(
     finish: qtyCarcass * cl.finish,
   }
 
-  const cm = rb.carcassMaterials.find((m) => m.id === s.carcassMaterial) || null
-  const bm = rb.backPanelMaterials.find((m) => m.id === s.backPanelMaterial) || null
+  // Carcass + back-panel resolve against the FULL catalog (chunk B) so a
+  // "browse all" pick prices even if it isn't flagged for the slot.
+  const cm = s.carcassMaterial ? rb.materials.find((m) => m.id === s.carcassMaterial) || null : null
+  const bm = s.backPanelMaterial ? rb.materials.find((m) => m.id === s.backPanelMaterial) || null : null
   // Door pricing v2: cascading lookups against the new tables. The
   // doorMaterials/doorFinishes flat arrays let us resolve by id without
   // walking the by-parent maps (those drive dropdowns, not lookups).
@@ -580,18 +603,18 @@ export function computeBreakdown(
   // sides + bottom + shelf + nailers — face math underpriced this badly
   // before sheetsPerLfCarcass was split out from sheetsPerLfFace).
   const carcassSheets = qtyCarcass * prod.sheetsPerLfCarcass
-  const carcassMaterial = cm ? carcassSheets * cm.sheet_cost : 0
+  const carcassMaterial = cm ? carcassSheets * cm.cost_value : 0
   const carcassMaterialDetail = cm
-    ? `${carcassSheets.toFixed(2)} sht × $${cm.sheet_cost}`
+    ? `${carcassSheets.toFixed(2)} sht × $${cm.cost_value}`
     : null
 
   // Back panel — separate stock (1/4" ply typical) picked from the same
   // extMaterials pool as door faces. Per-LF ratio mirrors the legacy
   // face-sheet ratio because back-panel area scales with cabinet face.
   const backPanelSheets = qtyCarcass * prod.sheetsPerLfBack
-  const backPanelMaterial = bm ? backPanelSheets * bm.sheet_cost : 0
+  const backPanelMaterial = bm ? backPanelSheets * bm.cost_value : 0
   const backPanelMaterialDetail = bm
-    ? `${backPanelSheets.toFixed(2)} sht × $${bm.sheet_cost}`
+    ? `${backPanelSheets.toFixed(2)} sht × $${bm.cost_value}`
     : null
 
   // Doors per line — count of doors this run carries, scaled by the
@@ -1184,9 +1207,9 @@ export function summarizeSlots(
   }
 
   const bits: string[] = []
-  const cm = rb.carcassMaterials.find((m) => m.id === draft.slots.carcassMaterial)
+  const cm = rb.materials.find((m) => m.id === draft.slots.carcassMaterial)
   if (cm) bits.push(cm.name)
-  const bm = rb.backPanelMaterials.find((m) => m.id === draft.slots.backPanelMaterial)
+  const bm = rb.materials.find((m) => m.id === draft.slots.backPanelMaterial)
   if (bm) bits.push(`${bm.name} back`)
   const dt = rb.doorTypes.find((t) => t.id === draft.slots.doorTypeId)
   if (dt) bits.push(`${dt.name} door`)

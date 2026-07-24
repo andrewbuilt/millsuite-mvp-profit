@@ -25,7 +25,7 @@ import {
 import type { ProductKey } from '@/lib/products'
 import { computeCoClientPrice, type PricingInputs } from '@/lib/change-orders'
 import { loadComposerRateBook } from '@/lib/composer-loader'
-import { createCarcassMaterial } from '@/lib/rate-book-materials'
+import { createMaterial } from '@/lib/materials'
 import {
   createDoorTypeMaterial,
   createDoorTypeMaterialFinish,
@@ -200,13 +200,16 @@ export default function SlotCoEditor({
     try {
       let newId = ''
       if (slotKey === 'carcassMaterial') {
-        const m = await createCarcassMaterial({
+        // Catalog-native (chunk B): carcass material = a catalog row flagged
+        // show_in_carcass. newId is the catalog id the composer resolves against.
+        const m = await createMaterial({
           org_id: orgId,
           name: addName.trim(),
-          sheet_cost: Number(addA) || 0,
-          sheets_per_lf: Number(addB) || 0,
+          cost_value: Number(addA) || 0,
+          cost_unit: 'sheet',
+          show_in_carcass: true,
         })
-        newId = m?.id ?? ''
+        newId = m.id
       } else if (slotKey === 'doorMaterialId') {
         if (!productSlots.doorTypeId) throw new Error('This line has no door type to scope the material to.')
         const m = await createDoorTypeMaterial({

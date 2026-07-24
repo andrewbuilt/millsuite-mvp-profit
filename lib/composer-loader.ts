@@ -29,11 +29,7 @@ import type {
   ComposerSolidWoodComponent,
   SolidWoodTopCalibration,
 } from './composer'
-import {
-  listCarcassMaterials,
-  listExtMaterials,
-  listBackPanelMaterials,
-} from './rate-book-materials'
+import { listExtMaterials } from './rate-book-materials'
 import {
   listDoorTypes,
   listDoorTypeMaterials,
@@ -48,9 +44,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
   const [
     shopRate,
     carcassLabor,
-    carcassMats,
     extMats,
-    backPanelMats,
     doorTypes,
     doorTypeMaterials,
     doorTypeMaterialFinishes,
@@ -62,9 +56,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
   ] = await Promise.all([
     loadShopRate(orgId),
     loadCarcassLaborFromBaseCab(orgId),
-    listCarcassMaterials(orgId),
     listExtMaterials(orgId),
-    listBackPanelMaterials(orgId),
     listDoorTypes(orgId),
     listDoorTypeMaterials(orgId),
     listDoorTypeMaterialFinishes(orgId),
@@ -78,19 +70,13 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
   const carcassCalibrated =
     carcassLabor.eng + carcassLabor.cnc + carcassLabor.assembly + carcassLabor.finish > 0
 
-  // Master materials catalog is the price source (chunk B). Each pool row
-  // carries a material_id pointer (migration 072); we source its cost from the
-  // catalog and fall back to the legacy column only if a row isn't linked yet.
-  // Post-backfill the catalog values equal the legacy columns, so pricing is
-  // byte-identical — but editing a catalog row now reprices everything.
+  // Master materials catalog (chunk B). Carcass + back-panel slots are now
+  // catalog-native: the full catalog drives "browse all" + pricing, and the
+  // show_in-filtered subsets are the quick-grab dropdown lists — all keyed on
+  // the catalog id. Door materials still come from door_type_materials (their
+  // finishes hang off them), but we overlay the catalog cost so a door
+  // material reprices from the catalog too.
   const catalogById = indexMaterialsById(catalog)
-  const catalogSheetCost = (materialId: string | null, legacy: number): number => {
-    const mat = materialId ? catalogById.get(materialId) : undefined
-    return mat ? mat.cost_value : legacy
-  }
-
-  // Door materials: overlay catalog cost_value/cost_unit before indexing so
-  // the by-type map + flat array both price from the catalog.
   const pricedDoorTypeMaterials = doorTypeMaterials.map((m) => {
     const mat = m.material_id ? catalogById.get(m.material_id) : undefined
     return mat ? { ...m, cost_value: mat.cost_value, cost_unit: mat.cost_unit } : m
@@ -100,22 +86,27 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     shopRate,
     carcassLabor,
     carcassCalibrated,
-    carcassMaterials: carcassMats.map((m) => ({
+    materials: catalog.map((m) => ({
       id: m.id,
       name: m.name,
-      sheet_cost: catalogSheetCost(m.material_id, Number(m.sheet_cost) || 0),
-      sheets_per_lf: Number(m.sheets_per_lf) || 0,
+      cost_value: m.cost_value,
+      cost_unit: m.cost_unit,
+      show_in_carcass: m.show_in_carcass,
+      show_in_door: m.show_in_door,
+      show_in_back_panel: m.show_in_back_panel,
+      show_in_shelf: m.show_in_shelf,
     })),
+    carcassMaterials: catalog
+      .filter((m) => m.show_in_carcass)
+      .map((m) => ({ id: m.id, name: m.name, sheet_cost: m.cost_value, sheets_per_lf: 0 })),
     extMaterials: extMats.map((m) => ({
       id: m.id,
       name: m.name,
       sheet_cost: Number(m.sheet_cost) || 0,
     })),
-    backPanelMaterials: backPanelMats.map((m) => ({
-      id: m.id,
-      name: m.name,
-      sheet_cost: catalogSheetCost(m.material_id, Number(m.sheet_cost) || 0),
-    })),
+    backPanelMaterials: catalog
+      .filter((m) => m.show_in_back_panel)
+      .map((m) => ({ id: m.id, name: m.name, sheet_cost: m.cost_value })),
     doorTypes,
     doorTypeMaterials: pricedDoorTypeMaterials,
     doorTypeMaterialFinishes,

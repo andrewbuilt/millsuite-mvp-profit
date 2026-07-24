@@ -68,11 +68,8 @@ import {
   updateComposerLine,
   type LastUsedPerProduct,
 } from '@/lib/composer-persist'
-import {
-  createBackPanelMaterial,
-  createCarcassMaterial,
-  createExtMaterial,
-} from '@/lib/rate-book-materials'
+import { createExtMaterial } from '@/lib/rate-book-materials'
+import { createMaterial } from '@/lib/materials'
 import {
   createDoorTypeMaterial,
   createDoorTypeMaterialFinish,
@@ -129,6 +126,15 @@ function withPrefinishedSentinel(rb: ComposerRateBook): ComposerRateBook {
 type View = 'picker' | 'composer'
 
 type AddNewMaterialCategory = 'carcass' | 'ext' | 'back_panel'
+
+/** Short suffix for a catalog material's cost unit, shown in browse-all rows. */
+const MATERIAL_UNIT_ABBR: Record<'sheet' | 'lf' | 'bf' | 'ea' | 'lump', string> = {
+  sheet: 'sht',
+  lf: 'LF',
+  bf: 'BF',
+  ea: 'ea',
+  lump: 'lump',
+}
 
 interface AddNewContext {
   category: AddNewMaterialCategory
@@ -564,52 +570,46 @@ export default function AddLineComposer({
       return
     }
     try {
-      if (ctx.category === 'carcass') {
-        // Sheets-per-LF is derived from the product at compute time
-        // (lib/products.ts sheetsPerLfFace — Base 1/12, Upper 1/8, Full 1/4).
-        // Store 0 on the row so no stale value shadows the product math if
-        // a future consumer reads sheets_per_lf directly.
-        const created = await createCarcassMaterial({
+      if (ctx.category === 'carcass' || ctx.category === 'back_panel') {
+        // Catalog-native (chunk B): a carcass / back-panel material is just a
+        // catalog row flagged for that slot. Consumption (sheets/LF) comes from
+        // the product at compute time, so nothing consumption-related is stored.
+        const isCarcass = ctx.category === 'carcass'
+        const created = await createMaterial({
           org_id: orgId,
           name,
-          sheet_cost: sheetCost,
-          sheets_per_lf: 0,
+          cost_value: sheetCost,
+          cost_unit: 'sheet',
+          show_in_carcass: isCarcass,
+          show_in_back_panel: !isCarcass,
         })
-        if (created) {
-          setRateBook({
-            ...rateBook,
-            carcassMaterials: [
-              ...rateBook.carcassMaterials,
-              {
-                id: created.id,
-                name: created.name,
-                sheet_cost: Number(created.sheet_cost),
-                sheets_per_lf: Number(created.sheets_per_lf),
-              },
-            ],
-          })
-          setSlot('carcassMaterial', created.id)
+        const catalogRow = {
+          id: created.id,
+          name: created.name,
+          cost_value: created.cost_value,
+          cost_unit: created.cost_unit,
+          show_in_carcass: created.show_in_carcass,
+          show_in_door: created.show_in_door,
+          show_in_back_panel: created.show_in_back_panel,
+          show_in_shelf: created.show_in_shelf,
         }
-      } else if (ctx.category === 'back_panel') {
-        const created = await createBackPanelMaterial({
-          org_id: orgId,
-          name,
-          sheet_cost: sheetCost,
+        setRateBook({
+          ...rateBook,
+          materials: [...rateBook.materials, catalogRow],
+          carcassMaterials: isCarcass
+            ? [
+                ...rateBook.carcassMaterials,
+                { id: created.id, name: created.name, sheet_cost: created.cost_value, sheets_per_lf: 0 },
+              ]
+            : rateBook.carcassMaterials,
+          backPanelMaterials: isCarcass
+            ? rateBook.backPanelMaterials
+            : [
+                ...rateBook.backPanelMaterials,
+                { id: created.id, name: created.name, sheet_cost: created.cost_value },
+              ],
         })
-        if (created) {
-          setRateBook({
-            ...rateBook,
-            backPanelMaterials: [
-              ...rateBook.backPanelMaterials,
-              {
-                id: created.id,
-                name: created.name,
-                sheet_cost: Number(created.sheet_cost),
-              },
-            ],
-          })
-          setSlot('backPanelMaterial', created.id)
-        }
+        setSlot(isCarcass ? 'carcassMaterial' : 'backPanelMaterial', created.id)
       } else {
         const created = await createExtMaterial({
           org_id: orgId,
@@ -997,6 +997,11 @@ function Composer(p: {
                     name: m.name,
                     meta: `$${m.sheet_cost}/sht`,
                   }))}
+                  browseAllOptions={rateBook.materials.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    meta: `$${m.cost_value}/${MATERIAL_UNIT_ABBR[m.cost_unit]}`,
+                  }))}
                   onToggle={() => p.toggleDropdown('carcassMaterial')}
                   onPick={(id) => {
                     p.setSlot('carcassMaterial', id)
@@ -1025,6 +1030,11 @@ function Composer(p: {
                     id: m.id,
                     name: m.name,
                     meta: `$${m.sheet_cost}/sht`,
+                  }))}
+                  browseAllOptions={rateBook.materials.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    meta: `$${m.cost_value}/${MATERIAL_UNIT_ABBR[m.cost_unit]}`,
                   }))}
                   onToggle={() => p.toggleDropdown('backPanelMaterial')}
                   onPick={(id) => {
@@ -1505,6 +1515,7 @@ function Dropdown({
   onAddNew,
   addNewLabel,
   placeholder,
+  browseAllOptions,
 }: {
   open: boolean
   value: string | null
@@ -1514,8 +1525,19 @@ function Dropdown({
   onAddNew?: () => void
   addNewLabel?: string
   placeholder: string
+  /** When provided, the menu gets a "Quick picks | All" toggle. Quick picks =
+   *  `options` (the show_in-flagged subset); All = the full catalog. Rate-book
+   *  chunk B "browse all materials" escape hatch. */
+  browseAllOptions?: Array<{ id: string; name: string; meta?: string }>
 }) {
-  const selected = options.find((o) => o.id === value)
+  const [showAll, setShowAll] = useState(false)
+  const hasBrowseAll = !!browseAllOptions && browseAllOptions.length > 0
+  const shown = showAll && browseAllOptions ? browseAllOptions : options
+  // Resolve the selected label against the widest list so a browse-all pick
+  // (not in the quick-grab subset) still shows its name.
+  const selected =
+    (browseAllOptions || options).find((o) => o.id === value) ||
+    options.find((o) => o.id === value)
   return (
     <div className="relative">
       <button
@@ -1533,12 +1555,32 @@ function Dropdown({
       </button>
       {open && (
         <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-[#E5E7EB] rounded-md shadow-lg z-10 max-h-64 overflow-y-auto">
-          {options.length === 0 && !onAddNew && (
-            <div className="px-3 py-2 text-[12px] text-[#9CA3AF] italic">
-              Nothing here yet.
+          {hasBrowseAll && (
+            <div className="flex gap-1 p-1.5 border-b border-[#E5E7EB] sticky top-0 bg-white">
+              {(['quick', 'all'] as const).map((mode) => {
+                const active = mode === 'all' ? showAll : !showAll
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setShowAll(mode === 'all')}
+                    className={
+                      'flex-1 px-2 py-1 text-[11px] rounded font-medium ' +
+                      (active ? 'bg-[#2563EB] text-white' : 'text-[#6B7280] hover:bg-[#F3F4F6]')
+                    }
+                  >
+                    {mode === 'quick' ? 'Quick picks' : 'All materials'}
+                  </button>
+                )
+              })}
             </div>
           )}
-          {options.map((o) => (
+          {shown.length === 0 && !onAddNew && (
+            <div className="px-3 py-2 text-[12px] text-[#9CA3AF] italic">
+              {hasBrowseAll && !showAll ? 'None flagged — try All materials.' : 'Nothing here yet.'}
+            </div>
+          )}
+          {shown.map((o) => (
             <button
               key={o.id}
               type="button"
