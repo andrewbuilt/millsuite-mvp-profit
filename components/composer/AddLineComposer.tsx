@@ -1666,6 +1666,9 @@ function Composer(p: {
 }
 
 function hasAnyPricingSlotV2(s: ComposerDraft['slots']): boolean {
+  // Custom product — as soon as one is picked the breakdown can price
+  // (labor shows even before materials are chosen).
+  if (s.customProductId) return true
   // Countertop uses dimensions + solid-wood material as its "pricing slot"
   // gate so the breakdown panel renders alongside the form.
   if (
