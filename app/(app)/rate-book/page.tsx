@@ -56,6 +56,7 @@ import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 import { useConfirm } from '@/components/confirm-dialog'
 import MaterialsCatalog from '@/components/rate-book/MaterialsCatalog'
 import DoorCatalog from '@/components/rate-book/DoorCatalog'
+import LedCatalog from '@/components/rate-book/LedCatalog'
 
 // Upper / Full are multipliers on Base cabinet, not standalone rate
 // book rows. Surface them in the sidebar as derived read-only entries
@@ -128,7 +129,7 @@ export default function RateBookPage() {
   const [laborSettingsOpen, setLaborSettingsOpen] = useState(false)
   // Top-level view: the item tree (default), the master materials catalog, or
   // the door types editor (rate-book chunk B/C).
-  const [view, setView] = useState<'items' | 'materials' | 'doors'>('items')
+  const [view, setView] = useState<'items' | 'materials' | 'doors' | 'leds'>('items')
 
   // Solid-wood components live in their own table outside
   // rate_book_categories. Surfaced as a synthetic sidebar group below
@@ -331,7 +332,7 @@ export default function RateBookPage() {
         <div className="flex-1" />
         {/* Items | Materials | Doors view toggle */}
         <div className="inline-flex rounded-md border border-[#BFDBFE] overflow-hidden">
-          {(['items', 'materials', 'doors'] as const).map((v) => (
+          {(['items', 'materials', 'doors', 'leds'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -341,7 +342,7 @@ export default function RateBookPage() {
                   : 'bg-white text-[#1E40AF] hover:bg-[#DBEAFE]'
               }`}
             >
-              {v === 'items' ? 'Items' : v === 'materials' ? 'Materials' : 'Doors'}
+              {v === 'items' ? 'Items' : v === 'materials' ? 'Materials' : v === 'doors' ? 'Doors' : 'LEDs'}
             </button>
           ))}
         </div>
@@ -357,6 +358,8 @@ export default function RateBookPage() {
         <MaterialsCatalog orgId={orgId} />
       ) : view === 'doors' ? (
         <DoorCatalog orgId={orgId} />
+      ) : view === 'leds' ? (
+        <LedCatalog orgId={orgId} />
       ) : (
       /* 3-pane grid */
       <div className="flex-1 grid grid-cols-[260px_1fr_300px] overflow-hidden">
