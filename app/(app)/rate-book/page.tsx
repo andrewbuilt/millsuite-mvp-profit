@@ -331,13 +331,13 @@ export default function RateBookPage() {
           Prices live here and history gets written. Day-to-day pricing happens in projects — come back to audit, tune, or add items.
         </span>
         <div className="flex-1" />
-        {/* Items | Materials | Doors view toggle */}
-        <div className="inline-flex rounded-md border border-[#BFDBFE] overflow-hidden">
+        {/* Items | Materials | Doors | LEDs | Products view toggle */}
+        <div className="inline-flex shrink-0 rounded-md border border-[#BFDBFE] overflow-hidden">
           {(['items', 'materials', 'doors', 'leds', 'products'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
-              className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              className={`px-2.5 py-1 text-[11px] font-medium whitespace-nowrap shrink-0 transition-colors ${
                 view === v
                   ? 'bg-[#2563EB] text-white'
                   : 'bg-white text-[#1E40AF] hover:bg-[#DBEAFE]'

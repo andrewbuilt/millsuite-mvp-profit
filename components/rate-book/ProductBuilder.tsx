@@ -71,14 +71,28 @@ const EMPTY: Draft = {
   slots: [],
 }
 
+// LF products calibrate labor on a typical 8' run (the drawer-wizard feel):
+// the operator enters hours for an 8' run and we store per-LF (÷8). Each/sqft
+// enter labor per unit directly (basis 1).
+const LF_RUN_FEET = 8
+function laborBasisFor(unit: CustomProductUnit): number {
+  return unit === 'lf' ? LF_RUN_FEET : 1
+}
+/** Human label for the labor calibration basis. */
+function laborBasisLabel(unit: CustomProductUnit): string {
+  return unit === 'lf' ? `8' run` : unit
+}
+
 function toDraft(p: CustomProduct): Draft {
+  // Stored per-unit → shown per calibration basis (× basis).
+  const b = laborBasisFor(p.unit)
   return {
     name: p.name,
     unit: p.unit,
-    eng: String(p.labor_hours_eng_per_unit),
-    cnc: String(p.labor_hours_cnc_per_unit),
-    assembly: String(p.labor_hours_assembly_per_unit),
-    finish: String(p.labor_hours_finish_per_unit),
+    eng: String(p.labor_hours_eng_per_unit * b),
+    cnc: String(p.labor_hours_cnc_per_unit * b),
+    assembly: String(p.labor_hours_assembly_per_unit * b),
+    finish: String(p.labor_hours_finish_per_unit * b),
     hardware: String(p.hardware_cost_per_unit),
     led_enabled: p.led_enabled,
     slots: p.material_slots.map((s) => ({
@@ -91,13 +105,15 @@ function toDraft(p: CustomProduct): Draft {
 }
 
 function draftToInput(d: Draft) {
+  // Labor entered per calibration basis → stored per-unit (÷ basis).
+  const b = laborBasisFor(d.unit)
   return {
     name: d.name.trim(),
     unit: d.unit,
-    labor_hours_eng_per_unit: Number(d.eng) || 0,
-    labor_hours_cnc_per_unit: Number(d.cnc) || 0,
-    labor_hours_assembly_per_unit: Number(d.assembly) || 0,
-    labor_hours_finish_per_unit: Number(d.finish) || 0,
+    labor_hours_eng_per_unit: (Number(d.eng) || 0) / b,
+    labor_hours_cnc_per_unit: (Number(d.cnc) || 0) / b,
+    labor_hours_assembly_per_unit: (Number(d.assembly) || 0) / b,
+    labor_hours_finish_per_unit: (Number(d.finish) || 0) / b,
     hardware_cost_per_unit: Number(d.hardware) || 0,
     led_enabled: d.led_enabled,
     material_slots: d.slots.map((s) => ({
@@ -242,7 +258,7 @@ export default function ProductBuilder({ orgId }: { orgId: string }) {
 
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-1">
-                Labor hours per {draft.unit}
+                Labor hours per {laborBasisLabel(draft.unit)}
               </div>
               <div className="grid grid-cols-4 gap-2">
                 {DEPTS.map((d) => (
@@ -257,6 +273,11 @@ export default function ProductBuilder({ orgId }: { orgId: string }) {
                   </Field>
                 ))}
               </div>
+              {draft.unit === 'lf' && (
+                <div className="text-[10.5px] text-[#9CA3AF] mt-1">
+                  Enter labor for a typical 8&apos; run — priced per foot on the line (÷8).
+                </div>
+              )}
             </div>
 
             {/* Material slots */}
