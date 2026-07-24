@@ -33,6 +33,11 @@ export type ProductKey =
   | 'drawer'
   | 'led'
   | 'countertop'
+  // Sentinel for a user-defined custom product (chunk E). The actual product
+  // is identified by slots.customProductId → custom_products row; PRODUCTS
+  // holds only a placeholder so lookups don't crash. Not in PRODUCT_ORDER
+  // (custom tiles render from data, not the fixed built-in grid).
+  | 'custom'
 
 export interface Product {
   key: ProductKey
@@ -198,6 +203,18 @@ export const PRODUCT_COUNTERTOP: Product = make({
 /**
  * Record keyed by product key. Use for O(1) lookup in line-compute paths.
  */
+// Placeholder for the custom-product sentinel key. The composer resolves the
+// real product (name/unit/labor/slots) from custom_products via
+// slots.customProductId and takes a dedicated compute + render branch, so
+// these fields are never used for pricing — they only keep PRODUCTS[key]
+// lookups from returning undefined.
+export const PRODUCT_CUSTOM: Product = make({
+  key: 'custom',
+  label: 'Custom product',
+  unit: 'each',
+  active: false,
+})
+
 export const PRODUCTS: Record<ProductKey, Product> = {
   base: PRODUCT_BASE,
   upper: PRODUCT_UPPER,
@@ -205,6 +222,7 @@ export const PRODUCTS: Record<ProductKey, Product> = {
   drawer: PRODUCT_DRAWER,
   led: PRODUCT_LED,
   countertop: PRODUCT_COUNTERTOP,
+  custom: PRODUCT_CUSTOM,
 }
 
 /**

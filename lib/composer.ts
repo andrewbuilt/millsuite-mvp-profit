@@ -21,6 +21,7 @@ import type {
   DoorTypeMaterial,
   DoorTypeMaterialFinish,
 } from './door-types'
+import type { CustomProduct } from './custom-products'
 
 /** Per-LF carcass labor hours, from the "Base cabinet" rate_book_item's
  *  base_labor_hours_*. Reused across Base / Upper / Full per the spec. */
@@ -197,6 +198,9 @@ export interface ComposerRateBook {
   /** LED types (rate-book chunk D) — calibrated per LF. Cabinet lines add
    *  LED rows (type + LF); hours flow to dept hours, material to line cost. */
   ledTypes: ComposerLedType[]
+  /** User-defined custom products (chunk E). Rendered as extra picker tiles;
+   *  a custom line resolves its product from here via slots.customProductId. */
+  customProducts: CustomProduct[]
   /** Solid Wood Top calibration — one row per org, written by
    *  SolidWoodTopWalkthrough. null when the operator hasn't run the
    *  walkthrough yet (composer surfaces a "Calibrate first" CTA). */
@@ -297,6 +301,10 @@ export interface ComposerSlots {
   /** LED runs on this line (rate-book chunk D). Each row = a led type + LF.
    *  Optional / defaults to [] so lines saved before LED existed read fine. */
   led?: ComposerLedRow[]
+  /** Custom product (chunk E): which custom_products row this line is, and the
+   *  catalog material picked for each of its slots (slot key → material id). */
+  customProductId?: string | null
+  customMaterials?: Record<string, string | null>
   notes: string
   /** Door-side LF when it differs from the carcass run. null = match
    *  draft.qty (same LF for carcass + doors — every kitchen, most
@@ -348,6 +356,8 @@ export function emptySlots(): ComposerSlots {
     drawerCount: 0,
     drawerStyle: null,
     led: [],
+    customProductId: null,
+    customMaterials: {},
     notes: '',
     qty_doors: null,
     // Solid Wood Top defaults — composer overlays these from the
@@ -557,6 +567,16 @@ export interface ComposerBreakdown {
     edgeMult: number
     cutMethod: 'saw' | 'cnc'
   } | null
+  /** Custom-product rollup (chunk E) — non-null only for productId==='custom'.
+   *  Drives the custom line-breakdown panel; totals/hoursByDept above carry
+   *  the priced values as usual. */
+  custom: {
+    productName: string
+    unit: string
+    laborByDept: { eng: number; cnc: number; assembly: number; finish: number }
+    materialRows: { label: string; detail: string | null; value: number }[]
+    hardware: number
+  } | null
 }
 
 // ── Hardcoded V1 constants ──
@@ -579,6 +599,9 @@ export function computeBreakdown(
   // ComposerBreakdown shape with cabinet-side fields zeroed.
   if (draft.productId === 'countertop') {
     return computeBreakdownSolidWoodTop(draft, rb, defaults)
+  }
+  if (draft.productId === 'custom') {
+    return computeBreakdownCustom(draft, rb, defaults)
   }
 
   const prod: Product = PRODUCTS[draft.productId]
@@ -971,6 +994,172 @@ export function computeBreakdown(
 
     hoursByDept,
     solidWoodTop: null,
+    custom: null,
+  }
+}
+
+// ── Custom product compute (chunk E) ──
+
+/** A fully-zeroed ComposerBreakdown with the cabinet-only fields blanked —
+ *  the custom + (potentially other simple) product computes spread this and
+ *  override just what they use. */
+function emptyCabinetBreakdownShell(qty: number): ComposerBreakdown {
+  return {
+    qtyCarcass: qty,
+    qtyDoors: 0,
+    carcassLabor: 0,
+    carcassLaborPerLf: 0,
+    carcassMaterial: 0,
+    carcassMaterialDetail: null,
+    backPanelMaterial: 0,
+    backPanelMaterialDetail: null,
+    doorLabor: 0,
+    doorLaborPerLf: 0,
+    doorLaborWarn: false,
+    doorMaterial: 0,
+    doorMaterialDetail: null,
+    doorMaterialMissing: false,
+    doorFinishMissing: false,
+    doorHardware: 0,
+    doorsPerLine: 0,
+    doorLaborPerDoor: 0,
+    doorMaterialPerDoor: 0,
+    doorFinishLaborPerDoor: 0,
+    doorFinishMaterialPerDoor: 0,
+    doorHardwarePerDoor: 0,
+    avgPerDoor: 0,
+    drawerLabor: 0,
+    drawerLaborWarn: false,
+    drawerLaborDetail: null,
+    drawerMaterial: 0,
+    drawerMaterialDetail: null,
+    drawerHardware: 0,
+    ledLabor: 0,
+    ledMaterial: 0,
+    ledDetail: null,
+    interiorFinishLabor: 0,
+    interiorFinishMaterial: 0,
+    interiorFinishDetail: null,
+    exteriorFinishLabor: 0,
+    exteriorFinishMaterial: 0,
+    exteriorFinishDetail: null,
+    endPanelsLabor: 0,
+    endPanelsMaterial: 0,
+    endPanelsCount: 0,
+    fillersLabor: 0,
+    fillersMaterial: 0,
+    fillersCount: 0,
+    materialSubtotal: 0,
+    consumablesPct: 0,
+    consumables: 0,
+    wastePct: 0,
+    waste: 0,
+    totals: { labor: 0, material: 0, total: 0 },
+    hoursByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
+    solidWoodTop: null,
+    custom: null,
+  }
+}
+
+export function computeBreakdownCustom(
+  draft: ComposerDraft,
+  rb: ComposerRateBook,
+  defaults: ComposerDefaults,
+): ComposerBreakdown {
+  const rate = Number(rb.shopRate) || 0
+  const qty = Number.isFinite(draft.qty) && draft.qty > 0 ? draft.qty : 0
+  const s = draft.slots
+  const cp = rb.customProducts.find((p) => p.id === s.customProductId) || null
+
+  const laborByDept = {
+    eng: qty * (cp?.labor_hours_eng_per_unit || 0),
+    cnc: qty * (cp?.labor_hours_cnc_per_unit || 0),
+    assembly: qty * (cp?.labor_hours_assembly_per_unit || 0),
+    finish: qty * (cp?.labor_hours_finish_per_unit || 0),
+  }
+  const laborHours = laborByDept.eng + laborByDept.cnc + laborByDept.assembly + laborByDept.finish
+  const customLabor = laborHours * rate
+
+  // Material slots — each picks a catalog material, consumed per unit.
+  const materialRows: { label: string; detail: string | null; value: number }[] = []
+  let slotsMaterial = 0
+  for (const slot of cp?.material_slots || []) {
+    const matId = s.customMaterials?.[slot.key] ?? null
+    const mat = matId ? rb.materials.find((m) => m.id === matId) || null : null
+    const value = mat ? qty * slot.consumption_per_unit * mat.cost_value : 0
+    slotsMaterial += value
+    materialRows.push({
+      label: slot.label,
+      detail: mat
+        ? `${(qty * slot.consumption_per_unit).toFixed(2)} × $${mat.cost_value} (${mat.name})`
+        : 'pick a material',
+      value,
+    })
+  }
+
+  const hardware = qty * (cp?.hardware_cost_per_unit || 0)
+
+  // LED — reuse the same per-LF feature (only shown when the product enables it).
+  const ledRows = cp?.led_enabled && Array.isArray(s.led) ? s.led : []
+  const ledHoursByDept = { eng: 0, cnc: 0, assembly: 0, finish: 0 }
+  let ledMaterial = 0
+  const ledParts: string[] = []
+  for (const row of ledRows) {
+    const lf = Number(row?.lf) || 0
+    const lt = row?.typeId ? rb.ledTypes.find((t) => t.id === row.typeId) || null : null
+    if (!lt || lf <= 0) continue
+    ledHoursByDept.eng += lf * lt.labor_hours_eng_per_lf
+    ledHoursByDept.cnc += lf * lt.labor_hours_cnc_per_lf
+    ledHoursByDept.assembly += lf * lt.labor_hours_assembly_per_lf
+    ledHoursByDept.finish += lf * lt.labor_hours_finish_per_lf
+    ledMaterial += lf * lt.material_cost_per_lf
+    ledParts.push(`${lf} LF ${lt.name}`)
+  }
+  const ledHoursTotal =
+    ledHoursByDept.eng + ledHoursByDept.cnc + ledHoursByDept.assembly + ledHoursByDept.finish
+  const ledLabor = ledHoursTotal * rate
+  const ledDetail = ledParts.length ? ledParts.join(' + ') : null
+
+  const hoursByDept = {
+    eng: laborByDept.eng + ledHoursByDept.eng,
+    cnc: laborByDept.cnc + ledHoursByDept.cnc,
+    assembly: laborByDept.assembly + ledHoursByDept.assembly,
+    finish: laborByDept.finish + ledHoursByDept.finish,
+    install: 0,
+  }
+
+  const totalLabor = customLabor + ledLabor
+  const materialSubtotal = slotsMaterial + hardware + ledMaterial
+  const consumablesPct = Number(defaults.consumablesPct) || 0
+  const wastePct = Number(defaults.wastePct) || 0
+  const consumables = materialSubtotal * (consumablesPct / 100)
+  const waste = materialSubtotal * (wastePct / 100)
+  const totalMaterial = materialSubtotal + consumables + waste
+
+  return {
+    ...emptyCabinetBreakdownShell(qty),
+    ledLabor,
+    ledMaterial,
+    ledDetail,
+    materialSubtotal,
+    consumablesPct,
+    consumables,
+    wastePct,
+    waste,
+    totals: {
+      labor: totalLabor,
+      material: totalMaterial,
+      total: totalLabor + totalMaterial,
+    },
+    hoursByDept,
+    solidWoodTop: null,
+    custom: {
+      productName: cp?.name || 'Custom product',
+      unit: cp?.unit || 'each',
+      laborByDept,
+      materialRows,
+      hardware,
+    },
   }
 }
 
@@ -1180,6 +1369,7 @@ function computeBreakdownSolidWoodTop(
       edgeMult,
       cutMethod,
     },
+    custom: null,
   }
 }
 
@@ -1197,6 +1387,16 @@ export function checkSaveGate(
   draft: ComposerDraft,
   rb: ComposerRateBook
 ): SaveGate {
+  // Custom product — needs a resolvable product + qty. Materials are
+  // optional (a slot can price $0 until picked), matching the built-ins'
+  // tolerance for empty material slots.
+  if (draft.productId === 'custom') {
+    const cp = rb.customProducts.find((p) => p.id === draft.slots.customProductId)
+    if (!cp) return { ok: false, reason: 'Pick a product.' }
+    if (!draft.qty || draft.qty <= 0) return { ok: false, reason: 'Set a quantity first.' }
+    return { ok: true, reason: null }
+  }
+
   // Solid Wood Top — completely separate gate. Carcass calibration is
   // irrelevant; we need the SolidWoodTop calibration row + dimensions
   // + a material pick.
@@ -1272,6 +1472,23 @@ export function summarizeSlots(
     const mat = rb.solidWoodComponents.find((c) => c.id === s.solidWoodMaterialId)
     if (mat) bits.push(mat.name)
     if (s.edgeProfile && s.edgeProfile !== 'none') bits.push(`${s.edgeProfile}-edge`)
+    return bits.join(' · ')
+  }
+
+  // Custom product — list the picked materials + LED runs.
+  if (draft.productId === 'custom') {
+    const cp = rb.customProducts.find((p) => p.id === draft.slots.customProductId)
+    const bits: string[] = []
+    for (const slot of cp?.material_slots || []) {
+      const matId = draft.slots.customMaterials?.[slot.key] ?? null
+      const mat = matId ? rb.materials.find((m) => m.id === matId) : null
+      if (mat) bits.push(mat.name)
+    }
+    for (const row of draft.slots.led ?? []) {
+      const lf = Number(row?.lf) || 0
+      const lt = row?.typeId ? rb.ledTypes.find((t) => t.id === row.typeId) : null
+      if (lt && lf > 0) bits.push(`${lf} LF ${lt.name} LED`)
+    }
     return bits.join(' · ')
   }
 

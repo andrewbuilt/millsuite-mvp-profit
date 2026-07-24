@@ -38,6 +38,7 @@ import {
 } from './door-types'
 import { listMaterials } from './materials'
 import { listLedTypes } from './led'
+import { listCustomProducts } from './custom-products'
 
 /** Load + shape the composer's rate-book payload for an org. */
 export async function loadComposerRateBook(orgId: string): Promise<ComposerRateBook> {
@@ -53,6 +54,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     solidWoodComponents,
     catalog,
     ledTypes,
+    customProducts,
   ] = await Promise.all([
     loadShopRate(orgId),
     loadCarcassLaborFromBaseCab(orgId),
@@ -65,6 +67,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     loadSolidWoodComponentsForComposer(orgId),
     listMaterials(orgId),
     listLedTypes(orgId),
+    listCustomProducts(orgId),
   ])
 
   const carcassCalibrated =
@@ -123,6 +126,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     drawerStyles,
     finishes,
     ledTypes,
+    customProducts,
     solidWoodTopCalibration,
     solidWoodComponents,
   }

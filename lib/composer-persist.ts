@@ -202,8 +202,12 @@ export async function saveComposerLine(input: {
     .maybeSingle()
   const nextOrder = last?.sort_order != null ? Number(last.sort_order) + 1 : 0
 
+  const cp =
+    draft.productId === 'custom'
+      ? rateBook.customProducts.find((p) => p.id === draft.slots.customProductId)
+      : null
   const summary = summarizeSlots(draft, rateBook)
-  const productLabel = productLabelFromKey(draft.productId)
+  const productLabel = cp ? cp.name : productLabelFromKey(draft.productId)
   const description = summary ? `${productLabel} · ${summary}` : productLabel
 
   // computeBreakdown returns whole-line totals; the storage columns are
@@ -219,9 +223,9 @@ export async function saveComposerLine(input: {
       rate_book_item_id: null,
       quantity: draft.qty,
       // Per-product unit from lib/products.ts. Cabinet products are 'lf'
-      // (linear-foot runs); Solid Wood Top is 'piece' so the line list's
-      // Unit column reads correctly.
-      unit: PRODUCTS[draft.productId].unit,
+      // (linear-foot runs); Solid Wood Top is 'piece'; custom products carry
+      // their own unit — so the line list's Unit column reads correctly.
+      unit: cp ? cp.unit : PRODUCTS[draft.productId].unit,
       product_key: draft.productId,
       product_slots: draft.slots,
       material_mode_override: 'lump',
@@ -263,8 +267,12 @@ export async function updateComposerLine(input: {
 }): Promise<void> {
   const { lineId, draft, breakdown, rateBook } = input
 
+  const cp =
+    draft.productId === 'custom'
+      ? rateBook.customProducts.find((p) => p.id === draft.slots.customProductId)
+      : null
   const summary = summarizeSlots(draft, rateBook)
-  const productLabel = productLabelFromKey(draft.productId)
+  const productLabel = cp ? cp.name : productLabelFromKey(draft.productId)
   const description = summary ? `${productLabel} · ${summary}` : productLabel
 
   const storage = breakdownToStorageValues(breakdown, Number(draft.qty) || 0)
@@ -277,7 +285,7 @@ export async function updateComposerLine(input: {
       // Re-stamp unit on edit so a stale 'lf' from before the unit-fix
       // gets corrected to 'piece' the next time a Solid Wood Top line
       // round-trips through the composer.
-      unit: PRODUCTS[draft.productId].unit,
+      unit: cp ? cp.unit : PRODUCTS[draft.productId].unit,
       product_slots: draft.slots,
       material_mode_override: 'lump',
       lump_cost_override: storage.lumpCostOverride,

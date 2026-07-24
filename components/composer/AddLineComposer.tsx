@@ -44,6 +44,7 @@ import {
   type Product,
   type ProductKey,
 } from '@/lib/products'
+import type { CustomProduct } from '@/lib/custom-products'
 import {
   computeBreakdown,
   checkSaveGate,
@@ -460,6 +461,19 @@ export default function AddLineComposer({
   // Sync the latest pickProduct into a ref so handleSolidWoodTopWtComplete
   // (which fires after refreshRateBook updates state) can re-invoke the
   // pick without closing over the stale pre-refresh function.
+  const pickCustomProduct = useCallback(
+    (cp: CustomProduct) => {
+      if (!rateBook) return
+      setDraft({
+        productId: 'custom',
+        qty: 1,
+        slots: { ...emptySlots(), customProductId: cp.id, customMaterials: {} },
+      })
+      setView('composer')
+    },
+    [rateBook],
+  )
+
   const pickProductRef = useRef<typeof pickProduct | null>(null)
   useEffect(() => {
     pickProductRef.current = pickProduct
@@ -653,11 +667,15 @@ export default function AddLineComposer({
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
             <div className="text-[13px] font-semibold text-[#111]">
-              {view === 'picker'
-                ? 'Add a line'
-                : isEditMode
-                  ? `Edit · ${PRODUCTS[draft?.productId ?? 'base'].label}`
-                  : PRODUCTS[draft?.productId ?? 'base'].label}
+              {(() => {
+                if (view === 'picker') return 'Add a line'
+                const label =
+                  draft?.productId === 'custom'
+                    ? rateBook?.customProducts.find((c) => c.id === draft.slots.customProductId)
+                        ?.name ?? 'Custom product'
+                    : PRODUCTS[draft?.productId ?? 'base'].label
+                return isEditMode ? `Edit · ${label}` : label
+              })()}
             </div>
             <button
               onClick={handleCancel}
@@ -679,7 +697,11 @@ export default function AddLineComposer({
             ) : !rateBook || !defaults ? null : !rateBook.carcassCalibrated ? (
               <UncalibratedCarcassWarning />
             ) : view === 'picker' ? (
-              <ProductPicker onPick={pickProduct} />
+              <ProductPicker
+                onPick={pickProduct}
+                customProducts={rateBook?.customProducts ?? []}
+                onPickCustom={pickCustomProduct}
+              />
             ) : draft ? (
               <Composer
                 draft={draft}
@@ -852,7 +874,15 @@ function UncalibratedCarcassWarning() {
 
 // ── Product picker ──
 
-function ProductPicker({ onPick }: { onPick: (key: ProductKey) => void }) {
+function ProductPicker({
+  onPick,
+  customProducts,
+  onPickCustom,
+}: {
+  onPick: (key: ProductKey) => void
+  customProducts: CustomProduct[]
+  onPickCustom: (cp: CustomProduct) => void
+}) {
   return (
     <>
       <div className="mb-5 text-[13px] text-[#6B7280] max-w-[640px]">
@@ -864,8 +894,208 @@ function ProductPicker({ onPick }: { onPick: (key: ProductKey) => void }) {
           const p = PRODUCTS[k]
           return <ProductTile key={k} product={p} onPick={() => onPick(k)} />
         })}
+        {customProducts.map((cp) => (
+          <CustomProductTile key={cp.id} product={cp} onPick={() => onPickCustom(cp)} />
+        ))}
       </div>
     </>
+  )
+}
+
+function CustomProductTile({
+  product,
+  onPick,
+}: {
+  product: CustomProduct
+  onPick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      className="text-left px-5 py-4 bg-white border border-[#E5E7EB] rounded-xl flex items-start justify-between gap-3 transition-colors hover:border-[#2563EB] hover:bg-[#EFF6FF] cursor-pointer"
+    >
+      <div className="min-w-0">
+        <div className="text-[15px] font-semibold text-[#111] mb-1">
+          {product.name}
+          <span className="ml-1.5 text-[#9CA3AF] font-normal text-[12px]">· Custom</span>
+        </div>
+        <div className="text-[11px] font-mono text-[#9CA3AF]">per {product.unit}</div>
+      </div>
+      <span className="text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-wider font-semibold bg-[#DBEAFE] text-[#1E40AF] border-[#BFDBFE]">
+        {product.calibrated ? 'Ready' : 'Draft'}
+      </span>
+    </button>
+  )
+}
+
+// Custom-product composer body (chunk E): qty + a catalog dropdown per
+// material slot + the LED section (if the product enables it) + notes.
+function CustomProductFormBody({
+  draft,
+  rateBook,
+  openDropdown,
+  toggleDropdown,
+  setDraftPatch,
+  setSlot,
+}: {
+  draft: ComposerDraft
+  rateBook: ComposerRateBook
+  openDropdown: string | null
+  toggleDropdown: (key: string) => void
+  setDraftPatch: (patch: Partial<ComposerDraft>) => void
+  setSlot: (key: string, value: any) => void
+}) {
+  const cp = rateBook.customProducts.find((c) => c.id === draft.slots.customProductId) || null
+  if (!cp) {
+    return (
+      <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 text-[13px] text-[#9CA3AF]">
+        This product was removed. Go back and pick another.
+      </div>
+    )
+  }
+  const customMaterials = draft.slots.customMaterials ?? {}
+  const setMaterial = (slotKey: string, id: string | null) =>
+    setSlot('customMaterials', { ...customMaterials, [slotKey]: id })
+  const quickFor = (showIn: string) =>
+    showIn === 'any'
+      ? rateBook.materials
+      : rateBook.materials.filter((m) =>
+          showIn === 'carcass'
+            ? m.show_in_carcass
+            : showIn === 'door'
+              ? m.show_in_door
+              : showIn === 'back_panel'
+                ? m.show_in_back_panel
+                : showIn === 'shelf'
+                  ? m.show_in_shelf
+                  : true,
+        )
+  const allOptions = rateBook.materials.map((m) => ({
+    id: m.id,
+    name: m.name,
+    meta: `$${m.cost_value}/${MATERIAL_UNIT_ABBR[m.cost_unit]}`,
+  }))
+  const ledRows = draft.slots.led ?? []
+
+  return (
+    <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
+      <Field label={`Quantity (${cp.unit})`}>
+        <Stepper
+          value={draft.qty}
+          step={cp.unit === 'each' ? 1 : 0.5}
+          onChange={(v) => setDraftPatch({ qty: Math.max(0, v) })}
+          unit={cp.unit}
+        />
+      </Field>
+
+      {cp.material_slots.length > 0 && (
+        <section className="space-y-4">
+          <SectionHeader>Materials</SectionHeader>
+          {cp.material_slots.map((slot) => (
+            <Field
+              key={slot.key}
+              label={slot.label}
+              hint={`Uses ${slot.consumption_per_unit} per ${cp.unit}.`}
+            >
+              <Dropdown
+                open={openDropdown === `custom-${slot.key}`}
+                value={customMaterials[slot.key] ?? null}
+                options={quickFor(slot.show_in).map((m) => ({
+                  id: m.id,
+                  name: m.name,
+                  meta: `$${m.cost_value}/${MATERIAL_UNIT_ABBR[m.cost_unit]}`,
+                }))}
+                browseAllOptions={allOptions}
+                onToggle={() => toggleDropdown(`custom-${slot.key}`)}
+                onPick={(id) => {
+                  setMaterial(slot.key, id)
+                  toggleDropdown(`custom-${slot.key}`)
+                }}
+                placeholder="Choose…"
+              />
+            </Field>
+          ))}
+        </section>
+      )}
+
+      {cp.led_enabled && (
+        <section className="space-y-3">
+          <SectionHeader>LED</SectionHeader>
+          {ledRows.map((row, i) => {
+            const patchRow = (patch: Partial<{ typeId: string | null; lf: number }>) =>
+              setSlot(
+                'led',
+                ledRows.map((r, j) => (j === i ? { ...r, ...patch } : r)),
+              )
+            return (
+              <div key={i} className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Dropdown
+                    open={openDropdown === `led-${i}`}
+                    value={row.typeId}
+                    options={rateBook.ledTypes.map((t) => ({
+                      id: t.id,
+                      name: t.name + (t.calibrated ? '' : ' · not calibrated'),
+                      meta: `$${t.material_cost_per_lf}/LF`,
+                    }))}
+                    onToggle={() => toggleDropdown(`led-${i}`)}
+                    onPick={(id) => {
+                      toggleDropdown(`led-${i}`)
+                      patchRow({ typeId: id })
+                    }}
+                    placeholder="Choose LED type…"
+                  />
+                </div>
+                <div className="w-24">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-0.5">
+                    Linear ft
+                  </div>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    value={row.lf || ''}
+                    onChange={(e) => patchRow({ lf: Number(e.target.value) || 0 })}
+                    className="w-full bg-white border border-[#E5E7EB] rounded-md px-2.5 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSlot('led', ledRows.filter((_, j) => j !== i))}
+                  className="h-9 w-9 rounded-md border border-[#E5E7EB] text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2]"
+                  title="Remove LED run"
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
+          <button
+            type="button"
+            onClick={() => setSlot('led', [...ledRows, { typeId: null, lf: 0 }])}
+            className="text-[12px] font-medium text-[#2563EB] hover:underline"
+          >
+            + Add LED run
+          </button>
+          {rateBook.ledTypes.length === 0 && (
+            <div className="text-[11.5px] text-[#9CA3AF] italic">
+              No LED types yet — define them in the rate book (Rate book → LEDs).
+            </div>
+          )}
+        </section>
+      )}
+
+      <Field label="Notes">
+        <input
+          type="text"
+          value={draft.slots.notes}
+          onChange={(e) => setSlot('notes', e.target.value)}
+          placeholder="Anything unusual…"
+          className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
+        />
+      </Field>
+    </div>
   )
 }
 
@@ -969,7 +1199,16 @@ function Composer(p: {
           </button>
         )}
 
-        {draft.productId === 'countertop' ? (
+        {draft.productId === 'custom' ? (
+          <CustomProductFormBody
+            draft={draft}
+            rateBook={rateBook}
+            openDropdown={p.openDropdown}
+            toggleDropdown={p.toggleDropdown}
+            setDraftPatch={p.setDraftPatch}
+            setSlot={p.setSlot}
+          />
+        ) : draft.productId === 'countertop' ? (
           <SolidWoodTopFormBody
             draft={draft}
             rateBook={rateBook}
@@ -1852,6 +2091,64 @@ function BreakdownPanel({
         >
           {value === null ? (showDash ? '—' : '') : money(numericValue)}
         </div>
+      </div>
+    )
+  }
+
+  // Custom product — own panel: material rows (one per slot) + per-dept
+  // labor + hardware + LED + line total.
+  if (draft.productId === 'custom' && breakdown.custom) {
+    const c = breakdown.custom
+    return (
+      <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 lg:sticky lg:top-4 mt-1.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-3">
+          Line breakdown · {qty} {c.unit}
+        </div>
+
+        <BreakdownSection label="Materials" />
+        {c.materialRows.length === 0 && (
+          <Row label="—" detail="no material slots" value={null} />
+        )}
+        {c.materialRows.map((r, i) => (
+          <Row key={i} label={r.label} detail={r.detail} value={r.value} zero={r.value === 0} />
+        ))}
+        {c.hardware > 0 && <Row label="Hardware" detail={null} value={c.hardware} />}
+
+        <BreakdownSection label="Labor" />
+        <Row label="Engineering" detail={`${breakdown.hoursByDept.eng.toFixed(2)} h`} value={c.laborByDept.eng} />
+        <Row label="CNC" detail={`${breakdown.hoursByDept.cnc.toFixed(2)} h`} value={c.laborByDept.cnc} />
+        <Row label="Assembly" detail={`${breakdown.hoursByDept.assembly.toFixed(2)} h`} value={c.laborByDept.assembly} />
+        <Row label="Finish" detail={`${breakdown.hoursByDept.finish.toFixed(2)} h`} value={c.laborByDept.finish} />
+
+        {(breakdown.ledLabor + breakdown.ledMaterial > 0 || breakdown.ledDetail) && (
+          <>
+            <BreakdownSection label="LED" />
+            <Row
+              label="LED"
+              detail={breakdown.ledDetail}
+              value={breakdown.ledLabor + breakdown.ledMaterial}
+              zero={breakdown.ledLabor + breakdown.ledMaterial === 0}
+            />
+          </>
+        )}
+
+        <PctRow
+          label="Consumables"
+          pctKey="consumablesPct"
+          value={defaults.consumablesPct}
+          amount={breakdown.consumables}
+          onChange={onDefaultsPct}
+          onBlur={onPersistDefaults}
+        />
+        <PctRow
+          label="Waste"
+          pctKey="wastePct"
+          value={defaults.wastePct}
+          amount={breakdown.waste}
+          onChange={onDefaultsPct}
+          onBlur={onPersistDefaults}
+        />
+        <Row label="Total" value={breakdown.totals.total} bold />
       </div>
     )
   }
