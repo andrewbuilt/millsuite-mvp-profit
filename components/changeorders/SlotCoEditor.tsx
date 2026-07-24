@@ -23,6 +23,7 @@ import {
   type ComposerSlots,
 } from '@/lib/composer'
 import type { ProductKey } from '@/lib/products'
+import type { CustomProduct } from '@/lib/custom-products'
 import { computeCoClientPrice, type PricingInputs } from '@/lib/change-orders'
 import { loadComposerRateBook } from '@/lib/composer-loader'
 import { createMaterial } from '@/lib/materials'
@@ -31,19 +32,11 @@ import {
   type DoorMaterialCostUnit,
 } from '@/lib/door-types'
 
-type SlotKey =
-  | 'qty'
-  | 'carcassMaterial'
-  | 'doorTypeId'
-  | 'doorMaterialId'
-  | 'doorFinishId'
-  | 'interiorFinish'
-  | 'drawerStyle'
-  | 'drawerCount'
-  | 'endPanels'
-  | 'fillers'
+// Cabinet slots are fixed keys; custom-product slots are dynamic
+// (`custom:<slotKey>` → a catalog material). SlotKey is therefore a string.
+type SlotKey = string
 
-const SLOT_LABELS: Record<SlotKey, string> = {
+const CABINET_SLOT_LABELS: Record<string, string> = {
   qty: 'Quantity (LF)',
   carcassMaterial: 'Carcass material',
   doorTypeId: 'Door type',
@@ -55,8 +48,42 @@ const SLOT_LABELS: Record<SlotKey, string> = {
   endPanels: 'End panels (count)',
   fillers: 'Fillers (count)',
 }
-const NUMERIC_SLOTS: SlotKey[] = ['qty', 'drawerCount', 'endPanels', 'fillers']
+const NUMERIC_SLOTS: string[] = ['qty', 'drawerCount', 'endPanels', 'fillers']
 const PREFINISHED_FINISH_ID = 'prefinished'
+
+const isCustomSlot = (k: string) => k.startsWith('custom:')
+const customSlotKey = (k: string) => k.slice('custom:'.length)
+
+function materialsForShowIn(rb: ComposerRateBook, showIn: string) {
+  if (showIn === 'any') return rb.materials
+  return rb.materials.filter((m) =>
+    showIn === 'carcass'
+      ? m.show_in_carcass
+      : showIn === 'door'
+        ? m.show_in_door
+        : showIn === 'back_panel'
+          ? m.show_in_back_panel
+          : showIn === 'shelf'
+            ? m.show_in_shelf
+            : true,
+  )
+}
+
+/** The slots a product exposes for a spec change. Cabinet products = the fixed
+ *  set; custom products derive theirs from the product's material_slots (074). */
+function availableSlots(
+  productKey: ProductKey,
+  cp: CustomProduct | null,
+): { key: string; label: string }[] {
+  if (productKey === 'custom') {
+    if (!cp) return []
+    return [
+      { key: 'qty', label: `Quantity (${cp.unit})` },
+      ...cp.material_slots.map((s) => ({ key: `custom:${s.key}`, label: s.label })),
+    ]
+  }
+  return Object.keys(CABINET_SLOT_LABELS).map((k) => ({ key: k, label: CABINET_SLOT_LABELS[k] }))
+}
 
 export interface SlotCoResult {
   slotKey: SlotKey
@@ -69,7 +96,15 @@ export interface SlotCoResult {
   title: string
 }
 
-function slotOptions(slotKey: SlotKey, rb: ComposerRateBook): Array<{ id: string; name: string }> {
+function slotOptions(
+  slotKey: string,
+  rb: ComposerRateBook,
+  cp: CustomProduct | null,
+): Array<{ id: string; name: string }> {
+  if (isCustomSlot(slotKey)) {
+    const slot = cp?.material_slots.find((s) => s.key === customSlotKey(slotKey))
+    return materialsForShowIn(rb, slot?.show_in || 'any').map((m) => ({ id: m.id, name: m.name }))
+  }
   switch (slotKey) {
     case 'carcassMaterial':
       return rb.carcassMaterials.map((m) => ({ id: m.id, name: m.name }))
@@ -88,10 +123,20 @@ function slotOptions(slotKey: SlotKey, rb: ComposerRateBook): Array<{ id: string
   }
 }
 
-function slotValueLabel(slotKey: SlotKey, slots: ComposerSlots, qty: number, rb: ComposerRateBook): string {
+function slotValueLabel(
+  slotKey: string,
+  slots: ComposerSlots,
+  qty: number,
+  rb: ComposerRateBook,
+  cp: CustomProduct | null,
+): string {
+  if (isCustomSlot(slotKey)) {
+    const matId = slots.customMaterials?.[customSlotKey(slotKey)] ?? null
+    return rb.materials.find((m) => m.id === matId)?.name || '(none)'
+  }
   switch (slotKey) {
     case 'qty':
-      return `${qty} LF`
+      return `${qty} ${cp ? cp.unit : 'LF'}`
     case 'carcassMaterial':
       return rb.carcassMaterials.find((m) => m.id === slots.carcassMaterial)?.name || '(none)'
     case 'doorTypeId':
@@ -111,12 +156,14 @@ function slotValueLabel(slotKey: SlotKey, slots: ComposerSlots, qty: number, rb:
       return `${slots.endPanels} each`
     case 'fillers':
       return `${slots.fillers} each`
+    default:
+      return '(none)'
   }
 }
 
 const ADD_NEW = '__add_new__'
 // Slots whose "+ Add new" writes to the rate book (material / finish swaps).
-const ADDABLE: SlotKey[] = ['carcassMaterial', 'doorMaterialId', 'doorFinishId']
+const ADDABLE: string[] = ['carcassMaterial', 'doorMaterialId', 'doorFinishId']
 
 export default function SlotCoEditor({
   orgId,
@@ -141,8 +188,17 @@ export default function SlotCoEditor({
   const [rb, setRb] = useState(rateBook)
   useEffect(() => setRb(rateBook), [rateBook])
 
-  const [slotKey, setSlotKey] = useState<SlotKey | ''>('')
+  const [slotKey, setSlotKey] = useState<string>('')
   const [proposed, setProposed] = useState('')
+
+  // Resolve the custom product (if this is a custom line) + the slots it
+  // exposes for a spec change.
+  const cp =
+    productKey === 'custom'
+      ? rb.customProducts.find((p) => p.id === productSlots.customProductId) ?? null
+      : null
+  const slotDefs = useMemo(() => availableSlots(productKey, cp), [productKey, cp])
+  const labelFor = (k: string) => slotDefs.find((s) => s.key === k)?.label ?? k
   // "+ Add new" inline form state.
   const [addName, setAddName] = useState('')
   const [addA, setAddA] = useState('') // cost/sheet-cost/labor-per-door
@@ -167,6 +223,19 @@ export default function SlotCoEditor({
       if (!Number.isFinite(n) || n < 0) return null
       return { ...originalDraft, slots: { ...originalDraft.slots, [slotKey]: Math.round(n) } }
     }
+    // Custom-product material slot: set customMaterials[slotKey] → catalog id.
+    if (isCustomSlot(slotKey)) {
+      return {
+        ...originalDraft,
+        slots: {
+          ...originalDraft.slots,
+          customMaterials: {
+            ...(originalDraft.slots.customMaterials ?? {}),
+            [customSlotKey(slotKey)]: proposed,
+          },
+        },
+      }
+    }
     return { ...originalDraft, slots: { ...originalDraft.slots, [slotKey]: proposed } }
   }, [slotKey, proposed, originalDraft])
 
@@ -183,9 +252,9 @@ export default function SlotCoEditor({
     [propBd, materialDelta, laborDelta, pricing],
   )
 
-  const origLabel = slotKey ? slotValueLabel(slotKey, productSlots, qty, rb) : ''
+  const origLabel = slotKey ? slotValueLabel(slotKey, productSlots, qty, rb, cp) : ''
   const propLabel =
-    slotKey && proposedDraft ? slotValueLabel(slotKey, proposedDraft.slots, proposedDraft.qty, rb) : ''
+    slotKey && proposedDraft ? slotValueLabel(slotKey, proposedDraft.slots, proposedDraft.qty, rb, cp) : ''
 
   // ── "+ Add new" → create the material in the rate book, reload, select it ──
   async function handleAddNew() {
@@ -248,13 +317,13 @@ export default function SlotCoEditor({
     if (slotKey && proposedDraft && propLabel) {
       onChange({
         slotKey,
-        slotLabel: SLOT_LABELS[slotKey],
+        slotLabel: labelFor(slotKey),
         origLabel,
         propLabel,
         materialDelta,
         laborDelta,
         clientPrice,
-        title: `${SLOT_LABELS[slotKey]}: ${origLabel} → ${propLabel}`,
+        title: `${labelFor(slotKey)}: ${origLabel} → ${propLabel}`,
       })
     } else {
       onChange(null)
@@ -276,15 +345,15 @@ export default function SlotCoEditor({
         <select
           value={slotKey}
           onChange={(e) => {
-            setSlotKey(e.target.value as SlotKey)
+            setSlotKey(e.target.value)
             setProposed('')
           }}
           className={`${field} bg-white`}
         >
           <option value="">Pick a spec…</option>
-          {(Object.keys(SLOT_LABELS) as SlotKey[]).map((k) => (
-            <option key={k} value={k}>
-              {SLOT_LABELS[k]}
+          {slotDefs.map((s) => (
+            <option key={s.key} value={s.key}>
+              {s.label}
             </option>
           ))}
         </select>
@@ -312,7 +381,7 @@ export default function SlotCoEditor({
             ) : (
               <select value={proposed} onChange={(e) => setProposed(e.target.value)} className={`${field} bg-white`}>
                 <option value="">Pick…</option>
-                {slotOptions(slotKey, rb).map((o) => (
+                {slotOptions(slotKey, rb, cp).map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.name}
                   </option>
@@ -328,7 +397,7 @@ export default function SlotCoEditor({
       {slotKey && adding && ADDABLE.includes(slotKey) && (
         <div className="border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-3 mb-3">
           <div className="text-[11px] font-semibold text-[#1D4ED8] uppercase tracking-wider mb-2">
-            New {SLOT_LABELS[slotKey].toLowerCase()} → rate book
+            New {labelFor(slotKey).toLowerCase()} → rate book
           </div>
           <input
             value={addName}
