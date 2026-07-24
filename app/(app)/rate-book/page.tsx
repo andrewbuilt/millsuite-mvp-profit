@@ -232,12 +232,15 @@ export default function RateBookPage() {
   const filteredTree = useMemo(() => {
     const s = treeSearch.trim().toLowerCase()
     return categories
-      // Legacy 'door_style' categories are dead post-migration 038: live
-      // door styles now live in `door_types` (edited via the DoorStyle
-      // walkthrough from the composer), and 038 flagged the old door_style
-      // rate_book_items inactive. Hide the category so its stale rows never
-      // surface in the roster. (Rate-book chunk A.)
-      .filter((cat) => cat.item_type !== 'door_style')
+      // Hide categories whose rows aren't real "items" in the roster:
+      //  - 'door_style' (chunk A): dead post-038; live door styles are
+      //    door_types, edited via the DoorStyle walkthrough.
+      //  - 'back_panel_material' (chunk C): back-panel stock is a MATERIAL now,
+      //    managed in the Materials catalog (the "Materials" toggle), not as an
+      //    item here. The rows still back the catalog via material_id.
+      .filter(
+        (cat) => cat.item_type !== 'door_style' && cat.item_type !== 'back_panel_material',
+      )
       .map((cat) => {
       const catItems = items.filter((it) => it.category_id === cat.id)
       let allItems: RateBookItemRow[] = catItems
@@ -661,7 +664,11 @@ export default function RateBookPage() {
 
               {/* Tab body */}
               {tab === 'current' && buildup && (
-                <CurrentTab item={selectedItem} buildup={buildup} />
+                <CurrentTab
+                  item={selectedItem}
+                  buildup={buildup}
+                  categoryItemType={selectedCategory?.item_type ?? null}
+                />
               )}
               {tab === 'history' && <HistoryTab rows={history} />}
             </div>
@@ -792,51 +799,53 @@ export default function RateBookPage() {
 function CurrentTab({
   item,
   buildup,
+  categoryItemType,
 }: {
   item: RateBookItemRow
   buildup: ReturnType<typeof computeBuildup>
+  categoryItemType: string | null
 }) {
   const [expandLabor, setExpandLabor] = useState(false)
+  // Composer-driven items (cabinet/door/drawer/finish) price their MATERIAL
+  // per line in the composer from the catalog — the item's own material
+  // fields are dead. So the Materials section shows a pointer, not numbers,
+  // and the headline price is labor-only. (Rate-book chunk C truth-up.)
+  const isComposerDriven =
+    categoryItemType != null && COMPOSER_DRIVEN_ITEM_TYPES.has(categoryItemType)
+  const activeDepts = buildup.perDept.filter((d) => d.hours > 0).length
 
   return (
-    <div>
-      {/* Buildup */}
-      <div className="border border-[#E5E7EB] rounded-lg mb-4 overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-[#E5E7EB] bg-[#F9FAFB] text-[11px] font-semibold tracking-wider uppercase text-[#374151] flex items-center justify-between">
-          <span>What's in this price</span>
-          <span className="text-[10px] font-normal text-[#9CA3AF] normal-case tracking-normal">
-            click labor to drill in
+    <div className="space-y-4">
+      {/* ── LABOR ── */}
+      <section className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+        <div className="px-4 py-2 border-b border-[#E5E7EB] bg-[#EFF6FF] flex items-center justify-between">
+          <span className="text-[11px] font-semibold tracking-wider uppercase text-[#1E40AF]">
+            Labor
+          </span>
+          <span className="text-[10px] text-[#6B7280]">
+            hours × shop rate · click to drill in
           </span>
         </div>
         <div className="divide-y divide-[#F3F4F6] font-mono text-[12.5px]">
-          {/* Labor row. Hours read per-unit (e.g. "0.50 hr/lf") and the
-              dept count reflects only depts with non-zero hours — the
-              old "across 5 depts" copy was confusing when a row only
-              touched 2 or 3 depts. */}
-          {(() => {
-            const activeDepts = buildup.perDept.filter((d) => d.hours > 0).length
-            return (
-              <button
-                onClick={() => setExpandLabor((v) => !v)}
-                className="w-full grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center hover:bg-[#F9FAFB] transition-colors text-left"
-              >
-                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Labor</span>
-                <span className="text-[#374151]">
-                  {buildup.laborHours.toFixed(2)} hr/{item.unit}
-                  {activeDepts > 0 && (
-                    <span className="text-[#9CA3AF]">
-                      {' · '}
-                      across {activeDepts} dept{activeDepts === 1 ? '' : 's'}
-                    </span>
-                  )}
-                  <span className="ml-2 text-[10px] text-[#6B7280] bg-[#F3F4F6] border border-[#E5E7EB] px-1.5 py-0.5 rounded">
-                    {expandLabor ? '▾ hide' : '▸ show'} breakdown
-                  </span>
+          <button
+            onClick={() => setExpandLabor((v) => !v)}
+            className="w-full grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center hover:bg-[#F9FAFB] transition-colors text-left"
+          >
+            <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Hours</span>
+            <span className="text-[#374151]">
+              {buildup.laborHours.toFixed(2)} hr/{item.unit}
+              {activeDepts > 0 && (
+                <span className="text-[#9CA3AF]">
+                  {' · '}
+                  across {activeDepts} dept{activeDepts === 1 ? '' : 's'}
                 </span>
-                <span className="text-[#111] font-semibold">{fmt$(buildup.laborCost)}</span>
-              </button>
-            )
-          })()}
+              )}
+              <span className="ml-2 text-[10px] text-[#6B7280] bg-[#F3F4F6] border border-[#E5E7EB] px-1.5 py-0.5 rounded">
+                {expandLabor ? '▾ hide' : '▸ show'} breakdown
+              </span>
+            </span>
+            <span className="text-[#111] font-semibold">{fmt$(buildup.laborCost)}</span>
+          </button>
           {expandLabor &&
             buildup.perDept
               .filter((d) => d.hours > 0)
@@ -854,89 +863,106 @@ function CurrentTab({
                   <span className="text-[#6B7280]">{fmt$(d.cost)}</span>
                 </div>
               ))}
-
-          {/* Material row */}
-          {item.material_mode === 'sheets' && buildup.materialCost > 0 && (
-            <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
-              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Material</span>
-              <span className="text-[#374151]">
-                {item.sheets_per_unit} sh × <span className="text-[#2563EB]">${item.sheet_cost}</span>
-                {item.material_description && (
-                  <span className="text-[#9CA3AF]"> · {item.material_description}</span>
-                )}
-              </span>
-              <span className="text-[#111] font-semibold">{fmt$(buildup.materialCost)}</span>
-            </div>
-          )}
-          {item.material_mode === 'linear' && buildup.materialCost > 0 && (
-            <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
-              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Material</span>
-              <span className="text-[#374151]">
-                flat <span className="text-[#2563EB]">${item.linear_cost}</span>/{item.unit}
-                {item.material_description && (
-                  <span className="text-[#9CA3AF]"> · {item.material_description}</span>
-                )}
-              </span>
-              <span className="text-[#111] font-semibold">{fmt$(buildup.materialCost)}</span>
-            </div>
-          )}
-          {item.material_mode === 'lump' && buildup.materialCost > 0 && (
-            <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
-              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Material</span>
-              <span className="text-[#374151]">
-                lump <span className="text-[#2563EB]">${item.lump_cost}</span>
-                {item.material_description && (
-                  <span className="text-[#9CA3AF]"> · {item.material_description}</span>
-                )}
-              </span>
-              <span className="text-[#111] font-semibold">{fmt$(buildup.materialCost)}</span>
-            </div>
-          )}
-          {item.material_mode === 'none' && (
-            <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
-              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Material</span>
-              <span className="text-[#9CA3AF] italic text-[11.5px] leading-relaxed">
-                Material picked per-line. Calibrate door labor via the door
-                style walkthrough.
-              </span>
-              <span className="text-[#9CA3AF]">—</span>
-            </div>
-          )}
-
-          {/* Consumables */}
-          {buildup.consumables > 0 && (
-            <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
-              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Consumables</span>
-              <span className="text-[#374151]">
-                10% of material
-                <span className="text-[#9CA3AF]"> · hinges, glue, fasteners, finish supplies</span>
-              </span>
-              <span className="text-[#111] font-semibold">{fmt$(buildup.consumables)}</span>
-            </div>
-          )}
-
-          {/* Hardware */}
-          {buildup.hardware > 0 && (
-            <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
-              <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Hardware</span>
-              <span className="text-[#374151]">
-                per {item.unit}
-                {item.hardware_note && <span className="text-[#9CA3AF]"> · {item.hardware_note}</span>}
-              </span>
-              <span className="text-[#111] font-semibold">{fmt$(buildup.hardware)}</span>
-            </div>
-          )}
-
-          {/* Total */}
-          <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-3 items-baseline bg-[#F9FAFB]">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#111]">Total</span>
-            <span />
-            <span className="text-[18px] font-bold text-[#111]">
-              {fmt$(buildup.total)}{' '}
-              <span className="text-[12px] font-normal text-[#6B7280]">/ {item.unit}</span>
-            </span>
-          </div>
         </div>
+      </section>
+
+      {/* ── MATERIALS ── */}
+      <section className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+        <div className="px-4 py-2 border-b border-[#E5E7EB] bg-[#F0FDF4] flex items-center justify-between">
+          <span className="text-[11px] font-semibold tracking-wider uppercase text-[#166534]">
+            Materials
+          </span>
+          <span className="text-[10px] text-[#6B7280]">
+            {isComposerDriven ? 'priced per line in the composer' : 'stock + consumables'}
+          </span>
+        </div>
+        {isComposerDriven ? (
+          <div className="px-4 py-3 text-[12px] text-[#6B7280] leading-snug">
+            Material for this item is chosen and priced <strong>per line in the composer</strong>,
+            from the <strong>materials catalog</strong> — there's no material cost set on the item
+            here. Edit material prices in the <strong>Materials</strong> tab (top-right toggle).
+          </div>
+        ) : (
+          <div className="divide-y divide-[#F3F4F6] font-mono text-[12.5px]">
+            {item.material_mode === 'sheets' && buildup.materialCost > 0 && (
+              <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Stock</span>
+                <span className="text-[#374151]">
+                  {item.sheets_per_unit} sh × <span className="text-[#2563EB]">${item.sheet_cost}</span>
+                  {item.material_description && (
+                    <span className="text-[#9CA3AF]"> · {item.material_description}</span>
+                  )}
+                </span>
+                <span className="text-[#111] font-semibold">{fmt$(buildup.materialCost)}</span>
+              </div>
+            )}
+            {item.material_mode === 'linear' && buildup.materialCost > 0 && (
+              <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Stock</span>
+                <span className="text-[#374151]">
+                  flat <span className="text-[#2563EB]">${item.linear_cost}</span>/{item.unit}
+                  {item.material_description && (
+                    <span className="text-[#9CA3AF]"> · {item.material_description}</span>
+                  )}
+                </span>
+                <span className="text-[#111] font-semibold">{fmt$(buildup.materialCost)}</span>
+              </div>
+            )}
+            {item.material_mode === 'lump' && buildup.materialCost > 0 && (
+              <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Stock</span>
+                <span className="text-[#374151]">
+                  lump <span className="text-[#2563EB]">${item.lump_cost}</span>
+                  {item.material_description && (
+                    <span className="text-[#9CA3AF]"> · {item.material_description}</span>
+                  )}
+                </span>
+                <span className="text-[#111] font-semibold">{fmt$(buildup.materialCost)}</span>
+              </div>
+            )}
+            {item.material_mode === 'none' && (
+              <div className="px-4 py-2.5 text-[11.5px] text-[#9CA3AF] italic leading-relaxed">
+                No material on this item.
+              </div>
+            )}
+            {buildup.consumables > 0 && (
+              <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Consumables</span>
+                <span className="text-[#374151]">
+                  10% of material
+                  <span className="text-[#9CA3AF]"> · hinges, glue, fasteners, finish supplies</span>
+                </span>
+                <span className="text-[#111] font-semibold">{fmt$(buildup.consumables)}</span>
+              </div>
+            )}
+            {buildup.hardware > 0 && (
+              <div className="grid grid-cols-[90px_1fr_auto] gap-3 px-4 py-2.5 items-center">
+                <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">Hardware</span>
+                <span className="text-[#374151]">
+                  per {item.unit}
+                  {item.hardware_note && <span className="text-[#9CA3AF]"> · {item.hardware_note}</span>}
+                </span>
+                <span className="text-[#111] font-semibold">{fmt$(buildup.hardware)}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ── TOTAL ── */}
+      <div className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3 items-baseline bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg font-mono">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#111]">
+          {isComposerDriven ? 'Labor total' : 'Total'}
+          {isComposerDriven && (
+            <span className="ml-2 font-sans normal-case tracking-normal text-[10px] font-normal text-[#9CA3AF]">
+              materials add per line
+            </span>
+          )}
+        </span>
+        <span className="text-[18px] font-bold text-[#111]">
+          {fmt$(isComposerDriven ? buildup.laborCost : buildup.total)}{' '}
+          <span className="text-[12px] font-normal text-[#6B7280]">/ {item.unit}</span>
+        </span>
       </div>
     </div>
   )
