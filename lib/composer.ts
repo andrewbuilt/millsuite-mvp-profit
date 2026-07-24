@@ -1071,14 +1071,22 @@ export function computeBreakdownCustom(
   const s = draft.slots
   const cp = rb.customProducts.find((p) => p.id === s.customProductId) || null
 
-  const laborByDept = {
+  // Hours by dept (qty × per-unit); dollars = hours × shop rate.
+  const laborHoursByDept = {
     eng: qty * (cp?.labor_hours_eng_per_unit || 0),
     cnc: qty * (cp?.labor_hours_cnc_per_unit || 0),
     assembly: qty * (cp?.labor_hours_assembly_per_unit || 0),
     finish: qty * (cp?.labor_hours_finish_per_unit || 0),
   }
-  const laborHours = laborByDept.eng + laborByDept.cnc + laborByDept.assembly + laborByDept.finish
+  const laborHours =
+    laborHoursByDept.eng + laborHoursByDept.cnc + laborHoursByDept.assembly + laborHoursByDept.finish
   const customLabor = laborHours * rate
+  const laborByDept = {
+    eng: laborHoursByDept.eng * rate,
+    cnc: laborHoursByDept.cnc * rate,
+    assembly: laborHoursByDept.assembly * rate,
+    finish: laborHoursByDept.finish * rate,
+  }
 
   // Material slots — each picks a catalog material, consumed per unit.
   const materialRows: { label: string; detail: string | null; value: number }[] = []
@@ -1121,10 +1129,10 @@ export function computeBreakdownCustom(
   const ledDetail = ledParts.length ? ledParts.join(' + ') : null
 
   const hoursByDept = {
-    eng: laborByDept.eng + ledHoursByDept.eng,
-    cnc: laborByDept.cnc + ledHoursByDept.cnc,
-    assembly: laborByDept.assembly + ledHoursByDept.assembly,
-    finish: laborByDept.finish + ledHoursByDept.finish,
+    eng: laborHoursByDept.eng + ledHoursByDept.eng,
+    cnc: laborHoursByDept.cnc + ledHoursByDept.cnc,
+    assembly: laborHoursByDept.assembly + ledHoursByDept.assembly,
+    finish: laborHoursByDept.finish + ledHoursByDept.finish,
     install: 0,
   }
 
