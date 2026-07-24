@@ -55,6 +55,7 @@ import SolidWoodWalkthrough from '@/components/walkthroughs/SolidWoodWalkthrough
 import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 import { useConfirm } from '@/components/confirm-dialog'
 import MaterialsCatalog from '@/components/rate-book/MaterialsCatalog'
+import DoorCatalog from '@/components/rate-book/DoorCatalog'
 
 // Upper / Full are multipliers on Base cabinet, not standalone rate
 // book rows. Surface them in the sidebar as derived read-only entries
@@ -125,9 +126,9 @@ export default function RateBookPage() {
 
   const [editOpen, setEditOpen] = useState(false)
   const [laborSettingsOpen, setLaborSettingsOpen] = useState(false)
-  // Top-level view: the item tree (default) or the master materials catalog
-  // (rate-book chunk B/C — one price list feeding every composer material slot).
-  const [view, setView] = useState<'items' | 'materials'>('items')
+  // Top-level view: the item tree (default), the master materials catalog, or
+  // the door types editor (rate-book chunk B/C).
+  const [view, setView] = useState<'items' | 'materials' | 'doors'>('items')
 
   // Solid-wood components live in their own table outside
   // rate_book_categories. Surfaced as a synthetic sidebar group below
@@ -328,9 +329,9 @@ export default function RateBookPage() {
           Prices live here and history gets written. Day-to-day pricing happens in projects — come back to audit, tune, or add items.
         </span>
         <div className="flex-1" />
-        {/* Items | Materials view toggle */}
+        {/* Items | Materials | Doors view toggle */}
         <div className="inline-flex rounded-md border border-[#BFDBFE] overflow-hidden">
-          {(['items', 'materials'] as const).map((v) => (
+          {(['items', 'materials', 'doors'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -340,7 +341,7 @@ export default function RateBookPage() {
                   : 'bg-white text-[#1E40AF] hover:bg-[#DBEAFE]'
               }`}
             >
-              {v === 'items' ? 'Items' : 'Materials'}
+              {v === 'items' ? 'Items' : v === 'materials' ? 'Materials' : 'Doors'}
             </button>
           ))}
         </div>
@@ -354,6 +355,8 @@ export default function RateBookPage() {
 
       {view === 'materials' ? (
         <MaterialsCatalog orgId={orgId} />
+      ) : view === 'doors' ? (
+        <DoorCatalog orgId={orgId} />
       ) : (
       /* 3-pane grid */
       <div className="flex-1 grid grid-cols-[260px_1fr_300px] overflow-hidden">

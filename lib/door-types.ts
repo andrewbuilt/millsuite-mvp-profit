@@ -335,6 +335,67 @@ export async function createDoorTypeMaterialFinish(input: {
     : null
 }
 
+export async function updateDoorTypeMaterialFinish(
+  id: string,
+  patch: Partial<
+    Pick<DoorTypeMaterialFinish, 'finish_name' | 'labor_hours_per_door' | 'material_per_door'>
+  >,
+): Promise<void> {
+  const update: Record<string, unknown> = {}
+  if (patch.finish_name !== undefined) update.finish_name = patch.finish_name
+  if (patch.labor_hours_per_door !== undefined)
+    update.labor_hours_per_door = patch.labor_hours_per_door
+  if (patch.material_per_door !== undefined) update.material_per_door = patch.material_per_door
+  if (Object.keys(update).length === 0) return
+  const { error } = await supabase
+    .from('door_type_material_finishes')
+    .update(update)
+    .eq('id', id)
+  if (error) {
+    console.error('updateDoorTypeMaterialFinish', error)
+    throw new Error(error.message || 'Failed to update door finish')
+  }
+}
+
+export async function archiveDoorTypeMaterialFinish(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('door_type_material_finishes')
+    .update({ active: false })
+    .eq('id', id)
+  if (error) {
+    console.error('archiveDoorTypeMaterialFinish', error)
+    throw new Error(error.message || 'Failed to remove door finish')
+  }
+}
+
+/** Archive a door material + its finishes (the finishes hang off it). */
+export async function archiveDoorTypeMaterial(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('door_type_materials')
+    .update({ active: false })
+    .eq('id', id)
+  if (error) {
+    console.error('archiveDoorTypeMaterial', error)
+    throw new Error(error.message || 'Failed to remove door material')
+  }
+  // Best-effort cascade so orphaned finishes don't linger in lists.
+  await supabase
+    .from('door_type_material_finishes')
+    .update({ active: false })
+    .eq('door_type_material_id', id)
+}
+
+export async function archiveDoorType(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('door_types')
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) {
+    console.error('archiveDoorType', error)
+    throw new Error(error.message || 'Failed to remove door type')
+  }
+}
+
 export async function saveDoorTypeCalibration(input: {
   orgId: string
   existingId: string | null
