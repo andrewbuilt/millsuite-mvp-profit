@@ -14,7 +14,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
-import { createMaterial, updateMaterial } from './materials'
+import { updateMaterial } from './materials'
 
 export type DoorMaterialCostUnit = 'sheet' | 'lf' | 'bf' | 'ea' | 'lump'
 
@@ -112,20 +112,6 @@ function normalizeDoorMaterial(r: any): DoorTypeMaterial {
   }
 }
 
-export async function listDoorTypeMaterials(orgId: string): Promise<DoorTypeMaterial[]> {
-  const { data, error } = await supabase
-    .from('door_type_materials')
-    .select(DOOR_MATERIAL_COLUMNS)
-    .eq('org_id', orgId)
-    .eq('active', true)
-    .order('material_name')
-  if (error) {
-    console.error('listDoorTypeMaterials', error)
-    return []
-  }
-  return (data || []).map(normalizeDoorMaterial)
-}
-
 export async function listDoorTypeMaterialsForSolidWood(
   componentId: string,
 ): Promise<DoorTypeMaterial[]> {
@@ -163,103 +149,6 @@ export async function listDoorTypeMaterialFinishes(
 }
 
 // ── Writes ──
-
-export async function createDoorTypeMaterial(input: {
-  org_id: string
-  door_type_id: string
-  material_name: string
-  cost_value: number
-  cost_unit: DoorMaterialCostUnit
-  notes?: string | null
-  solid_wood_component_id?: string | null
-  bdft_per_unit?: number | null
-}): Promise<DoorTypeMaterial | null> {
-  // Catalog is the price source (chunk B): mint the catalog row first, then
-  // the door-type material that points at it. cost_value/cost_unit stay on
-  // the legacy columns too for rollback + parity.
-  const material = await createMaterial({
-    org_id: input.org_id,
-    name: input.material_name,
-    cost_value: input.cost_value,
-    cost_unit: input.cost_unit,
-    notes: input.notes ?? null,
-    show_in_door: true,
-    solid_wood_component_id: input.solid_wood_component_id ?? null,
-    bdft_per_unit: input.bdft_per_unit ?? null,
-  })
-  const { data, error } = await supabase
-    .from('door_type_materials')
-    .insert({
-      org_id: input.org_id,
-      door_type_id: input.door_type_id,
-      material_name: input.material_name,
-      cost_value: input.cost_value,
-      cost_unit: input.cost_unit,
-      notes: input.notes ?? null,
-      solid_wood_component_id: input.solid_wood_component_id ?? null,
-      bdft_per_unit: input.bdft_per_unit ?? null,
-      active: true,
-      material_id: material.id,
-    })
-    .select(DOOR_MATERIAL_COLUMNS)
-    .single()
-  if (error) {
-    console.error('createDoorTypeMaterial', error)
-    throw new Error(error.message || 'Failed to save door material')
-  }
-  return data ? normalizeDoorMaterial(data) : null
-}
-
-export async function updateDoorTypeMaterial(
-  id: string,
-  patch: Partial<
-    Pick<
-      DoorTypeMaterial,
-      | 'material_name'
-      | 'cost_value'
-      | 'cost_unit'
-      | 'notes'
-      | 'solid_wood_component_id'
-      | 'bdft_per_unit'
-    >
-  >,
-): Promise<DoorTypeMaterial | null> {
-  const update: Record<string, unknown> = {}
-  if (patch.material_name !== undefined) update.material_name = patch.material_name
-  if (patch.cost_value !== undefined) update.cost_value = patch.cost_value
-  if (patch.cost_unit !== undefined) update.cost_unit = patch.cost_unit
-  if (patch.notes !== undefined) update.notes = patch.notes
-  if (patch.solid_wood_component_id !== undefined)
-    update.solid_wood_component_id = patch.solid_wood_component_id
-  if (patch.bdft_per_unit !== undefined) update.bdft_per_unit = patch.bdft_per_unit
-  if (Object.keys(update).length === 0) return null
-  const { data, error } = await supabase
-    .from('door_type_materials')
-    .update(update)
-    .eq('id', id)
-    .select(DOOR_MATERIAL_COLUMNS)
-    .single()
-  if (error) {
-    console.error('updateDoorTypeMaterial', error)
-    throw new Error(error.message || 'Failed to update door material')
-  }
-  const result = data ? normalizeDoorMaterial(data) : null
-  // Catalog is the price source (chunk B): mirror the edit onto the linked
-  // catalog row so the composer (which reads the catalog) doesn't go stale.
-  if (result?.material_id) {
-    await updateMaterial(result.material_id, {
-      ...(patch.material_name !== undefined ? { name: patch.material_name } : {}),
-      ...(patch.cost_value !== undefined ? { cost_value: patch.cost_value } : {}),
-      ...(patch.cost_unit !== undefined ? { cost_unit: patch.cost_unit } : {}),
-      ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
-      ...(patch.solid_wood_component_id !== undefined
-        ? { solid_wood_component_id: patch.solid_wood_component_id }
-        : {}),
-      ...(patch.bdft_per_unit !== undefined ? { bdft_per_unit: patch.bdft_per_unit } : {}),
-    })
-  }
-  return result
-}
 
 /** Recompute cost_value for every door_type_materials row that points at
  *  the given solid wood component. Reads the wood row once, then walks
@@ -372,23 +261,6 @@ export async function archiveDoorTypeMaterialFinish(id: string): Promise<void> {
     console.error('archiveDoorTypeMaterialFinish', error)
     throw new Error(error.message || 'Failed to remove door finish')
   }
-}
-
-/** Archive a door material + its finishes (the finishes hang off it). */
-export async function archiveDoorTypeMaterial(id: string): Promise<void> {
-  const { error } = await supabase
-    .from('door_type_materials')
-    .update({ active: false })
-    .eq('id', id)
-  if (error) {
-    console.error('archiveDoorTypeMaterial', error)
-    throw new Error(error.message || 'Failed to remove door material')
-  }
-  // Best-effort cascade so orphaned finishes don't linger in lists.
-  await supabase
-    .from('door_type_material_finishes')
-    .update({ active: false })
-    .eq('door_type_material_id', id)
 }
 
 export async function archiveDoorType(id: string): Promise<void> {

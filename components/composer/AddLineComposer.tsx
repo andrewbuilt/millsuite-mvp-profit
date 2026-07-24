@@ -69,7 +69,6 @@ import {
   updateComposerLine,
   type LastUsedPerProduct,
 } from '@/lib/composer-persist'
-import { createExtMaterial } from '@/lib/rate-book-materials'
 import { createMaterial, type Material } from '@/lib/materials'
 import {
   createDoorTypeMaterialFinish,
@@ -623,29 +622,6 @@ export default function AddLineComposer({
               ],
         })
         setSlot(isCarcass ? 'carcassMaterial' : 'backPanelMaterial', created.id)
-      } else {
-        const created = await createExtMaterial({
-          org_id: orgId,
-          name,
-          sheet_cost: sheetCost,
-        })
-        if (created) {
-          setRateBook({
-            ...rateBook,
-            extMaterials: [
-              ...rateBook.extMaterials,
-              {
-                id: created.id,
-                name: created.name,
-                sheet_cost: Number(created.sheet_cost),
-              },
-            ],
-          })
-          // Legacy "ext" Add-new path — only door material used to land
-          // here pre-v2; nothing routes through this branch under v2.
-          // No-op cast: slotKey is a string from older callers.
-          setSlot(slotKey as 'carcassMaterial', created.id)
-        }
       }
       setAddNew(null)
       setSaveError(null)

@@ -176,7 +176,6 @@ export interface ComposerRateBook {
    *  show_in-filtered quick-grab subsets for the default dropdown list. */
   materials: ComposerMaterial[]
   carcassMaterials: ComposerCarcassMaterial[]
-  extMaterials: ComposerExtMaterial[]
   /** Back-panel sheet stock, kept in its own pool so face stock (Walnut,
    *  White oak, etc.) doesn't appear as a back-panel option. Same flat
    *  shape as ext: just name + sheet_cost. Sourced from rate_book_items

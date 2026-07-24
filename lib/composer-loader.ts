@@ -1,22 +1,16 @@
 // ============================================================================
 // lib/composer-loader.ts — assemble the ComposerRateBook payload.
 // ============================================================================
-// The composer needs six bundles of rate-book data to price a line:
+// One pass that shapes everything the composer needs to price a line:
+//   - Shop rate (orgs.shop_rate — single blended rate)
+//   - Carcass per-LF labor ("Base cabinet" rate_book_items row)
+//   - The materials CATALOG (materials table, chunk B) — carcass, back-panel
+//     and door materials are all catalog rows filtered by show_in_*
+//   - Door types + finishes (door_types / door_type_material_finishes, 074)
+//   - Drawer styles, finishes (+ breakdown), LED types, custom products
+//   - Solid Wood Top calibration + components
 //
-//   1. Shop rate (orgs.shop_rate — single blended rate, per Phase 12 item 12)
-//   2. Carcass per-LF labor (rate_book_items "Base cabinet" row from
-//      BaseCabinetWalkthrough)
-//   3. Carcass material templates (rate_book_carcass_materials)
-//   4. Ext material templates (rate_book_ext_materials)
-//   5. Door style items w/ per-door labor (rate_book_items where
-//      category.item_type='door_style' — labor in door_labor_hours_*
-//      populated by DoorStyleWalkthrough in item 7; V1 reads zeros as
-//      "not calibrated")
-//   6. Finish items (rate_book_items where category.item_type='finish')
-//      plus their rate_book_finish_breakdown rows (per product category)
-//
-// Assembles and shapes into ComposerRateBook. Done in one pass so the
-// composer's initial paint reads from a single ready object.
+// Done in one pass so the composer's initial paint reads a single ready object.
 // ============================================================================
 
 import { supabase } from './supabase'
@@ -29,7 +23,6 @@ import type {
   ComposerSolidWoodComponent,
   SolidWoodTopCalibration,
 } from './composer'
-import { listExtMaterials } from './rate-book-materials'
 import {
   listDoorTypes,
   listDoorTypeMaterialFinishes,
@@ -45,7 +38,6 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
   const [
     shopRate,
     carcassLabor,
-    extMats,
     doorTypes,
     doorTypeMaterialFinishes,
     drawerStyles,
@@ -58,7 +50,6 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
   ] = await Promise.all([
     loadShopRate(orgId),
     loadCarcassLaborFromBaseCab(orgId),
-    listExtMaterials(orgId),
     listDoorTypes(orgId),
     listDoorTypeMaterialFinishes(orgId),
     loadDrawerStyles(orgId),
@@ -111,11 +102,6 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     carcassMaterials: catalog
       .filter((m) => m.show_in_carcass)
       .map((m) => ({ id: m.id, name: m.name, sheet_cost: m.cost_value, sheets_per_lf: 0 })),
-    extMaterials: extMats.map((m) => ({
-      id: m.id,
-      name: m.name,
-      sheet_cost: Number(m.sheet_cost) || 0,
-    })),
     backPanelMaterials: catalog
       .filter((m) => m.show_in_back_panel)
       .map((m) => ({ id: m.id, name: m.name, sheet_cost: m.cost_value })),
