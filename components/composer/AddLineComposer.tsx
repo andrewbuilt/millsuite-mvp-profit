@@ -442,7 +442,8 @@ export default function AddLineComposer({
           ...carry.slots,
           endPanels: 0,
           fillers: 0,
-          led: [], // LED is line-specific — don't carry footage to the next line.
+          featureRuns: [], // line-specific — do not carry footage forward.
+          featureToggles: [],
           notes: '',
         }
         qty = carry.qty || 8
@@ -952,7 +953,6 @@ function CustomProductFormBody({
     name: m.name,
     meta: `$${m.cost_value}/${MATERIAL_UNIT_ABBR[m.cost_unit]}`,
   }))
-  const ledRows = draft.slots.led ?? []
 
   return (
     <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
@@ -996,70 +996,14 @@ function CustomProductFormBody({
       )}
 
       {cp.led_enabled && (
-        <section className="space-y-3">
-          <SectionHeader>LED</SectionHeader>
-          {ledRows.map((row, i) => {
-            const patchRow = (patch: Partial<{ typeId: string | null; lf: number }>) =>
-              setSlot(
-                'led',
-                ledRows.map((r, j) => (j === i ? { ...r, ...patch } : r)),
-              )
-            return (
-              <div key={i} className="flex items-end gap-2">
-                <div className="flex-1">
-                  <Dropdown
-                    open={openDropdown === `led-${i}`}
-                    value={row.typeId}
-                    options={rateBook.ledTypes.map((t) => ({
-                      id: t.id,
-                      name: t.name + (t.calibrated ? '' : ' · not calibrated'),
-                      meta: `$${t.material_cost_per_lf}/LF`,
-                    }))}
-                    onToggle={() => toggleDropdown(`led-${i}`)}
-                    onPick={(id) => {
-                      toggleDropdown(`led-${i}`)
-                      patchRow({ typeId: id })
-                    }}
-                    placeholder="Choose LED type…"
-                  />
-                </div>
-                <div className="w-24">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-0.5">
-                    Linear ft
-                  </div>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    value={row.lf || ''}
-                    onChange={(e) => patchRow({ lf: Number(e.target.value) || 0 })}
-                    className="w-full bg-white border border-[#E5E7EB] rounded-md px-2.5 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSlot('led', ledRows.filter((_, j) => j !== i))}
-                  className="h-9 w-9 rounded-md border border-[#E5E7EB] text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2]"
-                  title="Remove LED run"
-                >
-                  ×
-                </button>
-              </div>
-            )
-          })}
-          <button
-            type="button"
-            onClick={() => setSlot('led', [...ledRows, { typeId: null, lf: 0 }])}
-            className="text-[12px] font-medium text-[#2563EB] hover:underline"
-          >
-            + Add LED run
-          </button>
-          {rateBook.ledTypes.length === 0 && (
-            <div className="text-[11.5px] text-[#9CA3AF] italic">
-              No LED types yet — define them in the rate book (Rate book → LEDs).
-            </div>
-          )}
-        </section>
+        <FeatureSection
+          slots={draft.slots}
+          rateBook={rateBook}
+          openDropdown={openDropdown}
+          toggleDropdown={toggleDropdown}
+          setSlot={setSlot}
+          lineLf={draft.qty}
+        />
       )}
 
       <Field label="Notes">
@@ -1505,79 +1449,19 @@ function Composer(p: {
             </section>
           )}
 
-          {/* LED — a calibrated feature (chunk D). Any cabinet run can carry
-              several LED runs (type + LF each). Hours flow to dept hours,
-              material to the line cost. */}
+          {/* Cabinet features (chunk F) — LED-style runs + toggles like a
+              face frame. Hours flow to dept hours, material to line cost. */}
           {(draft.productId === 'base' ||
             draft.productId === 'upper' ||
             draft.productId === 'full') && (
-            <section className="space-y-3">
-              <SectionHeader>LED</SectionHeader>
-              {(draft.slots.led ?? []).map((row, i) => {
-                const led = draft.slots.led ?? []
-                const patchRow = (patch: Partial<{ typeId: string | null; lf: number }>) =>
-                  p.setSlot(
-                    'led',
-                    led.map((r, j) => (j === i ? { ...r, ...patch } : r)),
-                  )
-                return (
-                  <div key={i} className="flex items-end gap-2">
-                    <div className="flex-1">
-                      <Dropdown
-                        open={p.openDropdown === `led-${i}`}
-                        value={row.typeId}
-                        options={rateBook.ledTypes.map((t) => ({
-                          id: t.id,
-                          name: t.name + (t.calibrated ? '' : ' · not calibrated'),
-                          meta: `$${t.material_cost_per_lf}/LF`,
-                        }))}
-                        onToggle={() => p.toggleDropdown(`led-${i}`)}
-                        onPick={(id) => {
-                          p.toggleDropdown(`led-${i}`)
-                          patchRow({ typeId: id })
-                        }}
-                        placeholder="Choose LED type…"
-                      />
-                    </div>
-                    <div className="w-24">
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-0.5">
-                        Linear ft
-                      </div>
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        value={row.lf || ''}
-                        onChange={(e) => patchRow({ lf: Number(e.target.value) || 0 })}
-                        className="w-full bg-white border border-[#E5E7EB] rounded-md px-2.5 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => p.setSlot('led', led.filter((_, j) => j !== i))}
-                      className="h-9 w-9 rounded-md border border-[#E5E7EB] text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2]"
-                      title="Remove LED run"
-                    >
-                      ×
-                    </button>
-                  </div>
-                )
-              })}
-              <button
-                type="button"
-                onClick={() =>
-                  p.setSlot('led', [...(draft.slots.led ?? []), { typeId: null, lf: 0 }])
-                }
-                className="text-[12px] font-medium text-[#2563EB] hover:underline"
-              >
-                + Add LED run
-              </button>
-              {rateBook.ledTypes.length === 0 && (
-                <div className="text-[11.5px] text-[#9CA3AF] italic">
-                  No LED types yet — define them in the rate book (Rate book → LEDs).
-                </div>
-              )}
-            </section>
+            <FeatureSection
+              slots={draft.slots}
+              rateBook={rateBook}
+              openDropdown={p.openDropdown}
+              toggleDropdown={p.toggleDropdown}
+              setSlot={p.setSlot}
+              lineLf={draft.qty}
+            />
           )}
 
           <Field label="Notes">
@@ -1673,6 +1557,137 @@ function BreakdownPlaceholder() {
 }
 
 // ── Shared building blocks ──
+
+// Cabinet features section (chunk F) — shared by cabinet runs + custom
+// products. 'runs' features get repeatable rows (feature + LF each, e.g. LED);
+// 'toggle' features are checkboxes applied at the line's LF (e.g. face frame).
+function FeatureSection({
+  slots,
+  rateBook,
+  openDropdown,
+  toggleDropdown,
+  setSlot,
+  lineLf,
+}: {
+  slots: ComposerDraft['slots']
+  rateBook: ComposerRateBook
+  openDropdown: string | null
+  toggleDropdown: (key: string) => void
+  setSlot: (key: string, value: any) => void
+  lineLf: number
+}) {
+  const runFeatures = rateBook.cabinetFeatures.filter((f) => f.mode === 'runs')
+  const toggleFeatures = rateBook.cabinetFeatures.filter((f) => f.mode === 'toggle')
+  const runs = slots.featureRuns ?? []
+  const toggles = slots.featureToggles ?? []
+  if (rateBook.cabinetFeatures.length === 0) {
+    return (
+      <section className="space-y-3">
+        <SectionHeader>Features</SectionHeader>
+        <div className="text-[11.5px] text-[#9CA3AF] italic">
+          No features yet — define them in the rate book (Rate book → Features).
+        </div>
+      </section>
+    )
+  }
+  return (
+    <section className="space-y-3">
+      <SectionHeader>Features</SectionHeader>
+
+      {/* Toggles — apply at the line's length automatically. */}
+      {toggleFeatures.length > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
+          {toggleFeatures.map((f) => {
+            const on = toggles.includes(f.id)
+            return (
+              <label
+                key={f.id}
+                className="inline-flex items-center gap-1.5 text-[13px] text-[#374151]"
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={(e) =>
+                    setSlot(
+                      'featureToggles',
+                      e.target.checked
+                        ? [...toggles, f.id]
+                        : toggles.filter((id) => id !== f.id),
+                    )
+                  }
+                />
+                {f.name}
+                <span className="text-[11px] text-[#9CA3AF]">
+                  {on ? `· ${lineLf} LF` : '· per LF'}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Runs — repeatable rows with their own LF. */}
+      {runs.map((row, i) => {
+        const patchRow = (patch: Partial<{ typeId: string | null; lf: number }>) =>
+          setSlot(
+            'featureRuns',
+            runs.map((r, j) => (j === i ? { ...r, ...patch } : r)),
+          )
+        return (
+          <div key={i} className="flex items-end gap-2">
+            <div className="flex-1">
+              <Dropdown
+                open={openDropdown === `feature-${i}`}
+                value={row.typeId}
+                options={runFeatures.map((f) => ({
+                  id: f.id,
+                  name: f.name + (f.calibrated ? '' : ' · not calibrated'),
+                  meta: f.material_cost_per_lf ? `$${f.material_cost_per_lf}/LF` : undefined,
+                }))}
+                onToggle={() => toggleDropdown(`feature-${i}`)}
+                onPick={(id) => {
+                  toggleDropdown(`feature-${i}`)
+                  patchRow({ typeId: id })
+                }}
+                placeholder="Choose a feature…"
+              />
+            </div>
+            <div className="w-24">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-0.5">
+                Linear ft
+              </div>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                value={row.lf || ''}
+                onChange={(e) => patchRow({ lf: Number(e.target.value) || 0 })}
+                className="w-full bg-white border border-[#E5E7EB] rounded-md px-2.5 py-2 text-sm text-[#111] outline-none focus:border-[#2563EB]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setSlot('featureRuns', runs.filter((_, j) => j !== i))}
+              className="h-9 w-9 rounded-md border border-[#E5E7EB] text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2]"
+              title="Remove"
+            >
+              ×
+            </button>
+          </div>
+        )
+      })}
+      {runFeatures.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setSlot('featureRuns', [...runs, { typeId: null, lf: 0 }])}
+          className="text-[12px] font-medium text-[#2563EB] hover:underline"
+        >
+          + Add a run (LED, etc.)
+        </button>
+      )}
+    </section>
+  )
+}
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
@@ -2099,14 +2114,14 @@ function BreakdownPanel({
         <Row label="Assembly" detail={`${breakdown.hoursByDept.assembly.toFixed(2)} h`} value={c.laborByDept.assembly} />
         <Row label="Finish" detail={`${breakdown.hoursByDept.finish.toFixed(2)} h`} value={c.laborByDept.finish} />
 
-        {(breakdown.ledLabor + breakdown.ledMaterial > 0 || breakdown.ledDetail) && (
+        {(breakdown.featureLabor + breakdown.featureMaterial > 0 || breakdown.featureDetail) && (
           <>
-            <BreakdownSection label="LED" />
+            <BreakdownSection label="Features" />
             <Row
-              label="LED"
-              detail={breakdown.ledDetail}
-              value={breakdown.ledLabor + breakdown.ledMaterial}
-              zero={breakdown.ledLabor + breakdown.ledMaterial === 0}
+              label="Features"
+              detail={breakdown.featureDetail}
+              value={breakdown.featureLabor + breakdown.featureMaterial}
+              zero={breakdown.featureLabor + breakdown.featureMaterial === 0}
             />
           </>
         )}
@@ -2345,14 +2360,14 @@ function BreakdownPanel({
         </>
       )}
 
-      {(breakdown.ledLabor + breakdown.ledMaterial > 0 || breakdown.ledDetail) && (
+      {(breakdown.featureLabor + breakdown.featureMaterial > 0 || breakdown.featureDetail) && (
         <>
-          <BreakdownSection label="LED" />
+          <BreakdownSection label="Features" />
           <Row
-            label="LED"
-            detail={breakdown.ledDetail}
-            value={breakdown.ledLabor + breakdown.ledMaterial}
-            zero={breakdown.ledLabor + breakdown.ledMaterial === 0}
+            label="Features"
+            detail={breakdown.featureDetail}
+            value={breakdown.featureLabor + breakdown.featureMaterial}
+            zero={breakdown.featureLabor + breakdown.featureMaterial === 0}
           />
         </>
       )}

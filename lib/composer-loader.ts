@@ -7,7 +7,7 @@
 //   - The materials CATALOG (materials table, chunk B) — carcass, back-panel
 //     and door materials are all catalog rows filtered by show_in_*
 //   - Door types + finishes (door_types / door_type_material_finishes, 074)
-//   - Drawer styles, finishes (+ breakdown), LED types, custom products
+//   - Drawer styles, finishes (+ breakdown), cabinet features, custom products
 //   - Solid Wood Top calibration + components
 //
 // Done in one pass so the composer's initial paint reads a single ready object.
@@ -30,7 +30,7 @@ import {
   type DoorTypeMaterial,
 } from './door-types'
 import { listMaterials } from './materials'
-import { listLedTypes } from './led'
+import { listCabinetFeatures } from './features'
 import { listCustomProducts } from './custom-products'
 
 /** Load + shape the composer's rate-book payload for an org. */
@@ -45,7 +45,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     solidWoodTopCalibration,
     solidWoodComponents,
     catalog,
-    ledTypes,
+    cabinetFeatures,
     customProducts,
   ] = await Promise.all([
     loadShopRate(orgId),
@@ -57,7 +57,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     loadSolidWoodTopCalibration(orgId),
     loadSolidWoodComponentsForComposer(orgId),
     listMaterials(orgId),
-    listLedTypes(orgId),
+    listCabinetFeatures(orgId),
     listCustomProducts(orgId),
   ])
 
@@ -111,7 +111,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     doorFinishesByDoorTypeId: indexDoorTypeMaterialFinishes(doorTypeMaterialFinishes),
     drawerStyles,
     finishes,
-    ledTypes,
+    cabinetFeatures,
     customProducts,
     solidWoodTopCalibration,
     solidWoodComponents,
