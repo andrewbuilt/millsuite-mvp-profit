@@ -17,6 +17,7 @@ import {
   updateCabinetFeature,
   archiveCabinetFeature,
   featureLaborPerLf,
+  FEATURE_RUN_FEET,
   type CabinetFeature,
   type FeatureMode,
 } from '@/lib/features'
@@ -53,17 +54,23 @@ const EMPTY: Draft = {
   material_consumption_per_lf: '',
 }
 
+// The form collects numbers for a typical 8' run (how shops actually estimate)
+// and stores per-LF (÷8). Round-trips on edit (×8). Both labor AND material.
+const R = FEATURE_RUN_FEET
+const perRun = (perLf: number) => String(Number((perLf * R).toFixed(4)))
+const perLf = (runValue: string) => (Number(runValue) || 0) / R
+
 function toDraft(f: CabinetFeature): Draft {
   return {
     name: f.name,
     mode: f.mode,
-    labor_hours_eng_per_lf: String(f.labor_hours_eng_per_lf),
-    labor_hours_cnc_per_lf: String(f.labor_hours_cnc_per_lf),
-    labor_hours_assembly_per_lf: String(f.labor_hours_assembly_per_lf),
-    labor_hours_finish_per_lf: String(f.labor_hours_finish_per_lf),
-    material_cost_per_lf: String(f.material_cost_per_lf),
+    labor_hours_eng_per_lf: perRun(f.labor_hours_eng_per_lf),
+    labor_hours_cnc_per_lf: perRun(f.labor_hours_cnc_per_lf),
+    labor_hours_assembly_per_lf: perRun(f.labor_hours_assembly_per_lf),
+    labor_hours_finish_per_lf: perRun(f.labor_hours_finish_per_lf),
+    material_cost_per_lf: perRun(f.material_cost_per_lf),
     material_id: f.material_id ?? '',
-    material_consumption_per_lf: String(f.material_consumption_per_lf),
+    material_consumption_per_lf: perRun(f.material_consumption_per_lf),
   }
 }
 
@@ -71,13 +78,13 @@ function draftToInput(d: Draft) {
   return {
     name: d.name.trim(),
     mode: d.mode,
-    labor_hours_eng_per_lf: Number(d.labor_hours_eng_per_lf) || 0,
-    labor_hours_cnc_per_lf: Number(d.labor_hours_cnc_per_lf) || 0,
-    labor_hours_assembly_per_lf: Number(d.labor_hours_assembly_per_lf) || 0,
-    labor_hours_finish_per_lf: Number(d.labor_hours_finish_per_lf) || 0,
-    material_cost_per_lf: Number(d.material_cost_per_lf) || 0,
+    labor_hours_eng_per_lf: perLf(d.labor_hours_eng_per_lf),
+    labor_hours_cnc_per_lf: perLf(d.labor_hours_cnc_per_lf),
+    labor_hours_assembly_per_lf: perLf(d.labor_hours_assembly_per_lf),
+    labor_hours_finish_per_lf: perLf(d.labor_hours_finish_per_lf),
+    material_cost_per_lf: perLf(d.material_cost_per_lf),
     material_id: d.material_id || null,
-    material_consumption_per_lf: Number(d.material_consumption_per_lf) || 0,
+    material_consumption_per_lf: perLf(d.material_consumption_per_lf),
   }
 }
 
@@ -182,11 +189,12 @@ export default function FeatureCatalog({ orgId }: { orgId: string }) {
           </button>
         </div>
         <p className="text-[12px] text-[#6B7280] mb-4 max-w-[640px]">
-          Add-ons for cabinet lines, calibrated per linear foot. A{' '}
-          <strong>runs</strong> feature (like LED) adds several rows to a line (type + feet each);
-          a <strong>toggle</strong> feature (like a face frame) is a per-line on/off that applies at
-          the run's length. Labor flows into the line's dept hours; material is a flat $/LF and/or
-          catalog stock it consumes.
+          Add-ons for cabinet lines. Calibrate each one on a typical{' '}
+          <strong>{FEATURE_RUN_FEET}&apos; cabinet</strong> — hours per dept to build and attach it,
+          and how much stock it eats — and it's stored per foot so any run length prices correctly.
+          A <strong>runs</strong> feature (like LED) adds rows to a line (type + feet each); a{' '}
+          <strong>toggle</strong> feature (like a face frame) is a per-line on/off applied at the
+          run's length. Labor flows into the line's dept hours.
         </p>
 
         <div className="relative mb-3 max-w-xs">
@@ -369,6 +377,8 @@ function FeatureFields({
   materials: Material[]
 }) {
   const set = (k: keyof Draft, v: string) => setDraft({ ...draft, [k]: v })
+  // Live per-LF echo so the ÷8 is visible while typing.
+  const runTotalHours = DEPTS.reduce((sum, d) => sum + (Number(draft[d.key]) || 0), 0)
   const lbl = 'text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]'
   const input =
     'w-full mt-0.5 px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]'
@@ -398,7 +408,7 @@ function FeatureFields({
         </label>
       </div>
       <div>
-        <span className={lbl}>Labor hours per LF</span>
+        <span className={lbl}>Labor hours per {FEATURE_RUN_FEET}&apos; run</span>
         <div className="grid grid-cols-4 gap-2 mt-0.5">
           {DEPTS.map((d) => (
             <label key={d.key} className="block">
@@ -413,12 +423,19 @@ function FeatureFields({
             </label>
           ))}
         </div>
+        <div className="text-[10.5px] text-[#9CA3AF] mt-1">
+          Estimate it on a typical {FEATURE_RUN_FEET}&apos; cabinet — stored per foot (÷
+          {FEATURE_RUN_FEET}).{' '}
+          <span className="font-mono">
+            = {(runTotalHours / FEATURE_RUN_FEET).toFixed(3)} hr/LF
+          </span>
+        </div>
       </div>
       <div>
-        <span className={lbl}>Material per LF</span>
+        <span className={lbl}>Material per {FEATURE_RUN_FEET}&apos; run</span>
         <div className="grid grid-cols-[130px_1fr_110px] gap-2 mt-0.5 items-end">
           <label className="block">
-            <span className="text-[10px] text-[#9CA3AF]">Flat $ / LF</span>
+            <span className="text-[10px] text-[#9CA3AF]">Flat $ / run</span>
             <input
               type="number"
               step="0.01"
@@ -443,7 +460,7 @@ function FeatureFields({
             </select>
           </label>
           <label className="block">
-            <span className="text-[10px] text-[#9CA3AF]">Qty / LF</span>
+            <span className="text-[10px] text-[#9CA3AF]">Qty / run</span>
             <input
               type="number"
               step="0.01"

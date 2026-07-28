@@ -71,14 +71,15 @@ const EMPTY: Draft = {
   slots: [],
 }
 
-// LF products calibrate labor on a typical 8' run (the drawer-wizard feel):
-// the operator enters hours for an 8' run and we store per-LF (÷8). Each/sqft
-// enter labor per unit directly (basis 1).
+// LF products calibrate on a typical 8' run (the drawer-wizard feel): the
+// operator enters BOTH labor hours and material consumption for an 8' run and
+// we store per-LF (÷8) — shops estimate "what does this take on an 8-footer",
+// not per inch. Each/sqft enter per unit directly (basis 1).
 const LF_RUN_FEET = 8
 function laborBasisFor(unit: CustomProductUnit): number {
   return unit === 'lf' ? LF_RUN_FEET : 1
 }
-/** Human label for the labor calibration basis. */
+/** Human label for the calibration basis. */
 function laborBasisLabel(unit: CustomProductUnit): string {
   return unit === 'lf' ? `8' run` : unit
 }
@@ -99,7 +100,8 @@ function toDraft(p: CustomProduct): Draft {
       key: s.key,
       label: s.label,
       show_in: s.show_in,
-      consumption_per_unit: String(s.consumption_per_unit),
+      // Material consumption uses the same basis as labor (per 8' run on LF).
+      consumption_per_unit: String(Number((s.consumption_per_unit * b).toFixed(4))),
     })),
   }
 }
@@ -120,7 +122,8 @@ function draftToInput(d: Draft) {
       key: s.key,
       label: s.label.trim() || s.key,
       show_in: s.show_in,
-      consumption_per_unit: Number(s.consumption_per_unit) || 0,
+      // Entered per calibration basis → stored per-unit (÷ basis), same as labor.
+      consumption_per_unit: (Number(s.consumption_per_unit) || 0) / b,
     })),
   }
 }
@@ -321,7 +324,7 @@ export default function ProductBuilder({ orgId }: { orgId: string }) {
                         ))}
                       </select>
                     </Field>
-                    <Field label={`Qty / ${draft.unit}`} className="w-24">
+                    <Field label={`Qty / ${laborBasisLabel(draft.unit)}`} className="w-24">
                       <input
                         type="number"
                         step="0.01"
@@ -350,8 +353,12 @@ export default function ProductBuilder({ orgId }: { orgId: string }) {
                   + Add material slot
                 </button>
                 <div className="text-[10.5px] text-[#9CA3AF]">
-                  "Qty / {draft.unit}" = how much of the material's cost-unit is used per {draft.unit}
-                  {' '}(e.g. 0.1 sheet per LF). The operator picks the actual material on the line.
+                  "Qty / {laborBasisLabel(draft.unit)}" = how much of the material's cost-unit it
+                  eats
+                  {draft.unit === 'lf'
+                    ? ` on a typical ${LF_RUN_FEET}' run (e.g. 1 sheet per 8' → stored as 0.125/LF)`
+                    : ` per ${draft.unit} (e.g. 0.1 sheet)`}
+                  . The operator picks the actual material on the line.
                 </div>
               </div>
             </div>

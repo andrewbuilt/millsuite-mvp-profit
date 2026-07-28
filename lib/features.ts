@@ -14,6 +14,14 @@ import type { Confidence } from './rate-book-v2'
 
 export type FeatureMode = 'runs' | 'toggle'
 
+/**
+ * Features are STORED per linear foot, but shops estimate them on a typical
+ * run — "how long does a face frame take on an 8' cabinet, and how much stock
+ * does it eat?" The rate-book editor collects per-run numbers and divides by
+ * this to store per-LF. Pricing math always reads the per-LF values.
+ */
+export const FEATURE_RUN_FEET = 8
+
 export interface CabinetFeature {
   id: string
   org_id: string
