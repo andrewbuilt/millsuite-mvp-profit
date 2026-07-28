@@ -109,6 +109,50 @@ function ConfidencePill({ c, size = 'sm' }: { c: Confidence; size?: 'sm' | 'dot'
 // ─────────────────────────────────────────────────────────────────────────────
 // Page
 
+// The rate book's top-level views. The first four are "item views" — the
+// shared 3-pane roster filtered to one category type (retired the generic
+// "Items" tab). The rest are dedicated editors.
+type RateBookView =
+  | 'cabinets'
+  | 'drawers'
+  | 'finishes'
+  | 'lineitems'
+  | 'materials'
+  | 'doors'
+  | 'features'
+  | 'products'
+
+/** Which rate_book_categories.item_type(s) each item view shows. */
+const ITEM_VIEW_TYPES: Record<string, string[]> = {
+  cabinets: ['cabinet_style'],
+  drawers: ['drawer_style'],
+  finishes: ['finish'],
+  // Freeform line-item buckets (Panels & scribes, Trim & moulding, Specialty
+  // hardware, Install, Engineering).
+  lineitems: ['custom', 'hardware', 'install_style'],
+}
+const ITEM_VIEWS = Object.keys(ITEM_VIEW_TYPES)
+const VIEW_LABEL: Record<RateBookView, string> = {
+  cabinets: 'Cabinets',
+  drawers: 'Drawers',
+  finishes: 'Finishes',
+  lineitems: 'Line items',
+  materials: 'Materials',
+  doors: 'Doors',
+  features: 'Features',
+  products: 'Products',
+}
+const VIEW_ORDER: RateBookView[] = [
+  'cabinets',
+  'drawers',
+  'finishes',
+  'lineitems',
+  'materials',
+  'doors',
+  'features',
+  'products',
+]
+
 export default function RateBookPage() {
   const { user, org } = useAuth()
   const { confirm } = useConfirm()
@@ -128,9 +172,10 @@ export default function RateBookPage() {
 
   const [editOpen, setEditOpen] = useState(false)
   const [laborSettingsOpen, setLaborSettingsOpen] = useState(false)
-  // Top-level view: the item tree (default), the master materials catalog, or
-  // the door types editor (rate-book chunk B/C).
-  const [view, setView] = useState<'items' | 'materials' | 'doors' | 'leds' | 'products'>('items')
+  // Top-level view. Item views (cabinets/drawers/finishes/lineitems) share the
+  // 3-pane roster filtered by category type; the rest are dedicated editors.
+  const [view, setView] = useState<RateBookView>('cabinets')
+  const isItemView = ITEM_VIEWS.includes(view)
 
   // Solid-wood components live in their own table outside
   // rate_book_categories. Surfaced as a synthetic sidebar group below
@@ -166,12 +211,10 @@ export default function RateBookPage() {
     setItems(i)
     setOptions(o)
     setSolidWoodRows(sw)
-    // Auto-expand every category and select first item on cold boot.
+    // Auto-expand every category. Item selection is handled by the
+    // view-aware effect below (picks the first item of the active view).
     if (expanded.size === 0) {
       setExpanded(new Set(c.map((x) => x.id)))
-    }
-    if (!selectedId && !selectedSolidWoodId && i.length > 0) {
-      setSelectedId(i[0].id)
     }
   }
 
@@ -234,16 +277,12 @@ export default function RateBookPage() {
   // surfaces the multiplier explanation in the detail view.
   const filteredTree = useMemo(() => {
     const s = treeSearch.trim().toLowerCase()
+    // Show only the categories belonging to the active item view. This also
+    // drops the retired concepts (door_style → Doors tab, back_panel_material →
+    // Materials tab) since neither type is listed in any item view.
+    const viewTypes = ITEM_VIEW_TYPES[view] ?? []
     return categories
-      // Hide categories whose rows aren't real "items" in the roster:
-      //  - 'door_style' (chunk A): dead post-038; live door styles are
-      //    door_types, edited via the DoorStyle walkthrough.
-      //  - 'back_panel_material' (chunk C): back-panel stock is a MATERIAL now,
-      //    managed in the Materials catalog (the "Materials" toggle), not as an
-      //    item here. The rows still back the catalog via material_id.
-      .filter(
-        (cat) => cat.item_type !== 'door_style' && cat.item_type !== 'back_panel_material',
-      )
+      .filter((cat) => viewTypes.includes(cat.item_type))
       .map((cat) => {
       const catItems = items.filter((it) => it.category_id === cat.id)
       let allItems: RateBookItemRow[] = catItems
@@ -272,7 +311,23 @@ export default function RateBookPage() {
       const visible = catMatches || filteredItems.length > 0
       return { cat, items: catMatches ? allItems : filteredItems, visible, hasSearch: !!s }
     })
-  }, [categories, items, treeSearch])
+  }, [categories, items, treeSearch, view])
+
+  // First visible item of the active item view (for auto-select).
+  const firstViewItemId = useMemo(() => {
+    for (const n of filteredTree) {
+      if (n.visible && n.items.length) return n.items[0].id
+    }
+    return null
+  }, [filteredTree])
+
+  // Auto-select the first item when in an item view with nothing picked
+  // (cold boot + after a view switch clears the selection).
+  useEffect(() => {
+    if (isItemView && !selectedId && !selectedSolidWoodId && firstViewItemId) {
+      setSelectedId(firstViewItemId)
+    }
+  }, [isItemView, selectedId, selectedSolidWoodId, firstViewItemId])
 
   const filteredOptions = useMemo(() => {
     const s = optionSearch.trim().toLowerCase()
@@ -324,34 +379,31 @@ export default function RateBookPage() {
 
       {/* Context strip */}
       <div className="px-6 py-2 text-[12px] flex items-center gap-3 bg-[#EFF6FF] border-b border-[#DBEAFE]">
-        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#DBEAFE] text-[#1E40AF]">
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#DBEAFE] text-[#1E40AF]">
           Back-end
         </span>
-        <span className="text-[#1E3A8A]">
+        <span className="text-[#1E3A8A] min-w-0 truncate">
           Prices live here and history gets written. Day-to-day pricing happens in projects — come back to audit, tune, or add items.
         </span>
         <div className="flex-1" />
-        {/* Items | Materials | Doors | LEDs | Products view toggle */}
+        {/* View toggle — Cabinets | Drawers | Finishes | Line items |
+            Materials | Doors | Features | Products */}
         <div className="inline-flex shrink-0 rounded-md border border-[#BFDBFE] overflow-hidden">
-          {(['items', 'materials', 'doors', 'leds', 'products'] as const).map((v) => (
+          {VIEW_ORDER.map((v) => (
             <button
               key={v}
-              onClick={() => setView(v)}
+              onClick={() => {
+                setView(v)
+                setSelectedId(null)
+                setSelectedSolidWoodId(null)
+              }}
               className={`px-2.5 py-1 text-[11px] font-medium whitespace-nowrap shrink-0 transition-colors ${
                 view === v
                   ? 'bg-[#2563EB] text-white'
                   : 'bg-white text-[#1E40AF] hover:bg-[#DBEAFE]'
               }`}
             >
-              {v === 'items'
-                ? 'Items'
-                : v === 'materials'
-                ? 'Materials'
-                : v === 'doors'
-                ? 'Doors'
-                : v === 'leds'
-                ? 'LEDs'
-                : 'Products'}
+              {VIEW_LABEL[v]}
             </button>
           ))}
         </div>
@@ -367,18 +419,18 @@ export default function RateBookPage() {
         <MaterialsCatalog orgId={orgId} />
       ) : view === 'doors' ? (
         <DoorCatalog orgId={orgId} />
-      ) : view === 'leds' ? (
+      ) : view === 'features' ? (
         <LedCatalog orgId={orgId} />
       ) : view === 'products' ? (
         <ProductBuilder orgId={orgId} />
       ) : (
-      /* 3-pane grid */
+      /* 3-pane grid — item views (cabinets / drawers / finishes / line items) */
       <div className="flex-1 grid grid-cols-[260px_1fr_300px] overflow-hidden">
         {/* LEFT — Tree */}
         <aside className="border-r border-[#E5E7EB] bg-[#FAFAFA] overflow-y-auto flex flex-col">
           <div className="sticky top-0 bg-[#FAFAFA] p-3 border-b border-[#E5E7EB]">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-2">
-              Items
+              {VIEW_LABEL[view]}
             </div>
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-[#9CA3AF]" />
@@ -477,9 +529,9 @@ export default function RateBookPage() {
               })
             )}
           </div>
-          {/* Solid wood — synthetic sidebar group. Lives outside
-              rate_book_categories (own table), so it gets its own header
-              with "+ Add" affordance below the standard tree. */}
+          {/* Solid wood — synthetic sidebar group (own table). Lives under the
+              Line items view since it's a freeform stock component. */}
+          {view === 'lineitems' && (
           <div className="px-2 pb-2">
             <div className="flex items-center gap-1 px-1.5 py-1 text-[13px] text-[#374151]">
               <button
@@ -537,6 +589,7 @@ export default function RateBookPage() {
               </div>
             )}
           </div>
+          )}
 
           <div className="p-3 border-t border-[#E5E7EB] text-[11px] text-[#6B7280] leading-relaxed">
             <div className="font-semibold text-[#374151] mb-1">Trust badges</div>
