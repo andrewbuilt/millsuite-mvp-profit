@@ -47,7 +47,7 @@ import {
   initialSubprojectDefaults,
   loadSubprojectDefaults,
 } from '@/lib/composer-persist'
-import { productLabelFromKey, type ComposerRateBook, type ComposerDefaults, type ComposerSlots } from '@/lib/composer'
+import { productLabelForLine, type ComposerRateBook, type ComposerDefaults, type ComposerSlots } from '@/lib/composer'
 import type { ProductKey } from '@/lib/products'
 
 interface Project {
@@ -238,7 +238,7 @@ export default function PreProductionPage() {
         productKey: line.product_key,
         productSlots: line.product_slots,
         qty: Number(line.quantity) || 0,
-        productLabel: productLabelFromKey(line.product_key),
+        productLabel: productLabelForLine(line.product_key, line.description) ?? line.product_key,
         description: line.description || '',
         source: 'spec',
         approvalItemId,

@@ -73,7 +73,7 @@ import {
   loadSubprojectDefaults,
 } from '@/lib/composer-persist'
 import type { ComposerDefaults, ComposerRateBook, ComposerSlots } from '@/lib/composer'
-import { productLabelFromKey } from '@/lib/composer'
+import { productLabelForLine } from '@/lib/composer'
 import { hasMissingSlots } from '@/lib/parser-slot-resolver'
 import type { ProductKey } from '@/lib/products'
 import {
@@ -848,7 +848,7 @@ export default function SubprojectEditorPage() {
                 // lines: description-as-is, no second line. Keeps the cell
                 // narrow even for products with long slot rollups.
                 const productLabel = isComposerLine
-                  ? productLabelFromKey(line.product_key as ProductKey)
+                  ? productLabelForLine(line.product_key, line.description)
                   : null
                 const slotSummary =
                   productLabel &&

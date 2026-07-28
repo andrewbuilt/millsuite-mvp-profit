@@ -380,6 +380,28 @@ export function productLabelFromKey(key: ProductKey): string {
   return key
 }
 
+/**
+ * Display label for a SAVED line. Custom products (chunk E) share one
+ * `product_key='custom'` sentinel, so their real name can't come from the key
+ * — composer-persist writes it as the leading segment of the description
+ * ("Floating shelves · 3/4\" Rift white oak"), which is also what keeps the
+ * name stable if the product is later renamed or deleted. Everything else
+ * resolves from the key as before.
+ */
+export function productLabelForLine(
+  key: string | null | undefined,
+  description?: string | null,
+): string | null {
+  if (!key) return null
+  if (key === 'custom') {
+    const d = (description || '').trim()
+    if (!d) return 'Custom product'
+    const i = d.indexOf(' · ')
+    return i > 0 ? d.slice(0, i) : d
+  }
+  return productLabelFromKey(key as ProductKey)
+}
+
 /** Count the finish-spec slots set on a composer line:
  *    +1 if carcassMaterial is set
  *    +1 if doorMaterialId is set
