@@ -56,7 +56,7 @@ import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 import { useConfirm } from '@/components/confirm-dialog'
 import MaterialsCatalog from '@/components/rate-book/MaterialsCatalog'
 import DoorCatalog from '@/components/rate-book/DoorCatalog'
-import LedCatalog from '@/components/rate-book/LedCatalog'
+import FeatureCatalog from '@/components/rate-book/FeatureCatalog'
 import ProductBuilder from '@/components/rate-book/ProductBuilder'
 
 // Upper / Full are multipliers on Base cabinet, not standalone rate
@@ -420,7 +420,7 @@ export default function RateBookPage() {
       ) : view === 'doors' ? (
         <DoorCatalog orgId={orgId} />
       ) : view === 'features' ? (
-        <LedCatalog orgId={orgId} />
+        <FeatureCatalog orgId={orgId} />
       ) : view === 'products' ? (
         <ProductBuilder orgId={orgId} />
       ) : (
