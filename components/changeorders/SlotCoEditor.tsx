@@ -53,6 +53,11 @@ const PREFINISHED_FINISH_ID = 'prefinished'
 
 const isCustomSlot = (k: string) => k.startsWith('custom:')
 const customSlotKey = (k: string) => k.slice('custom:'.length)
+// 'toggle' cabinet-feature slots (chunk F): value is on/off.
+const isFeatureSlot = (k: string) => k.startsWith('feature:')
+const featureSlotId = (k: string) => k.slice('feature:'.length)
+const FEATURE_ON = 'on'
+const FEATURE_OFF = 'off'
 
 function materialsForShowIn(rb: ComposerRateBook, showIn: string) {
   if (showIn === 'any') return rb.materials
@@ -70,19 +75,29 @@ function materialsForShowIn(rb: ComposerRateBook, showIn: string) {
 }
 
 /** The slots a product exposes for a spec change. Cabinet products = the fixed
- *  set; custom products derive theirs from the product's material_slots (074). */
+ *  set; custom products derive theirs from the product's material_slots (074).
+ *  Both append 'toggle' cabinet features (chunk F) — adding/removing a face
+ *  frame is a spec change like any other. */
 function availableSlots(
   productKey: ProductKey,
   cp: CustomProduct | null,
+  rb: ComposerRateBook,
 ): { key: string; label: string }[] {
+  const featureSlots = rb.cabinetFeatures
+    .filter((f) => f.mode === 'toggle')
+    .map((f) => ({ key: `feature:${f.id}`, label: f.name }))
   if (productKey === 'custom') {
     if (!cp) return []
     return [
       { key: 'qty', label: `Quantity (${cp.unit})` },
       ...cp.material_slots.map((s) => ({ key: `custom:${s.key}`, label: s.label })),
+      ...(cp.led_enabled ? featureSlots : []),
     ]
   }
-  return Object.keys(CABINET_SLOT_LABELS).map((k) => ({ key: k, label: CABINET_SLOT_LABELS[k] }))
+  return [
+    ...Object.keys(CABINET_SLOT_LABELS).map((k) => ({ key: k, label: CABINET_SLOT_LABELS[k] })),
+    ...featureSlots,
+  ]
 }
 
 export interface SlotCoResult {
@@ -101,6 +116,12 @@ function slotOptions(
   rb: ComposerRateBook,
   cp: CustomProduct | null,
 ): Array<{ id: string; name: string }> {
+  if (isFeatureSlot(slotKey)) {
+    return [
+      { id: FEATURE_ON, name: 'Included' },
+      { id: FEATURE_OFF, name: 'Not included' },
+    ]
+  }
   if (isCustomSlot(slotKey)) {
     const slot = cp?.material_slots.find((s) => s.key === customSlotKey(slotKey))
     return materialsForShowIn(rb, slot?.show_in || 'any').map((m) => ({ id: m.id, name: m.name }))
@@ -130,6 +151,11 @@ function slotValueLabel(
   rb: ComposerRateBook,
   cp: CustomProduct | null,
 ): string {
+  if (isFeatureSlot(slotKey)) {
+    return (slots.featureToggles ?? []).includes(featureSlotId(slotKey))
+      ? 'Included'
+      : 'Not included'
+  }
   if (isCustomSlot(slotKey)) {
     const matId = slots.customMaterials?.[customSlotKey(slotKey)] ?? null
     return rb.materials.find((m) => m.id === matId)?.name || '(none)'
@@ -197,7 +223,7 @@ export default function SlotCoEditor({
     productKey === 'custom'
       ? rb.customProducts.find((p) => p.id === productSlots.customProductId) ?? null
       : null
-  const slotDefs = useMemo(() => availableSlots(productKey, cp), [productKey, cp])
+  const slotDefs = useMemo(() => availableSlots(productKey, cp, rb), [productKey, cp, rb])
   const labelFor = (k: string) => slotDefs.find((s) => s.key === k)?.label ?? k
   // "+ Add new" inline form state.
   const [addName, setAddName] = useState('')
@@ -222,6 +248,18 @@ export default function SlotCoEditor({
       const n = Number(proposed)
       if (!Number.isFinite(n) || n < 0) return null
       return { ...originalDraft, slots: { ...originalDraft.slots, [slotKey]: Math.round(n) } }
+    }
+    // Feature toggle: add/remove the feature id on the line.
+    if (isFeatureSlot(slotKey)) {
+      const id = featureSlotId(slotKey)
+      const current = originalDraft.slots.featureToggles ?? []
+      const next =
+        proposed === FEATURE_ON
+          ? current.includes(id)
+            ? current
+            : [...current, id]
+          : current.filter((x) => x !== id)
+      return { ...originalDraft, slots: { ...originalDraft.slots, featureToggles: next } }
     }
     // Custom-product material slot: set customMaterials[slotKey] → catalog id.
     if (isCustomSlot(slotKey)) {
