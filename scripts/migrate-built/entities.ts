@@ -32,6 +32,7 @@ import {
 } from '../../lib/estimate-lines'
 import { computeBucketedPrice, type CostBuckets } from '../../lib/pricing'
 import { isInstallActivity } from '../../lib/subproject-description'
+import { computeInstallHours } from '../../lib/install-prefill'
 
 const INSTALL_HOURS_PER_DAY = 8
 
@@ -1024,8 +1025,15 @@ export async function verifyAgainstManifest(ctx: Ctx): Promise<void> {
       .maybeSingle()
     const bid = Math.round(Number((proj as any)?.bid_total) || 0)
 
-    // Hours: sum dept_hour_overrides across the project's estimate lines.
-    const { data: subs } = await ms.from('subprojects').select('id').eq('project_id', projectId)
+    // Hours = estimate-line dept hours PLUS install-prefill hours. Install
+    // subs deliberately carry no estimate lines (they price from guys × days ×
+    // rate — see migrateEstimateLines), so summing lines alone undercounts a
+    // job by exactly its install hours. Uses the app's own computeInstallHours
+    // so the two can't drift.
+    const { data: subs } = await ms
+      .from('subprojects')
+      .select('id, install_guys, install_days, install_complexity_pct, install_included')
+      .eq('project_id', projectId)
     const subIds = (subs || []).map((s: any) => s.id)
     let hours = 0
     if (subIds.length) {
@@ -1041,13 +1049,27 @@ export async function verifyAgainstManifest(ctx: Ctx): Promise<void> {
         hours += perUnit * (Number((l as any).quantity) || 0)
       }
     }
+    for (const s of subs || []) {
+      hours += computeInstallHours({
+        guys: (s as any).install_guys,
+        days: (s as any).install_days,
+        complexityPct: (s as any).install_complexity_pct,
+        included: (s as any).install_included,
+      })
+    }
     hours = Math.round(hours)
 
     const expPrice = j.expected_price == null ? null : Math.round(j.expected_price)
     const expHours = j.expected_hours == null ? null : Math.round(j.expected_hours)
-    // Money must match to the dollar; hours allow 1% rounding slack (per-unit
-    // hours × qty can land a hair off Built's stored total).
-    const priceOk = expPrice == null || bid === expPrice
+    // Price tolerance: $25 or 0.05%, whichever is larger. The migration
+    // back-solves a project margin so the rollup reproduces Built's sold
+    // price; that division rounds, so a six-figure job can land a few dollars
+    // off. Real drift (a changed shop rate, a dropped subproject) moves the
+    // number by hundreds or thousands, well outside this band.
+    const priceTol = expPrice == null ? 0 : Math.max(25, expPrice * 0.0005)
+    const priceDelta = expPrice == null ? 0 : bid - expPrice
+    const priceOk = expPrice == null || Math.abs(priceDelta) <= priceTol
+    // Hours allow 1% slack (per-unit hours × qty vs Built's stored total).
     const hoursOk =
       expHours == null || expHours === 0
         ? true
@@ -1060,6 +1082,7 @@ export async function verifyAgainstManifest(ctx: Ctx): Promise<void> {
       millsuite_project_id: projectId,
       bid,
       expected_price: expPrice,
+      priceDelta,
       priceOk,
       hours,
       expected_hours: expHours,
@@ -1075,7 +1098,9 @@ export async function verifyAgainstManifest(ctx: Ctx): Promise<void> {
       continue
     }
     const mark = r.status === 'FLAG' ? '!' : '·'
-    const priceTag = r.priceOk ? `$${r.bid}` : `$${r.bid} ≠ $${r.expected_price} ⚠`
+    const priceTag = r.priceOk
+      ? `$${r.bid}` + (r.priceDelta ? ` (${r.priceDelta > 0 ? '+' : ''}${r.priceDelta} rounding)` : '')
+      : `$${r.bid} ≠ $${r.expected_price} ⚠`
     const hoursTag = r.hoursOk ? `${r.hours}h` : `${r.hours}h ≠ ${r.expected_hours}h ⚠`
     console.log(`    ${mark} ${String(r.name).slice(0, 34).padEnd(35)} ${priceTag} · ${hoursTag}`)
   }

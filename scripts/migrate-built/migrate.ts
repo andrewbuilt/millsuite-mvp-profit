@@ -84,6 +84,14 @@ async function main() {
   if (scope.id) console.log(`  scope: single ${scope.kind} ${scope.id}`)
   console.log('')
 
+  const ctxEarly: Ctx = { built, ms, orgId, opts, scope, manifest }
+  if (opts.verifyOnly) {
+    console.log('verify:')
+    await verifyAgainstManifest({ ...ctxEarly, opts: { ...opts, dryRun: false } })
+    console.log('\nDone. (verify-only — nothing written)')
+    return
+  }
+
   const entities = opts.entity ? PIPELINE.filter((e) => e === opts.entity) : PIPELINE
   if (entities.length === 0) {
     console.error(`Unknown --entity "${opts.entity}". One of: ${PIPELINE.join(', ')}`)

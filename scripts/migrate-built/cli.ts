@@ -11,13 +11,16 @@
 
 export interface CliOptions {
   dryRun: boolean
+  /** Re-run the manifest checksum verify against already-imported data and
+   *  exit. Read-only — no migration steps run. */
+  verifyOnly: boolean
   entity: string | null
   project: string | null
   limit: number | null
 }
 
 export function parseArgs(argv: string[] = process.argv.slice(2)): CliOptions {
-  const opts: CliOptions = { dryRun: false, entity: null, project: null, limit: null }
+  const opts: CliOptions = { dryRun: false, verifyOnly: false, entity: null, project: null, limit: null }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     // Support both "--flag value" and "--flag=value".
@@ -29,6 +32,9 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): CliOptions {
     switch (key) {
       case '--dry-run':
         opts.dryRun = true
+        break
+      case '--verify-only':
+        opts.verifyOnly = true
         break
       case '--entity':
         opts.entity = next()
@@ -52,7 +58,7 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): CliOptions {
 
 export function describeOptions(o: CliOptions): string {
   const parts = [
-    o.dryRun ? 'DRY-RUN (no writes)' : 'LIVE (writes enabled)',
+    o.verifyOnly ? 'VERIFY-ONLY (no writes)' : o.dryRun ? 'DRY-RUN (no writes)' : 'LIVE (writes enabled)',
     o.entity ? `entity=${o.entity}` : 'all entities',
     o.project ? `project=${o.project}` : null,
     o.limit != null ? `limit=${o.limit}` : null,
