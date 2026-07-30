@@ -997,12 +997,16 @@ export async function dumpReEnterSheets(ctx: Ctx): Promise<void> {
  * silently accepted — this is the guard that a job came across whole.
  */
 export async function verifyAgainstManifest(ctx: Ctx): Promise<void> {
-  const { ms, orgId, manifest, opts } = ctx
+  const { ms, orgId, manifest, opts, scope } = ctx
   if (opts.dryRun) {
     console.log('  checksums: skipped (dry-run — nothing imported to verify)')
     return
   }
-  const jobs = manifest.jobs.filter((j) => j.decision === 'import')
+  // Scoped run (--project) verifies only that job; otherwise every import row.
+  // Without this a single-job test pass reports the other 11 as "NOT IMPORTED".
+  const jobs = manifest.jobs.filter(
+    (j) => j.decision === 'import' && (!scope.id || j.built_id === scope.id),
+  )
   const report: any[] = []
   let flagged = 0
 
