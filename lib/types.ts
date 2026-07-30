@@ -124,6 +124,11 @@ export interface Project {
    *  (Phase 12 dogfood-2 Issue 12). Subproject rollups stay at cost. */
   target_margin_pct: number | null
 
+  /** Stamped by the Built-OS migration script (6c, migration 080). Non-null =
+   *  this job came from Built, not priced natively in MillSuite — surfaced as
+   *  a gray "IMPORTED" badge so imported and native work don't blend. */
+  imported_at?: string | null
+
   // Joined
   client?: Client | null
   contact?: Contact | null

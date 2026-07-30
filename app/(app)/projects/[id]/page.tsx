@@ -132,6 +132,7 @@ import { isReadyForProduction, startProduction, isDepositReceived, markDepositRe
 // ── Types ──
 
 import { isPresold, type ProjectStage } from '@/lib/types'
+import ImportedBadge from '@/components/imported-badge'
 
 interface Project {
   id: string
@@ -152,6 +153,8 @@ interface Project {
   labor_margin_pct: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
+  /** Non-null when the job came from Built OS (6c, migration 080). */
+  imported_at?: string | null
 }
 
 interface Subproject {
@@ -1184,8 +1187,9 @@ export default function ProjectCoverPage() {
       <div className="px-8 py-6 bg-white border-b border-[#E5E7EB]">
         <div className="max-w-[1240px] mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-start">
           <div>
-            <h1 className="text-[22px] font-semibold text-[#111] tracking-tight mb-2">
+            <h1 className="text-[22px] font-semibold text-[#111] tracking-tight mb-2 flex items-center gap-2">
               {project.name}
+              <ImportedBadge importedAt={project.imported_at} />
             </h1>
             <div className="flex gap-2.5 flex-wrap items-center text-xs text-[#6B7280]">
               {project.client_name && (

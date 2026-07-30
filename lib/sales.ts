@@ -94,7 +94,7 @@ export async function loadSalesProjects(
     .from('projects')
     .select(
       `id, name, client_name, client_id, delivery_address, stage,
-       bid_total, estimated_price, created_at, updated_at,
+       bid_total, estimated_price, created_at, updated_at, imported_at,
        subprojects(id, linear_feet)`
     )
     .eq('org_id', orgId)

@@ -28,6 +28,7 @@ import { useConfirm } from '@/components/confirm-dialog'
 import NewProjectModal from '@/components/sales/NewProjectModal'
 import Link from 'next/link'
 import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus } from 'lucide-react'
+import ImportedBadge from '@/components/imported-badge'
 
 function fmtMoney(n: number | null | undefined) {
   if (n == null || n === 0) return '—'
@@ -322,7 +323,10 @@ function KanbanCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-[#111] truncate">{project.name}</div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="text-sm font-semibold text-[#111] truncate">{project.name}</div>
+            <ImportedBadge importedAt={(project as { imported_at?: string | null }).imported_at} />
+          </div>
           {project.client_name && (
             <div className="text-[11px] text-[#6B7280] truncate mt-0.5">{project.client_name}</div>
           )}

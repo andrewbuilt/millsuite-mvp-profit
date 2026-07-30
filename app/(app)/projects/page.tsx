@@ -32,6 +32,7 @@ import { loadSubprojectStatusMap } from '@/lib/subproject-status'
 import { isDepositReceived } from '@/lib/project-stage'
 import { loadProjectDeptHours } from '@/lib/project-hours'
 import { loadProjectActuals } from '@/lib/actual-hours'
+import ImportedBadge from '@/components/imported-badge'
 
 interface ProjectRow {
   id: string
@@ -41,6 +42,8 @@ interface ProjectRow {
   bid_total: number
   due_date: string | null
   updated_at: string
+  /** Non-null when the job came from Built OS (6c) — drives the badge. */
+  imported_at?: string | null
 }
 
 // Derived lifecycle bucket. 'pre' / 'ready' both map to the 'sold' stage.
@@ -117,7 +120,7 @@ export default function ProjectsPage() {
       setLoading(true)
       const { data } = await supabase
         .from('projects')
-        .select('id, name, client_name, stage, bid_total, due_date, updated_at')
+        .select('id, name, client_name, stage, bid_total, due_date, updated_at, imported_at')
         .eq('org_id', orgId)
         .in('stage', POSTSOLD)
         .order('updated_at', { ascending: false })
@@ -373,6 +376,7 @@ function ProjectCard({
           {p.name}
         </span>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          <ImportedBadge importedAt={p.imported_at} />
           {openCos > 0 && (
             <span
               className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded-full border"

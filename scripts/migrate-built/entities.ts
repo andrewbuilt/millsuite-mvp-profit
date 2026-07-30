@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import './env'
 import type { CliOptions } from './cli'
 import { lookupMillsuiteId, recordId, loadEntityMap } from './id-map'
+import { importIds, type Manifest, type ManifestJob } from './manifest'
 // The verifier (chunk 6a) reconstructs each project's price with the SAME pure
 // functions the app uses to compute projects.bid_total (see lib/project-totals.ts),
 // so any script-vs-app disagreement fails loudly instead of a parallel formula
@@ -47,6 +48,9 @@ export interface Ctx {
   orgId: string
   opts: CliOptions
   scope: Scope
+  /** Selective-migration pick list (6c). Only 'import' rows are migrated;
+   *  everything else is skipped + logged. Required for a live run. */
+  manifest: Manifest
 }
 
 // ── Mappings ──
@@ -180,16 +184,49 @@ export async function resolveScope(
   throw new Error(`--project ${projectId} not found in Built leads or projects`)
 }
 
+/**
+ * Client ids behind every non-skipped manifest job (6c). Reads the Built lead
+ * and project rows named in the manifest and collects their client_id, so the
+ * client migration pulls exactly those and no one else's.
+ */
+async function manifestClientIds(ctx: Ctx): Promise<string[]> {
+  const { built, manifest } = ctx
+  const leadIds = manifest.jobs
+    .filter((j) => j.decision !== 'skip' && j.entity === 'lead')
+    .map((j) => j.built_id)
+  const projectIds = manifest.jobs
+    .filter((j) => j.decision !== 'skip' && j.entity === 'project')
+    .map((j) => j.built_id)
+  const ids = new Set<string>()
+  if (leadIds.length) {
+    const { data } = await built.from('leads').select('client_id').in('id', leadIds)
+    for (const r of data || []) if (r.client_id) ids.add(r.client_id)
+  }
+  if (projectIds.length) {
+    const { data } = await built.from('projects').select('client_id').in('id', projectIds)
+    for (const r of data || []) if (r.client_id) ids.add(r.client_id)
+  }
+  return [...ids]
+}
+
 // ── Clients ──
 export async function migrateClients(ctx: Ctx): Promise<void> {
   const { built, ms, orgId, opts, scope } = ctx
-  let q = built.from('clients').select('*')
+  // 6c: clients follow their jobs — only the ones attached to a manifest row
+  // that isn't 'skip' come across. Re-enter jobs bring their client too (that's
+  // the point: the client record exists so Andrew can rebuild the estimate).
+  const clientIds = await manifestClientIds(ctx)
+  if (clientIds.length === 0) {
+    console.log('  clients: 0 to migrate (no manifest jobs resolve to a client)')
+    return
+  }
+  let q = built.from('clients').select('*').in('id', clientIds)
   if (scope.clientId) q = q.eq('id', scope.clientId)
   q = withLimit(q, ctx)
   const { data: rows, error } = await q
   if (error) throw new Error(`read Built clients: ${error.message}`)
   const clients = rows || []
-  console.log(`  clients: ${clients.length} to migrate`)
+  console.log(`  clients: ${clients.length} to migrate (from ${clientIds.length} manifest job clients)`)
   if (opts.dryRun) return
 
   let inserted = 0
@@ -222,10 +259,16 @@ export async function migrateClients(ctx: Ctx): Promise<void> {
 // Shared: which Built leads become MillSuite projects (open, not lost, not
 // yet converted — converted ones come across via their project row).
 async function selectLeadsToMigrate(ctx: Ctx): Promise<any[]> {
-  const { built, scope } = ctx
+  const { built, scope, manifest } = ctx
   if (scope.id && scope.kind !== 'lead') return []
-  let q = built.from('leads').select('*').is('converted_to_project_id', null).neq('status', 'lost')
-  if (scope.kind === 'lead' && scope.id) q = q.eq('id', scope.id)
+  // 6c: leads are no longer pulled wholesale — only manifest 'import' rows.
+  const ids = importIds(manifest, 'lead')
+  if (ids.length === 0) return []
+  let q = built.from('leads').select('*').in('id', ids)
+  if (scope.kind === 'lead' && scope.id) {
+    if (!ids.includes(scope.id)) return [] // --project outside the manifest
+    q = q.eq('id', scope.id)
+  }
   q = withLimit(q, ctx)
   const { data, error } = await q
   if (error) throw new Error(`read Built leads: ${error.message}`)
@@ -237,11 +280,21 @@ async function selectLeadsToMigrate(ctx: Ctx): Promise<any[]> {
 const FINISHED_PROJECT_STATUSES = ['installed', 'complete']
 
 async function selectProjectsToMigrate(ctx: Ctx): Promise<any[]> {
-  const { built, scope } = ctx
+  const { built, scope, manifest } = ctx
   if (scope.id && scope.kind !== 'project') return []
-  // Skip finished jobs — even when a finished project is passed via --project.
-  let q = built.from('projects').select('*').not('status', 'in', '("installed","complete")')
-  if (scope.kind === 'project' && scope.id) q = q.eq('id', scope.id)
+  // 6c: manifest-driven. The finished-status guard stays as a backstop — a
+  // finished job shouldn't be on the pick list, but don't import one if it is.
+  const ids = importIds(manifest, 'project')
+  if (ids.length === 0) return []
+  let q = built
+    .from('projects')
+    .select('*')
+    .in('id', ids)
+    .not('status', 'in', '("installed","complete")')
+  if (scope.kind === 'project' && scope.id) {
+    if (!ids.includes(scope.id)) return []
+    q = q.eq('id', scope.id)
+  }
   q = withLimit(q, ctx)
   const { data, error } = await q
   if (error) throw new Error(`read Built projects: ${error.message}`)
@@ -287,13 +340,33 @@ export async function migrateProjects(ctx: Ctx): Promise<void> {
   let updated = 0
 
   async function upsertProject(builtId: string, payload: Record<string, unknown>) {
+    // 6c: stamp every migrated project so the UI can badge it "IMPORTED".
+    // Set on insert and preserved on re-run (idempotent — keeps the original
+    // import timestamp rather than bumping it each pass).
     const existing = await lookupMillsuiteId(ms, orgId, 'project', builtId)
     if (existing) {
-      const { error } = await ms.from('projects').update(payload).eq('id', existing)
+      // Keep the ORIGINAL import timestamp on re-run; only backfill if unset
+      // (e.g. a project migrated before 080 added the column).
+      const { data: cur } = await ms
+        .from('projects')
+        .select('imported_at')
+        .eq('id', existing)
+        .maybeSingle()
+      const stamp = (cur as any)?.imported_at
+        ? {}
+        : { imported_at: new Date().toISOString() }
+      const { error } = await ms
+        .from('projects')
+        .update({ ...payload, ...stamp })
+        .eq('id', existing)
       if (error) throw new Error(`update project ${builtId}: ${error.message}`)
       updated++
     } else {
-      const { data, error } = await ms.from('projects').insert(payload).select('id').single()
+      const { data, error } = await ms
+        .from('projects')
+        .insert({ ...payload, imported_at: new Date().toISOString() })
+        .select('id')
+        .single()
       if (error || !data) throw new Error(`insert project ${builtId}: ${error?.message}`)
       await recordId(ms, orgId, 'project', builtId, data.id)
       inserted++
@@ -860,5 +933,158 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       null,
       2,
     ),
+  )
+}
+
+// ── 6c: re-enter reference sheets ──
+
+/**
+ * For every manifest row marked 're-enter', dump what Built knows about the
+ * job (scope text, spec lines, price, dept hours) to a reference sheet so
+ * Andrew can rebuild the estimate natively in MillSuite with the new rate
+ * book. No project/estimate rows are written for these — only the client
+ * (handled by migrateClients).
+ */
+export async function dumpReEnterSheets(ctx: Ctx): Promise<void> {
+  const { built, manifest } = ctx
+  const rows = manifest.jobs.filter((j) => j.decision === 're-enter')
+  if (rows.length === 0) {
+    console.log('  re-enter: none listed')
+    return
+  }
+  const sheets: any[] = []
+  for (const j of rows) {
+    const table = j.entity === 'lead' ? 'leads' : 'projects'
+    const { data: job } = await built.from(table).select('*').eq('id', j.built_id).maybeSingle()
+    const subTable = j.entity === 'lead' ? 'lead_subprojects' : 'subprojects'
+    const fk = j.entity === 'lead' ? 'lead_id' : 'project_id'
+    const { data: subs } = await built.from(subTable).select('*').eq(fk, j.built_id)
+    sheets.push({
+      name: j.name,
+      built_id: j.built_id,
+      entity: j.entity,
+      expected_price: j.expected_price,
+      expected_hours: j.expected_hours,
+      client_id: (job as any)?.client_id ?? null,
+      status: (job as any)?.status ?? null,
+      subprojects: (subs || []).map((s: any) => ({
+        name: s.name ?? s.title ?? null,
+        activity_type: s.activity_type ?? null,
+        description: s.description ?? null,
+        details: s.details_json ?? null,
+        exclusions: s.exclusions_json ?? null,
+        price: s.price ?? s.total_price ?? null,
+        spec_lines: s.spec_lines_json ?? null,
+      })),
+    })
+  }
+  const dir = resolve(__dirname, 'reports')
+  mkdirSync(dir, { recursive: true })
+  const out = resolve(dir, 're-enter-reference.json')
+  writeFileSync(out, JSON.stringify({ generated_for: sheets.length, sheets }, null, 2))
+  console.log(`  re-enter: ${sheets.length} reference sheet(s) → ${out}`)
+  for (const s of sheets) {
+    console.log(`    · ${s.name} — $${s.expected_price ?? '?'} / ${s.expected_hours ?? '?'} hrs, ${s.subprojects.length} sub(s)`)
+  }
+}
+
+// ── 6c: checksum verification ──
+
+/**
+ * After an import, compare each manifest job's MillSuite bid_total + dept
+ * hours against the Built-side checksums recorded in the manifest. Drift is
+ * FLAGGED loudly (and written to reports/manifest-verify.json) rather than
+ * silently accepted — this is the guard that a job came across whole.
+ */
+export async function verifyAgainstManifest(ctx: Ctx): Promise<void> {
+  const { ms, orgId, manifest, opts } = ctx
+  if (opts.dryRun) {
+    console.log('  checksums: skipped (dry-run — nothing imported to verify)')
+    return
+  }
+  const jobs = manifest.jobs.filter((j) => j.decision === 'import')
+  const report: any[] = []
+  let flagged = 0
+
+  for (const j of jobs) {
+    const projectId = await lookupMillsuiteId(ms, orgId, 'project', j.built_id)
+    if (!projectId) {
+      report.push({ name: j.name, built_id: j.built_id, status: 'MISSING', reason: 'not imported' })
+      flagged++
+      continue
+    }
+    const { data: proj } = await ms
+      .from('projects')
+      .select('bid_total')
+      .eq('id', projectId)
+      .maybeSingle()
+    const bid = Math.round(Number((proj as any)?.bid_total) || 0)
+
+    // Hours: sum dept_hour_overrides across the project's estimate lines.
+    const { data: subs } = await ms.from('subprojects').select('id').eq('project_id', projectId)
+    const subIds = (subs || []).map((s: any) => s.id)
+    let hours = 0
+    if (subIds.length) {
+      const { data: lines } = await ms
+        .from('estimate_lines')
+        .select('quantity, dept_hour_overrides')
+        .in('subproject_id', subIds)
+      for (const l of lines || []) {
+        const o = (l as any).dept_hour_overrides || {}
+        const perUnit =
+          (Number(o.eng) || 0) + (Number(o.cnc) || 0) + (Number(o.assembly) || 0) +
+          (Number(o.finish) || 0) + (Number(o.install) || 0)
+        hours += perUnit * (Number((l as any).quantity) || 0)
+      }
+    }
+    hours = Math.round(hours)
+
+    const expPrice = j.expected_price == null ? null : Math.round(j.expected_price)
+    const expHours = j.expected_hours == null ? null : Math.round(j.expected_hours)
+    // Money must match to the dollar; hours allow 1% rounding slack (per-unit
+    // hours × qty can land a hair off Built's stored total).
+    const priceOk = expPrice == null || bid === expPrice
+    const hoursOk =
+      expHours == null || expHours === 0
+        ? true
+        : Math.abs(hours - expHours) / expHours <= 0.01
+    const status = priceOk && hoursOk ? 'ok' : 'FLAG'
+    if (status === 'FLAG') flagged++
+    report.push({
+      name: j.name,
+      built_id: j.built_id,
+      millsuite_project_id: projectId,
+      bid,
+      expected_price: expPrice,
+      priceOk,
+      hours,
+      expected_hours: expHours,
+      hoursOk,
+      status,
+    })
+  }
+
+  console.log(`  checksums: ${jobs.length} job(s) verified against the manifest`)
+  for (const r of report) {
+    if (r.status === 'MISSING') {
+      console.log(`    ! ${String(r.name).slice(0, 34).padEnd(35)} NOT IMPORTED`)
+      continue
+    }
+    const mark = r.status === 'FLAG' ? '!' : '·'
+    const priceTag = r.priceOk ? `$${r.bid}` : `$${r.bid} ≠ $${r.expected_price} ⚠`
+    const hoursTag = r.hoursOk ? `${r.hours}h` : `${r.hours}h ≠ ${r.expected_hours}h ⚠`
+    console.log(`    ${mark} ${String(r.name).slice(0, 34).padEnd(35)} ${priceTag} · ${hoursTag}`)
+  }
+  if (flagged) {
+    console.log(`    ↳ ⚠ ${flagged} job(s) DRIFTED from the Built checksums — inspect before continuing`)
+  } else if (jobs.length) {
+    console.log('    ↳ all imported jobs match Built on price + hours')
+  }
+
+  const dir = resolve(__dirname, 'reports')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    resolve(dir, 'manifest-verify.json'),
+    JSON.stringify({ verified: jobs.length, flagged, report }, null, 2),
   )
 }

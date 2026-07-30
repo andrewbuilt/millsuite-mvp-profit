@@ -1,0 +1,17 @@
+{
+  "_readme": "Selective migration manifest (6c). decision: import | re-enter | skip. expected_* are Built-side checksums the script must verify after import (flag if bid_total or total hours drift). Written by Cowork 2026-07-24 from Andrew's 12-job list; source data audited (all have v4 spec lines + dept hours; jobs marked milestones:0 have no payment schedule in Built — Andrew records payments-to-date manually after import).",
+  "jobs": [
+    { "entity": "project", "built_id": "3e5704be-ab87-4b60-b112-46af52e727c2", "name": "Leonard - JW Marriott - Lobby Bar Phase 1", "decision": "import", "expected_price": 172563, "expected_hours": 648, "milestones": 0 },
+    { "entity": "project", "built_id": "d8c927e9-e9d1-4770-bdf0-7c8fd240bd40", "name": "Leonard - JW Marriott - SIX Restaurant - Phase 2", "decision": "import", "expected_price": 145685, "expected_hours": 771, "milestones": 0 },
+    { "entity": "project", "built_id": "367c87c2-8474-44b8-9473-434e16c597e9", "name": "Leonard - JW Marriott - Market Millwork Phase 2", "decision": "import", "expected_price": 107784, "expected_hours": 581, "milestones": 0 },
+    { "entity": "project", "built_id": "98225b92-a23d-4dff-855d-d133ed2e4a16", "name": "Jabal - Mountain Millwork", "decision": "import", "expected_price": 34276, "expected_hours": 148, "milestones": 0 },
+    { "entity": "project", "built_id": "59df3617-fcd3-4928-99f7-7fc7820b3549", "name": "UT - Public Arts Panels and Boxes", "decision": "import", "expected_price": 27425, "expected_hours": 156, "milestones": 3 },
+    { "entity": "project", "built_id": "d5ac5820-3dd3-4d4d-9cf3-3b164dfa2f03", "name": "Murtagh Bar", "decision": "import", "expected_price": 26227, "expected_hours": 80, "milestones": 0 },
+    { "entity": "project", "built_id": "5e160c73-9db8-4b23-a87c-ceb9512f99ac", "name": "Jabal Coffee - Kneewall", "decision": "import", "expected_price": 22165, "expected_hours": 126, "milestones": 3 },
+    { "entity": "lead", "built_id": "e93b9fe9-bc8d-4e3f-9f95-a1bf6ca7fabc", "name": "Batia - Westminster Millwork", "decision": "import", "expected_price": 160139, "expected_hours": 761, "milestones": 3 },
+    { "entity": "lead", "built_id": "c7dad022-1257-418f-bf37-cfb15aa2501f", "name": "Bonzer - 400 Central PH44C - Ceiling and Wall Paneling", "decision": "import", "expected_price": 133918, "expected_hours": 678, "milestones": 4 },
+    { "entity": "lead", "built_id": "1bc5ffc9-e2e6-49e9-9d37-39528361352a", "name": "Schiller - Anderson & Kiran - Euc Opt", "decision": "import", "expected_price": 59150, "expected_hours": 407, "milestones": 3 },
+    { "entity": "lead", "built_id": "28efaf64-dbb6-49c4-b918-b2d733cbc964", "name": "Jabal - Change Orders", "decision": "import", "expected_price": 4890, "expected_hours": 34, "milestones": 2 },
+    { "entity": "lead", "built_id": "19494a98-5b6a-45af-9944-615eb66fcbc0", "name": "Hunt - Pajot Millwork", "decision": "import", "expected_price": 115122, "expected_hours": 745, "milestones": 3 }
+  ]
+}

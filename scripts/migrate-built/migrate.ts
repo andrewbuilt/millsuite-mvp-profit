@@ -27,8 +27,11 @@ import {
   migrateSubprojects,
   migrateMilestones,
   migrateEstimateLines,
+  dumpReEnterSheets,
+  verifyAgainstManifest,
   type Ctx,
 } from './entities'
+import { loadManifest, describeManifest, MANIFEST_PATH } from './manifest'
 
 // Dependency order — parents before children so FKs resolve through the map.
 const PIPELINE: Entity[] = ['client', 'project', 'subproject', 'estimate_line', 'milestone']
@@ -60,6 +63,17 @@ async function main() {
   console.log(`  ${describeOptions(opts)}`)
   console.log(`  target org slug: ${TARGET_ORG_SLUG}`)
 
+  // 6c: the manifest is the pick list. No manifest ⇒ nothing is migrated —
+  // the selective migration never falls back to a full run.
+  const manifest = loadManifest()
+  if (!manifest) {
+    throw new Error(
+      `no pick list found at ${MANIFEST_PATH} — selective migration (6c) requires a manifest.json ` +
+        'listing which Built jobs to import. Nothing was migrated.',
+    )
+  }
+  console.log(`  manifest: ${describeManifest(manifest)}`)
+
   const ms = millsuiteClient()
   await preflight(ms)
   const built = builtClient()
@@ -76,10 +90,20 @@ async function main() {
     process.exit(1)
   }
 
-  const ctx: Ctx = { built, ms, orgId, opts, scope }
+  const ctx: Ctx = { built, ms, orgId, opts, scope, manifest }
   for (const entity of entities) {
     console.log(`${entity}:`)
     await RUNNERS[entity](ctx)
+  }
+
+  // 6c tail: reference sheets for the re-enter list, then verify every
+  // imported job against the Built checksums. Both are no-ops when the run
+  // was scoped to a single entity via --entity.
+  if (!opts.entity) {
+    console.log('\nre-enter sheets:')
+    await dumpReEnterSheets(ctx)
+    console.log('\nverify:')
+    await verifyAgainstManifest(ctx)
   }
 
   console.log('\nDone.' + (opts.dryRun ? ' (dry-run — nothing written)' : ''))
