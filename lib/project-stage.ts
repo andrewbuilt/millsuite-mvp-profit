@@ -142,7 +142,13 @@ export async function markDepositReceived(projectId: string): Promise<boolean> {
 export async function startProduction(projectId: string): Promise<boolean> {
   const ready = await isReadyForProduction(projectId)
   if (!ready) return false
+  return commitProductionStart(projectId)
+}
 
+/** The actual transition: flip the stage + seed schedule allocations. Shared
+ *  by the gated path and the override so both behave identically once the
+ *  decision to start has been made. */
+async function commitProductionStart(projectId: string): Promise<boolean> {
   const { error } = await supabase
     .from('projects')
     .update({ stage: 'production' })
@@ -153,4 +159,74 @@ export async function startProduction(projectId: string): Promise<boolean> {
   }
   await seedAllocationsForProduction(projectId)
   return true
+}
+
+/**
+ * Approval override (6c item 3). For jobs whose approvals already happened
+ * OUTSIDE MillSuite — the Built-OS imports, where the client signed off on
+ * samples months ago — force the remaining approval cards closed and then run
+ * the normal startProduction().
+ *
+ * Deliberately NOT import-specific (any project can need it), but it is
+ * owner-only + confirm-gated in the UI because it bypasses the sample
+ * sign-off trail. Every card it closes gets an audit note so the history
+ * shows the approval was overridden, not actually obtained here.
+ *
+ * The DEPOSIT gate still applies — this only clears approvals. If the deposit
+ * isn't recorded the project stays put and this returns
+ * { ok: false, reason: 'deposit' } so the UI can say why.
+ *
+ * NB: it bypasses isReadyForProduction rather than calling startProduction,
+ * because that gate also requires approved DRAWING revisions — imported jobs
+ * have no drawings in MillSuite (they lived in Built / the shop's drive), so
+ * the gate could never pass no matter how many cards we approve. Approvals +
+ * drawings are exactly what "overridden" means here; the deposit is not.
+ */
+export async function forceStartProduction(
+  projectId: string,
+  args: { actorUserId?: string; note?: string } = {},
+): Promise<{ ok: boolean; approvedCount: number; reason?: 'deposit' | 'stage' | 'error' }> {
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, stage')
+    .eq('id', projectId)
+    .single()
+  if (project?.stage !== 'sold') return { ok: false, approvedCount: 0, reason: 'stage' }
+
+  const { data: subs } = await supabase
+    .from('subprojects')
+    .select('id')
+    .eq('project_id', projectId)
+  const subIds = (subs || []).map((s: { id: string }) => s.id)
+
+  // Close every card that isn't approved yet, with an audit note.
+  let approvedCount = 0
+  if (subIds.length) {
+    const { data: items } = await supabase
+      .from('approval_items')
+      .select('id, state')
+      .in('subproject_id', subIds)
+      .neq('state', 'approved')
+    const { approve } = await import('./approvals')
+    for (const it of (items || []) as Array<{ id: string }>) {
+      try {
+        await approve(it.id, {
+          actorUserId: args.actorUserId,
+          note:
+            args.note ||
+            'Approval overridden — sign-off happened outside MillSuite (imported job).',
+        })
+        approvedCount++
+      } catch (err) {
+        console.error('forceStartProduction approve', it.id, err)
+      }
+    }
+  }
+
+  // Deposit is the one gate the override does NOT bypass.
+  if (!(await isDepositReceived(projectId))) {
+    return { ok: false, approvedCount, reason: 'deposit' }
+  }
+  const ok = await commitProductionStart(projectId)
+  return { ok, approvedCount, reason: ok ? undefined : 'error' }
 }

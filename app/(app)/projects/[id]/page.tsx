@@ -127,7 +127,7 @@ import {
 import ClientPicker from '@/components/project/ClientPicker'
 import NewSubprojectModal from '@/components/project/NewSubprojectModal'
 import { useConfirm } from '@/components/confirm-dialog'
-import { isReadyForProduction, startProduction, isDepositReceived, markDepositReceived } from '@/lib/project-stage'
+import { isReadyForProduction, startProduction, forceStartProduction, isDepositReceived, markDepositReceived } from '@/lib/project-stage'
 
 // ── Types ──
 
@@ -301,7 +301,7 @@ function coverStageOf(stage: ProjectStage): CoverStage | 'lost' {
 export default function ProjectCoverPage() {
   const { id: projectId } = useParams() as { id: string }
   const router = useRouter()
-  const { org } = useAuth()
+  const { org, user } = useAuth()
   const { confirm } = useConfirm()
 
   const shopRate = org?.shop_rate ?? 0
@@ -723,6 +723,45 @@ export default function ProjectCoverPage() {
       }
       setProject((p) => (p ? { ...p, stage: 'production' } : p))
       showToast('Production started. Schedule allocations seeded.')
+      reload()
+    } finally {
+      setStartingProduction(false)
+    }
+  }
+
+  // Approval override (6c item 3) — owner-only, confirm-gated. For jobs whose
+  // sign-off happened outside MillSuite (Built-OS imports): closes the
+  // remaining approval cards with an audit note, then starts production. The
+  // deposit gate still applies.
+  async function handleForceStartProduction() {
+    if (startingProduction) return
+    const ok = await confirm({
+      title: 'Force start production?',
+      message:
+        'This closes every remaining approval card on this project and marks them approved ' +
+        'with a note that sign-off happened outside MillSuite. Sample approvals and drawing ' +
+        'reviews will be skipped — the audit trail will show they were overridden, not obtained. ' +
+        'Use this for imported jobs that were already approved in Built OS. The deposit is still required.',
+      confirmLabel: 'Force start production',
+      variant: 'danger',
+    })
+    if (!ok) return
+    setStartingProduction(true)
+    try {
+      const res = await forceStartProduction(projectId, { actorUserId: user?.id })
+      if (!res.ok) {
+        showToast(
+          res.reason === 'deposit'
+            ? 'Approvals overridden, but the deposit still needs recording before production.'
+            : 'Could not start production — try again.',
+        )
+        reload()
+        return
+      }
+      setProject((p) => (p ? { ...p, stage: 'production' } : p))
+      showToast(
+        `Production started. ${res.approvedCount} approval card(s) overridden; allocations seeded.`,
+      )
       reload()
     } finally {
       setStartingProduction(false)
@@ -1900,6 +1939,16 @@ export default function ProjectCoverPage() {
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
                   >
                     Start production
+                  </button>
+                )}
+                {stageCover === 'sold' && !readyForProduction && user?.role === 'owner' && (
+                  <button
+                    onClick={handleForceStartProduction}
+                    disabled={startingProduction}
+                    title="Override the approval gate — for jobs already approved outside MillSuite (imported from Built OS). Deposit still required."
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-[#FDE68A] bg-[#FFFBEB] text-[#92400E] hover:bg-[#FEF3C7] disabled:opacity-50 transition-colors"
+                  >
+                    Force start production
                   </button>
                 )}
                 {stageCover === 'sold' && !depositReceived && (

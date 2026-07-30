@@ -39,6 +39,8 @@ import {
   voidInvoice,
   voidInvoicePayment,
   qbInvoiceUrl,
+  linkExistingQbInvoice,
+  unlinkQbInvoice,
   INVOICE_STATUS_LABEL,
   INVOICE_STATUS_TONE,
   type Invoice,
@@ -352,6 +354,48 @@ export default function InvoiceDetailPage() {
     }
   }
 
+  // 6c item 4b — link an invoice that already lives in QuickBooks (imported
+  // jobs were invoiced out of Built months ago). Local pointer only: no push,
+  // so no duplicate in QB, but the watcher can now match future payments.
+  async function handleLinkQb() {
+    if (!invoice) return
+    const entered = window.prompt(
+      'Paste the QuickBooks invoice ID (the txnId in the QB invoice URL).\n\n' +
+        'This links the existing QB invoice so future payments sync — it does NOT push anything to QuickBooks.',
+      '',
+    )
+    if (entered == null) return
+    const id = entered.trim()
+    if (!id) return
+    setError(null)
+    try {
+      await linkExistingQbInvoice(invoice.id, id)
+      const refreshed = await getInvoice(invoice.id)
+      if (refreshed) setInvoice(refreshed.invoice)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to link the QuickBooks invoice')
+    }
+  }
+
+  async function handleUnlinkQb() {
+    if (!invoice) return
+    const ok = await confirm({
+      title: 'Unlink QuickBooks invoice?',
+      message:
+        'This clears the local link only — nothing changes in QuickBooks. Future QB payments will stop matching this invoice until you link or push it again.',
+      confirmLabel: 'Unlink',
+      variant: 'danger',
+    })
+    if (!ok) return
+    try {
+      await unlinkQbInvoice(invoice.id)
+      const refreshed = await getInvoice(invoice.id)
+      if (refreshed) setInvoice(refreshed.invoice)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to unlink')
+    }
+  }
+
   // Push this invoice to QuickBooks (QB mode, not yet pushed). Mirrors the
   // project-page push: creates a QB invoice from the current lines and stamps
   // qbo_invoice_id back so incoming payments can match. Lines map to the org's
@@ -515,11 +559,10 @@ export default function InvoiceDetailPage() {
                 <Send className="w-3.5 h-3.5" /> Send invoice
               </button>
             )}
-            {(invoice.status === 'sent' ||
-              invoice.status === 'partial' ||
-              isOverdue(invoice)) && (
+            {!isVoid && invoice.status !== 'paid' && (
               <button
                 onClick={() => setPaymentModal({ mode: 'create' })}
+                title="Record a payment already received — including historical payments on an imported job."
                 className="px-3 py-1.5 text-[12px] text-[#374151] border border-[#E5E7EB] hover:bg-[#F9FAFB] rounded-md inline-flex items-center gap-1.5"
               >
                 <CreditCard className="w-3.5 h-3.5" /> Record payment
@@ -527,26 +570,44 @@ export default function InvoiceDetailPage() {
             )}
             {qbMode && !isVoid && (
               invoice.qbo_invoice_id ? (
-                <a
-                  href={qbInvoiceUrl(invoice.qbo_invoice_id)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 text-[12px] text-[#15803D] hover:underline inline-flex items-center gap-1.5"
-                >
-                  ✓ View in QuickBooks ↗
-                </a>
+                <span className="inline-flex items-center gap-1">
+                  <a
+                    href={qbInvoiceUrl(invoice.qbo_invoice_id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 text-[12px] text-[#15803D] hover:underline inline-flex items-center gap-1.5"
+                  >
+                    ✓ In QuickBooks ↗
+                  </a>
+                  <button
+                    onClick={handleUnlinkQb}
+                    title="Unlink this QuickBooks invoice (local only — nothing changes in QuickBooks)"
+                    className="px-2 py-1.5 text-[11px] text-[#9CA3AF] hover:text-[#DC2626] rounded-md"
+                  >
+                    Unlink
+                  </button>
+                </span>
               ) : totals.total < 0 ? (
                 <span className="px-3 py-1.5 text-[12px] text-[#B45309] inline-flex items-center gap-1.5">
                   Credit — issue a credit memo in QuickBooks
                 </span>
               ) : (
-                <button
-                  onClick={handlePushToQb}
-                  disabled={pushingQb || lines.length === 0}
-                  className="px-3 py-1.5 text-[12px] font-medium text-[#1D4ED8] border border-[#BFDBFE] bg-[#EFF6FF] hover:bg-[#DBEAFE] rounded-md inline-flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  {pushingQb ? 'Pushing…' : 'Push to QuickBooks'}
-                </button>
+                <span className="inline-flex items-center gap-1">
+                  <button
+                    onClick={handlePushToQb}
+                    disabled={pushingQb || lines.length === 0}
+                    className="px-3 py-1.5 text-[12px] font-medium text-[#1D4ED8] border border-[#BFDBFE] bg-[#EFF6FF] hover:bg-[#DBEAFE] rounded-md inline-flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {pushingQb ? 'Pushing…' : 'Push to QuickBooks'}
+                  </button>
+                  <button
+                    onClick={handleLinkQb}
+                    title="Already invoiced in QuickBooks (e.g. an imported job)? Link the existing QB invoice instead of pushing a duplicate."
+                    className="px-2.5 py-1.5 text-[12px] text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] rounded-md"
+                  >
+                    Link existing…
+                  </button>
+                </span>
               )
             )}
             {!isVoid && (

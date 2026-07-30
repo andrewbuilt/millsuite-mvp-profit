@@ -1025,6 +1025,44 @@ export function qbInvoiceUrl(qboInvoiceId: string): string {
   return `https://app.qbo.intuit.com/app/invoice?txnId=${qboInvoiceId}`
 }
 
+/**
+ * Link a MillSuite invoice to an invoice that ALREADY EXISTS in QuickBooks
+ * (Built-OS migration, 6c item 4b). Imported jobs were invoiced out of Built →
+ * QB months ago; pushing them again would create a duplicate. Stamping the
+ * existing QBO id instead means the QB watcher can apply FUTURE payments to
+ * the right MillSuite invoice, and the UI hides "Push to QuickBooks".
+ *
+ * Writes nothing to QuickBooks — this is a local link only.
+ */
+export async function linkExistingQbInvoice(
+  invoiceId: string,
+  qboInvoiceId: string,
+): Promise<void> {
+  const id = qboInvoiceId.trim()
+  if (!id) throw new Error('Enter the QuickBooks invoice id.')
+  const { error } = await supabase
+    .from('client_invoices')
+    .update({ qbo_invoice_id: id, updated_at: new Date().toISOString() })
+    .eq('id', invoiceId)
+  if (error) {
+    console.error('linkExistingQbInvoice', error)
+    throw new Error(error.message || 'Failed to link the QuickBooks invoice')
+  }
+}
+
+/** Undo a link made by linkExistingQbInvoice (mistyped id, wrong invoice).
+ *  Safe: it only clears the local pointer, never touches QuickBooks. */
+export async function unlinkQbInvoice(invoiceId: string): Promise<void> {
+  const { error } = await supabase
+    .from('client_invoices')
+    .update({ qbo_invoice_id: null, updated_at: new Date().toISOString() })
+    .eq('id', invoiceId)
+  if (error) {
+    console.error('unlinkQbInvoice', error)
+    throw new Error(error.message || 'Failed to unlink')
+  }
+}
+
 export function isOverdue(inv: Pick<Invoice, 'status' | 'due_date'>): boolean {
   if (inv.status !== 'sent') return false
   const today = new Date().toISOString().slice(0, 10)
