@@ -678,10 +678,32 @@ export async function updateProjectStage(
   projectId: string,
   stage: ProjectStage
 ): Promise<void> {
-  const { error } = await supabase
-    .from('projects')
-    .update({ stage, updated_at: new Date().toISOString() })
-    .eq('id', projectId)
+  const patch: Record<string, unknown> = { stage, updated_at: new Date().toISOString() }
+
+  // Lock the labor rate at sale (6c). Once a job is sold its cost must stop
+  // moving — without this, editing orgs.shop_rate later reprices every sold
+  // job (labor cost shifts → the margin math follows → the price the client
+  // signed drifts). Stamped only on the sold transition, and only when not
+  // already pinned, so re-marking or a later stage change never overwrites it.
+  if (stage === 'sold') {
+    const { data } = await supabase
+      .from('projects')
+      .select('org_id, locked_shop_rate')
+      .eq('id', projectId)
+      .maybeSingle()
+    const row = data as { org_id: string | null; locked_shop_rate: number | null } | null
+    if (row && !row.locked_shop_rate && row.org_id) {
+      const { data: orgRow } = await supabase
+        .from('orgs')
+        .select('shop_rate')
+        .eq('id', row.org_id)
+        .maybeSingle()
+      const rate = Number((orgRow as { shop_rate: number | null } | null)?.shop_rate) || 0
+      if (rate > 0) patch.locked_shop_rate = rate
+    }
+  }
+
+  const { error } = await supabase.from('projects').update(patch).eq('id', projectId)
   if (error) {
     console.error('updateProjectStage', error)
     throw error

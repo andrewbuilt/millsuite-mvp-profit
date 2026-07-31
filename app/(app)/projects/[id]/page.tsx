@@ -155,6 +155,9 @@ interface Project {
   consumable_margin_pct: number | null
   /** Non-null when the job came from Built OS (6c, migration 080). */
   imported_at?: string | null
+  /** Labor rate pinned to this job — wins over the org shop rate so a sold
+   *  job's cost doesn't move when the shop rate changes (6c). */
+  locked_shop_rate?: number | null
 }
 
 interface Subproject {
@@ -304,7 +307,12 @@ export default function ProjectCoverPage() {
   const { org, user } = useAuth()
   const { confirm } = useConfirm()
 
-  const shopRate = org?.shop_rate ?? 0
+  const orgShopRate = org?.shop_rate ?? 0
+
+  const [project, setProject] = useState<Project | null>(null)
+  // Rate precedence (6c): a job's locked rate wins over the org's current
+  // rate, so a sold job's cost doesn't move when the shop rate changes.
+  const shopRate = Number(project?.locked_shop_rate) || orgShopRate
   const pricingCtx: PricingContext = useMemo(
     () => ({
       shopRate,
@@ -313,8 +321,6 @@ export default function ProjectCoverPage() {
     }),
     [shopRate, org?.consumable_markup_pct, org?.profit_margin_pct]
   )
-
-  const [project, setProject] = useState<Project | null>(null)
   // Migration 052: three per-bucket margins (labor / material / consumables).
   // Each resolves project pin → org default → 35. Subproject rollups stay
   // at cost; margin is applied once at the project rollup via
@@ -435,11 +441,16 @@ export default function ProjectCoverPage() {
       })
     )
 
+    // Use the rate off the row we just loaded (not the render-time `shopRate`,
+    // which is a tick behind on first load) so cards price at the job's
+    // locked rate immediately.
+    const effRate = Number((projRes.data as Project | null)?.locked_shop_rate) || orgShopRate
+
     const cardData: SubCardData[] = subs.map((sub) => {
       const subLines =
         linesBySub.find((x) => x.subId === sub.id)?.lines || ([] as EstimateLine[])
       const perSubCtx: PricingContext = {
-        shopRate,
+        shopRate: effRate,
         consumableMarkupPct:
           sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
         // Subproject rollups always run at COST. Margin is applied

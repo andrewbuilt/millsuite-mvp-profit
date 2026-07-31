@@ -42,6 +42,10 @@ interface ProjectRow {
   id: string
   org_id: string | null
   bid_total: number | null
+  /** Labor rate pinned to this job (migration 001 column, wired 6c). When set,
+   *  it replaces the org shop rate for every cost rollup on this project, so a
+   *  sold job's cost stops moving when the shop rate changes. */
+  locked_shop_rate: number | null
   target_margin_pct: number | null
   labor_margin_pct: number | null
   material_margin_pct: number | null
@@ -75,7 +79,7 @@ export async function recomputeProjectBidTotal(
     const { data: projData, error: projErr } = await supabase
       .from('projects')
       .select(
-        'id, org_id, bid_total, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct',
+        'id, org_id, bid_total, locked_shop_rate, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct',
       )
       .eq('id', projectId)
       .single()
@@ -103,7 +107,14 @@ export async function recomputeProjectBidTotal(
       consumable_margin_pct: number | null
     } | null
     const orgConsumables = Number(orgRow?.consumable_markup_pct ?? 10)
-    const shopRate = Number(orgRow?.shop_rate ?? 0)
+    // Rate precedence: the job's locked rate (pinned at sale / at import) wins
+    // over the org's current rate. Without this, changing orgs.shop_rate
+    // silently reprices every already-sold job — the labor cost moves, the
+    // margin math follows, and subproject prices drift off what the client
+    // signed. Imported jobs carry Built's rate; native jobs lock theirs when
+    // they're marked sold.
+    const lockedRate = Number(project.locked_shop_rate) || 0
+    const shopRate = lockedRate > 0 ? lockedRate : Number(orgRow?.shop_rate ?? 0)
 
     // Effective per-bucket margins: project pin → org default → 35.
     const margins = resolveBucketMargins(project, orgRow)

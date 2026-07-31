@@ -395,6 +395,10 @@ export async function migrateProjects(ctx: Ctx): Promise<void> {
       bid_total: num(l.estimated_price) ?? 0,
       estimated_price: num(l.estimated_price),
       estimated_hours: num(l.estimated_hours),
+      // Pin the job's labor rate (6c). Built leads store labor_rate; without
+      // it the job would be costed at whatever the org rate happens to be
+      // later, which silently reprices already-sold work.
+      locked_shop_rate: num(l.labor_rate),
       delivery_address: l.delivery_address ?? null,
       target_quarter: l.target_quarter ?? null,
       payment_terms: l.payment_terms ?? null,
@@ -719,10 +723,24 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     if (!msProjectId) continue
     const { data: proj } = await ms
       .from('projects')
-      .select('id, name, stage, bid_total, estimated_hours')
+      .select('id, name, stage, bid_total, estimated_hours, locked_shop_rate')
       .eq('id', msProjectId)
       .single()
     if (!proj) continue
+
+    // The rate this job is priced at. Built's own locked rate wins; where
+    // Built never recorded one we pin the CURRENT org rate, which both
+    // reproduces the numbers we're importing today and freezes them against
+    // future shop-rate changes. Critically this is the same rate the app's
+    // rollup will use (lib/project-totals reads locked_shop_rate), so the
+    // margin derived below reproduces the sold price in the app exactly.
+    let projRate = Number((proj as any).locked_shop_rate) || 0
+    if (projRate <= 0) {
+      projRate = shopRate
+      if (!opts.dryRun) {
+        await ms.from('projects').update({ locked_shop_rate: projRate }).eq('id', msProjectId)
+      }
+    }
 
     // Finished jobs are excluded upstream (selectProjectsToMigrate skips Built
     // 'installed'/'complete'), so no snapshotting — Andrew's call is to not pull
@@ -759,7 +777,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       if (isInstallActivity(s.activity_type)) {
         const guys = Number(s.install_guys) || 0
         const days = Number(s.install_days) || 0
-        const rate = Number(s.install_rate_per_hour) || shopRate
+        const rate = Number(s.install_rate_per_hour) || projRate
         const pct = Number(s.install_complexity_pct) || 0
         if (guys > 0 && days > 0 && rate > 0) {
           const h = guys * days * INSTALL_HOURS_PER_DAY
@@ -825,7 +843,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     for (const g of groups) {
       const lines = g.rows.map((r) => rowToEstimateLine(r, lineIdx++))
       const pctx: PricingContext = {
-        shopRate,
+        shopRate: projRate,
         consumableMarkupPct: g.consumableMarkupPct,
         profitMarginPct: 0, // margin applied once, project-level, below
       }
