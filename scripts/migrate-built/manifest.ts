@@ -39,6 +39,11 @@ export interface Manifest {
   path: string
   jobs: ManifestJob[]
   byId: Map<string, ManifestJob>
+  /** Built's effective shop rate — the labor rate used for any imported job
+   *  where Built recorded no locked_shop_rate. NOT MillSuite's org rate:
+   *  costing an imported job at MillSuite's current rate inflates its labor
+   *  and silently reprices work the client already signed. */
+  builtShopRate: number | null
 }
 
 export const MANIFEST_PATH = join(__dirname, 'manifest.json')
@@ -78,7 +83,14 @@ export function loadManifest(path: string = MANIFEST_PATH): Manifest | null {
       milestones: r.milestones == null ? null : Number(r.milestones),
     })
   }
-  return { path, jobs, byId: new Map(jobs.map((j) => [j.built_id, j])) }
+  const builtShopRate =
+    parsed?.built_shop_rate == null ? null : Number(parsed.built_shop_rate) || null
+  return {
+    path,
+    jobs,
+    byId: new Map(jobs.map((j) => [j.built_id, j])),
+    builtShopRate,
+  }
 }
 
 export function jobsWithDecision(m: Manifest, decision: ManifestDecision): ManifestJob[] {
@@ -99,5 +111,6 @@ export function clientBearingIds(m: Manifest): Set<string> {
 
 export function describeManifest(m: Manifest): string {
   const n = (d: ManifestDecision) => jobsWithDecision(m, d).length
-  return `${m.jobs.length} listed · ${n('import')} import · ${n('re-enter')} re-enter · ${n('skip')} skip`
+  const rate = m.builtShopRate ? ` · Built rate $${m.builtShopRate}/hr` : ''
+  return `${m.jobs.length} listed · ${n('import')} import · ${n('re-enter')} re-enter · ${n('skip')} skip${rate}`
 }

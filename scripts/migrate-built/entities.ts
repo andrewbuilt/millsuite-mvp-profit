@@ -395,10 +395,13 @@ export async function migrateProjects(ctx: Ctx): Promise<void> {
       bid_total: num(l.estimated_price) ?? 0,
       estimated_price: num(l.estimated_price),
       estimated_hours: num(l.estimated_hours),
-      // Pin the job's labor rate (6c). Built leads store labor_rate; without
-      // it the job would be costed at whatever the org rate happens to be
-      // later, which silently reprices already-sold work.
-      locked_shop_rate: num(l.labor_rate),
+      // Pin the job's labor rate (6c) — Built's rate, never MillSuite's.
+      // Costing an imported job at MillSuite's current rate inflates labor on
+      // every subproject; the project margin then absorbs it, so the total
+      // still lands on the sold price while the sub-level numbers drift off
+      // Built's. Leads store labor_rate; the manifest carries Built's
+      // effective rate for the (many) rows that have none.
+      locked_shop_rate: num(l.labor_rate) ?? ctx.manifest.builtShopRate,
       delivery_address: l.delivery_address ?? null,
       target_quarter: l.target_quarter ?? null,
       payment_terms: l.payment_terms ?? null,
@@ -419,7 +422,9 @@ export async function migrateProjects(ctx: Ctx): Promise<void> {
       delivery_address: p.delivery_address ?? null,
       target_production_month: p.target_production_month ?? null,
       quoted_lead_time_weeks: num(p.quoted_lead_time_weeks),
-      locked_shop_rate: num(p.locked_shop_rate),
+      // Built's own locked rate when it has one, else Built's effective rate
+      // from the manifest. Never MillSuite's org rate — see the lead branch.
+      locked_shop_rate: num(p.locked_shop_rate) ?? ctx.manifest.builtShopRate,
       payment_terms: p.payment_terms ?? null,
       ...cf,
     })
@@ -734,13 +739,11 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     // future shop-rate changes. Critically this is the same rate the app's
     // rollup will use (lib/project-totals reads locked_shop_rate), so the
     // margin derived below reproduces the sold price in the app exactly.
-    let projRate = Number((proj as any).locked_shop_rate) || 0
-    if (projRate <= 0) {
-      projRate = shopRate
-      if (!opts.dryRun) {
-        await ms.from('projects').update({ locked_shop_rate: projRate }).eq('id', msProjectId)
-      }
-    }
+    // Pinned by migrateProjects from Built's rate. Falling back to the org
+    // rate here would re-introduce the very drift the pin exists to prevent,
+    // so only do it if the pin is somehow missing.
+    const projRate =
+      Number((proj as any).locked_shop_rate) || ctx.manifest.builtShopRate || shopRate
 
     // Finished jobs are excluded upstream (selectProjectsToMigrate skips Built
     // 'installed'/'complete'), so no snapshotting — Andrew's call is to not pull
@@ -925,6 +928,21 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       })
       .eq('id', msProjectId)
     if (marginErr) throw new Error(`update margins for ${proj.name}: ${marginErr.message}`)
+
+    // Re-freeze the sold price. Inserting estimate_lines fires the app's
+    // recomputeProjectBidTotalForLine, which rewrites bid_total from the
+    // margins stored at that moment — i.e. the PREVIOUS run's. Left alone the
+    // next run derives its margin from that polluted bid and the price walks
+    // away from what the client signed (Batia drifted $160,139 → $165,689 this
+    // way). Built's audited price from the manifest is authoritative.
+    const frozenBid = ctx.manifest.byId.get(builtId)?.expected_price ?? bid
+    if (frozenBid > 0) {
+      const { error: bidErr } = await ms
+        .from('projects')
+        .update({ bid_total: frozenBid })
+        .eq('id', msProjectId)
+      if (bidErr) throw new Error(`re-freeze bid_total for ${proj.name}: ${bidErr.message}`)
+    }
   }
 
   // Report.
