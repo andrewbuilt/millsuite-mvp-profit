@@ -113,6 +113,18 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/**
+ * Positive-number-or-null. num() can't be used for rates: Number(null) === 0
+ * and 0 is finite, so `num(x) ?? fallback` silently yields 0 instead of the
+ * fallback — which is how imported jobs ended up with locked_shop_rate = 0
+ * (the app then treated them as unset and priced at the CURRENT org rate,
+ * disagreeing with the margin the script had derived at Built's rate).
+ */
+function posNum(v: unknown): number | null {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 // Join a jsonb string[] into non-empty trimmed lines.
 function stringBlocks(v: unknown): string[] {
   if (!Array.isArray(v)) return []
@@ -401,7 +413,7 @@ export async function migrateProjects(ctx: Ctx): Promise<void> {
       // still lands on the sold price while the sub-level numbers drift off
       // Built's. Leads store labor_rate; the manifest carries Built's
       // effective rate for the (many) rows that have none.
-      locked_shop_rate: num(l.labor_rate) ?? ctx.manifest.builtShopRate,
+      locked_shop_rate: posNum(l.labor_rate) ?? ctx.manifest.builtShopRate,
       delivery_address: l.delivery_address ?? null,
       target_quarter: l.target_quarter ?? null,
       payment_terms: l.payment_terms ?? null,
@@ -424,7 +436,7 @@ export async function migrateProjects(ctx: Ctx): Promise<void> {
       quoted_lead_time_weeks: num(p.quoted_lead_time_weeks),
       // Built's own locked rate when it has one, else Built's effective rate
       // from the manifest. Never MillSuite's org rate — see the lead branch.
-      locked_shop_rate: num(p.locked_shop_rate) ?? ctx.manifest.builtShopRate,
+      locked_shop_rate: posNum(p.locked_shop_rate) ?? ctx.manifest.builtShopRate,
       payment_terms: p.payment_terms ?? null,
       ...cf,
     })
@@ -487,6 +499,11 @@ export async function migrateSubprojects(ctx: Ctx): Promise<void> {
       estimated_price: num(s.estimated_price),
       material_cost: num(s.material_cost),
       linear_feet: num(s.linear_feet),
+      // Pin Built's consumables % on the sub. The APP reads this column
+      // (falling back to the org's 15%), so without it the app would price
+      // consumables 5 points higher than the script did and the two would
+      // disagree on the same job.
+      consumable_markup_pct: ctx.manifest.builtConsumablesPct,
       quality_type: s.quality_type ?? null,
       material_finish: s.material_finish ?? null,
       activity_type: s.activity_type ?? null,
@@ -696,7 +713,12 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     .eq('id', orgId)
     .single()
   const shopRate = Number(org?.shop_rate) || 0
-  const consumableMarkupPct = Number(org?.consumable_markup_pct) || 0
+  // Imported jobs consume at BUILT's rate, not MillSuite's org default —
+  // otherwise the same materials cost more here than the client was quoted
+  // (Built 10% vs MillSuite 15% on this org) and the derived margin has to
+  // absorb the gap, pushing every subproject's number off.
+  const consumableMarkupPct =
+    ctx.manifest.builtConsumablesPct ?? (Number(org?.consumable_markup_pct) || 0)
   const consumableMarkup = consumableMarkupPct / 100
 
   const leads = await selectLeadsToMigrate(ctx)

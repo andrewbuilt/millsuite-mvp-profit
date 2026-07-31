@@ -44,6 +44,9 @@ export interface Manifest {
    *  costing an imported job at MillSuite's current rate inflates its labor
    *  and silently reprices work the client already signed. */
   builtShopRate: number | null
+  /** Built's consumables markup %. Imported subprojects are stamped with this
+   *  so they price at Built's 10%, not MillSuite's org default (15%). */
+  builtConsumablesPct: number | null
 }
 
 export const MANIFEST_PATH = join(__dirname, 'manifest.json')
@@ -85,11 +88,14 @@ export function loadManifest(path: string = MANIFEST_PATH): Manifest | null {
   }
   const builtShopRate =
     parsed?.built_shop_rate == null ? null : Number(parsed.built_shop_rate) || null
+  const builtConsumablesPct =
+    parsed?.built_consumables_pct == null ? null : Number(parsed.built_consumables_pct)
   return {
     path,
     jobs,
     byId: new Map(jobs.map((j) => [j.built_id, j])),
     builtShopRate,
+    builtConsumablesPct,
   }
 }
 

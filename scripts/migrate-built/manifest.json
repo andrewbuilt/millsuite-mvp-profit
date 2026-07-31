@@ -1,6 +1,7 @@
 {
   "_readme": "Selective migration manifest (6c). decision: import | re-enter | skip. expected_* are Built-side checksums the script must verify after import (flag if bid_total or total hours drift). Written by Cowork 2026-07-24 from Andrew's 12-job list; source data audited (all have v4 spec lines + dept hours; jobs marked milestones:0 have no payment schedule in Built \u2014 Andrew records payments-to-date manually after import).",
   "built_shop_rate": 68.46,
+  "built_consumables_pct": 10,
   "_built_shop_rate_note": "Built's effective shop rate. Used as the labor rate for any imported job where Built recorded no locked_shop_rate, so imported labor cost reproduces Built exactly (verified: 148h x 68.46 = $10,132, 142h = $9,721, 166h = $11,364 on Leonard Lobby Bar). MillSuite's own org rate is NOT used for imports \u2014 it would silently reprice sold work.",
   "jobs": [
     {
