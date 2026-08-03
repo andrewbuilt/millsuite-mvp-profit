@@ -1331,9 +1331,14 @@ export async function migrateEstimateLinesFrozen(ctx: Ctx): Promise<void> {
     if (projErr) throw new Error(`freeze project ${proj.name}: ${projErr.message}`)
 
     // The install prefill would add cost + hours ON TOP of the frozen line that
-    // already carries both, so switch it off for imported subs.
-    if (subIds.length > 0) {
-      await ms.from('subprojects').update({ install_included: false }).in('id', subIds)
+    // already carries both, so switch it off for imported subs. Also store the
+    // material budget on the sub as a real number (not just the line's note) so
+    // the imported project panel can total it without parsing text.
+    for (const r of rows) {
+      await ms
+        .from('subprojects')
+        .update({ install_included: false, material_cost: Math.round(r.material) })
+        .eq('id', r.subId)
     }
   }
 

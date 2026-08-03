@@ -341,6 +341,16 @@ export default function ProjectCoverPage() {
     ],
   )
   const [cards, setCards] = useState<SubCardData[]>([])
+  // Imported jobs carry Built's per-sub material budget on subprojects.material_cost.
+  const importedMaterialBudget = useMemo(
+    () =>
+      cards.reduce(
+        (a, c) => a + (Number((c.sub as { material_cost?: number | null }).material_cost) || 0),
+        0,
+      ),
+    [cards],
+  )
+
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
   const [coListOpen, setCoListOpen] = useState(false)
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -1813,12 +1823,20 @@ export default function ProjectCoverPage() {
                 <div className="text-[32px] font-semibold text-[#111] font-mono tabular-nums tracking-tight leading-none">
                   {money(proj.priceTotal)}
                 </div>
-                <div className="text-xs text-[#6B7280] mt-1.5 font-mono tabular-nums">
-                  {proj.blendedMarginPct.toFixed(0)}% blended margin ·{' '}
-                  <span className="text-[#059669]">
-                    {money(proj.marginAmount)}
-                  </span>
-                </div>
+                {isImported ? (
+                  <div className="text-[11.5px] text-[#6B7280] mt-1.5 leading-snug">
+                    Quoted in Built OS — price is fixed. Margin is measured at the
+                    end from actuals.
+                  </div>
+                ) : (
+                  <div className="text-xs text-[#6B7280] mt-1.5 font-mono tabular-nums">
+                    {proj.blendedMarginPct.toFixed(0)}% blended margin ·{' '}
+                    <span className="text-[#059669]">
+                      {money(proj.marginAmount)}
+                    </span>
+                  </div>
+                )}
+                {!isImported && (
                 <BucketMarginEditor
                   projectId={projectId}
                   pins={{
@@ -1838,8 +1856,54 @@ export default function ProjectCoverPage() {
                     )
                   }
                 />
+                )}
               </div>
 
+              {/* Imported (6c-2): the price is Built's quote, so there is no
+                  cost build-up or margin to show. Surface what IS meaningful —
+                  the estimated hours that drive scheduling + est-vs-actual, and
+                  the material budget to buy against. */}
+              {isImported ? (
+                <div className="pt-4">
+                  <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
+                    Estimated hours
+                  </div>
+                  <FinRow label="Engineering" value={`${proj.hoursByDept.eng.toFixed(1)} h`} />
+                  <FinRow label="CNC" value={`${proj.hoursByDept.cnc.toFixed(1)} h`} />
+                  <FinRow label="Assembly" value={`${proj.hoursByDept.assembly.toFixed(1)} h`} />
+                  <FinRow label="Finish" value={`${proj.hoursByDept.finish.toFixed(1)} h`} />
+                  <FinRow label="Install" value={`${proj.hoursByDept.install.toFixed(1)} h`} />
+                  <div className="flex items-center justify-between text-sm pt-2 mt-2 border-t border-[#F3F4F6]">
+                    <span className="text-[#374151]">Total hours</span>
+                    <span className="font-mono text-[#111] tabular-nums">
+                      {proj.totalHours.toFixed(1)} h
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mt-4 mb-2">
+                    Material budget
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[#374151]">Budgeted material</span>
+                    <span className="font-mono text-[#111] tabular-nums">
+                      {money(importedMaterialBudget)}
+                    </span>
+                  </div>
+                  <div className="text-[10.5px] text-[#9CA3AF] mt-1 leading-snug">
+                    From the Built estimate — what this job was quoted to spend on
+                    material. Track actual spend against it.
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 mt-3 border-t border-[#E5E7EB]">
+                    <span className="text-[11px] font-semibold text-[#111] uppercase tracking-wider">
+                      Contract price
+                    </span>
+                    <span className="text-[18px] font-semibold font-mono text-[#111] tabular-nums">
+                      {money(proj.priceTotal)}
+                    </span>
+                  </div>
+                </div>
+              ) : (
               <div className="pt-4">
                 <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">
                   Cost breakdown
@@ -1939,6 +2003,7 @@ export default function ProjectCoverPage() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* Stage action — moved here from the old bottom bar. One
                   primary button per stage + a Pre-production link once sold. */}
