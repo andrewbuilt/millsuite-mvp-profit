@@ -26,7 +26,7 @@ import {
   migrateProjects,
   migrateSubprojects,
   migrateMilestones,
-  migrateEstimateLines,
+  migrateEstimateLinesFrozen,
   dumpReEnterSheets,
   verifyAgainstManifest,
   type Ctx,
@@ -53,7 +53,7 @@ const RUNNERS: Record<Entity, (ctx: Ctx) => Promise<void>> = {
   client: migrateClients,
   project: migrateProjects,
   subproject: migrateSubprojects,
-  estimate_line: migrateEstimateLines,
+  estimate_line: migrateEstimateLinesFrozen,
   milestone: migrateMilestones,
 }
 

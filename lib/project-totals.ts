@@ -46,6 +46,10 @@ interface ProjectRow {
    *  it replaces the org shop rate for every cost rollup on this project, so a
    *  sold job's cost stops moving when the shop rate changes. */
   locked_shop_rate: number | null
+  /** Non-null = imported from Built OS. These carry FROZEN pricing (6c-2):
+   *  each line's price is Built's quoted number verbatim, so MillSuite must
+   *  not re-derive it. See FROZEN_CTX below. */
+  imported_at: string | null
   target_margin_pct: number | null
   labor_margin_pct: number | null
   material_margin_pct: number | null
@@ -79,7 +83,7 @@ export async function recomputeProjectBidTotal(
     const { data: projData, error: projErr } = await supabase
       .from('projects')
       .select(
-        'id, org_id, bid_total, locked_shop_rate, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct',
+        'id, org_id, bid_total, locked_shop_rate, imported_at, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct',
       )
       .eq('id', projectId)
       .single()
@@ -116,8 +120,20 @@ export async function recomputeProjectBidTotal(
     const lockedRate = Number(project.locked_shop_rate) || 0
     const shopRate = lockedRate > 0 ? lockedRate : Number(orgRow?.shop_rate ?? 0)
 
+    // ── Imported jobs price FROZEN (6c-2) ──────────────────────────────────
+    // These were quoted in Built; the price cannot vary. Each migrated line
+    // carries Built's per-sub price verbatim as its material lump, so the
+    // rollup must add NOTHING on top: no labor $ (hours are still preserved —
+    // hoursByDept doesn't depend on the rate — so scheduling and est-vs-actual
+    // still work), no consumables, no margin. Cost therefore == the quoted
+    // price, and the project total lands exactly on Built's contract number.
+    // Native projects are completely unaffected.
+    const isImported = !!project.imported_at
+
     // Effective per-bucket margins: project pin → org default → 35.
-    const margins = resolveBucketMargins(project, orgRow)
+    const margins = isImported
+      ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+      : resolveBucketMargins(project, orgRow)
 
     const { data: subsData } = await supabase
       .from('subprojects')
@@ -150,8 +166,10 @@ export async function recomputeProjectBidTotal(
     for (const sub of subs) {
       const lines = await loadEstimateLines(sub.id)
       const ctx: PricingContext = {
-        shopRate,
-        consumableMarkupPct: sub.consumable_markup_pct ?? orgConsumables,
+        // Imported (frozen): zero rate + zero consumables so the line's stored
+        // price is the whole number. Hours still accumulate.
+        shopRate: isImported ? 0 : shopRate,
+        consumableMarkupPct: isImported ? 0 : (sub.consumable_markup_pct ?? orgConsumables),
         // Subproject rollups always run at COST. Margin lives on the
         // project-level computeBucketedPrice below — same as the project page.
         profitMarginPct: 0,
@@ -164,7 +182,7 @@ export async function recomputeProjectBidTotal(
         ratePerHour: sub.install_rate_per_hour,
         included: sub.install_included ?? false,
       }
-      const installPrefillCost = computeInstallCost(installPrefill, shopRate)
+      const installPrefillCost = isImported ? 0 : computeInstallCost(installPrefill, shopRate)
       // computeInstallHours is read but doesn't affect priceTotal —
       // hours fold into hoursByDept; dollars come from the cost buckets.
       void computeInstallHours(installPrefill)

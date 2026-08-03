@@ -1175,3 +1175,176 @@ export async function verifyAgainstManifest(ctx: Ctx): Promise<void> {
     JSON.stringify({ verified: jobs.length, flagged, report }, null, 2),
   )
 }
+
+// ── 6c-2: FROZEN import pricing ─────────────────────────────────────────────
+// Supersedes the margin-reconstruction path above. These jobs were already
+// quoted in Built; the price cannot vary. We do NOT try to make MillSuite's
+// engine reproduce Built's math (it can't: Built applies per-sub profit
+// multipliers that aren't stored anywhere, plus per-line vendor markups and a
+// different consumables %). Instead each Built sub becomes ONE line carrying
+// its price verbatim, with hours preserved for scheduling + est-vs-actual and
+// material kept as a budget number. lib/project-totals prices imported jobs
+// with a zero rate / zero consumables / zero margin context, so the stored
+// prices ARE the total — summing exactly to Built's contract price.
+
+/** Material for a Built spec line, including any vendor markup on it. */
+function builtLineMaterial(l: any): number {
+  const base = (Number(l?.qty) || 0) * (Number(l?.rate) || 0)
+  const markup = Number(l?.markup_pct) || 0
+  return base * (1 + markup / 100)
+}
+
+function deptHoursOf(d: any): Record<string, number> {
+  const src = d || {}
+  return {
+    eng: Number(src.engineering) || 0,
+    cnc: Number(src.cnc) || 0,
+    assembly: Number(src.assembly) || 0,
+    finish: Number(src.finish) || 0,
+    install: Number(src.install) || 0,
+  }
+}
+
+export async function migrateEstimateLinesFrozen(ctx: Ctx): Promise<void> {
+  const { ms, orgId, opts, manifest } = ctx
+  const leads = await selectLeadsToMigrate(ctx)
+  const projects = await selectProjectsToMigrate(ctx)
+  const builtIds = [...leads.map((l) => l.id), ...projects.map((p) => p.id)]
+  const projMap = await loadEntityMap(ms, orgId, 'project')
+  const consumPct = manifest.builtConsumablesPct ?? 10
+  const builtRate = manifest.builtShopRate ?? 0
+
+  const report: Array<Record<string, unknown>> = []
+  let linesWritten = 0
+
+  for (const builtId of builtIds) {
+    const msProjectId = projMap[builtId]
+    if (!msProjectId) continue
+    const job = manifest.byId.get(builtId)
+    const { data: proj } = await ms
+      .from('projects')
+      .select('id, name, stage, bid_total')
+      .eq('id', msProjectId)
+      .single()
+    if (!proj || proj.stage === 'installed') continue
+
+    // The contract price is Built's audited number from the manifest — never a
+    // value read back out of MillSuite, which the app's auto-recompute can have
+    // already moved.
+    const contract = Math.round(Number(job?.expected_price ?? proj.bid_total) || 0)
+
+    const { data: subs } = await ms
+      .from('subprojects')
+      .select('id, name, activity_type, spec_lines_json, dept_hours, install_guys, install_days')
+      .eq('project_id', msProjectId)
+      .order('sort_order')
+
+    // Per-sub cost basis, used ONLY to split the contract price across subs in
+    // sensible proportion. Built's own per-sub totals aren't stored (they carry
+    // an unstored per-sub profit multiplier), so a cost-weighted allocation is
+    // the closest defensible split that still sums to the quoted total.
+    const rows: Array<{
+      subId: string
+      name: string
+      material: number
+      hours: Record<string, number>
+      totalHours: number
+      basis: number
+    }> = []
+    for (const s of subs || []) {
+      const specs = Array.isArray((s as any).spec_lines_json) ? (s as any).spec_lines_json : []
+      const material = specs.reduce((a: number, l: any) => a + builtLineMaterial(l), 0)
+      const hours = deptHoursOf((s as any).dept_hours)
+      const totalHours = Object.values(hours).reduce((a, b) => a + b, 0)
+      const basis = material * (1 + consumPct / 100) + totalHours * builtRate
+      rows.push({ subId: (s as any).id, name: (s as any).name ?? 'Subproject', material, hours, totalHours, basis })
+    }
+
+    const basisTotal = rows.reduce((a, r) => a + r.basis, 0)
+    // Allocate, then give the largest sub the rounding remainder so the sum is
+    // EXACTLY the contract price (6c-2 makes this an equality, not a tolerance).
+    let allocated = 0
+    const prices = rows.map((r, i) => {
+      const p = basisTotal > 0 ? Math.round((contract * r.basis) / basisTotal) : (i === 0 ? contract : 0)
+      allocated += p
+      return p
+    })
+    if (rows.length > 0) {
+      const remainder = contract - allocated
+      if (remainder !== 0) {
+        let big = 0
+        for (let i = 1; i < prices.length; i++) if (prices[i] > prices[big]) big = i
+        prices[big] += remainder
+      }
+    }
+
+    report.push({
+      project: proj.name,
+      contract,
+      subs: rows.length,
+      allocated: prices.reduce((a, b) => a + b, 0),
+      hours: Math.round(rows.reduce((a, r) => a + r.totalHours, 0)),
+      material: Math.round(rows.reduce((a, r) => a + r.material, 0)),
+    })
+
+    if (opts.dryRun) continue
+
+    // Replace this project's migrated lines with the frozen set.
+    const subIds = rows.map((r) => r.subId)
+    if (subIds.length > 0) await ms.from('estimate_lines').delete().in('subproject_id', subIds)
+
+    const inserts = rows.map((r, i) => ({
+      subproject_id: r.subId,
+      sort_order: 0,
+      description: r.name,
+      quantity: 1,
+      unit: 'job',
+      // The quoted price, carried as the line's cost. Imported projects price
+      // with a zero-rate/zero-margin context, so cost == price == quote.
+      material_mode_override: 'lump',
+      lump_cost_override: prices[i],
+      // Hours are preserved for scheduling, capacity and est-vs-actual. They
+      // cost nothing on an imported job (rate 0) — margin is measured at the
+      // end from actuals, per 6c-2.
+      dept_hour_overrides: r.hours,
+      material_description:
+        r.material > 0 ? `Material budget: $${Math.round(r.material).toLocaleString()}` : null,
+      composer_hours_corrected: true,
+    }))
+    if (inserts.length > 0) {
+      const { error } = await ms.from('estimate_lines').insert(inserts)
+      if (error) throw new Error(`insert frozen lines for ${proj.name}: ${error.message}`)
+      linesWritten += inserts.length
+    }
+
+    // Margins to zero (the price is the price) + re-freeze the contract total.
+    const { error: projErr } = await ms
+      .from('projects')
+      .update({
+        target_margin_pct: 0,
+        labor_margin_pct: 0,
+        material_margin_pct: 0,
+        consumable_margin_pct: 0,
+        bid_total: contract,
+      })
+      .eq('id', msProjectId)
+    if (projErr) throw new Error(`freeze project ${proj.name}: ${projErr.message}`)
+
+    // The install prefill would add cost + hours ON TOP of the frozen line that
+    // already carries both, so switch it off for imported subs.
+    if (subIds.length > 0) {
+      await ms.from('subprojects').update({ install_included: false }).in('id', subIds)
+    }
+  }
+
+  console.log(
+    `  estimate_lines (FROZEN): ${report.length} project(s)` +
+      (opts.dryRun ? ' (dry-run)' : `, ${linesWritten} lines written`),
+  )
+  for (const r of report) {
+    const ok = r.allocated === r.contract ? '·' : '!'
+    console.log(
+      `    ${ok} ${String(r.project).slice(0, 30).padEnd(31)} contract $${r.contract} = Σ$${r.allocated} across ${r.subs} sub(s) · ${r.hours}h · material $${r.material}`,
+    )
+  }
+}
