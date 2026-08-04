@@ -120,6 +120,12 @@ interface ProjectRow {
   labor_margin_pct: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
+  // 6c: the job's pinned labor rate. Wins over the org's current shop rate so
+  // a sold job's cost doesn't move when the shop rate does.
+  locked_shop_rate: number | null
+  // 6c-2: non-null = imported from Built OS → FROZEN pricing. The line's
+  // stored lump IS the quoted price, so nothing may be layered on top.
+  imported_at: string | null
 }
 
 // True when this subproject's activity type is "install" — the install
@@ -194,30 +200,48 @@ export default function SubprojectEditorPage() {
   const [addError, setAddError] = useState<string | null>(null)
   const addInputRef = useRef<HTMLInputElement>(null)
 
+  // Rate precedence (6c): the job's locked rate wins over the org's current
+  // rate, so a sold job's cost doesn't move when the shop rate changes. Same
+  // rule the project page and lib/project-totals use.
+  const shopRate = Number(project?.locked_shop_rate) || (org?.shop_rate ?? 0)
+  // Imported jobs price FROZEN (6c-2): the line's stored lump IS Built's
+  // quoted price, so no labor $ and no consumables get layered on top. Hours
+  // still roll up (hoursByDept doesn't depend on the rate).
+  const isImported = !!project?.imported_at
   // Subproject rollup runs at COST. Project markup is applied at the
   // project rollup uniformly via projects.target_margin_pct (Phase 12
   // dogfood-2 Issue 12), so we pass 0 here. The subproject bottom-bar
   // readout below shows that target separately.
   const pricingCtx: PricingContext = useMemo(
     () => ({
-      shopRate: org?.shop_rate ?? 0,
-      consumableMarkupPct:
-        subproject?.consumable_markup_pct ?? org?.consumable_markup_pct ?? 10,
+      shopRate: isImported ? 0 : shopRate,
+      consumableMarkupPct: isImported
+        ? 0
+        : subproject?.consumable_markup_pct ?? org?.consumable_markup_pct ?? 10,
       profitMarginPct: 0,
     }),
-    [org?.shop_rate, subproject, org]
+    [isImported, shopRate, subproject, org]
   )
 
   // Change orders ARE customer-facing, so they get real per-bucket margins
   // (052) — unlike the cost-only rollup above. Same resolution as the
   // project page: project pin → org default → 35.
+  //
+  // A CO is NEW work priced in MillSuite, so it never inherits the frozen
+  // import context: labor costs the job's real rate and consumables apply,
+  // even on an imported project whose original scope is frozen.
   const coPricing = useMemo(
     () => ({
-      ...pricingCtx,
+      shopRate,
+      consumableMarkupPct:
+        subproject?.consumable_markup_pct ?? org?.consumable_markup_pct ?? 10,
+      profitMarginPct: 0,
       margins: resolveBucketMargins(project, org),
     }),
     [
-      pricingCtx,
+      shopRate,
+      subproject,
+      org,
       project?.labor_margin_pct,
       project?.material_margin_pct,
       project?.consumable_margin_pct,
@@ -236,7 +260,7 @@ export default function SubprojectEditorPage() {
       const [projRes, subRes, siblingsRes, linesData, rb, opts, lineOpts, subActuals, deptRes, composerRb, composerSubDefaults] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, client_name, stage, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct')
+          .select('id, name, client_name, stage, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at')
           .eq('id', projectId)
           .single(),
         supabase
@@ -574,9 +598,12 @@ export default function SubprojectEditorPage() {
   // the loaded installValues + the shop install rate; folds into the
   // subproject total below. Separate from rollup.installCost, which is
   // the per-line install mode from Phase 2.
+  // Imported (6c-2): the frozen line already carries the install price and
+  // hours, so the prefill must not add on top. (The import also switches
+  // install_included off, so this is belt-and-braces.)
   const installPrefillCost = useMemo(
-    () => computeInstallCost(installValues, org?.shop_rate ?? 0),
-    [installValues, org?.shop_rate]
+    () => (isImported ? 0 : computeInstallCost(installValues, shopRate)),
+    [isImported, installValues, shopRate]
   )
   const subprojectTotalWithInstall = rollup.total + installPrefillCost
 
