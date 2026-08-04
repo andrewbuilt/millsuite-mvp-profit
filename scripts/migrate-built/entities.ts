@@ -1179,19 +1179,46 @@ export async function verifyAgainstManifest(ctx: Ctx): Promise<void> {
 // ── 6c-2: FROZEN import pricing ─────────────────────────────────────────────
 // Supersedes the margin-reconstruction path above. These jobs were already
 // quoted in Built; the price cannot vary. We do NOT try to make MillSuite's
-// engine reproduce Built's math (it can't: Built applies per-sub profit
-// multipliers that aren't stored anywhere, plus per-line vendor markups and a
-// different consumables %). Instead each Built sub becomes ONE line carrying
-// its price verbatim, with hours preserved for scheduling + est-vs-actual and
-// material kept as a budget number. lib/project-totals prices imported jobs
-// with a zero rate / zero consumables / zero margin context, so the stored
-// prices ARE the total — summing exactly to Built's contract price.
+// engine reproduce Built's math. Instead each Built sub becomes ONE line
+// carrying its price verbatim, with hours preserved for scheduling +
+// est-vs-actual and material kept as a budget number. lib/project-totals prices
+// imported jobs with a zero rate / zero consumables / zero margin context, so
+// the stored prices ARE the total — summing exactly to Built's contract price.
+//
+// The per-sub prices come from Built's OWN rollup, reproduced below. The catch:
+// the pricing lives on the LEAD (`lead_subprojects.profit_multiplier`), not on
+// the converted project — `subprojects` has no multiplier column at all, which
+// is why an earlier pass concluded the per-sub splits weren't stored and fell
+// back to a cost-weighted allocation. They are stored; they're just one table
+// over. `builtSubPrices` walks `leads.converted_to_project_id` back to the lead.
 
-/** Material for a Built spec line, including any vendor markup on it. */
+/** Countertop board-foot multipliers — Built's CT_THICKNESS_MULT. */
+const CT_THICKNESS_MULT: Record<string, number> = { '4/4"': 1.0, '6/4"': 1.5, '8/4"': 2.0 }
+
+/** Material for a Built spec line. Ported from Built's `computeLineAmount`
+ *  (lib/pricing.ts) — countertops price off board feet, vendor/sub lines carry
+ *  Built's markup, everything else is qty × rate. */
 function builtLineMaterial(l: any): number {
-  const base = (Number(l?.qty) || 0) * (Number(l?.rate) || 0)
-  const markup = Number(l?.markup_pct) || 0
-  return base * (1 + markup / 100)
+  const rate = Number(l?.rate) || 0
+  if (l?.prefil === 'countertop') {
+    const tm = CT_THICKNESS_MULT[l?.ct_thickness] ?? 1.5
+    const dims = Array.isArray(l?.ct_dimensions) ? l.ct_dimensions : []
+    const bdft = dims.reduce(
+      (s: number, d: any) =>
+        s +
+        (((Number(d?.length) || 0) * (Number(d?.width) || 0)) / 144) *
+          tm *
+          (Number(d?.qty) || 0) *
+          1.25,
+      0,
+    )
+    return bdft * rate
+  }
+  if (l?.prefil === 'vendor_sub') {
+    const base = Math.max(Number(l?.qty) || 0, 1) * rate
+    return base * (1 + (Number(l?.markup_pct) || 0) / 100)
+  }
+  return (Number(l?.qty) || 0) * rate
 }
 
 function deptHoursOf(d: any): Record<string, number> {
@@ -1203,6 +1230,102 @@ function deptHoursOf(d: any): Record<string, number> {
     finish: Number(src.finish) || 0,
     install: Number(src.install) || 0,
   }
+}
+
+/** Normalized name key for matching a Built lead sub to its migrated twin. */
+function subKey(name: unknown): string {
+  return String(name ?? '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+interface BuiltSubPrice {
+  key: string
+  name: string
+  price: number
+  material: number
+}
+
+/**
+ * Built's own per-subproject prices for a job, reproduced from
+ * `lead_subprojects` with Built's `rollupSubproject` math:
+ *
+ *   millwork: material + consumables + labor × profit_multiplier
+ *   install:  days × men × hours_per_day × rate × profit_multiplier
+ *
+ * `builtId` may be a lead id (manifest entity 'lead') or a converted project id
+ * (entity 'project') — both resolve to the same lead. Returns null when there's
+ * no lead behind the job, which drops the caller back to a cost-weighted split.
+ */
+async function builtSubPrices(
+  ctx: Ctx,
+  builtId: string,
+  shopRate: number,
+  orgConsumablesPct: number,
+): Promise<BuiltSubPrice[] | null> {
+  const { built } = ctx
+  const { data: byId } = await built
+    .from('leads')
+    .select('id, consumables_percent')
+    .eq('id', builtId)
+    .maybeSingle()
+  let lead = byId as { id: string; consumables_percent: number | null } | null
+  if (!lead) {
+    const { data: byProject } = await built
+      .from('leads')
+      .select('id, consumables_percent')
+      .eq('converted_to_project_id', builtId)
+      .maybeSingle()
+    lead = byProject as { id: string; consumables_percent: number | null } | null
+  }
+  if (!lead) return null
+
+  const { data: subs } = await built
+    .from('lead_subprojects')
+    .select('*')
+    .eq('lead_id', lead.id)
+    .order('sequence_order')
+  if (!subs || subs.length === 0) return null
+
+  const leadConsumables = Number(lead.consumables_percent)
+  const fallbackConsumables = Number.isFinite(leadConsumables)
+    ? leadConsumables
+    : orgConsumablesPct
+
+  return subs.map((s: any) => {
+    const mult =
+      typeof s.profit_multiplier === 'number' && s.profit_multiplier > 0
+        ? s.profit_multiplier
+        : s.kind === 'install'
+          ? 1.0
+          : 1.25
+    if (s.kind === 'install') {
+      const hours =
+        (Number(s.install_days) || 0) *
+        (Number(s.install_men) || 0) *
+        (Number(s.install_hours_per_day) || 8)
+      const rate = Number(s.install_rate_per_hour) || 68
+      return { key: subKey(s.name), name: s.name, price: hours * rate * mult, material: 0 }
+    }
+    const specs = Array.isArray(s.spec_lines_json) ? s.spec_lines_json : []
+    const material = specs.length
+      ? specs.reduce((a: number, l: any) => a + builtLineMaterial(l), 0)
+      : Number(s.material_cost) || 0
+    const hours = Object.values(deptHoursOf(s.dept_hours)).reduce((a, b) => a + b, 0)
+    const consumablesPct =
+      typeof s.consumables_pct === 'number' && s.consumables_pct >= 0
+        ? s.consumables_pct
+        : fallbackConsumables
+    const consumables = material * (consumablesPct / 100)
+    const labor = hours * shopRate
+    return {
+      key: subKey(s.name),
+      name: s.name,
+      price: material + consumables + labor * mult,
+      material,
+    }
+  })
 }
 
 export async function migrateEstimateLinesFrozen(ctx: Ctx): Promise<void> {
@@ -1239,10 +1362,6 @@ export async function migrateEstimateLinesFrozen(ctx: Ctx): Promise<void> {
       .eq('project_id', msProjectId)
       .order('sort_order')
 
-    // Per-sub cost basis, used ONLY to split the contract price across subs in
-    // sensible proportion. Built's own per-sub totals aren't stored (they carry
-    // an unstored per-sub profit multiplier), so a cost-weighted allocation is
-    // the closest defensible split that still sums to the quoted total.
     const rows: Array<{
       subId: string
       name: string
@@ -1256,26 +1375,62 @@ export async function migrateEstimateLinesFrozen(ctx: Ctx): Promise<void> {
       const material = specs.reduce((a: number, l: any) => a + builtLineMaterial(l), 0)
       const hours = deptHoursOf((s as any).dept_hours)
       const totalHours = Object.values(hours).reduce((a, b) => a + b, 0)
+      // Cost basis — only used by the fallback split below.
       const basis = material * (1 + consumPct / 100) + totalHours * builtRate
       rows.push({ subId: (s as any).id, name: (s as any).name ?? 'Subproject', material, hours, totalHours, basis })
     }
 
-    const basisTotal = rows.reduce((a, r) => a + r.basis, 0)
-    // Allocate, then give the largest sub the rounding remainder so the sum is
-    // EXACTLY the contract price (6c-2 makes this an equality, not a tolerance).
-    let allocated = 0
-    const prices = rows.map((r, i) => {
-      const p = basisTotal > 0 ? Math.round((contract * r.basis) / basisTotal) : (i === 0 ? contract : 0)
-      allocated += p
-      return p
-    })
-    if (rows.length > 0) {
-      const remainder = contract - allocated
-      if (remainder !== 0) {
-        let big = 0
-        for (let i = 1; i < prices.length; i++) if (prices[i] > prices[big]) big = i
-        prices[big] += remainder
+    // ── Per-sub prices ──────────────────────────────────────────────────────
+    // Preferred: Built's own numbers, reproduced from the lead (see
+    // `builtSubPrices`). Matched to the migrated subs by name — the converted
+    // project's subs are copies of the lead's, so the names line up; anything
+    // unmatched falls back to position.
+    const built = await builtSubPrices(ctx, builtId, builtRate, consumPct)
+    let exact: number[] = []
+    let source: 'built' | 'allocated' = 'allocated'
+    if (built && built.length > 0) {
+      const byKey = new Map(built.map((b) => [b.key, b]))
+      const matched = rows.map((r, i) => byKey.get(subKey(r.name)) ?? built[i] ?? null)
+      const complete = matched.every(Boolean)
+      const sum = matched.reduce((a, m) => a + (m?.price ?? 0), 0)
+      // Built rounds each sub for display and the lead price is the rounded
+      // sum, so a couple of dollars of drift is expected; anything more means
+      // the lead and the quote have diverged (subs added/removed after the
+      // sale, or a profit multiplier backfilled to the 1.25 default by Built's
+      // own later migration) and the split can't be trusted.
+      if (complete && Math.abs(sum - contract) <= 5) {
+        exact = matched.map((m) => m!.price)
+        source = 'built'
+      } else {
+        console.log(
+          `    ! ${proj.name}: Built per-sub prices sum to $${Math.round(sum)} vs contract $${contract}` +
+            `${complete ? '' : ' (unmatched subs)'} — falling back to a cost-weighted split`,
+        )
       }
+    }
+    if (exact.length === 0) {
+      const basisTotal = rows.reduce((a, r) => a + r.basis, 0)
+      exact = rows.map((r, i) =>
+        basisTotal > 0 ? (contract * r.basis) / basisTotal : i === 0 ? contract : 0,
+      )
+    }
+    // Round to whole dollars by largest remainder, so every sub lands within $1
+    // of its exact value AND the set sums to EXACTLY the contract price (6c-2
+    // makes that an equality, not a tolerance).
+    const prices = exact.map((v) => Math.floor(v))
+    let short = contract - prices.reduce((a, b) => a + b, 0)
+    const byFraction = exact
+      .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+      .sort((a, b) => b.frac - a.frac)
+    for (let k = 0; short > 0 && byFraction.length > 0; k++, short--) {
+      prices[byFraction[k % byFraction.length].i] += 1
+    }
+    // Over-allocated (only reachable via the fallback split): shave the largest.
+    while (short < 0 && prices.length > 0) {
+      let big = 0
+      for (let i = 1; i < prices.length; i++) if (prices[i] > prices[big]) big = i
+      prices[big] -= 1
+      short++
     }
 
     report.push({
@@ -1285,6 +1440,15 @@ export async function migrateEstimateLinesFrozen(ctx: Ctx): Promise<void> {
       allocated: prices.reduce((a, b) => a + b, 0),
       hours: Math.round(rows.reduce((a, r) => a + r.totalHours, 0)),
       material: Math.round(rows.reduce((a, r) => a + r.material, 0)),
+      source,
+      // Per-sub detail so Andrew can spot-check a job against Built's own
+      // subproject cards without opening the DB.
+      lines: rows.map((r, i) => ({
+        sub: r.name,
+        price: prices[i],
+        hours: r.totalHours,
+        material: Math.round(r.material),
+      })),
     })
 
     if (opts.dryRun) continue
@@ -1349,7 +1513,11 @@ export async function migrateEstimateLinesFrozen(ctx: Ctx): Promise<void> {
   for (const r of report) {
     const ok = r.allocated === r.contract ? '·' : '!'
     console.log(
-      `    ${ok} ${String(r.project).slice(0, 30).padEnd(31)} contract $${r.contract} = Σ$${r.allocated} across ${r.subs} sub(s) · ${r.hours}h · material $${r.material}`,
+      `    ${ok} ${String(r.project).slice(0, 30).padEnd(31)} contract $${r.contract} = Σ$${r.allocated} across ${r.subs} sub(s) · ${r.hours}h · material $${r.material} · ${r.source === 'built' ? "Built's per-sub prices" : 'cost-weighted split'}`,
     )
   }
+
+  const dir = resolve(__dirname, 'reports')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(resolve(dir, 'frozen-import.json'), JSON.stringify(report, null, 2))
 }
