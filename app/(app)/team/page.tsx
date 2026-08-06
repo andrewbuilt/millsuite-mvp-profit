@@ -21,7 +21,7 @@
 // the same identity.
 // ============================================================================
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import PlanGate from '@/components/plan-gate'
 import { useAutosave } from '@/hooks/use-autosave'
 import SaveStatus from '@/components/save-status'
@@ -777,12 +777,11 @@ function TeamContent() {
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
+                  {/* Controlled — see FieldInput for why. */}
                   <input
                     type="text"
-                    defaultValue={member.name}
-                    // Commit as you type as well as on blur — see NumberCell.
+                    value={member.name}
                     onChange={(e) => patchMember(member.id, { name: e.target.value })}
-                    onBlur={(e) => patchMember(member.id, { name: e.target.value })}
                     className="text-sm font-medium text-[#111] bg-transparent outline-none focus:bg-[#F9FAFB] rounded px-1 -mx-1"
                   />
                   <div className="flex items-center gap-2">
@@ -846,13 +845,13 @@ function TeamContent() {
                 <div className="grid grid-cols-2 gap-x-3 gap-y-2 mb-3">
                   <FieldInput
                     label="Title"
-                    defaultValue={member.title ?? ''}
+                    value={member.title ?? ''}
                     placeholder="e.g. Lead installer"
                     onCommit={(v) => patchMember(member.id, { title: v || null })}
                   />
                   <FieldInput
                     label="Hours / week"
-                    defaultValue={member.hours_per_week != null ? String(member.hours_per_week) : ''}
+                    value={member.hours_per_week != null ? String(member.hours_per_week) : ''}
                     placeholder={`${billable.hrs_per_week} (org default)`}
                     inputMode="decimal"
                     mono
@@ -866,20 +865,20 @@ function TeamContent() {
                   <FieldInput
                     label="Email"
                     type="email"
-                    defaultValue={member.email ?? ''}
+                    value={member.email ?? ''}
                     placeholder="name@shop.com"
                     onCommit={(v) => patchMember(member.id, { email: v.trim() || null })}
                   />
                   <FieldInput
                     label="Phone"
-                    defaultValue={member.phone ?? ''}
+                    value={member.phone ?? ''}
                     placeholder="(555) 555-1234"
                     onCommit={(v) => patchMember(member.id, { phone: v.trim() || null })}
                   />
                   <FieldInput
                     label="Start date"
                     type="date"
-                    defaultValue={member.start_date ?? ''}
+                    value={member.start_date ?? ''}
                     onCommit={(v) => patchMember(member.id, { start_date: v || null })}
                   />
                 </div>
@@ -1180,18 +1179,34 @@ function PolicyEditor({
   )
 }
 
+// Controlled, same reasoning as FieldInput below. The draft stays a string so
+// a half-typed "4." isn't normalised out from under the user.
 function NumberCell({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+  const [draft, setDraft] = useState(String(value))
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focused.current) setDraft(String(value))
+  }, [value])
   const commit = (raw: string) => onCommit(parseFloat(raw.replace(/[^0-9.]/g, '')) || 0)
   return (
     <input
       type="text"
       inputMode="decimal"
-      defaultValue={String(value)}
+      value={draft}
+      onFocus={() => {
+        focused.current = true
+      }}
       // Commit as you type as well as on blur: blur alone means anything typed
       // and then navigated away from (back button, keyboard nav) is lost before
       // it ever reaches state. The save itself stays debounced.
-      onChange={(e) => commit(e.target.value)}
-      onBlur={(e) => commit(e.target.value)}
+      onChange={(e) => {
+        setDraft(e.target.value)
+        commit(e.target.value)
+      }}
+      onBlur={(e) => {
+        focused.current = false
+        commit(e.target.value)
+      }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
       }}
@@ -1313,10 +1328,21 @@ function ShopRatePanel({
 }
 
 // Small labeled input for the member detail grid. Uncontrolled
-// (defaultValue) + commit on blur / Enter, matching the name/comp fields.
+// CONTROLLED, with a local draft.
+//
+// This was `defaultValue` (uncontrolled). An uncontrolled input takes its
+// value from the DOM once and then ignores React: if the prop arrives or
+// changes AFTER mount — which is exactly what happens here, since the roster
+// is fetched — the box keeps whatever it had and silently disagrees with the
+// data. That's how a title could be saved to the database, handed back by the
+// API, and still show as empty.
+//
+// The local draft keeps typing smooth, and the effect adopts external changes
+// (a fresh load, a save round-trip) EXCEPT while this field has focus, so
+// re-renders can't yank characters out from under the user mid-word.
 function FieldInput({
   label,
-  defaultValue,
+  value,
   placeholder,
   type = 'text',
   inputMode,
@@ -1324,24 +1350,39 @@ function FieldInput({
   onCommit,
 }: {
   label: string
-  defaultValue: string
+  value: string
   placeholder?: string
   type?: string
   inputMode?: 'decimal' | 'email' | 'text'
   mono?: boolean
   onCommit: (value: string) => void
 }) {
+  const [draft, setDraft] = useState(value)
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focused.current) setDraft(value)
+  }, [value])
   return (
     <label className="flex flex-col gap-0.5">
       <span className="text-[10px] uppercase tracking-wide text-[#9CA3AF]">{label}</span>
       <input
         type={type}
         inputMode={inputMode}
-        defaultValue={defaultValue}
+        value={draft}
         placeholder={placeholder}
-        // Commit as you type as well as on blur — see NumberCell.
-        onChange={(e) => onCommit(e.target.value)}
-        onBlur={(e) => onCommit(e.target.value)}
+        onFocus={() => {
+          focused.current = true
+        }}
+        // Commit as you type as well as on blur, so text that's typed and then
+        // navigated away from still reaches state.
+        onChange={(e) => {
+          setDraft(e.target.value)
+          onCommit(e.target.value)
+        }}
+        onBlur={(e) => {
+          focused.current = false
+          onCommit(e.target.value)
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
         }}
