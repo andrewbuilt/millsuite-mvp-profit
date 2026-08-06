@@ -153,7 +153,7 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 
 ### Fix list 2 — added 2026-08-04 (Andrew, found while working the migrated jobs). **ALL 5 ITEMS DONE 2026-08-04.** `081` (department colours) and `082` (internal plan) run by Andrew and verified live. **`083` (RLS tenant isolation) is written but NOT applied** — see the audit section below. Andrew's live click-through is the remaining work.
 
-**Still open, not code:** (a) **Built's Stripe subscription is still live and still billing** (`sub_1TT9KLF8qFckb5PBGyqu6WsM`) — going internal doesn't cancel it; Andrew has to do that in the Stripe dashboard. (b) The **`orgs` RLS hole** found in item 1 (see the security note below) is spun off, not fixed.
+**Still open, not code:** **Built's Stripe subscription is still live and still billing** (`sub_1TT9KLF8qFckb5PBGyqu6WsM`) — going internal doesn't cancel it; Andrew has to do that in the Stripe dashboard. _(The `orgs` RLS hole found in item 1 is now CLOSED — see the audit section below.)_
 
 1. ✅ **Team page edits vanish on navigate-away — FIXED 2026-08-04 (`0edf961`, tsc clean; pending Andrew's live verify).** **Suspect (a) was right and (b) is ruled out.** The persist was `setTimeout(save, 600)` with `return () => clearTimeout(t)`, so unmounting inside the window CANCELLED the pending save — edit a field, click a nav link, edit gone, no error. `/settings` had FIVE copies of the same effect (overhead, team, billable, org defaults, invoicing).
    - **`hooks/use-autosave.ts`** — same debounce, but flushes instead of cancelling: on unmount, on tab-hide, and via `saveNow()`. Adopts a baseline when it goes live (loading a page never writes it back), re-runs the save if the value moved while one was in flight, exposes status.
@@ -192,19 +192,35 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
    - **UI:** Owner / Manager / Worker chip per login, a Manager|Worker switch (owner-only, never on the owner's row), the same choice inline when creating a login. Both directions confirm and say the change lands on that person's **next sign-in**. The owner's own row reads "This is you — the shop owner" instead of buttons the API would refuse.
    - _Built currently has 3 logins: 1 owner, 2 members. Note a manager sees NO roster on /team at all — `canSeeComp` gates that whole block (from fix-list-#5) — so they get Time off only. Existing design, flagged in case it isn't what Andrew wants._
 
-### RLS security audit — DONE 2026-08-04 (`5db73f8`). ⚠️ **Migration `083_rls_tenant_isolation.sql` NOT APPLIED — needs Andrew + a click-through.**
+### RLS security audit — ✅ **CLOSED + VERIFIED LIVE 2026-08-04.** Migrations `083`, `084`, `085` all run on prod; audit exits 0; Andrew confirmed the app loads clean signed in. Optional cleanup `086` written, not run.
 
 **What the audit found** (public anon key against prod + all 124 policies in `db/migrations`):
-1. **No RLS at all — readable by anyone, no login:** `orgs` (28 rows × 45 cols — `team_members` jsonb with every employee's name, email, phone and **annual_comp**, plus overhead, shop rate, Stripe ids), `users` (92 rows — every login's email/name/role across all orgs), `projects`, `subprojects`, `departments`, `department_members`, `shop_rate_settings`, and the `subproject_approval_status` **view**.
-2. **No-op policies (16)** on `clients`, `contacts`, `rate_book_items`, `rate_book_categories`: `EXISTS (SELECT 1 FROM orgs o WHERE o.id = x.org_id)` asserts the org row EXISTS, not that you belong to it — **any signed-in user from any shop passes**.
-3. **Inherited from an unprotected parent (23)** on `estimate_lines`, `change_orders`, `approval_items`, `drawing_revisions`, `cash_flow_receivables`, `project_documents` — they scope through `projects`/`subprojects`, which had no RLS. Corrected automatically once the parents are.
+1. **No RLS at all — readable by anyone, no login:** `orgs` (28 rows × 45 cols — `team_members` jsonb with every employee's name, email, phone and **annual_comp**, plus overhead, shop rate, Stripe ids), `users` (92 rows — every login's email/name/role across all orgs), `projects`, `subprojects`, `departments`, `department_members`, `shop_rate_settings`, and the `subproject_approval_status` **view**. ← the real hole, now closed.
+2. ~~**No-op policies (16)** on `clients`, `contacts`, `rate_book_items`, `rate_book_categories`~~ — **THIS FINDING WAS PARTLY WRONG.** It came from reading migrations `024`/`033`, not the database. Prod actually carries `clients_all` / `contacts_all` using the **correct** user-scoped predicate — someone replaced 033's policies by hand and the migration files never caught up. Clients and contacts were never exposed this way. Can't verify the rate-book tables retroactively (083 already replaced whatever was there). **Lesson: audit the database, not the repo.**
+3. **Inherited from an unprotected parent (23)** on `estimate_lines`, `change_orders`, `approval_items`, `drawing_revisions`, `cash_flow_receivables`, `project_documents` — they scope through `projects`/`subprojects`, which had no RLS. Corrected automatically once the parents were.
    _The 70 policies on the newer tables (materials, door_types, custom_products, cabinet_features, client_invoices, pto_*, capacity_overrides…) already use the correct `users u WHERE u.org_id = x.org_id AND u.auth_user_id = auth.uid()` shape — untouched._
 
-**What 083 does:** `current_org_id()` (SECURITY DEFINER — a policy ON `users` that had to read `users` would recurse) + org-scoped policies on all 8 tables, replaces the 16 no-op policies, sets `security_invoker` on the view.
+**What 083 does:** `current_org_id()` + org-scoped policies on all 8 tables, replaces the (supposed) no-op policies, sets `security_invoker` on the view.
+
+**⚠️ IT TOOK FOUR ROUNDS TO LAND. Read this before enabling RLS on anything else.**
+- **083 took prod down** with `infinite recursion detected in policy for relation "users"` on 6 relations. Every table whose policy calls `current_org_id()` failed, for signed-in users too.
+- **`SECURITY DEFINER` did NOT bypass RLS**, contrary to 083's own comment. It only skips RLS when the function's owner owns the table or holds `BYPASSRLS`; on this database it doesn't. **Never rely on it to break a policy loop.**
+- **084** replaced the users policy with a non-recursive `auth_user_id = auth.uid()`. **It did not fix it** — because…
+- **085 found the actual cause:** a policy named **`"Users see own org"`** (spaces = created by hand in the Supabase dashboard, in no migration in this repo), `FOR ALL TO public`, whose predicate was `org_id IN (SELECT org_id FROM users WHERE auth_user_id = auth.uid())` — **a policy on `users` that selects from `users`.** It had sat dormant for years because `users` had RLS **disabled**; 083 armed it. Dropping the policies I'd named by hand could never touch it.
+- **⇒ ENABLING RLS DOES NOT START FROM A BLANK SLATE.** Policies persist on a table while RLS is off, invisible and unenforced. **Always survey first:**
+  ```sql
+  SELECT tablename, policyname, permissive, cmd, roles::text, qual
+  FROM pg_policies WHERE schemaname = 'public' ORDER BY tablename;
+  ```
+  This matters beyond recursion: **multiple PERMISSIVE policies combine with OR**, so a forgotten broad policy silently *widens* access while an anon-key audit still shows green.
+- **`086` (written, not run)** drops the 4 remaining dormant `"Users see own org …"` duplicates (orgs, projects, subprojects, shop_rate_settings) + `clients_all`/`contacts_all`. Pure cleanup — they're logically identical to the `*_own_org` policies and deny anon anyway (`auth.uid()` is null → `IN` false). Verified live that the app works WITH them in place.
+- **`scripts/rls-audit.mjs` originally reported the outage as a pass** — it bucketed any no-data result as ✅ BLOCKED, so a Postgres error counted as a denial and it exited 0 on a broken database. Fixed (`8ea107c`): errors get their own 🔥 bucket and either failure mode exits non-zero.
 
 **The trap it had to dodge:** `/{slug}` and `/join/{slug}` render shop branding with **no session**, so they'd 404 the moment `orgs` got a policy. They now call `org_public_by_slug()` (name/slug/logo only). `lib/org-public.ts` falls back to the old direct select while the function is absent, **so the app deploy and the migration can land in either order**.
 
-**Verify — `node scripts/rls-audit.mjs`,** before and after. Today it exits 1 listing all 8 exposed tables; after 083 it should list none and still confirm the branding lookup resolves. Then click through as owner: dashboard, projects, a project + subproject, rate book, /team, /settings, capacity, schedule — plus `/built` and `/built/portal` signed OUT. **Rollback is in the migration header** (seven `DISABLE ROW LEVEL SECURITY` lines).
+**Verified 2026-08-04:** `node scripts/rls-audit.mjs` exits **0** — nothing readable with the public key, 28 tables denying (not erroring), `org_public_by_slug` still resolving for the shop-login branding. Andrew signed in and confirmed the app loads clean. **Run the audit after any future policy change** — it's the regression test for this whole area. Rollback for 083 is still in that file's header (seven `DISABLE ROW LEVEL SECURITY` lines).
+
+**Left open:** run `086` whenever convenient (cleanup only, no behaviour change). Seat counts moved to `GET /api/org/seats` because a browser can no longer count an org's users — if a seat display ever reads 1 when it shouldn't, that route is why.
 
 ### Fix list — added 2026-07-22 (Andrew, from live use). Work in order, one at a time.
 
