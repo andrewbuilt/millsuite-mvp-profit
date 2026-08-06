@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import {
+  isInternalPlan,
   isTrialActive,
   trialDaysLeft,
   PLAN_LABELS,
@@ -32,8 +33,9 @@ import { MLogo } from '@/components/logo'
 export default function BillingGate({ children }: { children: React.ReactNode }) {
   const { org } = useAuth()
 
-  // Loading or genuinely-active orgs pass through.
-  if (!org || org.plan_status === 'active') {
+  // Loading, internal (not a customer — there's no subscription to check),
+  // or genuinely-active orgs pass through with no banner.
+  if (!org || isInternalPlan(org.plan) || org.plan_status === 'active') {
     return <>{children}</>
   }
 

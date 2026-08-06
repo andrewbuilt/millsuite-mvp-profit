@@ -9,7 +9,13 @@ import { invoicingMode, type InvoicingMode } from '@/lib/org-settings'
 import { updateOrgChecked } from '@/lib/org-write'
 import { useAutosave, type Autosave } from '@/hooks/use-autosave'
 import SaveStatus from '@/components/save-status'
-import { PLAN_LABELS, PLAN_SEAT_PRICE, PLAN_SEAT_MINIMUM, type Plan } from '@/lib/feature-flags'
+import {
+  PLAN_LABELS,
+  PLAN_SEAT_PRICE,
+  PLAN_SEAT_MINIMUM,
+  isInternalPlan,
+  type Plan,
+} from '@/lib/feature-flags'
 import {
   computeBillableHoursYear,
   computeDerivedShopRate,
@@ -511,8 +517,23 @@ export default function SettingsPage() {
           <SaveStatus save={settingsSave} />
         </div>
 
-        {/* Plan & Billing */}
-        {(() => {
+        {/* Plan & Billing — internal orgs aren't customers, so the whole
+            tier ladder / seat cost / Stripe portal block is replaced by a
+            plain statement of fact. */}
+        {isInternalPlan(org?.plan) ? (
+          <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+            <div className="px-6 py-4 border-b border-[#E5E7EB]">
+              <h2 className="text-base font-semibold">Plan</h2>
+            </div>
+            <div className="px-6 py-5">
+              <div className="text-sm font-medium text-[#111]">Internal</div>
+              <p className="text-xs text-[#6B7280] mt-1 leading-relaxed">
+                Every feature, unlimited seats, no subscription. Internal accounts
+                are excluded from billing entirely — nothing here to manage.
+              </p>
+            </div>
+          </div>
+        ) : (() => {
           const currentPlan = ((org?.plan as Plan) || 'starter') as Plan
           const seatPrice = PLAN_SEAT_PRICE[currentPlan] ?? 40
           const monthlyCost = seatPrice * Math.max(seatCount, PLAN_SEAT_MINIMUM[currentPlan] ?? 1)

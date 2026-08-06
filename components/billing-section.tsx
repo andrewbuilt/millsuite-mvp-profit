@@ -3,7 +3,13 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
-import { PLAN_LABELS, PLAN_SEAT_PRICE, isTrialActive, trialDaysLeft } from '@/lib/feature-flags'
+import {
+  PLAN_LABELS,
+  PLAN_SEAT_PRICE,
+  isInternalPlan,
+  isTrialActive,
+  trialDaysLeft,
+} from '@/lib/feature-flags'
 
 // BillingSection — the Subscription card on the Settings page. Shows
 // plan / seats / next billing date / status, and exposes the Stripe
@@ -42,6 +48,10 @@ export default function BillingSection() {
   }, [org?.id])
 
   if (!org) return null
+
+  // Internal / founder orgs have no subscription, no seat cost and no Stripe
+  // customer — there is nothing to render or manage here.
+  if (isInternalPlan(org.plan)) return null
 
   const planLabel = PLAN_LABELS[org.plan as keyof typeof PLAN_LABELS] ?? org.plan
   const planPrice = PLAN_SEAT_PRICE[org.plan as keyof typeof PLAN_SEAT_PRICE] ?? 0

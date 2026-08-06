@@ -10,6 +10,27 @@
 export const PLANS = ['starter', 'pro', 'pro-ai'] as const
 export type Plan = typeof PLANS[number]
 
+// ── Internal / founder tier ─────────────────────────────────────────────────
+// `orgs.plan = 'internal'` marks an org that isn't a customer: Andrew's own
+// shop, demo accounts, partner accounts. It gets every feature, unlimited
+// seats and usage, and never sees billing.
+//
+// Deliberately NOT a member of PLANS. PLANS is the sellable ladder — it drives
+// the pricing UI, Stripe metadata and `validatePlan` (which is what stops
+// anyone handing 'internal' to signup or checkout). Internal is an orthogonal
+// state that the gates below check FIRST, before any tier logic.
+//
+// It's a plan value rather than a separate `is_internal` column so that every
+// existing gate — all of which already pass `org.plan` / `caller.plan` — picks
+// it up with no call-site change, and so nothing anywhere special-cases an org
+// id. Grant it in SQL: UPDATE orgs SET plan = 'internal' WHERE slug = '...'.
+export const INTERNAL_PLAN = 'internal'
+export type PlanKey = Plan | typeof INTERNAL_PLAN
+
+export function isInternalPlan(plan: string | undefined | null): boolean {
+  return plan === INTERNAL_PLAN
+}
+
 export const PLAN_LABELS: Record<Plan, string> = {
   starter: 'Profit',
   pro: 'Pro',
@@ -98,6 +119,7 @@ const PLAN_FEATURES: Record<Plan, readonly string[]> = {
 }
 
 export function hasAccess(plan: string | undefined | null, feature: string): boolean {
+  if (isInternalPlan(plan)) return true
   const p = normalizePlan(plan)
   return PLAN_FEATURES[p]?.includes(feature) ?? false
 }
@@ -110,14 +132,18 @@ export function getMinPlan(feature: string): Plan {
 }
 
 export function getPlanFeatures(plan: string): readonly string[] {
+  if (isInternalPlan(plan)) return PRO_AI_FEATURES
   return PLAN_FEATURES[normalizePlan(plan)] || STARTER_FEATURES
 }
 
 export function getSeatPrice(plan: string): number {
+  if (isInternalPlan(plan)) return 0
   return PLAN_SEAT_PRICE[normalizePlan(plan)]
 }
 
 export function getUsageLimits(plan: string, seatCount: number) {
+  // -1 = unlimited, the same sentinel Pro+ already uses for takeoffs.
+  if (isInternalPlan(plan)) return { takeoffParses: -1, aiReports: -1 }
   const limits = PLAN_LIMITS[normalizePlan(plan)]
   return {
     // Drawing parser (takeoffs) — Pro+ only, unlimited. seatCount irrelevant
@@ -194,13 +220,16 @@ export function isTrialActive(
   )
 }
 
-/** Whole-app access check: a paid-up subscription OR an active trial.
- *  This is the single gate the app and API routes should use. */
+/** Whole-app access check: an internal org, a paid-up subscription, OR an
+ *  active trial. This is the single gate the app and API routes should use.
+ *  Pass `plan` so internal orgs never need a subscription at all. */
 export function hasAppAccess(o: {
+  plan?: string | null
   plan_status?: string | null
   trial_ends_at?: string | null
 }): boolean {
   return (
+    isInternalPlan(o.plan) ||
     hasActiveSubscription(o.plan_status) ||
     isTrialActive(o.plan_status, o.trial_ends_at)
   )

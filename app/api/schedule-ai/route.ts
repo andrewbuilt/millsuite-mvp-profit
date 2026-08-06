@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     // which is the only place the schedule AI assistant is exposed.
     const caller = await resolveApiCaller(req);
     if (!caller) return unauthorized();
-    if (!hasAppAccess({ plan_status: caller.planStatus, trial_ends_at: caller.trialEndsAt }))
+    if (!hasAppAccess({ plan: caller.plan, plan_status: caller.planStatus, trial_ends_at: caller.trialEndsAt }))
       return paymentRequired();
     if (!hasAccess(caller.plan, "schedule")) return forbidden("schedule");
 

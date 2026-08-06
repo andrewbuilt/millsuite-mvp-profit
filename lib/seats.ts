@@ -14,6 +14,7 @@
 // downgrades that would orphan existing users (see /api/stripe-webhook).
 
 import { supabaseAdmin } from './supabase-admin'
+import { isInternalPlan } from './feature-flags'
 
 export interface SeatStatus {
   used: number
@@ -36,18 +37,24 @@ export async function getUsedSeats(orgId: string): Promise<number> {
   return count ?? 0
 }
 
+/** Sentinel limit for orgs that don't buy seats (internal / founder tier).
+ *  Big enough to never bind, small enough to print without looking absurd. */
+export const UNLIMITED_SEATS = 9999
+
 /** Configured seat limit on the org row. Set by the Stripe webhook
- *  whenever the subscription's quantity changes. */
+ *  whenever the subscription's quantity changes. Internal orgs aren't
+ *  customers, so they aren't seat-limited at all. */
 export async function getOrgSeatLimit(orgId: string): Promise<number> {
   const { data, error } = await supabaseAdmin
     .from('orgs')
-    .select('seats')
+    .select('seats, plan')
     .eq('id', orgId)
     .single()
   if (error || !data) {
     console.error('getOrgSeatLimit error:', error)
     return 1
   }
+  if (isInternalPlan(data.plan)) return UNLIMITED_SEATS
   return data.seats ?? 1
 }
 

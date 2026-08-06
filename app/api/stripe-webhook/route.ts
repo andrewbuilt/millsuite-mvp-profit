@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import type Stripe from 'stripe'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getStripe } from '@/lib/stripe'
-import { validatePlan, PLAN_LABELS } from '@/lib/feature-flags'
+import { validatePlan, PLAN_LABELS, INTERNAL_PLAN } from '@/lib/feature-flags'
 import { upsertProfile, trackActivation } from '@/lib/klaviyo'
 
 // Stripe webhook — single source of truth for subscription state.
@@ -179,6 +179,11 @@ async function handleCheckoutCompleted(stripe: Stripe, session: Stripe.Checkout.
       pending_checkout_session_id: null,
     })
     .eq('id', orgId)
+    // An internal / founder org is not a customer and must never be flipped
+    // onto a paid tier by a stray checkout. The recurring handlers below all
+    // key on stripe_subscription_id, which an internal org doesn't have, so
+    // this is the only path that could reach one.
+    .neq('plan', INTERNAL_PLAN)
 
   if (error) {
     console.error('Failed to activate org:', orgId, error)

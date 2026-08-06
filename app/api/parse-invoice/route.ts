@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     // subscription plus the 'invoices' feature rather than a single tier.
     const caller = await resolveApiCaller(req)
     if (!caller) return unauthorized()
-    if (!hasAppAccess({ plan_status: caller.planStatus, trial_ends_at: caller.trialEndsAt }))
+    if (!hasAppAccess({ plan: caller.plan, plan_status: caller.planStatus, trial_ends_at: caller.trialEndsAt }))
       return paymentRequired()
     if (!hasAccess(caller.plan, 'invoices')) return forbidden('invoices')
 
