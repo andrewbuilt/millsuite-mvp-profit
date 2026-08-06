@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { loadPublicOrgBySlug } from '@/lib/org-public'
 import { MLogo } from '@/components/logo'
 
 export default function JoinPage() {
@@ -19,17 +20,13 @@ export default function JoinPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Look up org name by slug on mount
+  // Look up org name by slug on mount. Runs with no session, so it goes
+  // through loadPublicOrgBySlug — see lib/org-public.
   useEffect(() => {
     async function lookupOrg() {
-      const { data } = await supabase
-        .from('orgs')
-        .select('name')
-        .eq('slug', slug)
-        .single()
-
-      if (data) {
-        setOrgName(data.name)
+      const row = await loadPublicOrgBySlug(slug)
+      if (row) {
+        setOrgName(row.name)
       } else {
         setNotFound(true)
       }

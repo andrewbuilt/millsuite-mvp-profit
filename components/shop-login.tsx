@@ -13,6 +13,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { loadPublicOrgBySlug } from '@/lib/org-public'
 import { MLogo } from '@/components/logo'
 
 export default function ShopLogin({ variant }: { variant: 'manager' | 'employee' }) {
@@ -36,20 +37,16 @@ export default function ShopLogin({ variant }: { variant: 'manager' | 'employee'
     })
   }, [router, landing])
 
-  // Look up the shop by slug for branding + a friendly 404.
+  // Look up the shop by slug for branding + a friendly 404. Runs with NO
+  // SESSION, so it goes through loadPublicOrgBySlug — see lib/org-public.
   useEffect(() => {
     if (!shop) return
-    supabase
-      .from('orgs')
-      .select('name, logo_url')
-      .eq('slug', shop)
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          setOrgName(data.name)
-          setOrgLogo((data as { logo_url?: string | null }).logo_url ?? null)
-        } else setNotFound(true)
-      })
+    loadPublicOrgBySlug(shop).then((row) => {
+      if (row) {
+        setOrgName(row.name)
+        setOrgLogo(row.logo_url ?? null)
+      } else setNotFound(true)
+    })
   }, [shop])
 
   async function handleLogin(e: React.FormEvent) {
