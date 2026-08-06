@@ -39,7 +39,7 @@ import BaseCabinetWalkthrough from '@/components/walkthroughs/BaseCabinetWalkthr
 const DASHBOARD_TOAST_KEY = 'millsuite.welcomeJustCompleted'
 
 export default function WelcomeOverlay() {
-  const { user, org } = useAuth()
+  const { user, org, refreshOrg } = useAuth()
   const router = useRouter()
   const { loading, onboardedAt, step, advance, complete } = useOnboardingStatus()
   // Brief save-confirmation toast that appears between walkthroughs.
@@ -83,7 +83,10 @@ export default function WelcomeOverlay() {
         {current === 'shop_rate' && (
           <ShopRateWalkthrough
             orgId={org.id}
-            onComplete={(rate) => {
+            onComplete={async (rate) => {
+              // Pull the saved rate into the app-wide org before moving on —
+              // the very next step (base cabinet) prices against it.
+              await refreshOrg()
               setToast(`Shop rate saved: $${(rate || 0).toFixed(2)}/hr`)
               advance('base_cabinet')
             }}

@@ -155,7 +155,7 @@ const VIEW_ORDER: RateBookView[] = [
 ]
 
 export default function RateBookPage() {
-  const { user, org } = useAuth()
+  const { user, org, refreshOrg } = useAuth()
   const { confirm } = useConfirm()
   const orgId = user?.org_id
 
@@ -852,11 +852,13 @@ export default function RateBookPage() {
           orgId={orgId}
           initialRate={shopRate}
           onClose={() => setLaborSettingsOpen(false)}
-          onSaved={() => {
+          onSaved={async () => {
             setLaborSettingsOpen(false)
-            // Refresh — auth context picks up the new rate on next fetch.
-            // For an immediate echo the user can navigate away and back;
-            // a full walkthrough rerun is the "correct" recalibration.
+            // Push the new rate into the app-wide org immediately. This used
+            // to be left to "navigate away and back", which meant the rate
+            // book, composer and project rollups all kept pricing at the OLD
+            // rate right after you changed it.
+            await refreshOrg()
           }}
         />
       )}

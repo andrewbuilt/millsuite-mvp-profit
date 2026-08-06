@@ -32,7 +32,6 @@ import { Trash2, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import HolidaysAndPtoSection from '@/components/team/HolidaysAndPtoSection'
 import {
-  loadShopRateSetup,
   saveShopRateInputs,
   saveShopRate,
   makeTeamMember,
@@ -79,7 +78,7 @@ export default function TeamPage() {
 }
 
 function TeamContent() {
-  const { org, user } = useAuth()
+  const { org, user, refreshOrg } = useAuth()
   const { confirm, alert: showAlert } = useConfirm()
   const [departments, setDepartments] = useState<Department[]>([])
   const [team, setTeam] = useState<TeamMember[]>([])
@@ -122,6 +121,10 @@ function TeamContent() {
       } = await supabase.auth.getSession()
       const res = await fetch('/api/team/setup', {
         headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+        // The derived shop rate is computed from this payload, and comp +
+        // overhead are edited over on Settings — a cached response would show
+        // a stale rate after coming back here.
+        cache: 'no-store',
       })
       const setup = await res.json()
       const { data: depts } = await supabase
@@ -417,15 +420,37 @@ function TeamContent() {
   async function promoteDerivedRate() {
     if (!org?.id || derivedRate <= 0) return
     setSavingRate(true)
+    // Round to cents, same as Settings' saveDerivedRate. Writing the raw
+    // float stored things like 82.07932692307692, which then never quite
+    // matched anything comparing against a displayed two-decimal rate.
+    const rate = Math.round(derivedRate * 100) / 100
     try {
-      await saveShopRate(org.id, derivedRate)
-      setShopRate(derivedRate)
+      await saveShopRate(org.id, rate)
+      // refreshOrg is the whole point: `orgs.shop_rate` is read app-wide via
+      // the auth context (rate book, composer, capacity, project rollups).
+      // Without this the save landed in the database but every other page —
+      // and Settings' own "current rate" — kept showing the OLD number until
+      // a hard reload. That's the "shop rate on /team not updating" report.
+      await refreshOrg()
+      setShopRate(rate)
       setRateSavedAt(Date.now())
       setTimeout(() => setRateSavedAt((prev) => (prev && Date.now() - prev > 2400 ? null : prev)), 2600)
-      // Snapshot the inputs behind this rate (uses the existing 001 columns).
+    } catch (e) {
+      console.error('promoteDerivedRate', e)
+      await showAlert({
+        title: 'Could not save the shop rate',
+        message: e instanceof Error ? e.message : 'The rate was not saved. Try again.',
+      })
+      setSavingRate(false)
+      return
+    }
+    // Snapshot the inputs behind this rate (uses the existing 001 columns).
+    // Non-fatal: the rate is already saved, so a snapshot failure must not
+    // read as "the save failed".
+    try {
       await supabase.from('shop_rate_snapshots').insert({
         org_id: org.id,
-        effective_rate: derivedRate,
+        effective_rate: rate,
         overhead_monthly: sumOverheadAnnual(overhead) / 12,
         labor_cost_monthly: sumTeamAnnualComp(team) / 12,
         billable_hours_monthly: sumBillableHoursYear(team, billable) / 12,
@@ -433,7 +458,7 @@ function TeamContent() {
       })
       await loadSnapshots()
     } catch (e) {
-      console.error('promoteDerivedRate', e)
+      console.warn('shop rate snapshot', e)
     } finally {
       setSavingRate(false)
     }
