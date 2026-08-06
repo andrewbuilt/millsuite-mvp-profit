@@ -256,7 +256,11 @@ function TeamContent() {
     [orgId],
   )
   const teamSave = useAutosave(team, persistTeam, {
-    enabled: !!orgId && loaded && canSeeComp,
+    // Managers edit the roster too (087). Their payload carries annual_comp
+    // 0 — the API strips it — but the three-way merge only writes fields that
+    // CHANGED against their own baseline, so untouched salaries are never
+    // touched, and saveTeamMembersMerged strips comp on the way out regardless.
+    enabled: !!orgId && loaded,
     label: 'team save',
   })
 
@@ -633,9 +637,11 @@ function TeamContent() {
         />
       )}
 
-      {/* Departments + team roster (edits team_members, which carries comp) —
-          owner-only. Managers/admins see just time-off below. */}
-      {canSeeComp && (
+      {/* Departments + team roster. Open to managers since 087: salary moved
+          out of team_members into the owner-only team_compensation table, so
+          there's no longer any money in this block to hide. The shop-rate
+          panel above stays owner-only — that IS money. */}
+      {(
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Departments */}
         <div>

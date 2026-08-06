@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { invoicingMode, type InvoicingMode } from '@/lib/org-settings'
 import { updateOrgChecked, awaitPendingOrgWrites } from '@/lib/org-write'
+import { saveChangedComp } from '@/lib/team-comp'
 import { useAutosave, type Autosave } from '@/hooks/use-autosave'
 import SaveStatus from '@/components/save-status'
 import {
@@ -314,11 +315,15 @@ export default function SettingsPage() {
     (v: OverheadInputs) => saveShopRateInputs(orgId!, { overhead: v }),
     [orgId],
   )
-  // Merged, not overwritten — /team edits this same column. See
-  // saveTeamMembersMerged.
+  // Two destinations now (087): the employee record merges into
+  // orgs.team_members, and salary goes to the owner-only team_compensation
+  // table. Merged rather than overwritten because /team edits the same
+  // roster — see saveTeamMembersMerged.
   const saveTeam = useCallback(
-    (v: TeamMember[], base: TeamMember[] | null) =>
-      saveTeamMembersMerged(orgId!, base, v),
+    async (v: TeamMember[], base: TeamMember[] | null) => {
+      await saveTeamMembersMerged(orgId!, base, v)
+      if (base) await saveChangedComp(orgId!, base, v)
+    },
     [orgId],
   )
   const saveBillable = useCallback(

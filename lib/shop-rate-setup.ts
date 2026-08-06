@@ -18,6 +18,7 @@
 import { supabase } from './supabase'
 import { updateOrgChecked } from './org-write'
 import { mergeTeam } from './team-merge'
+import { applyTeamComp, loadTeamComp } from './team-comp'
 
 export type Period = 'monthly' | 'annual'
 
@@ -246,7 +247,14 @@ export async function loadShopRateSetup(
     team_members: Array<Partial<TeamMember>> | null
     billable_hours_inputs: BillableHoursInputs | null
   }
-  const team = normalizeTeamMembers(row.team_members ?? [])
+  // Salary lives in `team_compensation` (087), owner-only at the DB level.
+  // applyTeamComp falls back to the blob value when the table has no row, so
+  // this is correct before the migration, after it, and after 088 clears the
+  // blob. A caller who isn't allowed to see salaries simply gets zeros.
+  const team = applyTeamComp(
+    normalizeTeamMembers(row.team_members ?? []),
+    await loadTeamComp(orgId, client),
+  )
   return {
     shopRate: Number(row.shop_rate) || 0,
     overhead: row.overhead_inputs ?? emptyOverheadInputs(),
@@ -347,5 +355,25 @@ export async function saveTeamMembersMerged(
   const current = normalizeTeamMembers(
     (data?.team_members as Array<Partial<TeamMember>> | null) ?? [],
   )
-  await updateOrgChecked(orgId, { team_members: mergeTeam(base, next, current) })
+  const merged = mergeTeam(base, next, current)
+
+  // Strip salary on the way out — it belongs to team_compensation now, and a
+  // roster write (from a manager, or from a page that only ever saw zeros)
+  // must not be able to set or blank it.
+  //
+  // ONLY once it's provably safe to. If migration 087 hasn't run, or this
+  // caller can't read the comp table, dropping the figures here would delete
+  // the only copy. So: strip when the table answers with figures for this org,
+  // otherwise leave the blob's values exactly as the merge produced them.
+  // That makes the code correct whether it deploys before or after 087.
+  const comp = await loadTeamComp(orgId)
+  const compIsSafelyStored = Object.keys(comp).length > 0
+  const payload = compIsSafelyStored
+    ? merged.map((m) => {
+        const { annual_comp: _movedToTeamCompensation, ...rest } = m
+        return rest as TeamMember
+      })
+    : merged
+
+  await updateOrgChecked(orgId, { team_members: payload })
 }
