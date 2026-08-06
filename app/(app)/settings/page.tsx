@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { invoicingMode, type InvoicingMode } from '@/lib/org-settings'
-import { updateOrgChecked } from '@/lib/org-write'
+import { updateOrgChecked, awaitPendingOrgWrites } from '@/lib/org-write'
 import { useAutosave, type Autosave } from '@/hooks/use-autosave'
 import SaveStatus from '@/components/save-status'
 import {
@@ -186,6 +186,9 @@ export default function SettingsPage() {
     if (!org?.id) return
     let cancelled = false
     ;(async () => {
+      // Wait out any org write still in flight from another page (/team also
+      // writes orgs.team_members) so this read can't hand back pre-edit values.
+      await awaitPendingOrgWrites()
       const setup = await loadShopRateSetup(org.id)
       if (cancelled) return
 

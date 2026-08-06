@@ -24,6 +24,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import PlanGate from '@/components/plan-gate'
 import { useAutosave } from '@/hooks/use-autosave'
+import { awaitPendingOrgWrites } from '@/lib/org-write'
 import SaveStatus from '@/components/save-status'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
@@ -66,6 +67,7 @@ interface Department {
 }
 
 const DEPT_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#6B7280']
+
 
 export default function TeamPage() {
   return (
@@ -120,6 +122,10 @@ function TeamContent() {
     if (!org?.id) return
     let cancelled = false
     ;(async () => {
+      // Let any org write started by the previous visit finish first —
+      // otherwise this read beats the flush-on-leave and hands back the
+      // pre-edit roster. See lib/org-write.
+      await awaitPendingOrgWrites()
       // Load via the server route so comp is stripped server-side for
       // non-owners (never ships to their client).
       const {
