@@ -36,11 +36,16 @@ export default function BillingSection() {
     if (!org?.id) return
     let cancelled = false
     ;(async () => {
-      const { count } = await supabase
-        .from('users')
-        .select('id', { count: 'exact', head: true })
-        .eq('org_id', org.id)
-      if (!cancelled) setUsedSeats(count ?? 0)
+      // Server-side since 084 — a client can only see its own users row.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const res = await fetch('/api/org/seats', {
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+        cache: 'no-store',
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!cancelled) setUsedSeats(typeof json.used === 'number' ? json.used : 0)
     })()
     return () => {
       cancelled = true

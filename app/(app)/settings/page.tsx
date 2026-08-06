@@ -220,11 +220,17 @@ export default function SettingsPage() {
       }
 
       // Plan / business / project defaults are still on orgs columns.
-      const { count: userCount } = await supabase
-        .from('users')
-        .select('id', { count: 'exact', head: true })
-        .eq('org_id', org.id)
-      if (!cancelled) setSeatCount(userCount || 1)
+      // Seat count is server-side since 084 — a client can only see its own
+      // users row, which is what stops the RLS policy recursing.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const seatRes = await fetch('/api/org/seats', {
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+        cache: 'no-store',
+      })
+      const seatJson = await seatRes.json().catch(() => ({}))
+      if (!cancelled) setSeatCount(seatJson.used || 1)
 
       if (!cancelled) {
         setConsumableMarkup(org.consumable_markup_pct?.toString() || '10')
