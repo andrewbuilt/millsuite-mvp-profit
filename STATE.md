@@ -192,6 +192,31 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
    - **UI:** Owner / Manager / Worker chip per login, a Manager|Worker switch (owner-only, never on the owner's row), the same choice inline when creating a login. Both directions confirm and say the change lands on that person's **next sign-in**. The owner's own row reads "This is you — the shop owner" instead of buttons the API would refuse.
    - _Built currently has 3 logins: 1 owner, 2 members. Note a manager sees NO roster on /team at all — `canSeeComp` gates that whole block (from fix-list-#5) — so they get Time off only. Existing design, flagged in case it isn't what Andrew wants._
 
+### Employee system — RESTRUCTURED 2026-08-04 (`dee66f1`). ⚠️ **Migration `087_team_compensation.sql` to run (safe before OR after the deploy).**
+
+**Why:** Andrew reported roster edits not persisting; four fix attempts each found a real but different bug. The full system review found one root cause behind all of them — **salary lived inside `orgs.team_members`**, the same jsonb blob as name/title/contact/hours/departments.
+
+**The map as it was:** one blob; `/team` edited name+title+email+phone+start_date+hours+billable+active+departments+logins+roles; `/settings` edited name+salary+billable+remove; **both owner-only**; name and billable editable in BOTH with nothing saying so.
+
+**Three defects, one cause:**
+1. **Managers could not edit employees at all** — contrary to Andrew's model of /team as the management page. Hiding salaries (`7a5fa9a`) had to gate the WHOLE roster block owner-only because salary was in the same object. A manager saw only Time off.
+2. **Two editors of one blob, each showing a different half** — a title edited on /team is invisible in Settings and vice versa, which reads as data loss.
+3. **Whole-blob writes** let a stale page revert another's edits.
+
+**Fixed:** `team_compensation` table, RLS **owner-only** (also closes the leak fix-list-#5 knowingly left open — comp was stripped from the API response while sitting readable in the blob). `annual_comp` stays a field on the in-memory `TeamMember`, populated from the table for permitted readers and 0 otherwise, so **every shop-rate calculation is unchanged**. Roster writes strip salary **only once the comp table answers with figures**, so deploy order doesn't matter. `/team`'s roster + departments are now **open to managers**; the shop-rate panel stays owner-only.
+
+**Verified against the live 14-person roster:** payroll survives both deploy orders, and a manager saving a title edit (their payload carries comp 0) preserves all $965,000 while the title still lands. `npx tsx scripts/verify-team-merge.mjs` = 10 merge cases green.
+
+**The four bugs found on the way (all real, all fixed, none of them the root cause):**
+- `0edf961` — the debounced save cancelled itself on unmount (edit + navigate inside 600ms = discarded).
+- `da0942a` — roster inputs were **uncontrolled** (`defaultValue`), so values arriving from the fetch after mount never displayed. Saved, returned by the API, invisible.
+- `d834646` — read-after-write race: the flush-on-leave is fire-and-forget, so the next page's GET overtook it. `lib/org-write` now tracks in-flight writes; readers await them.
+- `16ff21b` — **the clobber**: /team and /settings both wrote the whole array, so a stale page reverted the other's edits. Caught by noticing the DB value had moved BACKWARDS (`"New test title"` → `"sdff"`). `lib/team-merge` does a three-way merge.
+
+**Process note, worth keeping:** every wrong turn came from reasoning about the code instead of reading the database. The check that cracked it each time — dump `orgs.team_members` and compare over time — takes 10 seconds. Do it FIRST on any "it didn't save" report.
+
+**Left open:** `088` (clear the now-dead `annual_comp` from the blob) once 087 is in and verified. The onboarding walkthrough is still a whole-array roster writer (first-run only, low risk).
+
 ### RLS security audit — ✅ **CLOSED + VERIFIED LIVE 2026-08-04.** Migrations `083`, `084`, `085` all run on prod; audit exits 0; Andrew confirmed the app loads clean signed in. Optional cleanup `086` written, not run.
 
 **What the audit found** (public anon key against prod + all 124 policies in `db/migrations`):
