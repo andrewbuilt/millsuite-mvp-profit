@@ -80,7 +80,7 @@ export default function TeamPage() {
 
 function TeamContent() {
   const { org, user } = useAuth()
-  const { confirm } = useConfirm()
+  const { confirm, alert: showAlert } = useConfirm()
   const [departments, setDepartments] = useState<Department[]>([])
   const [team, setTeam] = useState<TeamMember[]>([])
   const [ptoRequests, setPtoRequests] = useState<PtoRequest[]>([])
@@ -291,18 +291,36 @@ function TeamContent() {
 
   async function addDepartment() {
     if (!newDeptName.trim() || !org?.id) return
-    const color = DEPT_COLORS[departments.length % DEPT_COLORS.length]
-    const { data } = await supabase
+    // Colour + order come from what's ALREADY there, not from the count.
+    // Counting breaks the moment a department is deleted (the length goes
+    // back down and the next add reuses a colour and an order that are still
+    // in use) — which is how Built ended up with four cyan depts all at
+    // display_order 5.
+    const used = new Set(departments.map((d) => d.color))
+    const color =
+      DEPT_COLORS.find((c) => !used.has(c)) ??
+      DEPT_COLORS[departments.length % DEPT_COLORS.length]
+    const displayOrder =
+      departments.reduce((max, d) => Math.max(max, Number(d.display_order) || 0), 0) + 1
+    const { data, error } = await supabase
       .from('departments')
       .insert({
         org_id: org.id,
         name: newDeptName.trim(),
         color,
-        display_order: departments.length,
+        display_order: displayOrder,
       })
       .select()
       .single()
-    if (data) setDepartments((prev) => [...prev, data as Department])
+    if (error || !data) {
+      console.warn('add department', error)
+      await showAlert({
+        title: 'Could not add the department',
+        message: error?.message || 'The department was not created. Try again.',
+      })
+      return
+    }
+    setDepartments((prev) => [...prev, data as Department])
     setNewDeptName('')
     setAddingDept(false)
   }
