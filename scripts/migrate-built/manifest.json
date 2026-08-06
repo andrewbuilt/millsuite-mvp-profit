@@ -55,7 +55,7 @@
       "name": "Murtagh Bar",
       "decision": "import",
       "expected_price": 26227,
-      "expected_hours": 80,
+      "expected_hours": 180,
       "milestones": 0
     },
     {

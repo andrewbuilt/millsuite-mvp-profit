@@ -6,6 +6,9 @@ import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { invoicingMode, type InvoicingMode } from '@/lib/org-settings'
+import { updateOrgChecked } from '@/lib/org-write'
+import { useAutosave, type Autosave } from '@/hooks/use-autosave'
+import SaveStatus from '@/components/save-status'
 import { PLAN_LABELS, PLAN_SEAT_PRICE, PLAN_SEAT_MINIMUM, type Plan } from '@/lib/feature-flags'
 import {
   computeBillableHoursYear,
@@ -285,106 +288,106 @@ export default function SettingsPage() {
   // Each input edit syncs the in-memory shape to its jsonb column with a
   // small debounce. Keeps the walkthrough's data and the Settings page
   // perfectly aligned.
-  useEffect(() => {
-    if (!org?.id || !loaded) return
-    const t = setTimeout(() => {
-      saveShopRateInputs(org.id, { overhead }).catch((e) =>
-        console.warn('overhead save', e),
-      )
-    }, 600)
-    return () => clearTimeout(t)
-  }, [overhead, org?.id, loaded])
-
-  useEffect(() => {
-    if (!org?.id || !loaded) return
-    const t = setTimeout(() => {
-      saveShopRateInputs(org.id, { team }).catch((e) =>
-        console.warn('team save', e),
-      )
-    }, 600)
-    return () => clearTimeout(t)
-  }, [team, org?.id, loaded])
-
-  useEffect(() => {
-    if (!org?.id || !loaded) return
-    const t = setTimeout(() => {
-      saveShopRateInputs(org.id, { billable }).catch((e) =>
-        console.warn('billable save', e),
-      )
-    }, 600)
-    return () => clearTimeout(t)
-  }, [billable, org?.id, loaded])
+  //
+  // useAutosave, not a raw setTimeout: the old effects cancelled the pending
+  // save on unmount, so an edit followed by navigating away inside the debounce
+  // window was silently discarded (fix list 2, item 1 — same bug as /team).
+  const orgId = org?.id
+  const canPersist = !!orgId && loaded
+  const saveOverhead = useCallback(
+    (v: OverheadInputs) => saveShopRateInputs(orgId!, { overhead: v }),
+    [orgId],
+  )
+  const saveTeam = useCallback(
+    (v: TeamMember[]) => saveShopRateInputs(orgId!, { team: v }),
+    [orgId],
+  )
+  const saveBillable = useCallback(
+    (v: BillableHoursInputs) => saveShopRateInputs(orgId!, { billable: v }),
+    [orgId],
+  )
+  const overheadSave = useAutosave(overhead, saveOverhead, {
+    enabled: canPersist,
+    label: 'overhead save',
+  })
+  const teamSave = useAutosave(team, saveTeam, {
+    enabled: canPersist,
+    label: 'team save',
+  })
+  const billableSave = useAutosave(billable, saveBillable, {
+    enabled: canPersist,
+    label: 'billable save',
+  })
 
   // Project defaults + business info + plan markup pcts go on orgs cols.
-  useEffect(() => {
-    if (!org?.id || !loaded) return
-    const t = setTimeout(async () => {
-      const { error } = await supabase
-        .from('orgs')
-        .update({
-          consumable_markup_pct: parseFloat(consumableMarkup) || 0,
-          labor_margin_pct: parseFloat(laborMargin) || 0,
-          material_margin_pct: parseFloat(materialMargin) || 0,
-          consumable_margin_pct: parseFloat(consumableMargin) || 0,
-          name: businessName.trim() || undefined,
-          business_address: businessAddress.trim(),
-          business_city: businessCity.trim(),
-          business_state: businessState.trim(),
-          business_zip: businessZip.trim(),
-          business_phone: businessPhone.trim(),
-          business_email: businessEmail.trim(),
-        })
-        .eq('id', org.id)
-      if (error) console.warn('org save', error)
-      else await refreshOrg()
-    }, 800)
-    return () => clearTimeout(t)
-  }, [
-    consumableMarkup,
-    laborMargin,
-    materialMargin,
-    consumableMargin,
-    businessName,
-    businessAddress,
-    businessCity,
-    businessState,
-    businessZip,
-    businessPhone,
-    businessEmail,
-    org?.id,
-    loaded,
-    refreshOrg,
-  ])
+  const orgDefaults = useMemo(
+    () => ({
+      consumable_markup_pct: parseFloat(consumableMarkup) || 0,
+      labor_margin_pct: parseFloat(laborMargin) || 0,
+      material_margin_pct: parseFloat(materialMargin) || 0,
+      consumable_margin_pct: parseFloat(consumableMargin) || 0,
+      name: businessName.trim() || undefined,
+      business_address: businessAddress.trim(),
+      business_city: businessCity.trim(),
+      business_state: businessState.trim(),
+      business_zip: businessZip.trim(),
+      business_phone: businessPhone.trim(),
+      business_email: businessEmail.trim(),
+    }),
+    [
+      consumableMarkup,
+      laborMargin,
+      materialMargin,
+      consumableMargin,
+      businessName,
+      businessAddress,
+      businessCity,
+      businessState,
+      businessZip,
+      businessPhone,
+      businessEmail,
+    ],
+  )
+  const persistOrgDefaults = useCallback(
+    async (v: typeof orgDefaults) => {
+      await updateOrgChecked(orgId!, v)
+      await refreshOrg()
+    },
+    [orgId, refreshOrg],
+  )
+  const orgDefaultsSave = useAutosave(orgDefaults, persistOrgDefaults, {
+    enabled: canPersist,
+    delayMs: 800,
+    label: 'org save',
+  })
 
-  // Invoicing settings — separate debounce so the heavier invoice-prefix
-  // change doesn't piggyback on the project-defaults effect's deps.
-  useEffect(() => {
-    if (!org?.id || !loaded) return
-    const t = setTimeout(async () => {
-      const taxNum = defaultTaxPct.trim() === '' ? null : Number(defaultTaxPct)
-      const termsNum = Math.max(0, parseInt(defaultPaymentTermsDays, 10) || 14)
-      const { error } = await supabase
-        .from('orgs')
-        .update({
-          invoice_prefix: invoicePrefix.trim() || null,
-          default_tax_pct: taxNum != null && !Number.isNaN(taxNum) ? taxNum : null,
-          default_payment_terms_days: termsNum,
-          invoice_footer_text: invoiceFooterText.trim() || null,
-          invoice_email_template: invoiceEmailTemplate.trim() || null,
-        })
-        .eq('id', org.id)
-      if (error) console.warn('invoicing save', error)
-    }, 800)
-    return () => clearTimeout(t)
+  // Invoicing settings — separate autosave so the heavier invoice-prefix
+  // change doesn't piggyback on the project-defaults deps.
+  const invoicingDefaults = useMemo(() => {
+    const taxNum = defaultTaxPct.trim() === '' ? null : Number(defaultTaxPct)
+    return {
+      invoice_prefix: invoicePrefix.trim() || null,
+      default_tax_pct: taxNum != null && !Number.isNaN(taxNum) ? taxNum : null,
+      default_payment_terms_days: Math.max(0, parseInt(defaultPaymentTermsDays, 10) || 14),
+      invoice_footer_text: invoiceFooterText.trim() || null,
+      invoice_email_template: invoiceEmailTemplate.trim() || null,
+    }
   }, [
     invoicePrefix,
     defaultTaxPct,
     defaultPaymentTermsDays,
     invoiceFooterText,
     invoiceEmailTemplate,
-    org?.id,
-    loaded,
   ])
+  const persistInvoicing = useCallback(
+    (v: typeof invoicingDefaults) => updateOrgChecked(orgId!, v),
+    [orgId],
+  )
+  const invoicingSave = useAutosave(invoicingDefaults, persistInvoicing, {
+    enabled: canPersist,
+    delayMs: 800,
+    label: 'invoicing save',
+  })
 
   async function handleResetInvoiceNumber() {
     if (!org?.id) return
@@ -392,25 +395,25 @@ export default function SettingsPage() {
       'Reset the next invoice number to 1? Future invoices will start at INV-0001 (or your prefix). Existing invoices keep their numbers.',
     )
     if (!ok) return
-    const { error } = await supabase
-      .from('orgs')
-      .update({ next_invoice_number: 1 })
-      .eq('id', org.id)
-    if (!error) setNextInvoiceNumber(1)
-    else console.warn('reset invoice number', error)
+    try {
+      await updateOrgChecked(org.id, { next_invoice_number: 1 })
+      setNextInvoiceNumber(1)
+    } catch (e) {
+      console.warn('reset invoice number', e)
+      window.alert(e instanceof Error ? e.message : 'Could not reset the invoice number.')
+    }
   }
 
   async function handleInvoicingModeChange(mode: InvoicingMode) {
     if (!org?.id || mode === invoicingModeValue) return
     const prev = invoicingModeValue
     setInvoicingModeValue(mode) // optimistic
-    const { error } = await supabase
-      .from('orgs')
-      .update({ invoicing_mode: mode })
-      .eq('id', org.id)
-    if (error) {
-      console.warn('invoicing mode save', error)
+    try {
+      await updateOrgChecked(org.id, { invoicing_mode: mode })
+    } catch (e) {
+      console.warn('invoicing mode save', e)
       setInvoicingModeValue(prev) // revert on failure
+      window.alert(e instanceof Error ? e.message : 'Could not change the invoicing mode.')
       return
     }
     await refreshOrg() // propagate to the app-wide org (later chunks gate on it)
@@ -486,11 +489,26 @@ export default function SettingsPage() {
   const rateDelta = Math.abs(derivedRate - currentRate)
   const rateOutOfSync = currentRate > 0 && rateDelta > 0.005
 
+  // One indicator for the whole page: the most urgent state across the five
+  // autosaves wins, so a failed write can't hide behind four quiet ones.
+  const settingsSave = useMemo<Autosave>(() => {
+    const all = [overheadSave, teamSave, billableSave, orgDefaultsSave, invoicingSave]
+    const rank = { error: 4, unsaved: 3, saving: 2, saved: 1, idle: 0 } as const
+    const worst = all.reduce((a, b) => (rank[b.status] > rank[a.status] ? b : a))
+    return {
+      status: worst.status,
+      error: worst.error,
+      saveNow: () => all.forEach((s) => s.saveNow()),
+    }
+  }, [overheadSave, teamSave, billableSave, orgDefaultsSave, invoicingSave])
+
   return (
     <>
       <div className="max-w-3xl mx-auto px-6 py-8">
         <div className="flex items-center gap-3 mb-8">
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+          {/* Everything on this page autosaves; show whether it landed. */}
+          <SaveStatus save={settingsSave} />
         </div>
 
         {/* Plan & Billing */}

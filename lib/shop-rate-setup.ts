@@ -16,6 +16,7 @@
 // 022 header for rationale.
 
 import { supabase } from './supabase'
+import { updateOrgChecked } from './org-write'
 
 export type Period = 'monthly' | 'annual'
 
@@ -291,11 +292,9 @@ export async function saveShopRateInputs(
   if (patch.team !== undefined) update.team_members = patch.team
   if (patch.billable !== undefined) update.billable_hours_inputs = patch.billable
   if (Object.keys(update).length === 0) return
-  const { error } = await supabase.from('orgs').update(update).eq('id', orgId)
-  if (error) throw error
+  await updateOrgChecked(orgId, update)
 }
 
 export async function saveShopRate(orgId: string, rate: number): Promise<void> {
-  const { error } = await supabase.from('orgs').update({ shop_rate: rate }).eq('id', orgId)
-  if (error) throw error
+  await updateOrgChecked(orgId, { shop_rate: rate })
 }

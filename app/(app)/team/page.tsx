@@ -21,8 +21,10 @@
 // the same identity.
 // ============================================================================
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import PlanGate from '@/components/plan-gate'
+import { useAutosave } from '@/hooks/use-autosave'
+import SaveStatus from '@/components/save-status'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { useConfirm } from '@/components/confirm-dialog'
@@ -222,15 +224,20 @@ function TeamContent() {
   // non-owners `team` has comp stripped to 0, so persisting it would wipe
   // everyone's comp — never write it. (Non-owners also don't get the editable
   // roster, so there's nothing to save.)
-  useEffect(() => {
-    if (!org?.id || !loaded || !canSeeComp) return
-    const t = setTimeout(() => {
-      saveShopRateInputs(org.id, { team }).catch((e) =>
-        console.warn('team save', e),
-      )
-    }, 600)
-    return () => clearTimeout(t)
-  }, [team, org?.id, loaded, canSeeComp])
+  //
+  // useAutosave, not a raw setTimeout: the old version cancelled the pending
+  // save on unmount, so editing a field and navigating away inside 600ms threw
+  // the edit away silently (fix list 2, item 1). This flushes on the way out
+  // and exposes `teamSave.status` for the indicator next to the roster.
+  const orgId = org?.id
+  const persistTeam = useCallback(
+    (next: TeamMember[]) => saveShopRateInputs(orgId!, { team: next }),
+    [orgId],
+  )
+  const teamSave = useAutosave(team, persistTeam, {
+    enabled: !!orgId && loaded && canSeeComp,
+    label: 'team save',
+  })
 
   const derivedRate = useMemo(
     () => computeDerivedShopRate(overhead, team, billable),
@@ -434,11 +441,11 @@ function TeamContent() {
 
   // Immediate persist (account actions are important enough not to wait on
   // the 600ms debounce). Writes the user_id bridge onto team_members.
+  // Errors PROPAGATE — the login/unlink flows show them; swallowing here used
+  // to leave a login whose user_id never made it onto the roster.
   async function persistTeamNow(next: TeamMember[]) {
     setTeam(next)
-    if (org?.id) {
-      await saveShopRateInputs(org.id, { team: next }).catch((e) => console.warn('team save', e))
-    }
+    if (org?.id) await saveShopRateInputs(org.id, { team: next })
   }
 
   async function createLogin(member: TeamMember, email: string, password: string) {
@@ -623,7 +630,11 @@ function TeamContent() {
         {/* Team Members */}
         <div>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-[#111]">Team Members</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-[#111]">Team Members</h2>
+              {/* Roster edits autosave; this is the proof. */}
+              <SaveStatus save={teamSave} />
+            </div>
             {!addingMember && (
               <button
                 onClick={() => setAddingMember(true)}
@@ -681,6 +692,8 @@ function TeamContent() {
                   <input
                     type="text"
                     defaultValue={member.name}
+                    // Commit as you type as well as on blur — see NumberCell.
+                    onChange={(e) => patchMember(member.id, { name: e.target.value })}
                     onBlur={(e) => patchMember(member.id, { name: e.target.value })}
                     className="text-sm font-medium text-[#111] bg-transparent outline-none focus:bg-[#F9FAFB] rounded px-1 -mx-1"
                   />
@@ -1075,12 +1088,17 @@ function PolicyEditor({
 }
 
 function NumberCell({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+  const commit = (raw: string) => onCommit(parseFloat(raw.replace(/[^0-9.]/g, '')) || 0)
   return (
     <input
       type="text"
       inputMode="decimal"
       defaultValue={String(value)}
-      onBlur={(e) => onCommit(parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
+      // Commit as you type as well as on blur: blur alone means anything typed
+      // and then navigated away from (back button, keyboard nav) is lost before
+      // it ever reaches state. The save itself stays debounced.
+      onChange={(e) => commit(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
       }}
@@ -1228,6 +1246,8 @@ function FieldInput({
         inputMode={inputMode}
         defaultValue={defaultValue}
         placeholder={placeholder}
+        // Commit as you type as well as on blur — see NumberCell.
+        onChange={(e) => onCommit(e.target.value)}
         onBlur={(e) => onCommit(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()

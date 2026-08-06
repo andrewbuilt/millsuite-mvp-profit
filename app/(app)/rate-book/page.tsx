@@ -25,6 +25,7 @@ import {
   Pencil, Copy, BookOpen,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { updateOrgChecked } from '@/lib/org-write'
 import {
   type RateBookCategoryRow, type RateBookItemRow, type RateBookOptionRow,
   type RateBookItemHistoryRow, type Confidence,
@@ -1527,11 +1528,7 @@ function ShopRateModal({
   async function save() {
     setSaving(true)
     try {
-      const { error } = await supabase
-        .from('orgs')
-        .update({ shop_rate: Number(draft) || 0 })
-        .eq('id', orgId)
-      if (error) throw error
+      await updateOrgChecked(orgId, { shop_rate: Number(draft) || 0 })
       onSaved()
     } catch (e: any) {
       alert('Save failed: ' + (e?.message || 'unknown'))
