@@ -3,12 +3,9 @@
 // Can be called manually or via cron. Idempotent — upserts on (org_id, week_start).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Use the shared admin client — it opts out of Next's fetch cache, which
+// otherwise answers every SELECT from a stale snapshot. See lib/supabase-admin.
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 
 export async function POST(req: NextRequest) {
   try {
