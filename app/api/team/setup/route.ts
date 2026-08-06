@@ -17,8 +17,21 @@ export async function GET(req: NextRequest) {
   const setup = await loadShopRateSetup(caller.orgId, supabaseAdmin)
   const isOwner = caller.role === 'owner'
 
+  // Roles for the org's real logins, keyed by users.id — the same id the
+  // roster stores as team_members[].user_id. The /team account controls need
+  // it to show whether a login is a manager or a worker (item 5). Roles
+  // aren't sensitive the way comp is, so both owner and non-owner get them;
+  // only the OWNER can change them (enforced in /api/admin/users).
+  const { data: users } = await supabaseAdmin
+    .from('users')
+    .select('id, role')
+    .eq('org_id', caller.orgId)
+  const roles = Object.fromEntries(
+    (users || []).map((u) => [u.id as string, (u.role as string) || 'member']),
+  )
+
   if (isOwner) {
-    return NextResponse.json({ ...setup, canSeeComp: true })
+    return NextResponse.json({ ...setup, roles, canSeeComp: true, callerRole: caller.role })
   }
 
   // Non-owner: strip every money figure. Keep names, hours, depts, contact,
@@ -28,6 +41,8 @@ export async function GET(req: NextRequest) {
     overhead: emptyOverheadInputs(),
     billable: setup.billable,
     team: setup.team.map((m) => ({ ...m, annual_comp: 0 })),
+    roles,
     canSeeComp: false,
+    callerRole: caller.role,
   })
 }

@@ -98,6 +98,12 @@ function TeamContent() {
   // Owner-only: compensation figures. Server-authoritative (the /api/team/setup
   // route strips comp for non-owners) + a secure default of false.
   const [canSeeComp, setCanSeeComp] = useState(false)
+  // Item 5 — role assignment. `roles` maps users.id → owner|admin|member (the
+  // same id team_members[].user_id holds). Only the owner may change them;
+  // `/api/admin/users` enforces that regardless of what this UI offers.
+  const [roles, setRoles] = useState<Record<string, string>>({})
+  const [callerRole, setCallerRole] = useState<string>('member')
+  const isOwner = callerRole === 'owner'
   const [savingRate, setSavingRate] = useState(false)
   const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
   // Shop-rate extras (chunk C).
@@ -138,6 +144,8 @@ function TeamContent() {
       setBillable(setup.billable)
       setShopRate(setup.shopRate || 0)
       setCanSeeComp(!!setup.canSeeComp)
+      setRoles(setup.roles || {})
+      setCallerRole(setup.callerRole || 'member')
       setDepartments(depts || [])
       setLoaded(true)
 
@@ -491,13 +499,20 @@ function TeamContent() {
     if (org?.id) await saveShopRateInputs(org.id, { team: next })
   }
 
-  async function createLogin(member: TeamMember, email: string, password: string) {
+  async function createLogin(
+    member: TeamMember,
+    email: string,
+    password: string,
+    role: 'admin' | 'member',
+  ) {
     const json = await callAdminUsers({
       action: 'create_login',
       email,
       name: member.name,
       password,
+      role,
     })
+    if (json.user_id) setRoles((prev) => ({ ...prev, [json.user_id]: json.role || role }))
     const next = team.map((m) =>
       m.id === member.id ? { ...m, user_id: json.user_id, email: json.email } : m,
     )
@@ -519,8 +534,38 @@ function TeamContent() {
     })
     if (!ok) return
     await callAdminUsers({ action: 'unlink', user_id: member.user_id })
+    setRoles((prev) => {
+      const next = { ...prev }
+      delete next[member.user_id as string]
+      return next
+    })
     const next = team.map((m) => (m.id === member.id ? { ...m, user_id: null } : m))
     await persistTeamNow(next)
+  }
+
+  // Item 5 — promote to manager / demote to worker. Owner-only; the route
+  // re-checks, so this is convenience, not the guard.
+  async function setMemberRole(member: TeamMember, role: 'admin' | 'member') {
+    if (!member.user_id) return
+    const ok = await confirm(
+      role === 'admin'
+        ? {
+            title: `Make ${member.name || 'this person'} a manager?`,
+            message:
+              'Managers see everything in the app except Settings — projects, estimates, invoices, the rate book and the schedule. They will NOT see compensation or the shop rate. The change takes effect the next time they sign in. You can switch them back any time.',
+            confirmLabel: 'Make manager',
+          }
+        : {
+            title: `Make ${member.name || 'this person'} a worker?`,
+            message:
+              'They will lose access to everything except the time app on their next sign-in. Their login, hours and history all stay.',
+            confirmLabel: 'Make worker',
+            variant: 'danger' as const,
+          },
+    )
+    if (!ok) return
+    await callAdminUsers({ action: 'set_role', user_id: member.user_id, role })
+    setRoles((prev) => ({ ...prev, [member.user_id as string]: role }))
   }
 
   if (!loaded) {
@@ -869,9 +914,14 @@ function TeamContent() {
 
                 <AccountControls
                   member={member}
-                  onCreate={(email, password) => createLogin(member, email, password)}
+                  role={member.user_id ? roles[member.user_id] ?? 'member' : null}
+                  canAssignRoles={isOwner}
+                  onCreate={(email, password, role) =>
+                    createLogin(member, email, password, role)
+                  }
                   onReset={(password) => resetPassword(member, password)}
                   onRemove={() => removeLogin(member)}
+                  onSetRole={(role) => setMemberRole(member, role)}
                 />
               </div>
             ))}
@@ -1317,24 +1367,50 @@ function generatePassword(): string {
 
 // Per-member login controls (chunk A2). Unlinked → "Create login" form
 // (email + starter password). Linked → reset password / remove login.
+// Shop language for the three roles. RoleGate is the enforcement; these are
+// just the words Andrew uses.
+const ROLE_LABEL: Record<string, string> = {
+  owner: 'Owner',
+  admin: 'Manager',
+  member: 'Worker',
+}
+const ROLE_HINT: Record<string, string> = {
+  owner: 'Everything, including Settings',
+  admin: 'Full access except Settings',
+  member: 'Time app only',
+}
+
 function AccountControls({
   member,
+  role,
+  canAssignRoles,
   onCreate,
   onReset,
   onRemove,
+  onSetRole,
 }: {
   member: TeamMember
-  onCreate: (email: string, password: string) => Promise<void>
+  /** Role of this member's login, or null when they have no login. */
+  role: string | null
+  /** Only the owner may promote/demote — the API enforces it too. */
+  canAssignRoles: boolean
+  onCreate: (email: string, password: string, role: 'admin' | 'member') => Promise<void>
   onReset: (password: string) => Promise<void>
   onRemove: () => Promise<void>
+  onSetRole: (role: 'admin' | 'member') => Promise<void>
 }) {
   const linked = !!member.user_id
   const [mode, setMode] = useState<null | 'create' | 'reset'>(null)
   const [email, setEmail] = useState(member.email ?? '')
   const [password, setPassword] = useState('')
+  const [newRole, setNewRole] = useState<'admin' | 'member'>('member')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
+
+  // The owner's own row is managed by nobody — no promote, no demote, no
+  // password reset from here.
+  const isOwnerRow = role === 'owner'
 
   function reset() {
     setMode(null)
@@ -1347,8 +1423,8 @@ function AccountControls({
     setErr(null)
     try {
       if (mode === 'create') {
-        await onCreate(email.trim(), password)
-        setOkMsg('Login created')
+        await onCreate(email.trim(), password, newRole)
+        setOkMsg(newRole === 'admin' ? 'Manager login created' : 'Worker login created')
       } else if (mode === 'reset') {
         await onReset(password)
         setOkMsg('Password updated')
@@ -1362,14 +1438,42 @@ function AccountControls({
     }
   }
 
+  async function changeRole(next: 'admin' | 'member') {
+    setBusy(true)
+    setErr(null)
+    try {
+      await onSetRole(next)
+      setOkMsg(next === 'admin' ? 'Now a manager' : 'Now a worker')
+      setTimeout(() => setOkMsg(null), 2400)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not change the role')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="mt-3 pt-3 border-t border-[#F3F4F6]">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs">
+        <div className="flex items-center gap-1.5 text-xs flex-wrap">
           <span
             className={`w-1.5 h-1.5 rounded-full ${linked ? 'bg-[#10B981]' : 'bg-[#D1D5DB]'}`}
           />
           <span className="text-[#6B7280]">{linked ? 'Login active' : 'No login'}</span>
+          {linked && role && (
+            <span
+              title={ROLE_HINT[role]}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
+                role === 'owner'
+                  ? 'bg-[#EDE9FE] text-[#5B21B6]'
+                  : role === 'admin'
+                    ? 'bg-[#DBEAFE] text-[#1D4ED8]'
+                    : 'bg-[#F3F4F6] text-[#6B7280]'
+              }`}
+            >
+              {ROLE_LABEL[role] ?? role}
+            </span>
+          )}
           {okMsg && <span className="text-[#065F46]">· {okMsg}</span>}
         </div>
         <div className="flex items-center gap-2">
@@ -1384,7 +1488,9 @@ function AccountControls({
               Create login
             </button>
           )}
-          {linked && mode !== 'reset' && (
+          {/* The owner's own login isn't managed from the roster — the API
+              refuses it, so don't offer buttons that can only fail. */}
+          {linked && !isOwnerRow && mode !== 'reset' && (
             <>
               <button
                 onClick={() => {
@@ -1403,8 +1509,39 @@ function AccountControls({
               </button>
             </>
           )}
+          {linked && isOwnerRow && (
+            <span className="text-[11px] text-[#9CA3AF]">This is you — the shop owner</span>
+          )}
         </div>
       </div>
+
+      {/* Role switch (item 5). Owner-only, never on the owner's own row. */}
+      {linked && canAssignRoles && !isOwnerRow && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wide text-[#9CA3AF]">Access</span>
+          <div className="inline-flex rounded-lg border border-[#E5E7EB] overflow-hidden">
+            {(['member', 'admin'] as const).map((r) => {
+              const active = (role ?? 'member') === r
+              return (
+                <button
+                  key={r}
+                  onClick={() => !active && changeRole(r)}
+                  disabled={busy || active}
+                  title={ROLE_HINT[r]}
+                  className={`px-2 py-1 text-[11px] font-medium transition-colors ${
+                    active
+                      ? 'bg-[#2563EB] text-white'
+                      : 'bg-white text-[#374151] hover:bg-[#F9FAFB]'
+                  } ${r === 'admin' ? 'border-l border-[#E5E7EB]' : ''}`}
+                >
+                  {ROLE_LABEL[r]}
+                </button>
+              )
+            })}
+          </div>
+          <span className="text-[10px] text-[#9CA3AF]">{ROLE_HINT[role ?? 'member']}</span>
+        </div>
+      )}
 
       {mode && (
         <div className="mt-2 flex flex-col gap-2">
@@ -1416,6 +1553,31 @@ function AccountControls({
               placeholder="name@shop.com"
               className="px-2 py-1.5 text-xs border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
             />
+          )}
+          {/* Create straight as a manager so the owner doesn't have to
+              create-then-promote. Only the owner sees this; an admin's
+              create is always a worker (and the API re-checks). */}
+          {mode === 'create' && canAssignRoles && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-[#9CA3AF]">Access</span>
+              <div className="inline-flex rounded-lg border border-[#E5E7EB] overflow-hidden">
+                {(['member', 'admin'] as const).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setNewRole(r)}
+                    title={ROLE_HINT[r]}
+                    className={`px-2 py-1 text-[11px] font-medium transition-colors ${
+                      newRole === r
+                        ? 'bg-[#2563EB] text-white'
+                        : 'bg-white text-[#374151] hover:bg-[#F9FAFB]'
+                    } ${r === 'admin' ? 'border-l border-[#E5E7EB]' : ''}`}
+                  >
+                    {ROLE_LABEL[r]}
+                  </button>
+                ))}
+              </div>
+              <span className="text-[10px] text-[#9CA3AF]">{ROLE_HINT[newRole]}</span>
+            </div>
           )}
           <div className="flex items-center gap-2">
             <input
