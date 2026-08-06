@@ -41,14 +41,23 @@ shop_rate_snapshots qbo_tokens change_order_lines`
 
 const exposed = []
 const guarded = []
+const broken = []
 const skipped = []
+
+// A policy that ERRORS is not a policy that denies. "infinite recursion
+// detected in policy" fires during planning for EVERY caller, so a table in
+// this state is unreadable by your own signed-in users too — the app is down,
+// not secured. Earlier versions of this script lumped errors in with denials
+// and exited 0 on a broken database. They get their own bucket now.
+const isDenial = (msg) => /permission denied|violates row-level security/i.test(msg)
 
 for (const t of TABLES) {
   const { data, error } = await anon.from(t).select('*').limit(1)
   const { count } = await admin.from(t).select('*', { count: 'exact', head: true })
   if (error) {
     if (/does not exist|schema cache/i.test(error.message)) skipped.push(`${t} (no such table)`)
-    else guarded.push(`${t} — blocked (${error.message.slice(0, 44)})`)
+    else if (isDenial(error.message)) guarded.push(`${t} — denied (${error.message.slice(0, 44)})`)
+    else broken.push(`${t} — ${error.message.slice(0, 70)}`)
     continue
   }
   if (!data || data.length === 0) {
@@ -68,6 +77,11 @@ if (exposed.length) {
   console.log('\n✅ nothing readable with the public key')
 }
 
+if (broken.length) {
+  console.log('\n🔥 POLICY ERRORS — NOT denials. Signed-in users hit these too:')
+  for (const b of broken) console.log('   ' + b)
+}
+
 console.log('\n✅ BLOCKED')
 for (const g of guarded) console.log('   ' + g)
 
@@ -82,4 +96,6 @@ console.log(
   pubErr ? `NOT AVAILABLE — ${pubErr.message}` : row ? `ok → ${row.name}` : 'no row (check the slug)',
 )
 
-process.exit(exposed.length ? 1 : 0)
+// Exit non-zero for EITHER failure mode: data still exposed, or policies
+// erroring. A green exit has to mean both "closed" and "working".
+process.exit(exposed.length || broken.length ? 1 : 0)
