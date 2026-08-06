@@ -33,7 +33,7 @@ import { Trash2, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import HolidaysAndPtoSection from '@/components/team/HolidaysAndPtoSection'
 import {
-  saveShopRateInputs,
+  saveTeamMembersMerged,
   saveShopRate,
   makeTeamMember,
   computeDerivedShopRate,
@@ -247,8 +247,12 @@ function TeamContent() {
   // the edit away silently (fix list 2, item 1). This flushes on the way out
   // and exposes `teamSave.status` for the indicator next to the roster.
   const orgId = org?.id
+  // Merged, not overwritten: /settings edits this same jsonb column, so a
+  // whole-array write from either page reverts the other's edits. See
+  // saveTeamMembersMerged.
   const persistTeam = useCallback(
-    (next: TeamMember[]) => saveShopRateInputs(orgId!, { team: next }),
+    (next: TeamMember[], base: TeamMember[] | null) =>
+      saveTeamMembersMerged(orgId!, base, next),
     [orgId],
   )
   const teamSave = useAutosave(team, persistTeam, {
@@ -500,9 +504,12 @@ function TeamContent() {
   // the 600ms debounce). Writes the user_id bridge onto team_members.
   // Errors PROPAGATE — the login/unlink flows show them; swallowing here used
   // to leave a login whose user_id never made it onto the roster.
+  // Merged like every other roster write: `team` is the pre-change roster, so
+  // only the user_id this action touched is applied on top of server truth.
   async function persistTeamNow(next: TeamMember[]) {
+    const base = team
     setTeam(next)
-    if (org?.id) await saveShopRateInputs(org.id, { team: next })
+    if (org?.id) await saveTeamMembersMerged(org.id, base, next)
   }
 
   async function createLogin(

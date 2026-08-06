@@ -26,6 +26,7 @@ import {
   makeTeamMember,
   saveShopRate,
   saveShopRateInputs,
+  saveTeamMembersMerged,
   sumOverheadAnnual,
   sumTeamAnnualComp,
   type BillableHoursInputs,
@@ -313,8 +314,11 @@ export default function SettingsPage() {
     (v: OverheadInputs) => saveShopRateInputs(orgId!, { overhead: v }),
     [orgId],
   )
+  // Merged, not overwritten — /team edits this same column. See
+  // saveTeamMembersMerged.
   const saveTeam = useCallback(
-    (v: TeamMember[]) => saveShopRateInputs(orgId!, { team: v }),
+    (v: TeamMember[], base: TeamMember[] | null) =>
+      saveTeamMembersMerged(orgId!, base, v),
     [orgId],
   )
   const saveBillable = useCallback(

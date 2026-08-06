@@ -17,6 +17,7 @@
 
 import { supabase } from './supabase'
 import { updateOrgChecked } from './org-write'
+import { mergeTeam } from './team-merge'
 
 export type Period = 'monthly' | 'annual'
 
@@ -245,12 +246,29 @@ export async function loadShopRateSetup(
     team_members: Array<Partial<TeamMember>> | null
     billable_hours_inputs: BillableHoursInputs | null
   }
-  // Backfill billable=true on any member that predates the flag.
-  // Only an explicit `false` persists a non-billable state.
-  // Backfill dept_assignments=[] on any member that predates the
-  // jsonb dept-assignment migration; the schedule treats missing as
-  // "not assigned to any dept" (zero contribution to capacity).
-  const team: TeamMember[] = (row.team_members ?? []).map((m) => ({
+  const team = normalizeTeamMembers(row.team_members ?? [])
+  return {
+    shopRate: Number(row.shop_rate) || 0,
+    overhead: row.overhead_inputs ?? emptyOverheadInputs(),
+    team,
+    billable: row.billable_hours_inputs ?? defaultBillableHoursInputs(),
+  }
+}
+
+/**
+ * Stored jsonb → the TeamMember shape the app works with.
+ *
+ * Backfills billable=true for members predating the flag (only an explicit
+ * `false` persists), and dept_assignments=[] for those predating the jsonb
+ * dept-assignment migration (the schedule reads missing as "no dept", i.e.
+ * zero capacity). Exported because the merge path has to normalize the
+ * server's copy the same way the loader does — otherwise a field would look
+ * "changed" purely because one side was undefined and the other null.
+ */
+export function normalizeTeamMembers(
+  raw: Array<Partial<TeamMember>>,
+): TeamMember[] {
+  return (raw ?? []).map((m) => ({
     id: String(m.id ?? makeTeamMember().id),
     name: String(m.name ?? ''),
     annual_comp: Number(m.annual_comp) || 0,
@@ -271,12 +289,6 @@ export async function loadShopRateSetup(
         : undefined,
     active: m.active === false ? false : true,
   }))
-  return {
-    shopRate: Number(row.shop_rate) || 0,
-    overhead: row.overhead_inputs ?? emptyOverheadInputs(),
-    team,
-    billable: row.billable_hours_inputs ?? defaultBillableHoursInputs(),
-  }
 }
 
 export async function saveShopRateInputs(
@@ -297,4 +309,43 @@ export async function saveShopRateInputs(
 
 export async function saveShopRate(orgId: string, rate: number): Promise<void> {
   await updateOrgChecked(orgId, { shop_rate: rate })
+}
+
+/**
+ * Save the roster WITHOUT clobbering edits made elsewhere.
+ *
+ * `team_members` is a single jsonb column that both /team and /settings edit,
+ * and both used to write their whole array — so whichever saved last silently
+ * reverted everything the other had changed since it loaded. Observed live: a
+ * title went "sdff" → "New test title" → back to "sdff".
+ *
+ * Instead: re-read the row at write time and three-way merge (see
+ * lib/team-merge). Only fields this page actually changed are applied; anything
+ * it never touched keeps the server's value.
+ *
+ * @param base the roster this page loaded — the merge needs it to tell an edit
+ *             from an untouched field. Null falls back to a plain overwrite.
+ */
+export async function saveTeamMembersMerged(
+  orgId: string,
+  base: TeamMember[] | null,
+  next: TeamMember[],
+): Promise<void> {
+  if (!base) {
+    await updateOrgChecked(orgId, { team_members: next })
+    return
+  }
+  const { data, error } = await supabase
+    .from('orgs')
+    .select('team_members')
+    .eq('id', orgId)
+    .single()
+  // Can't see the current value (RLS, transient failure) — writing our whole
+  // array here is exactly the clobber this function exists to prevent, so bail
+  // loudly and let the caller surface it.
+  if (error) throw error
+  const current = normalizeTeamMembers(
+    (data?.team_members as Array<Partial<TeamMember>> | null) ?? [],
+  )
+  await updateOrgChecked(orgId, { team_members: mergeTeam(base, next, current) })
 }

@@ -35,7 +35,12 @@ export interface Autosave {
 
 export function useAutosave<T>(
   value: T,
-  save: (value: T) => Promise<void>,
+  /** `baseline` is what this hook believes is already persisted — the value it
+   *  adopted on load, or the last thing it successfully wrote. Savers that
+   *  share a row with another page use it to write only what changed instead
+   *  of stamping their whole copy over someone else's edits. Null before the
+   *  first baseline exists. */
+  save: (value: T, baseline: T | null) => Promise<void>,
   opts: {
     /** Gate the whole thing — usually `loaded && userMayWrite`. */
     enabled: boolean
@@ -79,8 +84,9 @@ export function useAutosave<T>(
     inFlightRef.current = true
     setStatus('saving')
     const pending = valueRef.current
+    const baseline = JSON.parse(savedRef.current) as T
     saveRef
-      .current(pending)
+      .current(pending, baseline)
       .then(() => {
         savedRef.current = snapshot
         setError(null)
@@ -105,10 +111,22 @@ export function useAutosave<T>(
   }, [enabled, label])
   flushRef.current = flush
 
-  // Adopt a baseline the moment the hook goes live (and drop it if it goes
-  // back to disabled, e.g. the org changed underneath us).
+  // Adopt a baseline the FIRST time the hook goes live, and never again.
+  //
+  // This used to re-adopt on every false→true transition of `enabled`, which
+  // is a silent data-loss bug: `enabled` is derived from the org, and the auth
+  // context replaces the org object on token refresh, tab focus and after any
+  // refreshOrg(). If that flickers while an edit is pending, the baseline is
+  // reset to the CURRENT (edited) value — the hook then believes those edits
+  // are already persisted, the flush no-ops, and the work is dropped with no
+  // error and a green "Saved" from whatever saved last.
+  //
+  // Only the null check matters now: null means "never been live", which is
+  // the one moment adopting the current value is correct.
   useEffect(() => {
-    savedRef.current = enabled ? JSON.stringify(valueRef.current) : null
+    if (!enabled) return
+    if (savedRef.current !== null) return
+    savedRef.current = JSON.stringify(valueRef.current)
     setStatus('idle')
     setError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
