@@ -15,6 +15,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { loadPublicOrgBySlug } from '@/lib/org-public'
 import { MLogo } from '@/components/logo'
+import ForgotPassword from '@/components/forgot-password'
 
 export default function ShopLogin({ variant }: { variant: 'manager' | 'employee' }) {
   const params = useParams()
@@ -131,6 +132,10 @@ export default function ShopLogin({ variant }: { variant: 'manager' | 'employee'
                 {loading ? 'Signing in…' : 'Sign in'}
               </button>
             </form>
+
+            <div className="mt-4 flex justify-center">
+              <ForgotPassword defaultEmail={email} tone="light" />
+            </div>
 
             {variant === 'employee' && (
               <p className="text-[11px] text-[#9CA3AF] text-center mt-4">

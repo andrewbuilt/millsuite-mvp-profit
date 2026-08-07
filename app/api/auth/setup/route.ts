@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { PLAN_SEAT_MINIMUM, validatePlan, TRIAL_DAYS } from '@/lib/feature-flags'
+import { deconflictSlug } from '@/lib/reserved-slugs'
 
 // Called right after Supabase auth signup — creates org + owner user +
 // default settings + departments, atomically (migration 053's
@@ -77,12 +78,17 @@ export async function POST(req: NextRequest) {
 
     // Base slug from the shop name; the SQL function retries with a random
     // suffix on collision (orgs.slug is unique, used for /join/[slug]).
-    const baseSlug =
+    // Org slugs sit at the URL root, so a shop named "Settings" or "Login"
+    // would shadow a real route. orgs.slug is unique against other ORGS, not
+    // against routes — nothing caught this before. deconflictSlug appends
+    // "-shop" rather than rejecting, so signup never dead-ends on a name.
+    const baseSlug = deconflictSlug(
       shopName
         .toLowerCase()
         .replace(/[^a-z0-9\s-]/g, '')
         .replace(/\s+/g, '-')
-        .slice(0, 40) || 'shop'
+        .slice(0, 40) || 'shop',
+    )
 
     // ── Trial vs pay-immediately (055) ──
     // The base tier ('starter'/Profit) starts a 30-day no-card trial:

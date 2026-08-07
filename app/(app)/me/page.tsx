@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import ChangePassword from '@/components/change-password'
 import { Clock, CalendarDays, Palmtree, ListChecks, Play, Square, Repeat, Trash2 } from 'lucide-react'
 import type { TeamMember } from '@/lib/shop-rate-setup'
 import {
@@ -48,7 +49,7 @@ function hoursLabel(minutes: number): string {
 }
 
 export default function MePage() {
-  const { user, org, loading } = useAuth()
+  const { user, org, loading, authUser } = useAuth()
   const [tab, setTab] = useState<Tab>('today')
   const [me, setMe] = useState<TeamMember | null>(null)
   const [active, setActive] = useState<TimeEntry | null>(null)
@@ -209,7 +210,9 @@ export default function MePage() {
           onChanged={refresh}
         />
       )}
-      {tab === 'history' && <HistoryTab entries={recent} onChanged={refresh} />}
+      {tab === 'history' && (
+        <HistoryTab entries={recent} onChanged={refresh} email={authUser?.email ?? null} />
+      )}
 
       <BottomTabs tab={tab} setTab={setTab} clockedIn={!!active} />
     </div>
@@ -608,7 +611,7 @@ function PtoTab({
 }
 
 // ── History ──
-function HistoryTab({ entries, onChanged }: { entries: TimeEntry[]; onChanged: () => Promise<void> }) {
+function HistoryTab({ entries, onChanged, email }: { entries: TimeEntry[]; onChanged: () => Promise<void>; email: string | null }) {
   const fmt = (iso: string | null) =>
     iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
   return (
@@ -623,6 +626,15 @@ function HistoryTab({ entries, onChanged }: { entries: TimeEntry[]; onChanged: (
           <HistoryRow key={e.id} entry={e} fmtDate={fmt} onChanged={onChanged} />
         ))
       )}
+
+      {/* Account — the only settings surface a worker has; /settings is
+          owner-only and the rest of the app is off-limits to them. */}
+      <div className="pt-4 mt-4 border-t border-[#E5E7EB]">
+        <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
+          Account
+        </div>
+        <ChangePassword email={email} />
+      </div>
     </div>
   )
 }

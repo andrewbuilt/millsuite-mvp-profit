@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import ForgotPassword from '@/components/forgot-password'
 import { useRouter } from 'next/navigation'
 import { MLogo } from '@/components/logo'
 import { supabase } from '@/lib/supabase'
@@ -94,6 +95,10 @@ export default function LoginPage() {
               {loading ? 'Logging in...' : 'Log in'}
             </button>
           </form>
+
+          <div className="mt-4 flex justify-center">
+            <ForgotPassword defaultEmail={email} tone="dark" />
+          </div>
 
           <p className="text-center text-xs text-[#555] mt-6">
             Don't have an account? <Link href="/signup" className="text-[#D4956A] hover:text-[#C4855A]">Start free trial</Link>

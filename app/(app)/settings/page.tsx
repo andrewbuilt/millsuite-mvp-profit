@@ -11,6 +11,7 @@ import { updateOrgChecked, awaitPendingOrgWrites } from '@/lib/org-write'
 import { saveChangedComp } from '@/lib/team-comp'
 import { useAutosave, type Autosave } from '@/hooks/use-autosave'
 import SaveStatus from '@/components/save-status'
+import ChangePassword from '@/components/change-password'
 import {
   PLAN_LABELS,
   PLAN_SEAT_PRICE,
@@ -91,7 +92,8 @@ function backfillFromLegacy(legacy: any): {
 }
 
 export default function SettingsPage() {
-  const { org, refreshOrg } = useAuth()
+  const { org, refreshOrg, authUser } = useAuth()
+  const ownerEmail = authUser?.email ?? null
   const { confirm } = useConfirm()
 
   const [overhead, setOverhead] = useState<OverheadInputs>(emptyOverheadInputs())
@@ -1034,6 +1036,18 @@ export default function SettingsPage() {
 
         {/* Subscription / Billing */}
         <BillingSection />
+
+        {/* Account — your own login. Separate from Team, which is other
+            people's logins. */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-[#E5E7EB]">
+            <h2 className="text-base font-semibold">Your account</h2>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">{ownerEmail || 'Signed in'}</p>
+          </div>
+          <div className="px-6 py-4">
+            <ChangePassword email={ownerEmail} />
+          </div>
+        </div>
 
         {/* Business Info */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">

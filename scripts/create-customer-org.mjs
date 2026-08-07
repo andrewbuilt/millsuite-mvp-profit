@@ -20,7 +20,9 @@
 //   • Rolls the auth user back if org creation fails, so a retry can reuse
 //     the email (same guarantee /api/auth/setup gives).
 //
-//   node scripts/create-customer-org.mjs --email x@y.com --name "Bam Woodworks" --slug bam-woodworks
+// Run with npx tsx (not plain node) — it imports the shared reserved-slug
+// list from lib/, which is TypeScript:
+//   npx tsx scripts/create-customer-org.mjs --email x@y.com --name "Bam Woodworks" --slug bam-woodworks
 //   … --apply
 // ============================================================================
 import { createClient } from '@supabase/supabase-js'
@@ -37,11 +39,18 @@ const slug = (arg('--slug') || '').trim().toLowerCase()
 const apply = process.argv.includes('--apply')
 
 if (!email || !shopName || !slug) {
-  console.error('Usage: node scripts/create-customer-org.mjs --email <email> --name "<Shop Name>" --slug <slug> [--apply]')
+  console.error('Usage: npx tsx scripts/create-customer-org.mjs --email <email> --name "<Shop Name>" --slug <slug> [--apply]')
   process.exit(1)
 }
 if (!/^[a-z0-9-]+$/.test(slug)) {
   console.error(`Slug must be lowercase letters, numbers and hyphens only. Got "${slug}".`)
+  process.exit(1)
+}
+// Same rule signup enforces — org slugs sit at the URL root, so a reserved
+// word would shadow a real route. Kept in sync via lib/reserved-slugs.
+const { isReservedSlug } = await import('../lib/reserved-slugs.ts')
+if (isReservedSlug(slug)) {
+  console.error(`"${slug}" is a reserved route name and can't be an org slug.`)
   process.exit(1)
 }
 
