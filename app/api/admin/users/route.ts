@@ -66,7 +66,7 @@ async function requireOwnerOrAdmin(req: NextRequest): Promise<Guard> {
 async function resolveOrgUser(userId: string, orgId: string) {
   const { data } = await supabaseAdmin
     .from('users')
-    .select('id, org_id, auth_user_id, role, name, email')
+    .select('id, org_id, auth_user_id, role, name, email, onboarded_at')
     .eq('id', userId)
     .single()
   if (!data || data.org_id !== orgId) return null
@@ -77,6 +77,7 @@ async function resolveOrgUser(userId: string, orgId: string) {
     role: Role
     name: string | null
     email: string | null
+    onboarded_at: string | null
   }
 }
 
@@ -204,7 +205,16 @@ export async function POST(req: NextRequest) {
 
     const { error: roleErr } = await supabaseAdmin
       .from('users')
-      .update({ role: nextRole })
+      .update({
+        role: nextRole,
+        // Stamp onboarding shut on the way through. The setup walkthrough is
+        // the owner's job, and nobody promoted into an existing shop should
+        // ever meet it. WelcomeOverlay is already owner-only, so this is the
+        // second lock — it also keeps the column honest for any other reader.
+        // COALESCE-style: only set it if it was never set, so a real first
+        // onboarding date isn't overwritten.
+        ...(target.onboarded_at ? {} : { onboarded_at: new Date().toISOString() }),
+      })
       .eq('id', target.id)
       .eq('org_id', orgId)
     if (roleErr) {

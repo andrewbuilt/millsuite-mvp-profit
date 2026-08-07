@@ -55,10 +55,17 @@ export default function WelcomeOverlay() {
   // show anything. And don't flash the overlay before the initial users
   // fetch settles.
   if (!user?.id || !org?.id) return null
-  // Owner setup only — this is the shop-rate + base-cabinet calibration.
-  // Workers (role='member') get their own /me app and must never see it,
-  // even though their fresh users row has onboarded_at = null.
-  if (user.role === 'member') return null
+  // OWNER ONLY. This walkthrough calibrates the shop rate and the base
+  // cabinet — it configures the SHOP, and only the owner can do that (the
+  // shop-rate inputs live behind owner-only Settings anyway).
+  //
+  // This used to read `role === 'member'`, which excluded workers but let
+  // ADMINS through. Managers didn't exist as a routine role until the role
+  // picker shipped; they're created with onboarded_at NULL like anyone else,
+  // so the first manager to sign in to an already-configured shop was handed
+  // the owner's setup wizard. Gate on what's true — owner — rather than
+  // enumerating who to exclude, so the next role added doesn't reopen it.
+  if (user.role !== 'owner') return null
   if (loading) return null
   if (onboardedAt) return null
 

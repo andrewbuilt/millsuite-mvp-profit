@@ -65,6 +65,11 @@ export async function POST(req: NextRequest) {
         email,
         name,
         role: 'member',
+        // Someone joining an existing shop has nothing to set up — the
+        // walkthrough configures the SHOP and belongs to the owner. Stamped
+        // here so the column tells the truth for any reader, not just because
+        // WelcomeOverlay is owner-gated.
+        onboarded_at: new Date().toISOString(),
       })
       .select()
       .single()
