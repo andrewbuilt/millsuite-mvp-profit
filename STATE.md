@@ -170,12 +170,16 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 3. ✅ **Fresh start — DONE** by full teardown + rebuild (above), which is stronger than the originally-scoped password-reset + data-wipe. `scripts/reset-org-data.mjs` still exists for the case where an org should keep its setup and lose only its work data.
 4. Item 6 below (managers get the setup wizard) should land BEFORE he adds any team — but note his OWNER login SHOULD get the wizard once on his fresh start (it walks him through shop rate + base cabinet — that's his real setup).
 
-### Self-serve passwords — scoped 2026-08-07 (Andrew found the Supabase reset email exists but NOTHING in the app uses it)
+### Self-serve passwords — ✅ **BUILT 2026-08-07 (`5109e0b`), all 3 parts. Pending Andrew's live test.**
 
-Verified: zero `resetPasswordForEmail` calls, no "Forgot password?" link on any login surface, no change-password UI, no route to catch the reset link. Build (small, before the first customer's team grows):
-1. **"Forgot password?" link** on `/login` AND both shop-login variants (`/{slug}` + `/{slug}/portal`) → email prompt → `supabase.auth.resetPasswordForEmail(email, { redirectTo: '<app-domain>/reset-password' })` — this sends the branded Supabase email that already exists.
-2. **`/reset-password` page** — catches Supabase's recovery link (recovery session), form for the new password → `supabase.auth.updateUser({ password })` → then normal role routing (owner/admin → dashboard, member → /me). **Add `reset-password` to the reserved-slug list + the public-path allowlist in auth-context** (same treatment as /login).
-3. **Change password while signed in:** Settings for owner/admin; a small "Change password" row on the /me profile/History area for workers.
+Was: zero `resetPasswordForEmail` calls, no "Forgot password?" anywhere, no change-password UI, no route to catch the link. All three built:
+1. ✅ **`components/forgot-password.tsx`** on `/login` + both shop-login variants (one component, so all three stay in step). **Answers identically whether or not the address exists** — a public form that says "no such user" is an account-enumeration oracle. Rate-limit errors DO surface (actionable).
+2. ✅ **`/reset-password`.** Supabase puts the recovery token in the URL **fragment** and parses it asynchronously, so the page waits on `onAuthStateChange` AND `getSession` rather than racing it, with an expired-link state if neither lands. Routes by role afterwards (member → /me, else /dashboard). Added to `publicPaths` + the reserved list.
+3. ✅ **`components/change-password.tsx`** — Settings ("Your account" card) and `/me` History for workers (/settings is owner-only, so that's their only surface). **Re-authenticates with the current password first**: `updateUser()` doesn't require it, and an unlocked phone on a shop floor shouldn't mean anyone can change the password.
+
+**⚠️ Bonus hole closed — SIGNUP HAD NO RESERVED-SLUG CHECK AT ALL.** Org slugs sit at the URL root, so a shop named "Dashboard" or "Login" would have claimed that route; `orgs.slug` is unique against other ORGS, not against routes. **`lib/reserved-slugs.ts` is now the single source** for auth-context (which had its own drifting copy), `/api/auth/setup`, and `create-customer-org`. Reserved names get a `-shop` suffix rather than a rejection, so signup never dead-ends on someone's shop name. **Adding a new top-level route? Add it to that list in the same commit.**
+
+_Note: `scripts/create-customer-org.mjs` now runs under **`npx tsx`**, not plain `node` — it imports the shared TS list._
 
 **Verify:** worker taps Forgot on `/{slug}/portal` → gets the email → sets a new password on a phone → lands back in /me; owner changes password from Settings; no org can register the `reset-password` slug.
 
