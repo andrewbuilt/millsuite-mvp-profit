@@ -97,6 +97,30 @@ export async function loadChangeOrdersForProject(
   return (data || []) as ChangeOrder[]
 }
 
+/**
+ * Every change order billed on a given invoice, oldest first.
+ *
+ * A CO invoice is a rolling document — accepting a priced CO appends to the
+ * open one rather than raising a new invoice each time (see
+ * `appendCoToRollingInvoice`). That's deliberate, but it means an invoice can
+ * carry several COs with nothing on screen saying which, so "what is this
+ * $4,890 for?" had no answer. Payment audit item 3.
+ */
+export async function loadChangeOrdersForInvoice(
+  invoiceId: string
+): Promise<ChangeOrder[]> {
+  const { data, error } = await supabase
+    .from('change_orders')
+    .select('*')
+    .eq('co_invoice_id', invoiceId)
+    .order('co_number', { ascending: true })
+  if (error) {
+    console.error('loadChangeOrdersForInvoice', error)
+    return []
+  }
+  return (data || []) as ChangeOrder[]
+}
+
 /** Load a single change order by id (the CO detail page). */
 export async function loadChangeOrder(id: string): Promise<ChangeOrder | null> {
   const { data, error } = await supabase

@@ -1804,6 +1804,7 @@ export default function ProjectCoverPage() {
               onCreateContractInvoice={() =>
                 qbMode ? setProjectInvoiceOpen(true) : setAdHocInvoiceOpen(true)
               }
+              onCreateAdHocInvoice={() => setAdHocInvoiceOpen(true)}
               qbMode={qbMode}
             />
           </div>

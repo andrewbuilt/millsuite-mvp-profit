@@ -52,6 +52,7 @@ import { downloadInvoicePdf } from '@/lib/invoice-pdf'
 import SendInvoiceModal from '@/components/invoices/SendInvoiceModal'
 import RecordPaymentModal from '@/components/invoices/RecordPaymentModal'
 import { supabase } from '@/lib/supabase'
+import { loadChangeOrdersForInvoice, type ChangeOrder } from '@/lib/change-orders'
 import { invoicingMode } from '@/lib/org-settings'
 import { DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-description'
 
@@ -119,6 +120,8 @@ export default function InvoiceDetailPage() {
 
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [payments, setPayments] = useState<InvoicePayment[]>([])
+  // Change orders billed on this invoice. Empty for ordinary invoices.
+  const [billedChangeOrders, setBilledChangeOrders] = useState<ChangeOrder[]>([])
   const [orgHeader, setOrgHeader] = useState<OrgInvoiceHeader | null>(null)
   const [project, setProject] = useState<ProjectInfo | null>(null)
   const [client, setClient] = useState<ClientInfo | null>(null)
@@ -159,6 +162,11 @@ export default function InvoiceDetailPage() {
         if (cancelled) return
         setInvoice(data.invoice)
         setPayments(data.payments)
+        // Which COs this invoice is billing (payment audit item 3). Empty for
+        // ordinary invoices, so the block simply doesn't render.
+        loadChangeOrdersForInvoice(data.invoice.id).then((cos) => {
+          if (!cancelled) setBilledChangeOrders(cos)
+        })
         setLines(
           data.lineItems.map((li) => ({
             id: li.id,
@@ -671,6 +679,44 @@ export default function InvoiceDetailPage() {
             />
           </div>
         ) : (
+          <>
+          {/* Which change orders this invoice is billing (payment audit item
+              3). A CO invoice is a ROLLING document — accepting a priced CO
+              appends to the open one instead of raising a new invoice each
+              time. That's by design, but it left an invoice that could carry
+              several COs with nothing on screen saying which, and no
+              explanation for why it never closes. Both stated plainly here. */}
+          {billedChangeOrders.length > 0 && (
+            <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-4">
+              <div className="px-4 py-2.5 border-b border-[#E5E7EB] text-[11px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
+                Change orders on this invoice
+              </div>
+              <div className="px-4 py-3 flex flex-wrap gap-2">
+                {billedChangeOrders.map((co) => (
+                  <Link
+                    key={co.id}
+                    href={`/change-orders/${co.id}`}
+                    className="text-[12px] px-2 py-1 rounded-md border border-[#E5E7EB] text-[#374151] hover:bg-[#F9FAFB] inline-flex items-center gap-1.5"
+                  >
+                    <span className="font-mono tabular-nums text-[#6B7280]">
+                      CO{co.co_number ?? '—'}
+                    </span>
+                    <span className="truncate max-w-[220px]">{co.title || 'Change order'}</span>
+                    <span className="font-mono tabular-nums">
+                      ${Math.round(Number(co.client_price ?? co.net_change ?? 0)).toLocaleString()}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+              {!isVoid && invoice.status !== 'paid' && (
+                <div className="px-4 pb-3 text-[11px] text-[#6B7280] leading-snug">
+                  This invoice stays open on purpose — each change order the client
+                  approves is added here rather than raising a separate invoice.
+                  Record a payment when you&apos;re ready to settle it.
+                </div>
+              )}
+            </div>
+          )}
           <EditView
             invoice={invoice}
             isDraft={isDraft}
@@ -728,6 +774,7 @@ export default function InvoiceDetailPage() {
               setDirty(true)
             }}
           />
+          </>
         )}
       </div>
 

@@ -33,6 +33,7 @@ export default function ProjectDocuments({
   onMarkEstimateSent,
   estimateSentAt,
   onCreateContractInvoice,
+  onCreateAdHocInvoice,
   qbMode,
 }: {
   projectId: string
@@ -43,6 +44,9 @@ export default function ProjectDocuments({
   onMarkEstimateSent: () => void
   estimateSentAt: string | null
   onCreateContractInvoice: () => void
+  /** Opens the ad-hoc invoice builder. Optional so callers that have no
+   *  project context can omit it. */
+  onCreateAdHocInvoice?: () => void
   /** QB mode: the "Create" contract invoice pushes to QuickBooks; the pushed
    *  invoice then gets a "View in QuickBooks" link. */
   qbMode: boolean
@@ -156,6 +160,33 @@ export default function ProjectDocuments({
         {coInvoices.map((inv) => (
           <InvoiceRow key={inv.id} label={`Change order invoice · ${inv.invoice_number}`} inv={inv} linkCls={linkCls} rowCls={rowCls} leftCls={leftCls} iconCls={iconCls} />
         ))}
+
+        {/* Raise an invoice for anything that isn't a milestone or a CO —
+            a deposit taken early, a partial billing, a one-off charge.
+            (Payment audit item 2: the builder already supported this, but the
+            only way in was the "Create" action above, which disappears once a
+            contract invoice exists — so after the first invoice an operator
+            could only bill from milestones.)
+
+            Internal mode only, deliberately: in QuickBooks mode invoices are
+            created there and pushed, so a MillSuite-only invoice would never
+            reach QB — the same silent divergence the mode toggle now warns
+            about. */}
+        {!qbMode && onCreateAdHocInvoice && (
+          <div className={rowCls}>
+            <div className={leftCls}>
+              <FileText className={iconCls} />
+              <span className="text-[13px] text-[#6B7280]">Another invoice</span>
+            </div>
+            <button
+              onClick={onCreateAdHocInvoice}
+              title="Bill something that isn't a payment milestone or a change order"
+              className={`${linkCls} text-[#2563EB] border-[#BFDBFE]`}
+            >
+              <Plus className="w-3 h-3" /> Create invoice
+            </button>
+          </div>
+        )}
 
         {/* Manual links */}
         {docs.map((d) => (

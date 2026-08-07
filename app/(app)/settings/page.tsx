@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Copy, Check, Sparkles, Trash2, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
+import { useConfirm } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import { invoicingMode, type InvoicingMode } from '@/lib/org-settings'
 import { updateOrgChecked, awaitPendingOrgWrites } from '@/lib/org-write'
@@ -91,6 +92,7 @@ function backfillFromLegacy(legacy: any): {
 
 export default function SettingsPage() {
   const { org, refreshOrg } = useAuth()
+  const { confirm } = useConfirm()
 
   const [overhead, setOverhead] = useState<OverheadInputs>(emptyOverheadInputs())
   const [team, setTeam] = useState<TeamMember[]>([])
@@ -430,6 +432,27 @@ export default function SettingsPage() {
 
   async function handleInvoicingModeChange(mode: InvoicingMode) {
     if (!org?.id || mode === invoicingModeValue) return
+    // Confirm first (payment audit item 1). This changes how invoices get
+    // CREATED from here on, and flipping it mid-project silently stops
+    // internal auto-creation — deposits and milestones quietly stop producing
+    // invoices, which is a slow failure that's hard to spot. Existing invoices
+    // are untouched either way; say so, because that's the part people fear.
+    const ok = await confirm(
+      mode === 'quickbooks'
+        ? {
+            title: 'Switch invoicing to QuickBooks?',
+            message:
+              'From now on invoices are created in QuickBooks and pushed from here — MillSuite stops auto-creating them for deposits and milestones. Invoices that already exist are unchanged, and you can switch back any time.',
+            confirmLabel: 'Use QuickBooks',
+          }
+        : {
+            title: 'Switch invoicing to MillSuite?',
+            message:
+              'From now on invoices are created here and nothing is pushed to QuickBooks. Invoices that already exist are unchanged, and you can switch back any time.',
+            confirmLabel: 'Use MillSuite',
+          },
+    )
+    if (!ok) return
     const prev = invoicingModeValue
     setInvoicingModeValue(mode) // optimistic
     try {
