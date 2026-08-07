@@ -141,6 +141,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      // A recovery link can land anywhere. Supabase only honours `redirectTo`
+      // when it's in the dashboard's allowlist — otherwise it silently falls
+      // back to Site URL, which drops the user on "/" (or whatever Site URL
+      // points at) holding a valid recovery session and no way to use it.
+      // Catch it wherever it lands and finish the job on /reset-password.
+      //
+      // Keyed on the EVENT, not the URL fragment: supabase-js consumes and
+      // clears the fragment as it initialises, so a hash check races it.
+      if (_event === 'PASSWORD_RECOVERY' && !window.location.pathname.startsWith('/reset-password')) {
+        window.location.replace('/reset-password')
+        return
+      }
       const nextUser = session?.user ?? null
       if (nextUser) {
         // Same user (e.g. token refresh on tab focus) — don't churn state.
