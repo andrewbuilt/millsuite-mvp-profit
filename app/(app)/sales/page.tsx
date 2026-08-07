@@ -598,7 +598,11 @@ function SalesInner() {
 
             {canParse && usage && !parsed && !parsing && !showBlankForm && (
               <div className="mt-2 text-center text-[11px] text-[#9CA3AF]">
-                {usage.used} / {usage.cap} parses used today
+                {/* Uncapped (internal / comped) orgs get a plain count —
+                    "12 / Infinity" would be worse than saying nothing. */}
+                {Number.isFinite(usage.cap)
+                  ? `${usage.used} / ${usage.cap} parses used today`
+                  : `${usage.used} parse${usage.used === 1 ? '' : 's'} today · no limit`}
               </div>
             )}
 

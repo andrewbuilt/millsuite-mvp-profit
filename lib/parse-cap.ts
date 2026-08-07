@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { isInternalPlan } from './feature-flags'
 
 export interface ParseUsage {
   used: number
@@ -34,11 +35,12 @@ export async function loadParseUsage(orgId: string): Promise<ParseUsage> {
       .eq('org_id', orgId)
       .eq('call_date', date)
       .in('status', ['success', 'rate_limited']),
-    supabase.from('orgs').select('daily_parse_cap').eq('id', orgId).single(),
+    supabase.from('orgs').select('daily_parse_cap, plan').eq('id', orgId).single(),
   ])
-  return {
-    used: usageRes.count ?? 0,
-    cap: Number((orgRes.data as any)?.daily_parse_cap) || DEFAULT_CAP,
-    date,
-  }
+  // Internal / comped orgs are uncapped — mirror the API route exactly, or
+  // the drop-zone counter would show "48 of 50" for someone with no limit.
+  const cap = isInternalPlan((orgRes.data as any)?.plan)
+    ? Number.POSITIVE_INFINITY
+    : Number((orgRes.data as any)?.daily_parse_cap) || DEFAULT_CAP
+  return { used: usageRes.count ?? 0, cap, date }
 }

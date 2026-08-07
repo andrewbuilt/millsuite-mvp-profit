@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { isInternalPlan } from '@/lib/feature-flags'
 
 export const maxDuration = 300 // large drawing sets can take a while
 export const runtime = 'nodejs'
@@ -383,8 +384,15 @@ async function readCapState(orgId: string): Promise<CapState> {
       .eq('org_id', orgId)
       .eq('call_date', today)
       .in('status', ['success', 'rate_limited']),
-    supabaseAdmin.from('orgs').select('daily_parse_cap').eq('id', orgId).single(),
+    supabaseAdmin.from('orgs').select('daily_parse_cap, plan').eq('id', orgId).single(),
   ])
+  // Internal / comped orgs have NO cap. This one lived outside the plan
+  // system — a per-org column enforced here regardless of tier — so an org
+  // with every feature unlocked still stopped at 50 parses a day. "All
+  // restrictions removed" has to mean this one too.
+  if (isInternalPlan((orgRes.data as any)?.plan)) {
+    return { used: usageRes.count ?? 0, cap: Number.POSITIVE_INFINITY }
+  }
   return {
     used: usageRes.count ?? 0,
     cap: Number((orgRes.data as any)?.daily_parse_cap) || DEFAULT_DAILY_PARSE_CAP,
