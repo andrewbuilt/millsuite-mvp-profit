@@ -4,11 +4,15 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-07-23 · **Branch:** `main`
+**Last updated:** 2026-08-06 · **Branch:** `main`
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-07-22)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-08-06)
+
+**⛔ GOTCHA THAT COST A WHOLE SESSION — know this before debugging anything data-related.** **Next.js 14 caches database READS made in API routes** (it patches global `fetch`; supabase-js reads through it). Writes aren't cached, so a bug here looks exactly like "saving is broken" when saving is perfect. Fixed app-wide 2026-08-06 (`6766014`) via a `cache: 'no-store'` fetch in `lib/supabase-admin.ts` + `lib/supabase.ts` — **keep it there**, and never `createClient` a service-role client inline. `dynamic = 'force-dynamic'` does NOT cover it. Full detail + the debug recipe in the "NEXT.JS CACHES DATABASE READS" section below.
+
+**Session 2026-08-04 → 08-06 shipped:** all 12 Built jobs re-imported frozen at Built's real per-sub prices · Fix list 2 items 1–5 (team saves, dept colours, internal plan, shop-rate propagation, manager/worker roles) · **RLS tenant isolation** (migrations 083–085, prod was wide open to the public key) · **employee-system restructure** (087, salary split to an owner-only table; /team now works for managers). Migrations `081`–`085`, `087` all on prod. **Open, non-urgent: `086`** (drop duplicate legacy policies, cleanup only) and **`088`** (clear the dead `annual_comp` copies from the blob — the app already ignores them and each roster save drains them). **Not code: Built's Stripe subscription is still live and still billing** — cancel in the Stripe dashboard.
 
 **Change Order system — COMPLETE & shipped** (steps 1–7, free + priced paths, batch-and-lock QB safety, Documents section, all demo-feedback fixes). Full detail in the "Change Orders — RESUMED" section. Only open item = Andrew's live QB push test + eyeball. QB push confirmed working live 2026-07-21.
 
@@ -192,9 +196,29 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
    - **UI:** Owner / Manager / Worker chip per login, a Manager|Worker switch (owner-only, never on the owner's row), the same choice inline when creating a login. Both directions confirm and say the change lands on that person's **next sign-in**. The owner's own row reads "This is you — the shop owner" instead of buttons the API would refuse.
    - _Built currently has 3 logins: 1 owner, 2 members. Note a manager sees NO roster on /team at all — `canSeeComp` gates that whole block (from fix-list-#5) — so they get Time off only. Existing design, flagged in case it isn't what Andrew wants._
 
-### Employee system — RESTRUCTURED 2026-08-04 (`dee66f1`). ⚠️ **Migration `087_team_compensation.sql` to run (safe before OR after the deploy).**
+### ⛔⛔ NEXT.JS CACHES DATABASE READS — read this before debugging ANY "it didn't save" report ⛔⛔
 
-**Why:** Andrew reported roster edits not persisting; four fix attempts each found a real but different bug. The full system review found one root cause behind all of them — **salary lived inside `orgs.team_members`**, the same jsonb blob as name/title/contact/hours/departments.
+**FIXED 2026-08-06 (`6766014`). Confirmed working by Andrew.** This was the real cause of the whole "roster edits don't persist" saga, and it is **app-wide, not a /team problem**.
+
+**Next.js 14 patches global `fetch` and caches GET requests made from server code. supabase-js issues its reads through that same global fetch** — so every `SELECT` an API route made was answered out of Next's Data Cache, for hours. Writes are POST/PATCH and are never cached. That asymmetry is what made it almost impossible to see: **the write landed instantly and correctly every single time; the read came back frozen.**
+
+**How it finally surfaced:** Andrew ran the API by hand in his browser console and it returned `Kaylin Price → null` / `Matt → "sdff"` at the same moment the row genuinely held `"WATCH1"` / `"Test"`. Database and API disagreeing by hours.
+
+- **`export const dynamic = 'force-dynamic'` DOES NOT COVER THIS.** It makes the ROUTE dynamic; each fetch keeps its own caching. The opt-out has to be on the fetch.
+- Fix = a custom `fetch` pinning `cache: 'no-store'` in **`lib/supabase-admin.ts`** (covers every API route at once) and **`lib/supabase.ts`** (browser — PostgREST sends no cache headers, so browser heuristics can stale a read too).
+- `weekly-snapshot` + `project-outcome` had built their own service-role clients with the same flaw — rewired to the shared one. **Never `createClient` a service-role client inline; import `supabaseAdmin`.**
+- **Debug recipe that cracked it:** compare three things — the row (service-role script), what the API returns (browser console, snippet below), what the screen shows. Whichever pair disagrees names the layer.
+  ```js
+  const k = Object.keys(localStorage).find(x => x.endsWith('-auth-token'));
+  const t = JSON.parse(localStorage[k]).access_token;
+  const r = await (await fetch('/api/team/setup',{headers:{Authorization:'Bearer '+t},cache:'no-store'})).json();
+  console.log(r.team.map(m => m.name + ' → ' + JSON.stringify(m.title)).join('\n'));
+  ```
+- `scripts/watch-roster.mjs` polls `orgs.team_members` once a second and prints every change — proves whether a write lands and whether anything overwrites it.
+
+### Employee system — RESTRUCTURED 2026-08-04 (`dee66f1`). ✅ Migration `087_team_compensation.sql` RUN + verified.
+
+**Why:** Andrew reported roster edits not persisting. **The actual bug was the fetch cache above** — but chasing it surfaced five genuine defects, and a full system review found a real design problem worth fixing on its own: **salary lived inside `orgs.team_members`**, the same jsonb blob as name/title/contact/hours/departments.
 
 **The map as it was:** one blob; `/team` edited name+title+email+phone+start_date+hours+billable+active+departments+logins+roles; `/settings` edited name+salary+billable+remove; **both owner-only**; name and billable editable in BOTH with nothing saying so.
 
@@ -205,15 +229,16 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 
 **Fixed:** `team_compensation` table, RLS **owner-only** (also closes the leak fix-list-#5 knowingly left open — comp was stripped from the API response while sitting readable in the blob). `annual_comp` stays a field on the in-memory `TeamMember`, populated from the table for permitted readers and 0 otherwise, so **every shop-rate calculation is unchanged**. Roster writes strip salary **only once the comp table answers with figures**, so deploy order doesn't matter. `/team`'s roster + departments are now **open to managers**; the shop-rate panel stays owner-only.
 
-**Verified against the live 14-person roster:** payroll survives both deploy orders, and a manager saving a title edit (their payload carries comp 0) preserves all $965,000 while the title still lands. `npx tsx scripts/verify-team-merge.mjs` = 10 merge cases green.
+**Verified live 2026-08-06 after running 087:** 14 comp rows matching the roster exactly, **$965,000** payroll identical before and after, derived shop rate still **$82.08/hr**, salaries unreadable with the anon key, RLS audit still exits 0. Also verified payroll survives both deploy orders and that a manager saving a title edit (their payload carries comp 0) preserves all $965,000 while the title lands. `npx tsx scripts/verify-team-merge.mjs` = 10 merge cases green.
 
-**The four bugs found on the way (all real, all fixed, none of them the root cause):**
-- `0edf961` — the debounced save cancelled itself on unmount (edit + navigate inside 600ms = discarded).
-- `da0942a` — roster inputs were **uncontrolled** (`defaultValue`), so values arriving from the fetch after mount never displayed. Saved, returned by the API, invisible.
-- `d834646` — read-after-write race: the flush-on-leave is fire-and-forget, so the next page's GET overtook it. `lib/org-write` now tracks in-flight writes; readers await them.
-- `16ff21b` — **the clobber**: /team and /settings both wrote the whole array, so a stale page reverted the other's edits. Caught by noticing the DB value had moved BACKWARDS (`"New test title"` → `"sdff"`). `lib/team-merge` does a three-way merge.
+**The five defects found while hunting the cache bug — all real, all fixed, none of them the cause:**
+- `0edf961` — the debounced save cancelled itself on unmount (edit + navigate inside 600ms = discarded). Replaced by `hooks/use-autosave` (flushes on unmount/tab-hide, `components/save-status` shows state).
+- `da0942a` — roster inputs were **uncontrolled** (`defaultValue`), so values arriving from the fetch after mount never displayed.
+- `d834646` — read-after-write race: flush-on-leave is fire-and-forget, so the next page's GET overtook it. `lib/org-write` tracks in-flight writes; readers await them.
+- `16ff21b` — **the clobber**: /team and /settings both wrote the whole array, so a stale page reverted the other's edits. `lib/team-merge` does a three-way merge (loaded / mine / server).
+- `dee66f1` — salary coupled into the employee record, forcing the owner-only lock on the whole roster.
 
-**Process note, worth keeping:** every wrong turn came from reasoning about the code instead of reading the database. The check that cracked it each time — dump `orgs.team_members` and compare over time — takes 10 seconds. Do it FIRST on any "it didn't save" report.
+**Process note — the expensive lesson of this session.** Six rounds, five wrong fixes. Every wrong turn came from reasoning about the code instead of measuring the system. Two checks would have found it in minutes and both were available from the first message: (1) dump the row over time, (2) **ask what the SERVER actually returns**, not what the code says it returns. #2 is the one that finally did it, and it took twenty seconds. Earlier the same day the RLS work went the same way — three failed attempts before surveying `pg_policies` instead of guessing. **Measure the layer, don't infer it.**
 
 **Left open:** `088` (clear the now-dead `annual_comp` from the blob) once 087 is in and verified. The onboarding walkthrough is still a whole-array roster writer (first-run only, low risk).
 
