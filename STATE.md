@@ -170,7 +170,7 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 3. ✅ **Fresh start — DONE** by full teardown + rebuild (above), which is stronger than the originally-scoped password-reset + data-wipe. `scripts/reset-org-data.mjs` still exists for the case where an org should keep its setup and lose only its work data.
 4. Item 6 below (managers get the setup wizard) should land BEFORE he adds any team — but note his OWNER login SHOULD get the wizard once on his fresh start (it walks him through shop rate + base cabinet — that's his real setup).
 
-### Self-serve passwords — ✅ **BUILT 2026-08-07 (`5109e0b`), all 3 parts. Pending Andrew's live test.**
+### Self-serve passwords — ✅ **BUILT + VERIFIED LIVE 2026-08-07 (`5109e0b`, `b17e6bd`). Andrew completed a real reset end-to-end.**
 
 Was: zero `resetPasswordForEmail` calls, no "Forgot password?" anywhere, no change-password UI, no route to catch the link. All three built:
 1. ✅ **`components/forgot-password.tsx`** on `/login` + both shop-login variants (one component, so all three stay in step). **Answers identically whether or not the address exists** — a public form that says "no such user" is an account-enumeration oracle. Rate-limit errors DO surface (actionable).
@@ -180,6 +180,13 @@ Was: zero `resetPasswordForEmail` calls, no "Forgot password?" anywhere, no chan
 **⚠️ Bonus hole closed — SIGNUP HAD NO RESERVED-SLUG CHECK AT ALL.** Org slugs sit at the URL root, so a shop named "Dashboard" or "Login" would have claimed that route; `orgs.slug` is unique against other ORGS, not against routes. **`lib/reserved-slugs.ts` is now the single source** for auth-context (which had its own drifting copy), `/api/auth/setup`, and `create-customer-org`. Reserved names get a `-shop` suffix rather than a rejection, so signup never dead-ends on someone's shop name. **Adding a new top-level route? Add it to that list in the same commit.**
 
 _Note: `scripts/create-customer-org.mjs` now runs under **`npx tsx`**, not plain `node` — it imports the shared TS list._
+
+**⚠️ SUPABASE DASHBOARD SETUP WAS REQUIRED — and is project-wide, so it's done for every org and every future user.** The first live attempt dropped Andrew on `localhost:3000/#access_token=…`: Supabase only honours `redirectTo` when the exact URL is in the allowlist, otherwise it **silently falls back to Site URL**, which was still `http://localhost:3000` from early development. Now set — Site URL `https://www.millsuite.com`, redirect allowlist has `https://www.millsuite.com/reset-password` + the apex + `http://localhost:3000/reset-password` for dev. Re-tested and working.
+- `b17e6bd` also makes the app resilient: auth-context watches for the **`PASSWORD_RECOVERY` event** and forwards to `/reset-password` from wherever the link opens, so a Site-URL misconfig can't strand a valid recovery session again. Keyed on the event, not the URL fragment — supabase-js consumes and clears that fragment as it initialises, so a hash check races it.
+
+**⚠️ BEFORE BAM'S TEAM GROWS — two dashboard items, neither blocking today:**
+1. **Supabase's built-in email is rate-limited** (a few per hour; it's a dev service). Fine for one reset; if several workers reset the same afternoon, some mail silently won't send. Connect real SMTP under Authentication → Emails.
+2. **The reset email is Supabase-branded** — says the project name, doesn't match the shop-branded login page the worker just came from. Same screen to edit the template.
 
 **Verify:** worker taps Forgot on `/{slug}/portal` → gets the email → sets a new password on a phone → lands back in /me; owner changes password from Settings; no org can register the `reset-password` slug.
 
