@@ -558,19 +558,24 @@ export default function SettingsPage() {
           <SaveStatus save={settingsSave} />
         </div>
 
-        {/* Plan & Billing — internal orgs aren't customers, so the whole
+        {/* Plan & Billing — comped orgs have no subscription, so the whole
             tier ladder / seat cost / Stripe portal block is replaced by a
-            plain statement of fact. */}
+            plain statement of fact.
+
+            Wording is CUSTOMER-FACING (first-customer onboarding step 2): a
+            comped customer sees this card, not just Andrew, and "Internal"
+            read like a dev flag someone forgot to take out. `internal` is
+            still the plan key everywhere in code — only the label changed. */}
         {isInternalPlan(org?.plan) ? (
           <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
             <div className="px-6 py-4 border-b border-[#E5E7EB]">
               <h2 className="text-base font-semibold">Plan</h2>
             </div>
             <div className="px-6 py-5">
-              <div className="text-sm font-medium text-[#111]">Internal</div>
+              <div className="text-sm font-medium text-[#111]">Full access</div>
               <p className="text-xs text-[#6B7280] mt-1 leading-relaxed">
-                Every feature, unlimited seats, no subscription. Internal accounts
-                are excluded from billing entirely — nothing here to manage.
+                Every feature is unlocked, with no seat or usage limits. Billing
+                is handled directly — there&apos;s no subscription to manage here.
               </p>
             </div>
           </div>
