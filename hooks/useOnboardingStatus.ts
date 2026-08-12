@@ -21,12 +21,23 @@
 // Reads from the AppUser returned by useAuth() so we don't re-hit Supabase
 // for values that are already cached in the auth provider — but the auth
 // provider doesn't expose onboarded_at or onboarding_step, so this hook
-// does its own select. Writes go direct to the users table via supabase.
+// does its own select.
+//
+// WRITES GO THROUGH /api/me/progress, NOT supabase.from('users').update().
+// They used to go direct, and had been silently doing nothing since migration
+// 083 enabled RLS on `users` on prod (2026-08-06): the table carries a
+// SELECT-self policy and a DELETE policy and NO UPDATE policy, so the update
+// matched zero rows and PostgREST answered `{ error: null }`. `if (error)
+// throw` cannot catch a write that reports success — so complete() looked like
+// it worked, the overlay unmounted, and the owner got the entire setup wizard
+// again on their next sign-in because onboarded_at was still null. Fixed
+// 2026-08-12.
 // ============================================================================
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { saveOnboardingStep, completeOnboarding } from '@/lib/me-progress'
 
 export type OnboardingStep = 'welcome' | 'shop_rate' | 'base_cabinet'
 
@@ -73,11 +84,7 @@ export function useOnboardingStatus(): OnboardingStatus {
   const advance = useCallback(
     async (next: OnboardingStep) => {
       if (!user?.id) return
-      const { error } = await supabase
-        .from('users')
-        .update({ onboarding_step: next })
-        .eq('id', user.id)
-      if (error) throw error
+      await saveOnboardingStep(next)
       setStep(next)
     },
     [user?.id]
@@ -85,13 +92,8 @@ export function useOnboardingStatus(): OnboardingStatus {
 
   const complete = useCallback(async () => {
     if (!user?.id) return
-    const now = new Date().toISOString()
-    const { error } = await supabase
-      .from('users')
-      .update({ onboarded_at: now, onboarding_step: null })
-      .eq('id', user.id)
-    if (error) throw error
-    setOnboardedAt(now)
+    const row = await completeOnboarding()
+    setOnboardedAt(row.onboarded_at)
     setStep(null)
   }, [user?.id])
 
