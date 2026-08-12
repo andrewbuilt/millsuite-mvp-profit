@@ -71,10 +71,16 @@ function findTarget(target: string | undefined): HTMLElement | null {
 
 /** Resolve as soon as the element exists, or null at the timeout. Watches the
  *  DOM rather than polling on a timer so a target that appears on the very next
- *  paint doesn't cost an arbitrary interval of dead time. */
+ *  paint doesn't cost an arbitrary interval of dead time.
+ *
+ *  `timeoutMs: null` means wait indefinitely. It has to be an explicit null,
+ *  NOT a huge number: setTimeout's delay is a WebIDL long, so anything past
+ *  2^31-1 wraps through ToInt32 and clamps to 0 — passing MAX_SAFE_INTEGER
+ *  fires the timeout on the next tick, which is the exact opposite of what it
+ *  reads like. */
 function waitForTarget(
   target: string,
-  timeoutMs: number,
+  timeoutMs: number | null,
   signal: { cancelled: boolean },
 ): Promise<HTMLElement | null> {
   return new Promise((resolve) => {
@@ -87,7 +93,7 @@ function waitForTarget(
       done = true
       observer.disconnect()
       clearInterval(tick)
-      clearTimeout(timer)
+      if (timer !== null) clearTimeout(timer)
       resolve(el)
     }
     const check = () => {
@@ -100,7 +106,7 @@ function waitForTarget(
     // Belt and braces: an element can become visible through a CSS transition
     // or a parent's layout without any mutation the observer would see.
     const tick = setInterval(check, 120)
-    const timer = setTimeout(() => finish(null), timeoutMs)
+    const timer = timeoutMs === null ? null : setTimeout(() => finish(null), timeoutMs)
   })
 }
 
@@ -178,7 +184,9 @@ export default function TourRunner({
 }: Props) {
   const router = useRouter()
   const pathname = usePathname()
-  const [index, setIndex] = useState(startIndex)
+  const [index, setIndex] = useState(() =>
+    Math.min(Math.max(0, startIndex), tour.steps.length - 1),
+  )
   const [rect, setRect] = useState<Rect | null>(null)
   const [ready, setReady] = useState(false)
   const [popHeight, setPopHeight] = useState(180)
@@ -298,7 +306,7 @@ export default function TourRunner({
     const signal = { cancelled: false }
     ;(async () => {
       // No timeout: the user can take as long as they like naming a project.
-      const el = await waitForTarget(next.target!, Number.MAX_SAFE_INTEGER, signal)
+      const el = await waitForTarget(next.target!, null, signal)
       if (!signal.cancelled && el) setIndex((i) => (i === index ? i + 1 : i))
     })()
     return () => {
@@ -342,7 +350,13 @@ export default function TourRunner({
     [ready, rect, step.placement, popHeight],
   )
 
-  if (typeof document === 'undefined' || viewport.w === 0) return null
+  // Render NOTHING until the step has resolved. The mask blocks clicks, so
+  // showing it while we're still navigating and hunting for a target would put
+  // a full-screen sheet over the app with no popover, no X and no explanation —
+  // for a route change plus a data load, or a full 6 seconds when a target is
+  // genuinely missing. Leaving the page alone until there's something to say is
+  // both safer and less startling.
+  if (typeof document === 'undefined' || viewport.w === 0 || !ready) return null
 
   const maskStyle = 'fixed bg-[#111]/60 z-[9998]'
   const { w: vw, h: vh } = viewport
@@ -375,7 +389,7 @@ export default function TourRunner({
       )}
 
       {/* Popover */}
-      {ready && pos && (
+      {pos && (
         <div
           ref={popRef}
           role="dialog"

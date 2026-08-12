@@ -33,7 +33,7 @@ import {
   resetTourProgress,
   type WalkthroughState,
 } from '@/lib/me-progress'
-import { markProjectAsPractice } from '@/lib/practice'
+import { loadProjectIds, markProjectAsPractice } from '@/lib/practice'
 import TourRunner, { type ExitReason } from './TourRunner'
 import TourOfferModal from './TourOfferModal'
 import PracticeCleanupPrompt from './PracticeCleanupPrompt'
@@ -70,7 +70,7 @@ export function useTours() {
 }
 
 export default function TourProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth()
+  const { user, org } = useAuth()
   const pathname = usePathname()
   const [state, setState] = useState<WalkthroughState>({})
   const [loading, setLoading] = useState(true)
@@ -81,12 +81,36 @@ export default function TourProvider({ children }: { children: React.ReactNode }
 
   // Practice mode. Default on for the first-job tour: someone learning the app
   // shouldn't have to decide up front whether their first attempt is worth
-  // keeping. Held in a ref as well as state because the project-seen callback
+  // keeping. Held in refs as well as state because the project-seen callback
   // fires from inside the runner, outside this render.
   const [practiceMode, setPracticeMode] = useState(true)
-  const practiceRef = useRef(true)
+  const practiceRef = useRef(false)
   const stampedRef = useRef<Set<string>>(new Set())
-  const [cleanupFor, setCleanupFor] = useState<string | null>(null)
+  const [cleanupFor, setCleanupFor] = useState<string[]>([])
+
+  // Every project that existed when this practice run started. Nothing in it
+  // may EVER be stamped.
+  //
+  // This is the guard that makes the feature safe. The runner reports projects
+  // by watching the URL, and a user can reach a real project from inside the
+  // tour in several ordinary ways — the last step spotlights the whole kanban
+  // board and tells them to drag a card, the project-home step spotlights the
+  // whole page including its back link. Without this snapshot, one stray click
+  // silently marks a live job as practice: it drops out of reports, capacity
+  // and the dashboard, and nothing in the app un-stamps it.
+  //
+  // null means "we don't know what was here before" — after a reload, or when
+  // resuming from Guides. In that state we stamp NOTHING. Failing to badge a
+  // practice project is a cosmetic miss the user can fix from Guides; wrongly
+  // badging a real job is data loss they'd have no way to spot.
+  const knownProjectsRef = useRef<Set<string> | null>(null)
+
+  // startTour and the runner's mount both want to record the opening step, and
+  // the progress write is a read-modify-write on one jsonb blob with no
+  // compare-and-set — firing both in the same tick lets the loser's fields
+  // (started_at, the cleared completed_at) get dropped. startTour's write is
+  // the richer one, so the runner's opening echo is skipped.
+  const skipFirstStepWriteRef = useRef(false)
 
   const canSee = canSeeTours(user?.role)
 
@@ -142,24 +166,41 @@ export default function TourProvider({ children }: { children: React.ReactNode }
 
   const startTour = useCallback(
     (id: TourId, fromStep = 0, practice?: boolean) => {
-      // Practice only means anything for the tour that creates a project.
-      practiceRef.current = id === 'first-job' && (practice ?? practiceMode)
+      // Practice only means anything for the tour that creates a project, and
+      // only from the top — resuming mid-tour can't know what was already
+      // there, so it runs without stamping (see knownProjectsRef).
+      const wantsPractice = id === 'first-job' && fromStep === 0 && (practice ?? practiceMode)
+      practiceRef.current = wantsPractice
       stampedRef.current = new Set()
+      knownProjectsRef.current = null
+      skipFirstStepWriteRef.current = true
+      if (wantsPractice && org?.id) {
+        void loadProjectIds(org.id).then((ids) => {
+          knownProjectsRef.current = ids // null on failure → stamps nothing
+        })
+      }
       setOffering(null)
       setActive({ id, from: fromStep })
       void saveTourProgress(id, {
         started_at: new Date().toISOString(),
         step: fromStep,
+        // A re-run has to clear the old outcome, or the Guides card keeps
+        // reading "Completed" and can never be resumed again.
+        completed_at: null,
         dismissed_at: null,
       }).catch(() => {})
     },
-    [practiceMode],
+    [practiceMode, org?.id],
   )
 
   // The tour walks the user into a project it didn't create and can't name in
-  // advance — this is where it learns which one and marks it throwaway.
+  // advance — this is where it learns which one. Stamps ONLY projects that did
+  // not exist when the run began.
   const handleProjectSeen = useCallback((projectId: string) => {
     if (!practiceRef.current) return
+    const known = knownProjectsRef.current
+    if (!known) return // snapshot missing or still loading — never guess
+    if (known.has(projectId)) return // pre-existing, i.e. real work
     if (stampedRef.current.has(projectId)) return
     stampedRef.current.add(projectId)
     void markProjectAsPractice(projectId)
@@ -170,14 +211,19 @@ export default function TourProvider({ children }: { children: React.ReactNode }
     setOffering(id)
   }, [])
 
-  const restartTour = useCallback(async (id: TourId) => {
-    await resetTourProgress(id)
-    setState((s) => {
-      const next = { ...s }
-      delete next[id]
-      return next
-    })
-  }, [])
+  const restartTour = useCallback(
+    async (id: TourId) => {
+      // Deliberately NOT a full reset: offered_at records that the automatic
+      // one-shot offer has been spent. Wiping it would make the welcome tour
+      // ambush the user again on their next page load, days after they chose
+      // to replay it themselves.
+      const offeredAt = state[id]?.offered_at ?? null
+      await resetTourProgress(id)
+      if (offeredAt) await saveTourProgress(id, { offered_at: offeredAt }).catch(() => {})
+      setState((s) => ({ ...s, [id]: offeredAt ? { offered_at: offeredAt } : {} }))
+    },
+    [state],
+  )
 
   // Progress writes are fire-and-forget: a failed save costs the user their
   // resume point, not their tour. Blocking the spotlight on a round trip would
@@ -189,6 +235,10 @@ export default function TourProvider({ children }: { children: React.ReactNode }
         sessionStorage.setItem(RESUME_KEY, JSON.stringify({ tourId: active.id, index }))
       } catch {
         /* private mode — the tour still runs, it just won't survive a reload */
+      }
+      if (skipFirstStepWriteRef.current) {
+        skipFirstStepWriteRef.current = false
+        return
       }
       void saveTourProgress(active.id, { step: index }).catch(() => {})
       setState((s) => ({ ...s, [active.id]: { ...s[active.id], step: index } }))
@@ -218,7 +268,7 @@ export default function TourProvider({ children }: { children: React.ReactNode }
       // too, not just a completion. Someone who bails halfway has MORE reason
       // to want the scratch project gone, not less.
       if (practiceRef.current && stampedRef.current.size > 0) {
-        setCleanupFor([...stampedRef.current][0])
+        setCleanupFor([...stampedRef.current])
       }
       practiceRef.current = false
     },
@@ -271,8 +321,8 @@ export default function TourProvider({ children }: { children: React.ReactNode }
           onProjectSeen={handleProjectSeen}
         />
       )}
-      {canSee && cleanupFor && (
-        <PracticeCleanupPrompt projectId={cleanupFor} onClose={() => setCleanupFor(null)} />
+      {canSee && cleanupFor.length > 0 && (
+        <PracticeCleanupPrompt projectIds={cleanupFor} onClose={() => setCleanupFor([])} />
       )}
     </TourContext.Provider>
   )

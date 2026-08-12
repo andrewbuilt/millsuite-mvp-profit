@@ -95,6 +95,10 @@ const WELCOME: Tour = {
       placement: 'bottom',
     },
     {
+      // Pinned: steps 1-3 spotlight nav LINKS, and the mask leaves them
+      // clickable on purpose. A user who clicks the thing being pointed at
+      // navigates away, and this target only exists on the board.
+      route: '/sales/kanban',
       target: 'kanban-new-project',
       title: 'New project',
       body: 'This button starts a job — name it, pick the client, and it drops onto the board.',

@@ -27,6 +27,17 @@ export interface PracticeProject {
   practice_at: string
 }
 
+/** Every project id in the org. The tour snapshots this before a practice run
+ *  so it can tell a project the user just created from one that was already
+ *  there — see the knownProjectsRef note in TourProvider. Empty set on failure
+ *  would be the DANGEROUS default here (it would make every real project look
+ *  new), so this one returns null on error and callers must refuse to stamp. */
+export async function loadProjectIds(orgId: string): Promise<Set<string> | null> {
+  const { data, error } = await supabase.from('projects').select('id').eq('org_id', orgId)
+  if (error || !data) return null
+  return new Set(data.map((r) => r.id as string))
+}
+
 /** Ids of this org's practice projects. Empty set on any failure — see above. */
 export async function loadPracticeProjectIds(orgId: string): Promise<Set<string>> {
   const { data, error } = await supabase
@@ -63,9 +74,19 @@ export async function markProjectAsPractice(projectId: string): Promise<void> {
 
 /** Delete every practice project in the org. Reuses deleteProject so the
  *  non-cascading children (time entries, invoices, milestones…) go with them.
- *  Returns how many were removed. */
-export async function deleteAllPracticeData(orgId: string): Promise<number> {
+ *  Keeps going past a failure — one stubborn project shouldn't silently strand
+ *  the rest — and reports what didn't go. */
+export async function deleteAllPracticeData(
+  orgId: string,
+): Promise<{ deleted: number; failed: number }> {
   const rows = await listPracticeProjects(orgId)
-  for (const p of rows) await deleteProject(p.id)
-  return rows.length
+  let failed = 0
+  for (const p of rows) {
+    try {
+      await deleteProject(p.id)
+    } catch {
+      failed++
+    }
+  }
+  return { deleted: rows.length - failed, failed }
 }

@@ -15,10 +15,13 @@ import { Trash2 } from 'lucide-react'
 import { deleteProject } from '@/lib/sales'
 
 export default function PracticeCleanupPrompt({
-  projectId,
+  projectIds,
   onClose,
 }: {
-  projectId: string
+  /** Everything this run stamped — usually one, but a user who starts over
+   *  mid-tour can create more than one, and leaving the extras un-offered
+   *  would strand them as practice with no prompt. */
+  projectIds: string[]
   onClose: () => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -27,21 +30,32 @@ export default function PracticeCleanupPrompt({
   async function remove() {
     setBusy(true)
     setError(null)
-    try {
-      await deleteProject(projectId)
-      onClose()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not delete it.')
-      setBusy(false)
+    const failed: string[] = []
+    for (const id of projectIds) {
+      // Keep going after a failure — one project refusing to delete shouldn't
+      // silently leave the rest behind.
+      try {
+        await deleteProject(id)
+      } catch {
+        failed.push(id)
+      }
     }
+    if (failed.length === 0) return onClose()
+    setError(
+      `Couldn't delete ${failed.length} of ${projectIds.length}. Try again from Manage → Guides.`,
+    )
+    setBusy(false)
   }
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9996] w-[min(92vw,440px)] bg-white border border-[#E5E7EB] rounded-2xl shadow-2xl p-4">
-      <h3 className="text-[14px] font-semibold text-[#111] mb-1">That was a practice job</h3>
+      <h3 className="text-[14px] font-semibold text-[#111] mb-1">
+        {projectIds.length > 1 ? `That was practice (${projectIds.length} projects)` : 'That was a practice job'}
+      </h3>
       <p className="text-[12.5px] text-[#6B7280] leading-relaxed">
-        It&rsquo;s badged Practice and stays out of reports, capacity and your dashboard. Delete it
-        now, or keep it around as a template — you can remove it any time from Manage &rarr; Guides.
+        {projectIds.length > 1 ? 'They\u2019re' : 'It\u2019s'} badged Practice and stay{projectIds.length > 1 ? '' : 's'} out of
+        reports, capacity and your dashboard. Delete now, or keep as a template — you can remove
+        {projectIds.length > 1 ? ' them' : ' it'} any time from Manage &rarr; Guides.
       </p>
       {error && (
         <div className="mt-2.5 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-xs text-[#B91C1C]">

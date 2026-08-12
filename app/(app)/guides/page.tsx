@@ -46,6 +46,7 @@ export default function GuidesPage() {
   const allowed = canSeeTours(user?.role)
   const [practice, setPractice] = useState<PracticeProject[]>([])
   const [wiping, setWiping] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const refreshPractice = useCallback(async () => {
     if (!org?.id) return
@@ -91,6 +92,12 @@ export default function GuidesPage() {
         up here.
       </p>
 
+      {error && (
+        <div className="mb-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-xs text-[#B91C1C]">
+          {error}
+        </div>
+      )}
+
       <div className="space-y-3">
         {cards.map(({ tour, status }) => (
           <TourCard
@@ -100,7 +107,15 @@ export default function GuidesPage() {
             loading={loading}
             onStart={(fromStep) => launch(tour, fromStep)}
             onRestart={async () => {
-              await restartTour(tour.id as TourId)
+              setError(null)
+              try {
+                await restartTour(tour.id as TourId)
+              } catch {
+                // Pre-088 the reset call fails. Say so instead of leaving a
+                // button that looks broken.
+                setError('Could not reset that guide. If this just deployed, the database migration may still be pending.')
+                return
+              }
               launch(tour, 0)
             }}
           />
@@ -141,9 +156,13 @@ export default function GuidesPage() {
                 })
                 if (!ok || !org?.id) return
                 setWiping(true)
+                setError(null)
                 try {
-                  await deleteAllPracticeData(org.id)
+                  const { failed } = await deleteAllPracticeData(org.id)
+                  if (failed > 0) setError(`Couldn't delete ${failed} of them. Try again.`)
                   await refreshPractice()
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : 'Could not delete practice data.')
                 } finally {
                   setWiping(false)
                 }
