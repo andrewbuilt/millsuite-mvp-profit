@@ -4,17 +4,21 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-08-06 · **Branch:** `main`
+**Last updated:** 2026-08-12 · **Branch:** `main`
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-08-06)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-08-12)
+
+**⛔ NEVER WRITE TO `users` FROM THE BROWSER.** `users` has RLS on with a SELECT-self policy and a DELETE policy and **no UPDATE policy**, so `supabase.from('users').update(...)` matches zero rows and PostgREST returns `{ error: null }` — success-shaped silence that `if (error) throw` cannot catch. This had been quietly breaking `onboarded_at` since 083 landed on prod (2026-08-06); found and fixed 2026-08-12. Go through **`/api/me/progress`** (service role, own row only, three-column allowlist). Same trap as `orgs`, which is what `lib/org-write.ts` guards. Full detail under "Guided walkthroughs v1".
+
+**Session 2026-08-12 shipped: guided walkthroughs v1** (both tours, in-house spotlight engine, Manage → Guides, practice projects, dashboard setup checklist) + the `users`-write fix above. **⚠️ Migration `088` must be run on prod** — the code is built to survive deploying first, but nothing persists until it does. Detail + the two spec conflicts needing Andrew's call under "Guided walkthroughs v1" in Now.
 
 **⛔ GOTCHA THAT COST A WHOLE SESSION — know this before debugging anything data-related.** **Next.js 14 caches database READS made in API routes** (it patches global `fetch`; supabase-js reads through it). Writes aren't cached, so a bug here looks exactly like "saving is broken" when saving is perfect. Fixed app-wide 2026-08-06 (`6766014`) via a `cache: 'no-store'` fetch in `lib/supabase-admin.ts` + `lib/supabase.ts` — **keep it there**, and never `createClient` a service-role client inline. `dynamic = 'force-dynamic'` does NOT cover it. Full detail + the debug recipe in the "NEXT.JS CACHES DATABASE READS" section below.
 
 **FIRST EXTERNAL CUSTOMER IS LIVE (2026-08-07):** Bam Woodworks — `millsuite.com/bam-woodworks`, owner `bam@bamwoodworks.com`, plan `internal` (comped, no Stripe), blank instance, gets the shop-rate walkthrough on first sign-in. Detail + the reusable org tooling under "First customer onboarding". **He is the reason the payment-audit fixes matter — internal mode is now carrying a real customer.**
 
-**Session 2026-08-04 → 08-06 shipped:** all 12 Built jobs re-imported frozen at Built's real per-sub prices · Fix list 2 items 1–5 (team saves, dept colours, internal plan, shop-rate propagation, manager/worker roles) · **RLS tenant isolation** (migrations 083–085, prod was wide open to the public key) · **employee-system restructure** (087, salary split to an owner-only table; /team now works for managers). Migrations `081`–`085`, `087` all on prod. **Open, non-urgent: `086`** (drop duplicate legacy policies, cleanup only) and **`088`** (clear the dead `annual_comp` copies from the blob — the app already ignores them and each roster save drains them). **Not code: Built's Stripe subscription is still live and still billing** — cancel in the Stripe dashboard.
+**Session 2026-08-04 → 08-06 shipped:** all 12 Built jobs re-imported frozen at Built's real per-sub prices · Fix list 2 items 1–5 (team saves, dept colours, internal plan, shop-rate propagation, manager/worker roles) · **RLS tenant isolation** (migrations 083–085, prod was wide open to the public key) · **employee-system restructure** (087, salary split to an owner-only table; /team now works for managers). Migrations `081`–`085`, `087` all on prod. **Open, non-urgent: `086`** (drop duplicate legacy policies, cleanup only) and **`089`** (clear the dead `annual_comp` copies from the blob — the app already ignores them and each roster save drains them; renumbered from 088, which the walkthroughs session took). **Not code: Built's Stripe subscription is still live and still billing** — cancel in the Stripe dashboard.
 
 **Change Order system — COMPLETE & shipped** (steps 1–7, free + priced paths, batch-and-lock QB safety, Documents section, all demo-feedback fixes). Full detail in the "Change Orders — RESUMED" section. Only open item = Andrew's live QB push test + eyeball. QB push confirmed working live 2026-07-21.
 
@@ -170,13 +174,29 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 3. ✅ **Fresh start — DONE** by full teardown + rebuild (above), which is stronger than the originally-scoped password-reset + data-wipe. `scripts/reset-org-data.mjs` still exists for the case where an org should keep its setup and lose only its work data.
 4. Item 6 below (managers get the setup wizard) should land BEFORE he adds any team — but note his OWNER login SHOULD get the wizard once on his fresh start (it walks him through shop rate + base cabinet — that's his real setup).
 
-### Guided walkthroughs v1 — scoped 2026-08-12 (Cowork planning pass; scripts drafted + approved)
+### Guided walkthroughs v1 — ✅ **BUILT 2026-08-12** (scoped in the same-day Cowork pass; built to `specs/walkthroughs/v1-tours.md`). 6 commits, `cc2fa60`…`6f83bc1`, tsc clean.
 
-**Goal (Andrew):** new users open the app and can't figure it out — build opt-in guided tours: intro modal (what it's for, step count), spotlight-highlighted buttons, progress ("Step 3 of 8"), a **Guides & walkthroughs menu in Settings** with per-user progress. **Full spec + BOTH v1 tour scripts (every step's target, title, and copy) live in `specs/walkthroughs/v1-tours.md` — build from that file; don't improvise copy or selectors.**
+**⚠️ ONE THING BLOCKS THIS: migration `088_walkthroughs.sql` must run on prod.** It's additive and idempotent (`users.walkthrough_state` jsonb + `projects.practice_at`). The code is built to survive being deployed first — every read of the two new columns is split out or best-effort, so a pre-088 database degrades to "no tours started / no practice projects" instead of blanking the dashboard, capacity or reports. But nothing persists until it runs. _(088 was previously pencilled in for the `annual_comp` blob cleanup — that's now **`089`**, see "Left open" further down.)_
 
-Decisions locked (expanded in the 2026-08-12 planning pass — full detail + catalog in the spec file): **engine = driver.js** styled to DM Sans + app palette · stable **`data-tour` attributes** (never classes) · per-user progress in `users.walkthrough_state` jsonb (idempotent migration) · **Guides menu lives at Manage → Guides** (NOT Settings — managers need it; role-filtered content) · onboarding = existing 2-step wizard stays, followed by a dismissible **"Getting set up" checklist** on the dashboard (company info · logo · invoicing mode · first team member) · **v1 tours = "Welcome" (7 steps — includes the learning-loop step) + "Price your first job" (8 steps, chains from Welcome, with an optional PRACTICE project** — badged, excluded from reports/capacity, one-click delete) · depth rule: core tours ≤ 8–10 steps, big topics get 4–6-step deep-dives later (catalog phased v1/v2/v3 in the spec) · Welcome offers itself ONCE per owner/admin after the wizard; "Not now" never re-offers.
+**⛔ FOUND WHILE BUILDING — A LIVE BUG, NOW FIXED. `users` has RLS on with a SELECT-self policy and a DELETE policy and NO UPDATE POLICY**, so every browser-side `supabase.from('users').update(...)` matches zero rows and PostgREST answers `{ error: null }`. `useOnboardingStatus` wrote that way, so **`onboarded_at` and `onboarding_step` had silently not been saving since `083` reached prod on 2026-08-06** — a new owner would get the whole setup wizard again on every sign-in, and `if (error) throw` can't catch a write that reports success. This is the same class as the `orgs` hole `lib/org-write.ts` exists to catch. Fixed by routing those writes through **`/api/me/progress`** (service role; row is always `caller.userId` off the bearer token, never an id from the body; only `onboarding_step` / `onboarded_at` / `walkthrough_state` are writable, so `role` and `org_id` can't be reached). **Rule going forward: never add a `from('users').update()` in client code — it will look like it worked.**
 
-**Verify:** fresh owner finishes the setup wizard → Welcome offer appears once → completes both tours on the real UI (each spotlight lands on the right element, cross-page steps navigate) → progress shows in Settings → dismiss mid-tour and Resume works → a worker login never sees any of it.
+**What shipped:**
+- **Engine is in-house, NOT driver.js** (Andrew's call — the install was blocked in the sandbox, and building it gave exact palette control plus the two-button closer Welcome ends on). `components/walkthroughs/TourRunner.tsx`: mask is four fixed divs *around* the target rather than an SVG cutout, so **the highlighted button stays genuinely clickable** — the first-job tour depends on that completely, since the user really does click New project and really does build an estimate. Cross-page steps navigate then wait on a MutationObserver; a target that never appears falls back to a centered popover (the copy still lands); `skipIfMissing` drops the owner-only Settings step for managers.
+- **Both v1 tours as data** in `lib/walkthroughs.ts`, transcribed verbatim from the spec. Welcome = 7 steps (learning loop is 6, closer 7). First-job = 8, follows the user through the real flow.
+- **12 `data-tour` hooks** on top-nav (sales/projects/manage/settings), kanban (new-project/board), NewProjectModal, project home, add-subproject, compose-line, line-breakdown, documents-estimate.
+- **`/guides` at Manage → Guides**, role-filtered, Start/Resume/Restart per tour + the v2/v3 catalog greyed as Coming soon. Added to `RESERVED_SLUGS`. Settings has a pointer card (see the copy conflict below).
+- **Welcome auto-offers once** per owner/admin after the wizard; `offered_at` is stamped when it's *shown*, so closing the tab counts. "Not now" never re-offers.
+- **Practice projects** — first-job offers to run on a throwaway (checkbox in its offer modal, on by default). Badged, excluded from dashboard outlook / capacity / reports / booked-work chart, one-click delete at tour end and on Guides.
+- **"Getting set up" checklist** on the dashboard (owner only): company info · logo · invoicing mode · first team member. **Replaced** the old `?welcome=true` checklist (shop rate / first project / log time) — shop rate is the wizard's job and the other two are what the first-job tour is for.
+
+**Two spec conflicts — flagged, not silently resolved. Both want a call from Andrew:**
+1. **Guides location.** Decision 2 says Manage → Guides, but Welcome step 5's copy and the tour's opt-in modal both say "Settings → Guides". Since approved copy isn't mine to reword, the page lives at `/guides` under Manage **and** Settings got a pointer card, so both statements are true. Say if you'd rather change the copy and drop the card.
+2. **Learning-loop step.** Decision 3 gave the body verbatim but no title and no target. It's a centered step (it's a concept, not a place) titled **"The learning loop"**, taken from the decision's own wording. Retitle if you want something else.
+
+**Still to do (all Andrew, needs a logged-in app — preview can't auth):**
+- **Run `088` on prod**, then the interactive pass: fresh owner finishes the setup wizard → Welcome offer appears once → both tours run on the real UI (each spotlight lands right, cross-page steps navigate, the modal/subproject steps auto-advance when you act) → progress shows on /guides → dismiss mid-tour and Resume works → a worker login sees none of it.
+- Confirm the practice flow end to end: check the box, build a job, see the PRACTICE badge, confirm it's absent from reports/capacity/dashboard, then delete it from Guides.
+- **Worth a specific look:** the onboarding fix. On a fresh owner, finish the wizard, sign out, sign back in — the wizard should NOT return.
 
 ### Self-serve passwords — ✅ **BUILT + VERIFIED LIVE 2026-08-07 (`5109e0b`, `b17e6bd`). Andrew completed a real reset end-to-end.**
 
@@ -297,7 +317,7 @@ _Note: `scripts/create-customer-org.mjs` now runs under **`npx tsx`**, not plain
 
 **Process note — the expensive lesson of this session.** Six rounds, five wrong fixes. Every wrong turn came from reasoning about the code instead of measuring the system. Two checks would have found it in minutes and both were available from the first message: (1) dump the row over time, (2) **ask what the SERVER actually returns**, not what the code says it returns. #2 is the one that finally did it, and it took twenty seconds. Earlier the same day the RLS work went the same way — three failed attempts before surveying `pg_policies` instead of guessing. **Measure the layer, don't infer it.**
 
-**Left open:** `088` (clear the now-dead `annual_comp` from the blob) once 087 is in and verified. The onboarding walkthrough is still a whole-array roster writer (first-run only, low risk).
+**Left open:** **`089`** (clear the now-dead `annual_comp` from the blob) once 087 is in and verified — _renumbered from 088, which the guided-walkthroughs session took on 2026-08-12; it was still unwritten._ The onboarding walkthrough is still a whole-array roster writer (first-run only, low risk).
 
 ### RLS security audit — ✅ **CLOSED + VERIFIED LIVE 2026-08-04.** Migrations `083`, `084`, `085` all run on prod; audit exits 0; Andrew confirmed the app loads clean signed in. Optional cleanup `086` written, not run.
 
