@@ -50,7 +50,11 @@ export default function NewProjectModal({
       className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center px-4 py-16 overflow-y-auto"
       onClick={onClose}
     >
-      <div className="w-full max-w-[460px] bg-white rounded-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="w-full max-w-[460px] bg-white rounded-xl overflow-hidden"
+        data-tour="new-project-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
           <div className="text-[16px] font-semibold text-[#111]">New project</div>
           <button onClick={onClose} aria-label="Close" className="text-[#9CA3AF] hover:text-[#111]">

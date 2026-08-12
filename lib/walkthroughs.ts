@@ -35,10 +35,12 @@ export interface TourStep {
   title: string
   body: string
   placement?: 'top' | 'bottom' | 'left' | 'right'
-  /** The target only appears once the user acts (opens a modal, creates the
-   *  project). The engine watches for it and advances the moment it shows up,
-   *  so the tour follows the user instead of making them press Next. */
-  advanceOnAppear?: boolean
+  /** Set when the NEXT step's target only appears once the user acts — opens
+   *  the modal, creates the project. The engine watches for it and advances the
+   *  moment it shows up, so the tour follows the user through the real flow
+   *  instead of asking them to press Next after every click. The Next button
+   *  still works, for anyone who'd rather read than do. */
+  advanceWhenNextAppears?: boolean
   /** A missing target is expected here, so drop the step rather than falling
    *  back to a centered popover. Settings is owner-only. */
   skipIfMissing?: boolean
@@ -140,14 +142,14 @@ const FIRST_JOB: Tour = {
       title: 'Start the job',
       body: 'Click New project.',
       placement: 'bottom',
-      advanceOnAppear: true,
+      advanceWhenNextAppears: true,
     },
     {
       target: 'new-project-modal',
       title: 'Name it',
       body: 'Give the job a name and pick the client — or type a new client name and it’s created on the spot.',
       placement: 'right',
-      advanceOnAppear: true,
+      advanceWhenNextAppears: true,
     },
     {
       target: 'project-home',
@@ -160,7 +162,7 @@ const FIRST_JOB: Tour = {
       title: 'Break it into subprojects',
       body: 'One per room or scope area — "Kitchen," "Bar," "Install." Each gets its own drawings and approvals later.',
       placement: 'left',
-      advanceOnAppear: true,
+      advanceWhenNextAppears: true,
     },
     {
       target: 'compose-line',

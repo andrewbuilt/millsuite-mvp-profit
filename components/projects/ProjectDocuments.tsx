@@ -99,7 +99,7 @@ export default function ProjectDocuments({
       </div>
       <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
         {/* Estimate — with its actions (moved off the old bottom bar). */}
-        <div className={rowCls}>
+        <div className={rowCls} data-tour="documents-estimate">
           <div className={leftCls}>
             <FileText className={iconCls} />
             <span className="text-[13px] text-[#111] truncate">Estimate</span>

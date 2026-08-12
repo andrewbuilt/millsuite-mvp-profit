@@ -111,6 +111,16 @@
       "expected_price": 115122,
       "expected_hours": 745,
       "milestones": 3
+    },
+    {
+      "entity": "project",
+      "built_id": "d2cc4679-4182-4747-ab61-7b9404bdf670",
+      "name": "Vallowe - Colquhoun Project",
+      "decision": "import",
+      "expected_price": 33430,
+      "expected_hours": 210,
+      "milestones": 3,
+      "_note": "Added 2026-08-07. Built status 'scheduling'. The converted sold LEAD (bacbd35f-...) for the same job must NOT also import - project row only."
     }
   ]
 }

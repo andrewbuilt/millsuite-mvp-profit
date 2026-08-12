@@ -5,6 +5,7 @@ import RoleGate from '@/components/role-gate'
 import BillingGate from '@/components/billing-gate'
 import WelcomeOverlay from '@/components/onboarding/WelcomeOverlay'
 import UpdateBanner from '@/components/update-banner'
+import TourProvider from '@/components/walkthroughs/TourProvider'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -16,21 +17,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             CTA so a customer who bails on Stripe Checkout can't reach
             the app without paying. */}
         <BillingGate>
-          <div className="bg-[#F9FAFB] text-[#111] min-h-screen flex flex-col">
-            <TopNav />
-            <div className="flex-1">
-              {children}
+          {/* Guided walkthroughs. Mounted HERE, above the page, because the
+              "Price your first job" tour navigates across four routes while
+              running — a provider inside a page would unmount underneath it. */}
+          <TourProvider>
+            <div className="bg-[#F9FAFB] text-[#111] min-h-screen flex flex-col">
+              <TopNav />
+              <div className="flex-1">
+                {children}
+              </div>
+              <Footer />
             </div>
-            <Footer />
-          </div>
-          {/* First-login gate. Non-dismissible; unmounts when the current
-              user's users.onboarded_at is non-null. Safe to render under
-              RoleGate — the overlay hook reads useAuth() and renders
-              nothing until the user + org are loaded. */}
-          <WelcomeOverlay />
-          {/* Gentle "new version available" toast — polls /api/version and
-              nudges (never auto-reloads) when a newer deploy is live. */}
-          <UpdateBanner />
+            {/* First-login gate. Non-dismissible; unmounts when the current
+                user's users.onboarded_at is non-null. Safe to render under
+                RoleGate — the overlay hook reads useAuth() and renders
+                nothing until the user + org are loaded. */}
+            <WelcomeOverlay />
+            {/* Gentle "new version available" toast — polls /api/version and
+                nudges (never auto-reloads) when a newer deploy is live. */}
+            <UpdateBanner />
+          </TourProvider>
         </BillingGate>
       </RoleGate>
     </ConfirmProvider>

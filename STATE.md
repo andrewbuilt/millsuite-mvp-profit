@@ -170,6 +170,14 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 3. ✅ **Fresh start — DONE** by full teardown + rebuild (above), which is stronger than the originally-scoped password-reset + data-wipe. `scripts/reset-org-data.mjs` still exists for the case where an org should keep its setup and lose only its work data.
 4. Item 6 below (managers get the setup wizard) should land BEFORE he adds any team — but note his OWNER login SHOULD get the wizard once on his fresh start (it walks him through shop rate + base cabinet — that's his real setup).
 
+### Guided walkthroughs v1 — scoped 2026-08-12 (Cowork planning pass; scripts drafted + approved)
+
+**Goal (Andrew):** new users open the app and can't figure it out — build opt-in guided tours: intro modal (what it's for, step count), spotlight-highlighted buttons, progress ("Step 3 of 8"), a **Guides & walkthroughs menu in Settings** with per-user progress. **Full spec + BOTH v1 tour scripts (every step's target, title, and copy) live in `specs/walkthroughs/v1-tours.md` — build from that file; don't improvise copy or selectors.**
+
+Decisions locked (expanded in the 2026-08-12 planning pass — full detail + catalog in the spec file): **engine = driver.js** styled to DM Sans + app palette · stable **`data-tour` attributes** (never classes) · per-user progress in `users.walkthrough_state` jsonb (idempotent migration) · **Guides menu lives at Manage → Guides** (NOT Settings — managers need it; role-filtered content) · onboarding = existing 2-step wizard stays, followed by a dismissible **"Getting set up" checklist** on the dashboard (company info · logo · invoicing mode · first team member) · **v1 tours = "Welcome" (7 steps — includes the learning-loop step) + "Price your first job" (8 steps, chains from Welcome, with an optional PRACTICE project** — badged, excluded from reports/capacity, one-click delete) · depth rule: core tours ≤ 8–10 steps, big topics get 4–6-step deep-dives later (catalog phased v1/v2/v3 in the spec) · Welcome offers itself ONCE per owner/admin after the wizard; "Not now" never re-offers.
+
+**Verify:** fresh owner finishes the setup wizard → Welcome offer appears once → completes both tours on the real UI (each spotlight lands on the right element, cross-page steps navigate) → progress shows in Settings → dismiss mid-tour and Resume works → a worker login never sees any of it.
+
 ### Self-serve passwords — ✅ **BUILT + VERIFIED LIVE 2026-08-07 (`5109e0b`, `b17e6bd`). Andrew completed a real reset end-to-end.**
 
 Was: zero `resetPasswordForEmail` calls, no "Forgot password?" anywhere, no change-password UI, no route to catch the link. All three built:

@@ -1237,7 +1237,7 @@ export default function ProjectCoverPage() {
 
   return (
     <>
-      <div className="min-h-screen bg-[#F9FAFB]">
+      <div className="min-h-screen bg-[#F9FAFB]" data-tour="project-home">
         {/* Project sub-bar — sticks below the global Nav (Nav is sticky
             top-0 z-50). top-14 = 56px = the Nav's natural height. */}
         <div className="sticky top-14 z-30 bg-white border-b border-[#E5E7EB] px-6 py-3 flex items-center justify-between">
@@ -1561,6 +1561,7 @@ export default function ProjectCoverPage() {
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     onClick={() => setNewSubOpen(true)}
+                    data-tour="add-subproject"
                     className="block w-full border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
                   >
                     <Plus className="w-3.5 h-3.5 inline mr-1" />

@@ -1027,6 +1027,7 @@ export default function SubprojectEditorPage() {
                 setEditingLineId(null)
                 setComposerOpen(true)
               }}
+              data-tour="compose-line"
               className="block w-full mb-3 border border-dashed border-[#D1D5DB] rounded-xl px-4 py-3.5 text-center text-sm text-[#6B7280] hover:text-[#2563EB] hover:border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
             >
               <Plus className="w-3.5 h-3.5 inline mr-1" />
@@ -1161,7 +1162,10 @@ export default function SubprojectEditorPage() {
               right-column structure but at COST only (margin is applied
               once at the project total, not per subproject). */}
           <div>
-            <div className="sticky top-[6.5rem] bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm">
+            <div
+              className="sticky top-[6.5rem] bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm"
+              data-tour="line-breakdown"
+            >
               <div className="pb-4 border-b border-[#F3F4F6]">
                 <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1.5">
                   Subproject total

@@ -32,6 +32,10 @@ interface GroupSpec {
   label: string
   href?: string // present → parent label is a link (when the plan allows)
   feature?: string // gates the parent link
+  /** data-tour hook for the guided walkthroughs. Stable identifier — the tour
+   *  scripts in lib/walkthroughs.ts point at these, so renaming one silently
+   *  breaks a step. */
+  tour?: string
   children: Leaf[]
 }
 
@@ -40,6 +44,7 @@ const NAV: GroupSpec[] = [
     label: 'Sales',
     href: '/sales',
     feature: 'sales',
+    tour: 'nav-sales',
     children: [
       { href: '/sales/kanban', label: 'Kanban', feature: 'sales' },
       { href: '/estimates', label: 'Estimates', feature: 'sales' },
@@ -52,6 +57,7 @@ const NAV: GroupSpec[] = [
     label: 'Projects',
     href: '/projects',
     feature: 'projects',
+    tour: 'nav-projects',
     children: [
       { href: '/schedule', label: 'Schedule', feature: 'schedule' },
       { href: '/capacity', label: 'Capacity', feature: 'capacity' },
@@ -59,6 +65,7 @@ const NAV: GroupSpec[] = [
   },
   {
     label: 'Manage', // no href → not clickable; the label opens the dropdown
+    tour: 'nav-manage',
     children: [
       { href: '/reports', label: 'Reports', feature: 'outcomes' },
       { href: '/suggestions', label: 'Suggestions', feature: 'rate-book' },
@@ -151,6 +158,7 @@ export default function TopNav() {
           {isOwner && (
             <Link
               href="/settings"
+              data-tour="nav-settings"
               className={`px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 pathname.startsWith('/settings')
                   ? 'bg-[#F3F4F6] text-[#111]'
@@ -173,11 +181,12 @@ export default function TopNav() {
   )
 }
 
-function NavItem({ item, pathname }: { item: Leaf; pathname: string }) {
+function NavItem({ item, pathname, tour }: { item: Leaf; pathname: string; tour?: string }) {
   const isActive = leafActive(pathname, item.href)
   return (
     <Link
       href={item.href}
+      data-tour={tour}
       className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
         isActive
           ? 'bg-[#F3F4F6] text-[#111]'
@@ -262,7 +271,9 @@ function NavGroup({
 
   // Parent reachable but no accessible children → plain link (no dropdown).
   if (group.children.length === 0 && parentClickable) {
-    return <NavItem item={{ href: group.href!, label: group.label }} pathname={pathname} />
+    return (
+      <NavItem item={{ href: group.href!, label: group.label }} pathname={pathname} tour={group.tour} />
+    )
   }
 
   const triggerClasses = `flex items-center gap-1 py-1.5 text-sm font-medium transition-colors ${
@@ -304,6 +315,9 @@ function NavGroup({
     <>
       <div
         ref={wrapRef}
+        // The whole item (label + chevron) is the tour target, so the spotlight
+        // frames the nav entry rather than half of it.
+        data-tour={group.tour}
         className="relative flex items-stretch flex-shrink-0"
         onMouseEnter={() => {
           cancelClose()

@@ -141,6 +141,7 @@ function KanbanInner() {
           </div>
           <button
             onClick={() => setNewOpen(true)}
+            data-tour="kanban-new-project"
             className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors"
           >
             <Plus className="w-4 h-4" /> New project
@@ -150,7 +151,7 @@ function KanbanInner() {
         {loading ? (
           <div className="text-sm text-[#9CA3AF] py-16 text-center">Loading…</div>
         ) : (
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-5 gap-3" data-tour="kanban-board">
             {SALES_STAGES.map((stage) => {
               const isOver = dragOver === stage
               const cards = columns[stage]
