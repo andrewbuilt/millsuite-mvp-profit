@@ -72,6 +72,9 @@ const NAV: GroupSpec[] = [
       { href: '/rate-book', label: 'Rate book', feature: 'rate-book' },
       { href: '/team', label: 'Team', feature: 'team' },
       { href: '/time', label: 'Time' },
+      // Ungated on purpose: the walkthroughs are how someone learns the app,
+      // so they can't sit behind a plan feature flag.
+      { href: '/guides', label: 'Guides' },
     ],
   },
 ]

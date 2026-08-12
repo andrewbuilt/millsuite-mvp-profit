@@ -1049,6 +1049,26 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Guides — the page itself lives under Manage (managers need it and
+            /settings is owner-only), but the Welcome tour tells people to look
+            for it in Settings, so this points there rather than dead-ending. */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+          <div className="px-6 py-4 flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold">Guides &amp; walkthroughs</h2>
+              <p className="text-xs text-[#9CA3AF] mt-0.5">
+                Guided tours of the app. Rerun any of them, any time.
+              </p>
+            </div>
+            <Link
+              href="/guides"
+              className="px-3.5 py-2 text-xs font-semibold text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors whitespace-nowrap"
+            >
+              Open guides
+            </Link>
+          </div>
+        </div>
+
         {/* Business Info */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-[#E5E7EB]">
