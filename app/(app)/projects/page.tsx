@@ -33,6 +33,8 @@ import { isDepositReceived } from '@/lib/project-stage'
 import { loadProjectDeptHours } from '@/lib/project-hours'
 import { loadProjectActuals } from '@/lib/actual-hours'
 import ImportedBadge from '@/components/imported-badge'
+import PracticeBadge from '@/components/practice-badge'
+import { usePracticeProjects } from '@/hooks/usePracticeProjects'
 
 interface ProjectRow {
   id: string
@@ -102,6 +104,7 @@ function useDebounced<T>(value: T, delay: number): T {
 export default function ProjectsPage() {
   const router = useRouter()
   const { org } = useAuth()
+  const practiceIds = usePracticeProjects(org?.id)
 
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [enriched, setEnriched] = useState<Record<string, Enriched>>({})
@@ -327,6 +330,7 @@ export default function ProjectsPage() {
             <ProjectCard
               key={p.id}
               project={p}
+              isPractice={practiceIds.has(p.id)}
               enriched={enriched[p.id]}
               openCos={coOpen[p.id] || 0}
               onOpen={() => router.push(`/projects/${p.id}`)}
@@ -353,11 +357,13 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 
 function ProjectCard({
   project: p,
+  isPractice,
   enriched: e,
   openCos,
   onOpen,
 }: {
   project: ProjectRow
+  isPractice: boolean
   enriched: Enriched | undefined
   openCos: number
   onOpen: () => void
@@ -377,6 +383,7 @@ function ProjectCard({
         </span>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <ImportedBadge importedAt={p.imported_at} />
+          {isPractice && <PracticeBadge />}
           {openCos > 0 && (
             <span
               className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded-full border"

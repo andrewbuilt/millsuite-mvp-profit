@@ -133,6 +133,8 @@ import { isReadyForProduction, startProduction, forceStartProduction, isDepositR
 
 import { isPresold, type ProjectStage } from '@/lib/types'
 import ImportedBadge from '@/components/imported-badge'
+import PracticeBadge from '@/components/practice-badge'
+import { usePracticeProjects } from '@/hooks/usePracticeProjects'
 
 interface Project {
   id: string
@@ -305,6 +307,7 @@ export default function ProjectCoverPage() {
   const { id: projectId } = useParams() as { id: string }
   const router = useRouter()
   const { org, user } = useAuth()
+  const practiceIds = usePracticeProjects(org?.id)
   const { confirm } = useConfirm()
 
   const orgShopRate = org?.shop_rate ?? 0
@@ -1258,6 +1261,7 @@ export default function ProjectCoverPage() {
             <h1 className="text-[22px] font-semibold text-[#111] tracking-tight mb-2 flex items-center gap-2">
               {project.name}
               <ImportedBadge importedAt={project.imported_at} />
+              {practiceIds.has(project.id) && <PracticeBadge />}
             </h1>
             <div className="flex gap-2.5 flex-wrap items-center text-xs text-[#6B7280]">
               {project.client_name && (

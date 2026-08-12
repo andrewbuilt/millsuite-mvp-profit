@@ -13,6 +13,7 @@ import InvoiceParser from '@/components/invoice-parser'
 // ── Types ──
 
 import type { ProjectStage } from '@/lib/types'
+import { loadPracticeProjectIds } from '@/lib/practice'
 
 interface Project {
   id: string
@@ -147,7 +148,13 @@ function DashboardContent() {
         .in('status', ['sent', 'partial']),
     ])
 
-    setProjects(projs || [])
+    // Practice projects are walkthrough scratch work. They price off the
+    // real rate book, so if they reached these metrics they'd move real
+    // numbers. Fetched separately rather than filtered in the query above so a
+    // pre-088 database degrades to "no practice projects" instead of failing
+    // the whole dashboard load.
+    const practice = await loadPracticeProjectIds(org.id)
+    setProjects((projs || []).filter((p) => !practice.has(p.id)))
     setSubprojects(subs || [])
     setTimeEntries(entries || [])
     setInvoices(invs || [])

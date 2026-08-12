@@ -52,6 +52,10 @@ interface Props {
   onExit: (reason: ExitReason, index: number) => void
   /** The last step of a chaining tour offers to run another one. */
   onChain: () => void
+  /** Fired with the id of a project the tour walks into. The provider uses it
+   *  to stamp the practice flag — the tour can't know the id up front because
+   *  the user is the one who creates the project. */
+  onProjectSeen?: (projectId: string) => void
 }
 
 const sel = (target: string) => `[data-tour="${CSS.escape(target)}"]`
@@ -164,7 +168,14 @@ function placePopover(
   }
 }
 
-export default function TourRunner({ tour, startIndex, onStep, onExit, onChain }: Props) {
+export default function TourRunner({
+  tour,
+  startIndex,
+  onStep,
+  onExit,
+  onChain,
+  onProjectSeen,
+}: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const [index, setIndex] = useState(startIndex)
@@ -191,9 +202,11 @@ export default function TourRunner({ tour, startIndex, onStep, onExit, onChain }
   // Remember the project the user builds during the tour, so the step that
   // sends them back to the estimate knows where "back" is.
   useEffect(() => {
-    const m = /^(\/projects\/[^/]+)/.exec(pathname || '')
-    if (m && m[1] !== '/projects') ctxRef.current.projectPath = m[1]
-  }, [pathname])
+    const m = /^\/projects\/([^/]+)/.exec(pathname || '')
+    if (!m) return
+    ctxRef.current.projectPath = `/projects/${m[1]}`
+    onProjectSeen?.(m[1])
+  }, [pathname, onProjectSeen])
 
   const exit = useCallback(
     (reason: ExitReason) => onExit(reason, index),

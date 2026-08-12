@@ -21,6 +21,7 @@ import CompletedProjects from './components/CompletedProjects'
 import OutlookSection from './components/OutlookSection'
 import KpiCard from './components/KpiCard'
 import DiagnosticDrawer from './components/DiagnosticDrawer'
+import { loadPracticeProjectIds } from '@/lib/practice'
 
 // ── Period selector ──
 
@@ -89,7 +90,12 @@ export default function ReportsPage() {
         loadShopRateSetup(org!.id),
       ])
 
-      const outcomes = outcomesRes.data || []
+      // Completed practice jobs would otherwise teach the learning loop from
+      // work that never happened.
+      const practice = await loadPracticeProjectIds(org!.id)
+      const outcomes = (outcomesRes.data || []).filter(
+        (o: any) => !practice.has(o.project_id),
+      )
 
       setCompletedProjects(
         outcomes.map((o: any) => ({

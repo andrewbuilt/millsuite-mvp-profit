@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, X, RefreshCw, ExternalLink } from 'lucide-re
 import Link from 'next/link'
 import { loadProjectDeptHours } from '@/lib/project-hours'
 import { loadShopRateSetup, deptDailyHoursByTeam, type TeamMember } from '@/lib/shop-rate-setup'
+import { loadPracticeProjectIds } from '@/lib/practice'
 
 interface Department { id: string; name: string; color: string; hours_per_day: number }
 interface Project { id: string; name: string; client_name: string | null; stage: string; bid_total: number }
@@ -210,8 +211,11 @@ function CapacityContent() {
       // both PTO-name tooltips and per-dept headcount (dept_assignments).
       loadShopRateSetup(org!.id),
     ])
+    // Walkthrough scratch work must not consume shop capacity — see the
+    // note in lib/practice.ts for why the ids come from a separate query.
+    const practice = await loadPracticeProjectIds(org!.id)
     setDepartments(depts || [])
-    setProjects(projs || [])
+    setProjects((projs || []).filter((p) => !practice.has(p.id)))
     setSubprojects(subs || [])
     setDeptAllocations(allocs || [])
     setMonthAllocations(monthAllocs || [])

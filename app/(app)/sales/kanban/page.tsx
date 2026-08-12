@@ -29,6 +29,8 @@ import NewProjectModal from '@/components/sales/NewProjectModal'
 import Link from 'next/link'
 import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus } from 'lucide-react'
 import ImportedBadge from '@/components/imported-badge'
+import PracticeBadge from '@/components/practice-badge'
+import { usePracticeProjects } from '@/hooks/usePracticeProjects'
 
 function fmtMoney(n: number | null | undefined) {
   if (n == null || n === 0) return '—'
@@ -54,6 +56,7 @@ export default function SalesKanbanPage() {
 function KanbanInner() {
   const router = useRouter()
   const { org, user } = useAuth()
+  const practiceIds = usePracticeProjects(org?.id)
   const { confirm } = useConfirm()
 
   const [projects, setProjects] = useState<SalesProject[]>([])
@@ -187,6 +190,7 @@ function KanbanInner() {
                         <KanbanCard
                           key={p.id}
                           project={p}
+                          isPractice={practiceIds.has(p.id)}
                           onOpen={() => router.push(`/projects/${p.id}`)}
                           onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
                           onDelete={async () => {
@@ -292,6 +296,7 @@ function KanbanInner() {
 
 function KanbanCard({
   project,
+  isPractice,
   onOpen,
   onQuickNote,
   onDelete,
@@ -300,6 +305,7 @@ function KanbanCard({
   isDragging,
 }: {
   project: SalesProject
+  isPractice: boolean
   onOpen: () => void
   onQuickNote: () => void
   onDelete: () => void
@@ -327,6 +333,7 @@ function KanbanCard({
           <div className="flex items-center gap-1.5 min-w-0">
             <div className="text-sm font-semibold text-[#111] truncate">{project.name}</div>
             <ImportedBadge importedAt={(project as { imported_at?: string | null }).imported_at} />
+            {isPractice && <PracticeBadge />}
           </div>
           {project.client_name && (
             <div className="text-[11px] text-[#6B7280] truncate mt-0.5">{project.client_name}</div>

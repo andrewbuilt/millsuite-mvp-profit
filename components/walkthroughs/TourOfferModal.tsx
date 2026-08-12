@@ -15,10 +15,15 @@ export default function TourOfferModal({
   tour,
   onStart,
   onDecline,
+  practice,
 }: {
   tour: Tour
   onStart: () => void
   onDecline: () => void
+  /** Offered by the first-job tour: run on a throwaway project instead of real
+   *  work. Opt-out rather than opt-in — someone learning the app shouldn't have
+   *  to decide up front whether their first attempt is worth keeping. */
+  practice?: { checked: boolean; onChange: (v: boolean) => void }
 }) {
   return (
     <div
@@ -49,6 +54,23 @@ export default function TourOfferModal({
           <div className="mt-3 text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">
             {tour.steps.length} steps · about {tour.minutes} min
           </div>
+
+          {practice && (
+            <label className="mt-4 flex items-start gap-2.5 p-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl cursor-pointer">
+              <input
+                type="checkbox"
+                checked={practice.checked}
+                onChange={(e) => practice.onChange(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-[#2563EB] flex-shrink-0"
+              />
+              <span className="text-[12px] text-[#374151] leading-relaxed">
+                <span className="font-medium text-[#111]">Make this a practice job.</span> It gets
+                a Practice badge and stays out of reports, capacity and the dashboard. Delete it in
+                one click when you&rsquo;re done. Uncheck to run the tour on a job you&rsquo;re
+                really bidding.
+              </span>
+            </label>
+          )}
         </div>
         <div className="flex justify-end gap-2 px-6 py-4 bg-[#F9FAFB] border-t border-[#E5E7EB]">
           <button
