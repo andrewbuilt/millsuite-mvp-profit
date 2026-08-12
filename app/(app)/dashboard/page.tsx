@@ -7,13 +7,14 @@ import { supabase } from '@/lib/supabase'
 import { computeProjectPL } from '@/lib/pricing'
 import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
-import { DollarSign, FolderKanban, FileText, TrendingUp, Plus, Clock, Settings, AlertTriangle, CheckCircle2, Receipt, ChevronDown, ChevronUp, Sparkles, X, Target } from 'lucide-react'
+import { DollarSign, FolderKanban, FileText, TrendingUp, Plus, Clock, Settings, AlertTriangle, CheckCircle2, Receipt, ChevronDown, ChevronUp, Sparkles, Target } from 'lucide-react'
 import InvoiceParser from '@/components/invoice-parser'
 
 // ── Types ──
 
 import type { ProjectStage } from '@/lib/types'
 import { loadPracticeProjectIds } from '@/lib/practice'
+import SetupChecklist from '@/components/onboarding/SetupChecklist'
 
 interface Project {
   id: string
@@ -90,7 +91,6 @@ function DashboardContent() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [report, setReport] = useState('')
   const [reportLoading, setReportLoading] = useState(false)
-  const [welcomeDismissed, setWelcomeDismissed] = useState(false)
   // One-shot completion toast — set by WelcomeOverlay on the final
   // walkthrough save. Cleared after it renders so a subsequent dashboard
   // visit doesn't re-show it.
@@ -314,99 +314,17 @@ function DashboardContent() {
           </div>
         )}
 
-        {/* ── Onboarding checklist (post-signup) ── */}
-        {(() => {
-          if (!isWelcome || welcomeDismissed) return null
-          const hasShopRate = !!org?.shop_rate && org.shop_rate !== 75
-          const hasProject = projects.length > 0
-          const hasTime = timeEntries.length > 0
-          const leadsUnlocked = hasAccess(org?.plan, 'sales')
-          const steps = [
-            {
-              done: hasShopRate,
-              label: 'Set your shop rate',
-              hint: 'Every hour logged becomes a dollar figure. Start with an honest estimate — you can tune it later.',
-              cta: 'Open settings',
-              href: '/settings',
-            },
-            {
-              done: hasProject,
-              label: leadsUnlocked ? 'Drop in a bid or start a project' : 'Create your first project',
-              hint: leadsUnlocked
-                ? 'Drop a bid PDF on the sales page and it parses into a new pipeline project. Drag it through the stages — Sold flips it live and profit tracking turns on.'
-                : 'A project tracks bid vs. actual so you can see profit the day it changes — not months later.',
-              cta: leadsUnlocked ? 'Open sales' : 'Go to projects',
-              href: leadsUnlocked ? '/sales' : '/projects',
-            },
-            {
-              done: hasTime,
-              label: 'Log time on a subproject',
-              hint: "The moment you log time, profit tracking turns on. Bar charts go green, yellow, or red based on where the hours actually land.",
-              cta: 'Track time',
-              href: '/time',
-            },
-          ]
-          const completed = steps.filter(s => s.done).length
-          if (completed === steps.length) return null
-          return (
-            <div className="relative bg-gradient-to-br from-[#EFF6FF] to-[#DBEAFE] border border-[#BFDBFE] rounded-2xl p-5 sm:p-6 mb-6">
-              <button
-                onClick={() => setWelcomeDismissed(true)}
-                className="absolute top-3 right-3 p-1.5 rounded-lg text-[#6B7280] hover:text-[#111] hover:bg-white/50 transition-colors"
-                aria-label="Dismiss welcome"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <div className="flex items-center gap-2 mb-1">
-                <Sparkles className="w-4 h-4 text-[#2563EB]" />
-                <span className="text-xs font-semibold text-[#2563EB] uppercase tracking-wider">
-                  Welcome to MillSuite
-                </span>
-              </div>
-              <h2 className="text-lg font-semibold text-[#111] mb-1">
-                Three steps to your first profit read
-              </h2>
-              <p className="text-sm text-[#6B7280] mb-4">
-                {completed} of {steps.length} complete
-              </p>
-              <div className="space-y-2">
-                {steps.map((s, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex items-start gap-3 p-3 rounded-xl border ${
-                      s.done ? 'bg-white/40 border-transparent' : 'bg-white border-[#E5E7EB]'
-                    }`}
-                  >
-                    {s.done ? (
-                      <CheckCircle2 className="w-5 h-5 text-[#059669] flex-shrink-0 mt-0.5" />
-                    ) : (
-                      <div className="w-5 h-5 rounded-full border-2 border-[#CBD5E1] flex-shrink-0 mt-0.5" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className={`text-sm font-medium ${s.done ? 'text-[#6B7280] line-through' : 'text-[#111]'}`}>
-                        {s.label}
-                      </div>
-                      {!s.done && (
-                        <p className="text-xs text-[#6B7280] mt-0.5 leading-relaxed">{s.hint}</p>
-                      )}
-                    </div>
-                    {!s.done && (
-                      <Link
-                        href={s.href}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#2563EB] text-white text-xs font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors whitespace-nowrap"
-                      >
-                        {s.cta}
-                      </Link>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )
-        })()}
+        {/* ── Getting set up ──
+            Replaces the old post-signup checklist, which was gated on
+            ?welcome=true and covered shop rate / first project / log time.
+            Shop rate is now the setup wizard's job, and the other two are what
+            the "Price your first job" walkthrough exists for — so this covers
+            the four things the wizard DOESN'T: company info, logo, invoicing
+            mode, first team member. Owner-only; dismissal persists per user. */}
+        <SetupChecklist />
 
         {/* ── Empty state: no projects yet (and not showing welcome) ── */}
-        {projects.length === 0 && !(isWelcome && !welcomeDismissed) && (
+        {projects.length === 0 && !isWelcome && (
           <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 sm:p-10 mb-6 text-center">
             <div className="w-12 h-12 rounded-xl bg-[#EFF6FF] flex items-center justify-center mx-auto mb-4">
               <Target className="w-6 h-6 text-[#2563EB]" />

@@ -14,15 +14,23 @@
 import { supabase } from '@/lib/supabase'
 import type { TourId } from '@/lib/walkthroughs'
 
+/** Everything that lives in users.walkthrough_state: the tours, plus the
+ *  dashboard setup checklist, which is the same kind of per-user onboarding
+ *  state and doesn't earn a column of its own. */
+export type StateKey = TourId | 'setup-checklist'
+
 export interface TourProgress {
   step?: number
   offered_at?: string | null
   started_at?: string | null
   completed_at?: string | null
   dismissed_at?: string | null
+  /** Setup checklist only — the invoicing-mode item has no observable "done"
+   *  signal, because 'internal' is both a real choice and the default. */
+  acked_invoicing_at?: string | null
 }
 
-export type WalkthroughState = Partial<Record<TourId, TourProgress>>
+export type WalkthroughState = Partial<Record<StateKey, TourProgress>>
 
 export interface MyProgress {
   onboarded_at: string | null
@@ -57,11 +65,11 @@ export function completeOnboarding() {
   return authedFetch({ action: 'onboarding_complete' })
 }
 
-export function saveTourProgress(tourId: TourId, patch: TourProgress) {
+export function saveTourProgress(tourId: StateKey, patch: TourProgress) {
   return authedFetch({ action: 'tour', tourId, patch })
 }
 
-export function resetTourProgress(tourId: TourId) {
+export function resetTourProgress(tourId: StateKey) {
   return authedFetch({ action: 'tour_reset', tourId })
 }
 

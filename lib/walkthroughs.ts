@@ -198,6 +198,15 @@ export const TOURS: Tour[] = [WELCOME, FIRST_JOB]
 
 export const TOUR_IDS: TourId[] = TOURS.map((t) => t.id)
 
+/** The dashboard's "Getting set up" checklist keeps its dismissal and its one
+ *  un-observable item in the same jsonb blob as tour progress — it's the same
+ *  kind of thing (per-user onboarding state) and doesn't earn a column. It is
+ *  NOT a tour, so it lives here rather than in TOURS, and the API validates
+ *  writes against this list rather than TOUR_IDS. */
+export const SETUP_CHECKLIST_KEY = 'setup-checklist'
+
+export const WALKTHROUGH_STATE_KEYS: string[] = [...TOUR_IDS, SETUP_CHECKLIST_KEY]
+
 export function getTour(id: string): Tour | null {
   return TOURS.find((t) => t.id === id) ?? null
 }

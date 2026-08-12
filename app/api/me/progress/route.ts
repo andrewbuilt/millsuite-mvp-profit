@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveApiCaller, unauthorized } from '@/lib/api-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { TOUR_IDS } from '@/lib/walkthroughs'
+import { WALKTHROUGH_STATE_KEYS } from '@/lib/walkthroughs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -39,7 +39,17 @@ const ONBOARDING_STEPS = new Set(['welcome', 'shop_rate', 'base_cabinet'])
 /** The only keys a tour may persist. Anything else is dropped rather than
  *  rejected — a newer client writing a key this deploy doesn't know about
  *  shouldn't hard-fail its own progress save. */
-const TOUR_PATCH_KEYS = new Set(['step', 'offered_at', 'started_at', 'completed_at', 'dismissed_at'])
+const TOUR_PATCH_KEYS = new Set([
+  'step',
+  'offered_at',
+  'started_at',
+  'completed_at',
+  'dismissed_at',
+  // Used by the setup checklist for its one item with no observable signal
+  // (invoicing mode — 'internal' is also the default, so the stored value
+  // can't tell a choice from a default).
+  'acked_invoicing_at',
+])
 
 type TourState = Record<string, Record<string, unknown>>
 
@@ -94,7 +104,7 @@ export async function POST(req: NextRequest) {
     const tourId = String(body.tourId || '')
     // Validated against the catalog so this can't be used to grow the jsonb
     // blob with arbitrary keys.
-    if (!(TOUR_IDS as string[]).includes(tourId)) {
+    if (!WALKTHROUGH_STATE_KEYS.includes(tourId)) {
       return NextResponse.json({ error: 'Unknown tour' }, { status: 400 })
     }
     const current = (await readRow(caller.userId)).walkthrough_state
