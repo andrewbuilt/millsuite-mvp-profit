@@ -44,6 +44,14 @@ export interface TourStep {
   /** A missing target is expected here, so drop the step rather than falling
    *  back to a centered popover. Settings is owner-only. */
   skipIfMissing?: boolean
+  /** Wait for a project that didn't exist when the step began, then open it.
+   *
+   *  Needed because creating a project from the kanban does NOT navigate to it
+   *  — NewProjectModal hands the row back and the board drops a card in place,
+   *  by design. The tour used to wait on the project page appearing on its own,
+   *  which never happened, so it sat there forever with no button to press.
+   *  The tour does the navigating instead. */
+  waitForNewProject?: boolean
 }
 
 export interface Tour {
@@ -153,7 +161,10 @@ const FIRST_JOB: Tour = {
       title: 'Name it',
       body: 'Give the job a name and pick the client — or type a new client name and it’s created on the spot.',
       placement: 'right',
-      advanceWhenNextAppears: true,
+      // NOT advanceWhenNextAppears: saving here closes the modal and drops a
+      // card on the board, it does not open the project. The tour watches for
+      // the new project and opens it itself.
+      waitForNewProject: true,
     },
     {
       target: 'project-home',

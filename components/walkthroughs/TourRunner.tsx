@@ -38,9 +38,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { usePathname, useRouter } from 'next/navigation'
 import { X } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { loadProjectIds } from '@/lib/practice'
 import type { Tour, TourContext, TourStep } from '@/lib/walkthroughs'
 
 const WAIT_MS = 6000 // how long to look for a target before going centered
+/** How long an action step waits before it quietly offers a way past itself.
+ *  An action step has no buttons on purpose, but "no buttons" must never mean
+ *  "no exit" — if the app doesn't do the expected thing, the user is stuck
+ *  staring at a card with nothing to press. Long enough not to undercut the
+ *  instruction, short enough that nobody feels trapped. */
+const STUCK_MS = 12000
+const NEW_PROJECT_POLL_MS = 1500
 const PAD = 6 // ring breathing room around the element
 const POPOVER_W = 340
 const GAP = 14 // card ↔ ring
@@ -202,6 +211,7 @@ export default function TourRunner({
 }: Props) {
   const router = useRouter()
   const pathname = usePathname()
+  const { org } = useAuth()
   const [index, setIndex] = useState(() =>
     Math.min(Math.max(0, startIndex), tour.steps.length - 1),
   )
@@ -211,6 +221,7 @@ export default function TourRunner({
   const popRef = useRef<HTMLDivElement>(null)
   const targetElRef = useRef<HTMLElement | null>(null)
   const [viewport, setViewport] = useState({ w: 0, h: 0 })
+  const [stuck, setStuck] = useState(false)
 
   // Which way the user is travelling. A skipped step has to skip the way they
   // were going, or Back onto an owner-only step bounces them straight forward
@@ -226,7 +237,7 @@ export default function TourRunner({
   const isLast = index === total - 1
   // The tour is waiting on the user to do the real thing — so the card offers
   // nothing to click and gets out of the way.
-  const isAction = !!step.advanceWhenNextAppears
+  const isAction = !!(step.advanceWhenNextAppears || step.waitForNewProject)
 
   // Remember the project the user builds during the tour, so the step that
   // sends them back to the estimate knows where "back" is.
@@ -299,16 +310,21 @@ export default function TourRunner({
     if (!ready || !targetElRef.current) return
     let raf = 0
     const loop = () => {
+      // Re-resolve from the DOM rather than trusting the cached node. When the
+      // new-project modal closed, the cached element kept reporting a rect and
+      // left an empty blue outline floating over the board.
       const el = targetElRef.current
-      if (el) {
-        const next = el.isConnected ? measure(el) : null
-        setRect((prev) => (sameRect(prev, next) ? prev : next))
-      }
+      const live = el && el.isConnected && findTarget(step.target) === el ? el : findTarget(step.target)
+      targetElRef.current = live
+      setRect((prev) => {
+        const next = live ? measure(live) : null
+        return sameRect(prev, next) ? prev : next
+      })
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [ready, index])
+  }, [ready, index, step.target])
 
   useEffect(() => {
     if (popRef.current) setPopHeight(popRef.current.offsetHeight)
@@ -331,6 +347,62 @@ export default function TourRunner({
       signal.cancelled = true
     }
   }, [ready, index, step.advanceWhenNextAppears, tour.steps])
+
+  // ── Open the project the user just made ─────────────────────────────────
+  // Creating from the kanban closes the modal and drops a card on the board;
+  // it does NOT navigate. So the tour snapshots the project list, waits for an
+  // id that wasn't there, and opens it. Without this the step waited forever
+  // for a page nothing was going to open.
+  useEffect(() => {
+    if (!ready || !step.waitForNewProject || !org?.id) return
+    const signal = { cancelled: false }
+    let timer: ReturnType<typeof setTimeout> | null = null
+    ;(async () => {
+      const before = await loadProjectIds(org.id)
+      if (signal.cancelled || !before) return
+      const poll = async () => {
+        if (signal.cancelled) return
+        const now = await loadProjectIds(org.id)
+        if (signal.cancelled || !now) return
+        const fresh = [...now].find((id) => !before.has(id))
+        if (fresh) {
+          ctxRef.current.projectPath = `/projects/${fresh}`
+          onProjectSeen?.(fresh)
+          router.push(`/projects/${fresh}`)
+          setIndex((i) => (i === index ? i + 1 : i))
+          return
+        }
+        timer = setTimeout(poll, NEW_PROJECT_POLL_MS)
+      }
+      timer = setTimeout(poll, NEW_PROJECT_POLL_MS)
+    })()
+    return () => {
+      signal.cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, index, step.waitForNewProject, org?.id])
+
+  // ── Never trap ──────────────────────────────────────────────────────────
+  // Action steps carry no buttons by design, but the app can always fail to do
+  // the expected thing — and resuming straight onto one (from Guides, after a
+  // reload) lands on a step whose trigger already happened and will never fire
+  // again. Both left the user staring at a card with nothing to press. After a
+  // pause, or immediately on a resumed step, a quiet way forward appears.
+  useEffect(() => {
+    if (!isAction || !ready) {
+      setStuck(false)
+      return
+    }
+    const resumedOntoThisStep = index === startIndex
+    if (resumedOntoThisStep) {
+      setStuck(true)
+      return
+    }
+    setStuck(false)
+    const t = setTimeout(() => setStuck(true), STUCK_MS)
+    return () => clearTimeout(t)
+  }, [isAction, ready, index, startIndex])
 
   useEffect(() => {
     onStep(index)
@@ -431,6 +503,17 @@ export default function TourRunner({
             <span className="text-[12px] text-[#9CA3AF]">
               Go ahead — this moves on by itself.
             </span>
+            <div className="flex-1" />
+            {/* Appears only once the step looks stuck, so the happy path still
+                has exactly one thing to do. */}
+            {stuck && (
+              <button
+                onClick={goNext}
+                className="text-[12px] font-medium text-[#2563EB] hover:underline whitespace-nowrap"
+              >
+                Skip →
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex items-center gap-2 mt-4">
