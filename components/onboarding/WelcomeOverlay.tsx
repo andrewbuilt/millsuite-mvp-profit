@@ -32,7 +32,6 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus'
-import { hasAccess } from '@/lib/feature-flags'
 import ShopRateWalkthrough from '@/components/walkthroughs/ShopRateWalkthrough'
 import BaseCabinetWalkthrough from '@/components/walkthroughs/BaseCabinetWalkthrough'
 
@@ -103,7 +102,7 @@ export default function WelcomeOverlay() {
         {current === 'base_cabinet' && (
           <BaseCabinetWalkthrough
             orgId={org.id}
-            onComplete={() => {
+            onComplete={async () => {
               setToast('Base cabinet calibrated. Slab door style ready to use.')
               // Stash a one-shot flag the dashboard reads on its next mount
               // so the user gets a final completion toast there. Cleared
@@ -112,15 +111,19 @@ export default function WelcomeOverlay() {
               if (typeof window !== 'undefined') {
                 window.localStorage.setItem(DASHBOARD_TOAST_KEY, '1')
               }
-              complete()
-              // Land the freshly-onboarded user on /sales — that's the
-              // surface that does what MillSuite actually does (intake
-              // new work). /dashboard for a brand-new account is mostly
-              // empty rollups; users got confused thinking the app
-              // wasn't doing anything. Pro and Pro+AI plans have sales
-              // gated; Starter falls back to /projects.
-              const target = hasAccess(org.plan, 'sales') ? '/sales' : '/projects'
-              router.push(target)
+              // AWAIT the stamp before navigating. onboarded_at is what the
+              // tour provider waits on to offer the Welcome walkthrough, and
+              // firing the redirect alongside an unfinished write meant the
+              // provider could re-read a still-null value on arrival and stay
+              // quiet until the next navigation.
+              await complete()
+              // Land on /dashboard (Andrew, 2026-08-13). This used to go to
+              // /sales, because a brand-new dashboard was empty rollups and
+              // people thought the app wasn't doing anything. That reason is
+              // gone: the dashboard now carries the "Getting set up" checklist
+              // and is where the Welcome walkthrough offers itself, so it's the
+              // one screen that tells a new owner what to do next.
+              router.push('/dashboard')
             }}
             onCancel={() => advance('shop_rate')}
           />
