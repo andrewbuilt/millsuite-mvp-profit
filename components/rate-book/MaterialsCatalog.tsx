@@ -204,6 +204,7 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
               setAddDraft(EMPTY_DRAFT)
               setError(null)
             }}
+            data-tour="add-material"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#2563EB] text-white text-[12px] font-medium hover:bg-[#1D4ED8]"
           >
             <Plus className="w-3.5 h-3.5" /> New material
@@ -239,7 +240,7 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-[#1E40AF] mb-2">
               New material
             </div>
-            <DraftFields draft={addDraft} setDraft={setAddDraft} />
+            <DraftFields draft={addDraft} setDraft={setAddDraft} tourTag="material-show-in" />
             <div className="flex items-center gap-2 mt-3">
               <button
                 disabled={saving}
@@ -388,9 +389,16 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
 function DraftFields({
   draft,
   setDraft,
+  tourTag,
 }: {
   draft: Draft
   setDraft: (d: Draft) => void
+  /** data-tour hook for the walkthrough's "Where it shows up" step. Passed ONLY
+   *  by the add form: this component also renders for every row being edited,
+   *  and opening the add form doesn't close an open editor — two elements with
+   *  the same data-tour value would leave querySelector picking whichever came
+   *  first in the document. */
+  tourTag?: string
 }) {
   return (
     <div className="space-y-2.5">
@@ -438,7 +446,7 @@ function DraftFields({
           </select>
         </label>
       </div>
-      <div>
+      <div data-tour={tourTag}>
         <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
           Shows in (quick-pick slots)
         </span>

@@ -17,7 +17,7 @@
 // what a real tour is.
 // ============================================================================
 
-export type TourId = 'welcome' | 'first-job'
+export type TourId = 'welcome' | 'rate-book' | 'first-job'
 
 /** What the engine has learned while the tour runs. The first-job tour follows
  *  the user into a project it can't know the id of up front. */
@@ -84,7 +84,13 @@ const WELCOME: Tour = {
     title: 'Get the lay of the land',
     body: 'A two-minute walk through where everything lives. You can quit anytime, and rerun it from Settings → Guides.',
   },
-  chainTo: { tourId: 'first-job', label: 'Price my first job', declineLabel: 'Done for now' },
+  // CHANGED 2026-08-13 by the path restructure, and it alters approved copy —
+  // flag for a planning pass. The script has Welcome chaining straight into
+  // "Price my first job", but the path now locks that tour until the rate book
+  // has a material and a door style, so the old chain offered a button into a
+  // step the same page shows as locked. Step 7's body ("Ready to price your
+  // first job?") now reads slightly ahead of the button under it.
+  chainTo: { tourId: 'rate-book', label: 'Set up my rate book', declineLabel: 'Done for now' },
   steps: [
     {
       route: '/sales/kanban',
@@ -132,6 +138,83 @@ const WELCOME: Tour = {
     {
       title: 'That’s the map',
       body: 'Ready to price your first job?',
+    },
+  ],
+}
+
+
+// ── Tour — Set up your rate book (path step 2) ───────────────────────────────
+// Runs entirely on /rate-book. The rate book's sections are TABS, not routes —
+// client state, no URL to navigate to — so the tour points at the tab and lets
+// the user press it. That works out better than faking it: each tab switch is a
+// clean signal (the target of the next step only exists once that view is
+// showing), so steps 2, 3 and 5 are action steps with no buttons of their own.
+const RATE_BOOK: Tour = {
+  id: 'rate-book',
+  title: 'Set up your rate book',
+  summary: 'One material and one door style — enough to quote a real job.',
+  minutes: 4,
+  offer: {
+    title: 'Set up your rate book',
+    body: 'Add one material and one door style — after this, you can price a real job. About four minutes.',
+  },
+  chainTo: { tourId: 'first-job', label: 'Price my first job', declineLabel: 'Done for now' },
+  outro: {
+    title: 'Your rate book is live',
+    body: 'Every quote you build from here prices off these numbers. Add more as you go — one material and one door style is all it takes to start.',
+  },
+  steps: [
+    {
+      route: '/rate-book',
+      target: 'rate-book-tabs',
+      title: 'Your pricing engine',
+      body: 'Everything you quote is priced from here — labor on this side, materials in the catalog. Set it up once, refine it as jobs teach you.',
+      placement: 'bottom',
+    },
+    {
+      target: 'materials-tab',
+      title: 'The materials catalog',
+      body: 'One list, one price per material. Update a sheet price here and every product using it reprices.',
+      placement: 'bottom',
+      // The New material button only exists once the Materials view is up.
+      advanceWhenNextAppears: true,
+    },
+    {
+      target: 'add-material',
+      title: 'Add your first material',
+      body: 'A sheet good you actually buy — name it and enter what you pay per sheet.',
+      placement: 'left',
+      // Opening the add form reveals the "Shows in" checkboxes step 4 explains.
+      advanceWhenNextAppears: true,
+    },
+    {
+      target: 'material-show-in',
+      title: 'Where it shows up',
+      body: 'These checkboxes decide which dropdowns offer it — carcass, doors, shelves. Keep the quick lists short; "browse all" always reaches the whole catalog.',
+      placement: 'right',
+    },
+    {
+      target: 'doors-tab',
+      title: 'Door styles',
+      body: 'Labor lives on the style, price lives on the material. Add the style you build most.',
+      placement: 'bottom',
+      advanceWhenNextAppears: true,
+    },
+    {
+      target: 'add-door-type',
+      title: 'Calibrate it',
+      body: 'Four quick questions — your hours to build a small batch — and the style prices itself from then on.',
+      placement: 'left',
+    },
+    {
+      target: 'cabinets-tab',
+      title: 'Your cabinet labor',
+      body: 'The setup wizard already put your base-cabinet hours here. Come back and tighten these as tracked jobs show you the truth.',
+      placement: 'bottom',
+    },
+    {
+      title: 'You can price now',
+      body: 'One material + one door style is enough for a real quote.',
     },
   ],
 }
@@ -226,7 +309,7 @@ const FIRST_JOB: Tour = {
   ],
 }
 
-export const TOURS: Tour[] = [WELCOME, FIRST_JOB]
+export const TOURS: Tour[] = [WELCOME, RATE_BOOK, FIRST_JOB]
 
 export const TOUR_IDS: TourId[] = TOURS.map((t) => t.id)
 
@@ -301,6 +384,7 @@ export const PATH: PathStep[] = [
     key: 'rate_book',
     title: 'Set up your rate book',
     blurb: 'One material and one door style is enough to quote a real job.',
+    tourId: 'rate-book',
     after: 'shop_setup',
     doneWhen: 'A carcass material and a calibrated door style exist',
   },

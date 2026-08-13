@@ -129,6 +129,7 @@ export default function DoorCatalog({ orgId }: { orgId: string }) {
         <div className="flex items-start justify-between gap-4 mb-1">
           <h1 className="text-[16px] font-semibold text-[#111]">Door types</h1>
           <button
+            data-tour="add-door-type"
             onClick={() => {
               reset()
               setAdding({ kind: 'type' })

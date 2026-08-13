@@ -143,6 +143,14 @@ const VIEW_LABEL: Record<RateBookView, string> = {
   features: 'Features',
   products: 'Products',
 }
+/** data-tour hooks for the "Set up your rate book" walkthrough. Only the three
+ *  tabs the tour actually points at are tagged — a hook nothing references is
+ *  just a thing to break later. */
+const VIEW_TOUR: Partial<Record<RateBookView, string>> = {
+  cabinets: 'cabinets-tab',
+  materials: 'materials-tab',
+  doors: 'doors-tab',
+}
 const VIEW_ORDER: RateBookView[] = [
   'cabinets',
   'drawers',
@@ -389,10 +397,14 @@ export default function RateBookPage() {
         <div className="flex-1" />
         {/* View toggle — Cabinets | Drawers | Finishes | Line items |
             Materials | Doors | Features | Products */}
-        <div className="inline-flex shrink-0 rounded-md border border-[#BFDBFE] overflow-hidden">
+        <div
+          data-tour="rate-book-tabs"
+          className="inline-flex shrink-0 rounded-md border border-[#BFDBFE] overflow-hidden"
+        >
           {VIEW_ORDER.map((v) => (
             <button
               key={v}
+              data-tour={VIEW_TOUR[v]}
               onClick={() => {
                 setView(v)
                 setSelectedId(null)
