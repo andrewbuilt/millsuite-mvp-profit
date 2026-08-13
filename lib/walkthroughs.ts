@@ -250,14 +250,132 @@ export function canSeeTours(role: string | undefined | null): boolean {
   return !!role && role !== 'member'
 }
 
-// ── Coming soon ─────────────────────────────────────────────────────────────
-// Listed on the Guides page, greyed, no button. These are the v2/v3 rows from
-// the spec catalog — showing them is the point: it tells a new owner the rest
-// of the system is mapped, not missing.
-export const COMING_SOON: { title: string; summary: string }[] = [
-  { title: 'Sell it: kanban to production', summary: 'Sold, deposit, approvals, production gates, schedule.' },
+// ============================================================================
+// THE PATH — ordered, gated by REAL APP STATE (Andrew, 2026-08-12 restructure)
+// ============================================================================
+// The old flat catalog read as a random menu, and the teaching isn't random:
+// you cannot price a job before the rate book has a material and a door type.
+//
+// The rule that matters: **completion is a FACT, never attendance.** A step is
+// done when the shop has actually done the thing — an owner who set the rate
+// book up on their own, without ever opening a guide, has completed step 2 and
+// should never be told otherwise. `PathGate` names the check;
+// /api/guides/path computes it.
+//
+// A locked step stays VISIBLE and says what unlocks it. Hiding it would hide
+// the shape of the journey, which is the whole point of having one.
+// ============================================================================
+
+export type PathGate =
+  | 'shop_setup'
+  | 'rate_book'
+  | 'first_job'
+  | 'sold_to_production'
+  | 'team_on_clock'
+  | 'getting_paid'
+
+export interface PathStep {
+  key: PathGate
+  title: string
+  blurb: string
+  /** Undefined until that tour is built — the step still tracks its state and
+   *  can complete itself from real work. */
+  tourId?: TourId
+  /** Must be complete before this one opens. Null = always available. Note 5
+   *  and 6 are siblings: both open once "sell it" is done. */
+  after: PathGate | null
+  /** Shown on the card so "done" is never mysterious. */
+  doneWhen: string
+}
+
+export const PATH: PathStep[] = [
+  {
+    key: 'shop_setup',
+    title: 'Set up your shop',
+    blurb: 'Your shop rate and your base cabinet labor — the two numbers everything else is priced from.',
+    tourId: 'welcome',
+    after: null,
+    doneWhen: 'Shop rate set and base cabinet hours entered',
+  },
+  {
+    key: 'rate_book',
+    title: 'Set up your rate book',
+    blurb: 'One material and one door style is enough to quote a real job.',
+    after: 'shop_setup',
+    doneWhen: 'A carcass material and a calibrated door style exist',
+  },
+  {
+    key: 'first_job',
+    title: 'Price your first job',
+    blurb: 'Blank board to a client-ready estimate, on your real rate book.',
+    tourId: 'first-job',
+    after: 'rate_book',
+    doneWhen: 'A project has at least one composed line',
+  },
+  {
+    key: 'sold_to_production',
+    title: 'Sell it, then build it',
+    blurb: 'Sold, deposit, approvals, and the gates that start production.',
+    after: 'first_job',
+    doneWhen: 'A project reached production',
+  },
+  {
+    key: 'team_on_clock',
+    title: 'Your team on the clock',
+    blurb: 'Crew logins, the phone app, and hours landing against the job.',
+    after: 'sold_to_production',
+    doneWhen: 'A team login exists and time has been logged',
+  },
+  {
+    key: 'getting_paid',
+    title: 'Getting paid',
+    blurb: 'Invoice it, record the payment, watch the money view.',
+    after: 'sold_to_production',
+    doneWhen: 'A payment has been recorded',
+  },
+]
+
+/** Every gate answered for one org. Computed in one round trip server-side. */
+export type PathStatus = Record<PathGate, boolean>
+
+export interface PathStepState {
+  step: PathStep
+  index: number
+  complete: boolean
+  locked: boolean
+  /** The step that has to happen first, when locked. */
+  blockedBy: PathStep | null
+}
+
+/** Fold the raw facts into what the page renders. Kept here, next to the
+ *  definitions, so the ordering rule lives in one place. */
+export function resolvePath(status: PathStatus | null): PathStepState[] {
+  return PATH.map((step, index) => {
+    const complete = !!status?.[step.key]
+    const prereq = step.after ? PATH.find((p) => p.key === step.after) ?? null : null
+    // Unknown status (still loading, or the query failed) unlocks nothing but
+    // the first step — better to under-promise than to dangle a step that
+    // isn't really open.
+    const locked = !!prereq && !status?.[prereq.key]
+    return { step, index, complete, locked, blockedBy: locked ? prereq : null }
+  })
+}
+
+// ============================================================================
+// THE SHELF — unordered, at your leisure
+// ============================================================================
+// These teach screens, not sequence, so they carry no gating and no order. All
+// placeholders until their scripts are drafted; listed anyway so the rest of
+// the system reads as mapped rather than missing.
+// ============================================================================
+
+export const SHELF: { title: string; summary: string }[] = [
   { title: 'Capacity calendar', summary: 'Birdseye planning — drag work across months, read the load.' },
-  { title: 'Rate book basics', summary: 'Items, materials, doors, features — where your prices come from.' },
+  { title: 'The schedule', summary: 'Day-level production planning for the shop floor.' },
+  { title: 'Reports and outlook', summary: 'What jobs actually cost, and what is booked ahead.' },
   { title: 'Change orders', summary: 'Price a change, get it approved, get it invoiced.' },
-  { title: 'Your team + the worker app', summary: 'Logins, time tracking, PTO, and what your crew sees on a phone.' },
+  { title: 'Deep dive: materials catalog', summary: 'One price per material, everywhere it is used.' },
+  { title: 'Deep dive: custom products', summary: 'Build your own product and price it like a built-in.' },
+  { title: 'Deep dive: features and calibration', summary: 'Face frames, LED, and teaching the system your hours.' },
+  { title: 'The worker app', summary: 'What your crew sees on a phone. Lives inside My work.' },
 ]
