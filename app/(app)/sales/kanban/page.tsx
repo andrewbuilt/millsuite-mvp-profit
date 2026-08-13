@@ -31,6 +31,7 @@ import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus } from 
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
+import { useTours } from '@/components/walkthroughs/TourProvider'
 
 function fmtMoney(n: number | null | undefined) {
   if (n == null || n === 0) return '—'
@@ -57,6 +58,7 @@ function KanbanInner() {
   const router = useRouter()
   const { org, user } = useAuth()
   const practiceIds = usePracticeProjects(org?.id)
+  const { tourProjectId } = useTours()
   const { confirm } = useConfirm()
 
   const [projects, setProjects] = useState<SalesProject[]>([])
@@ -191,6 +193,7 @@ function KanbanInner() {
                           key={p.id}
                           project={p}
                           isPractice={practiceIds.has(p.id)}
+                          isTourProject={p.id === tourProjectId}
                           onOpen={() => router.push(`/projects/${p.id}`)}
                           onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
                           onDelete={async () => {
@@ -297,6 +300,7 @@ function KanbanInner() {
 function KanbanCard({
   project,
   isPractice,
+  isTourProject,
   onOpen,
   onQuickNote,
   onDelete,
@@ -306,6 +310,8 @@ function KanbanCard({
 }: {
   project: SalesProject
   isPractice: boolean
+  /** The walkthrough's last step points at the card the user just made. */
+  isTourProject: boolean
   onOpen: () => void
   onQuickNote: () => void
   onDelete: () => void
@@ -317,6 +323,7 @@ function KanbanCard({
   return (
     <div
       draggable
+      data-tour={isTourProject ? 'tour-project-card' : undefined}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={(e) => {

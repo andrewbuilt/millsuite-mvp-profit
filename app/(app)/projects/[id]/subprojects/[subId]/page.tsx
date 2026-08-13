@@ -1162,10 +1162,7 @@ export default function SubprojectEditorPage() {
               right-column structure but at COST only (margin is applied
               once at the project total, not per subproject). */}
           <div>
-            <div
-              className="sticky top-[6.5rem] bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm"
-              data-tour="line-breakdown"
-            >
+            <div className="sticky top-[6.5rem] bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm">
               <div className="pb-4 border-b border-[#F3F4F6]">
                 <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1.5">
                   Subproject total

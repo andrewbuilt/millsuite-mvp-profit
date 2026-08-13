@@ -49,7 +49,7 @@ const WAIT_MS = 6000 // how long to look for a target before going centered
  *  staring at a card with nothing to press. Long enough not to undercut the
  *  instruction, short enough that nobody feels trapped. */
 const STUCK_MS = 12000
-const NEW_PROJECT_POLL_MS = 1500
+const NEW_PROJECT_POLL_MS = 500
 const PAD = 6 // ring breathing room around the element
 const POPOVER_W = 340
 const GAP = 14 // card ↔ ring
@@ -147,6 +147,23 @@ function measure(el: HTMLElement): Rect {
   return { top: r.top - PAD, left: r.left - PAD, width: r.width + PAD * 2, height: r.height + PAD * 2 }
 }
 
+/** Is something painted on top of this element? A tour that rings a button
+ *  sitting behind a modal draws a blue box over whatever the modal happens to
+ *  show there — which is how "Compose a line" ended up appearing to highlight
+ *  the composer's Interior Finish dropdown. Our own ring and card are excluded
+ *  (the ring is pointer-events:none anyway, but the card is not, and letting it
+ *  count as occlusion makes the ring flap on and off as the card moves). */
+function isOccluded(el: HTMLElement): boolean {
+  const r = el.getBoundingClientRect()
+  const cx = r.left + r.width / 2
+  const cy = r.top + r.height / 2
+  if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) return false
+  const hit = document.elementFromPoint(cx, cy)
+  if (!hit) return false
+  if (hit.closest('[data-tour-ui]')) return false
+  return !(el.contains(hit) || hit.contains(el))
+}
+
 const sameRect = (a: Rect | null, b: Rect | null) =>
   a === b ||
   (!!a &&
@@ -163,11 +180,18 @@ function placePopover(
   rect: Rect | null,
   placement: TourStep['placement'],
   height: number,
+  /** The step names a target but we couldn't ring it — it's off screen, the
+   *  size of the page, or behind a modal. Dock out of the way instead of
+   *  centring: modals are centred too, and the card kept landing on top of the
+   *  very dialog the step was talking about. */
+  dock = false,
 ): { top: number; left: number } {
   const vw = window.innerWidth
   const vh = window.innerHeight
   if (!rect) {
-    return { top: Math.max(EDGE, vh / 2 - height / 2), left: Math.max(EDGE, vw / 2 - POPOVER_W / 2) }
+    return dock
+      ? { top: Math.max(EDGE, vh - height - EDGE), left: EDGE }
+      : { top: Math.max(EDGE, vh / 2 - height / 2), left: Math.max(EDGE, vw / 2 - POPOVER_W / 2) }
   }
   const below = rect.top + rect.height + GAP
   const above = rect.top - GAP - height
@@ -222,6 +246,7 @@ export default function TourRunner({
   const targetElRef = useRef<HTMLElement | null>(null)
   const [viewport, setViewport] = useState({ w: 0, h: 0 })
   const [stuck, setStuck] = useState(false)
+  const [occluded, setOccluded] = useState(false)
 
   // Which way the user is travelling. A skipped step has to skip the way they
   // were going, or Back onto an owner-only step bounces them straight forward
@@ -231,6 +256,12 @@ export default function TourRunner({
   // What the tour has learned. A ref, not state: it's read inside async
   // resolution and must never trigger a re-render of its own.
   const ctxRef = useRef<TourContext>({ projectPath: null })
+
+  // Where each step was actually shown. Back used to only navigate when the
+  // step declared a `route`, so stepping back from the subproject page to a
+  // step that had been shown on the project page left you on the wrong page
+  // reading the right card — and then sat there for the full target timeout.
+  const pathAtStep = useRef<Record<number, string>>({})
 
   const step = tour.steps[index]
   const total = tour.steps.length
@@ -255,10 +286,13 @@ export default function TourRunner({
     const signal = { cancelled: false }
     setReady(false)
     setRect(null)
+    setOccluded(false)
     targetElRef.current = null
 
     ;(async () => {
-      const want = typeof step.route === 'function' ? step.route(ctxRef.current) : step.route
+      const declared = typeof step.route === 'function' ? step.route(ctxRef.current) : step.route
+      // A step with no declared route still knows where it lived last time.
+      const want = declared ?? pathAtStep.current[index] ?? null
       if (want && want !== pathname) {
         router.push(want)
         // Don't race the navigation — the target lives on the page we asked
@@ -266,7 +300,10 @@ export default function TourRunner({
       }
 
       if (!step.target) {
-        if (!signal.cancelled) setReady(true)
+        if (!signal.cancelled) {
+          pathAtStep.current[index] = window.location.pathname
+          setReady(true)
+        }
         return
       }
 
@@ -284,14 +321,22 @@ export default function TourRunner({
           setIndex(next)
           return
         }
-        // Unexpected absence: show the step centered. The copy still lands.
+        // Unexpected absence: show the step anyway. The copy still lands.
+        pathAtStep.current[index] = window.location.pathname
         setReady(true)
         return
       }
 
       targetElRef.current = el
-      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
-      setRect(measure(el))
+      // Only scroll to things we can actually point at. Centring a target the
+      // size of the page dumps you in the MIDDLE of it — which is why opening
+      // the new project landed halfway down.
+      const m = measure(el)
+      const pageSized = m.width > window.innerWidth * HUGE && m.height > window.innerHeight * HUGE
+      if (pageSized) window.scrollTo({ top: 0, behavior: 'smooth' })
+      else el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+      setRect(m)
+      pathAtStep.current[index] = window.location.pathname
       setReady(true)
     })()
 
@@ -307,7 +352,12 @@ export default function TourRunner({
   // Re-measure every frame but only re-render when the numbers actually move,
   // so sticky nav, smooth scrolling and dropdowns can't strand the highlight.
   useEffect(() => {
-    if (!ready || !targetElRef.current) return
+    // Gate on the step HAVING a target, not on having already found it. The
+    // loop used to start only when the first lookup succeeded, so a control
+    // that rendered a moment late (the project page finishing its load) never
+    // got a ring at all for the rest of the step — the copy pointed at a button
+    // with nothing drawn on it.
+    if (!ready || !step.target) return
     let raf = 0
     const loop = () => {
       // Re-resolve from the DOM rather than trusting the cached node. When the
@@ -320,6 +370,8 @@ export default function TourRunner({
         const next = live ? measure(live) : null
         return sameRect(prev, next) ? prev : next
       })
+      const hidden = live ? isOccluded(live) : false
+      setOccluded((prev) => (prev === hidden ? prev : hidden))
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
@@ -440,12 +492,19 @@ export default function TourRunner({
     const fillsScreen = rect.width > viewport.w * HUGE && rect.height > viewport.h * HUGE
     const offScreen =
       rect.top + rect.height < 0 || rect.top > viewport.h || rect.left + rect.width < 0 || rect.left > viewport.w
-    return fillsScreen || offScreen ? null : rect
-  }, [rect, viewport])
+    if (fillsScreen || offScreen) return null
+    // Behind a modal: the ring would paint over whatever the modal shows there.
+    if (occluded) return null
+    return rect
+  }, [rect, viewport, occluded])
+
+  // A step that NAMES a target but couldn't get a ring docks out of the way;
+  // a step that never had one (the learning loop) is genuinely a centred card.
+  const dock = !!step.target && !ringRect
 
   const pos = useMemo(
-    () => (ready ? placePopover(ringRect, step.placement, popHeight) : null),
-    [ready, ringRect, step.placement, popHeight],
+    () => (ready ? placePopover(ringRect, step.placement, popHeight, dock) : null),
+    [ready, ringRect, step.placement, popHeight, dock],
   )
 
   // Render NOTHING until the step has resolved — no flash of a card pointing
@@ -458,6 +517,7 @@ export default function TourRunner({
           fully live and every click goes where the user aimed it. */}
       {ringRect && (
         <div
+          data-tour-ui="ring"
           className="fixed z-[9998] rounded-lg pointer-events-none transition-all duration-200"
           style={{
             top: ringRect.top,
@@ -471,6 +531,7 @@ export default function TourRunner({
 
       <div
         ref={popRef}
+        data-tour-ui="card"
         role="dialog"
         aria-live="polite"
         aria-label={`${tour.title}: step ${index + 1} of ${total}`}

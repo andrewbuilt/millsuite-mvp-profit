@@ -37,6 +37,7 @@ import { loadProjectIds, markProjectAsPractice } from '@/lib/practice'
 import TourRunner, { type ExitReason } from './TourRunner'
 import TourOfferModal from './TourOfferModal'
 import PracticeCleanupPrompt from './PracticeCleanupPrompt'
+import TourOutroModal from './TourOutroModal'
 
 /** Survives a hard reload mid-tour. Session-scoped on purpose: a tour is a
  *  thing you're doing right now, not a thing you come back to next week —
@@ -54,6 +55,10 @@ interface TourApi {
   /** Wipe a tour's progress so it reads as Not started again. */
   restartTour: (id: TourId) => Promise<void>
   canSee: boolean
+  /** The project a running tour is working in, so its kanban card can tag
+   *  itself as the thing the final step points at. Null when no tour is
+   *  running or it hasn't reached a project yet. */
+  tourProjectId: string | null
 }
 
 const TourContext = createContext<TourApi>({
@@ -63,6 +68,7 @@ const TourContext = createContext<TourApi>({
   startTour: () => {},
   restartTour: async () => {},
   canSee: false,
+  tourProjectId: null,
 })
 
 export function useTours() {
@@ -87,6 +93,8 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   const practiceRef = useRef(false)
   const stampedRef = useRef<Set<string>>(new Set())
   const [cleanupFor, setCleanupFor] = useState<string[]>([])
+  const [outroFor, setOutroFor] = useState<{ tourId: TourId; practiceIds: string[] } | null>(null)
+  const [tourProjectId, setTourProjectId] = useState<string | null>(null)
 
   // Every project that existed when this practice run started. Nothing in it
   // may EVER be stamped.
@@ -174,6 +182,8 @@ export default function TourProvider({ children }: { children: React.ReactNode }
       stampedRef.current = new Set()
       knownProjectsRef.current = null
       skipFirstStepWriteRef.current = true
+      setTourProjectId(null)
+      setOutroFor(null)
       if (wantsPractice && org?.id) {
         void loadProjectIds(org.id).then((ids) => {
           knownProjectsRef.current = ids // null on failure → stamps nothing
@@ -197,6 +207,7 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   // advance — this is where it learns which one. Stamps ONLY projects that did
   // not exist when the run began.
   const handleProjectSeen = useCallback((projectId: string) => {
+    setTourProjectId((cur) => (cur === projectId ? cur : projectId))
     if (!practiceRef.current) return
     const known = knownProjectsRef.current
     if (!known) return // snapshot missing or still loading — never guess
@@ -264,11 +275,17 @@ export default function TourProvider({ children }: { children: React.ReactNode }
       void saveTourProgress(id, patch).catch(() => {})
       setState((s) => ({ ...s, [id]: { ...s[id], ...patch } }))
 
-      // Offer the cleanup the moment the practice run ends — on a dismissal
-      // too, not just a completion. Someone who bails halfway has MORE reason
-      // to want the scratch project gone, not less.
-      if (practiceRef.current && stampedRef.current.size > 0) {
-        setCleanupFor([...stampedRef.current])
+      const practiceIds = practiceRef.current ? [...stampedRef.current] : []
+      const tour = getTour(id)
+      if (reason === 'completed' && tour?.outro) {
+        // A finished tour gets an opaque full stop, and it absorbs the practice
+        // cleanup — a wrap-up card AND a separate "delete your practice job?"
+        // toast firing together is worse than one that says both.
+        setOutroFor({ tourId: id, practiceIds })
+      } else if (practiceIds.length > 0) {
+        // Bailed out. Someone who quits halfway has MORE reason to want the
+        // scratch project gone, not less.
+        setCleanupFor(practiceIds)
       }
       practiceRef.current = false
     },
@@ -288,8 +305,8 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   }, [active, handleExit])
 
   const api = useMemo<TourApi>(
-    () => ({ state, loading, offerTour, startTour, restartTour, canSee }),
-    [state, loading, offerTour, startTour, restartTour, canSee],
+    () => ({ state, loading, offerTour, startTour, restartTour, canSee, tourProjectId }),
+    [state, loading, offerTour, startTour, restartTour, canSee, tourProjectId],
   )
 
   const activeTour = active ? getTour(active.id) : null
@@ -323,6 +340,13 @@ export default function TourProvider({ children }: { children: React.ReactNode }
       )}
       {canSee && cleanupFor.length > 0 && (
         <PracticeCleanupPrompt projectIds={cleanupFor} onClose={() => setCleanupFor([])} />
+      )}
+      {canSee && outroFor && getTour(outroFor.tourId) && (
+        <TourOutroModal
+          tour={getTour(outroFor.tourId)!}
+          practiceIds={outroFor.practiceIds}
+          onClose={() => setOutroFor(null)}
+        />
       )}
     </TourContext.Provider>
   )

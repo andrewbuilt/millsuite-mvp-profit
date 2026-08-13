@@ -66,6 +66,9 @@ export interface Tour {
   steps: TourStep[]
   /** The last step offers to run another tour. */
   chainTo?: { tourId: TourId; label: string; declineLabel: string }
+  /** Shown opaque, over the app, when the tour finishes — a deliberate full
+   *  stop so it's obvious the walkthrough ended rather than just stopping. */
+  outro?: { title: string; body: string }
 }
 
 // ── Tour 1 — Welcome ────────────────────────────────────────────────────────
@@ -147,6 +150,10 @@ const FIRST_JOB: Tour = {
     title: 'Price your first job',
     body: 'From blank board to a client-ready estimate PDF, eight steps. Uses your real rate book — nothing here is throwaway.',
   },
+  outro: {
+    title: 'That’s the whole loop',
+    body: 'Lead to subproject to priced line to estimate. Everything you just did used your real rate book — so the next job works exactly the same way, only faster.',
+  },
   steps: [
     {
       route: '/sales/kanban',
@@ -184,8 +191,15 @@ const FIRST_JOB: Tour = {
       title: 'Compose a line',
       body: 'Pick what you’re building — base run, uppers, one of your own products. The composer walks through materials, doors, and features, priced from your rate book.',
       placement: 'left',
+      // Opening the composer reveals step 6's target, so this waits on the
+      // real click instead of putting a Next button next to one.
+      advanceWhenNextAppears: true,
     },
     {
+      // Re-anchored 2026-08-13: this is now the composer's OWN live breakdown
+      // panel, not the subproject page's sticky total. The copy is about the
+      // number moving "as you pick", and the old anchor sat behind the composer
+      // modal where you couldn't see it.
       target: 'line-breakdown',
       title: 'Watch the price build',
       body: 'Labor, materials, and consumables total live as you pick. Margins apply at the project level, so subprojects stay honest costs.',
@@ -201,7 +215,10 @@ const FIRST_JOB: Tour = {
     },
     {
       route: '/sales/kanban',
-      target: 'kanban-board',
+      // The card they just built, not the whole board — "drag the card to
+      // Sold" should point at a card. Falls back to docking if it can't be
+      // found (the board filters, or they deleted it mid-tour).
+      target: 'tour-project-card',
       title: 'When they say yes',
       body: 'Drag the card to Sold. The deposit, approvals, and production steps take over from there — that’s the next guide, whenever you want it.',
       placement: 'top',

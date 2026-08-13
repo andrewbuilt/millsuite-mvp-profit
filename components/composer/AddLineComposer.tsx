@@ -1508,6 +1508,13 @@ function Composer(p: {
       {/* Breakdown — placeholder when no pricing slot is picked yet,
           live panel once any of carcass / door style / door material /
           exterior finish is chosen. */}
+      {/* data-tour: the walkthrough's "Watch the price build" step points here.
+          It used to point at the SUBPROJECT page's sticky panel, which sits
+          behind this modal — so the step described a live total you couldn't
+          see. Two elements also can't share a data-tour value: querySelector
+          takes the first one in the document, so the tour would have picked
+          whichever happened to come first. */}
+      <div data-tour="line-breakdown">
       {breakdown && hasAnyPricingSlotV2(draft.slots) ? (
         <BreakdownPanel
           draft={draft}
@@ -1521,6 +1528,7 @@ function Composer(p: {
       ) : (
         <BreakdownPlaceholder />
       )}
+      </div>
     </div>
   )
 }
