@@ -1,26 +1,37 @@
 'use client'
 
 // ============================================================================
-// TourRunner — the spotlight engine
+// TourRunner — the coach-mark engine
 // ============================================================================
-// Renders one step of one tour: a dark mask with a hole cut around the target,
-// a popover anchored to it, and Back / Next / progress. It knows how to
-// navigate between pages mid-tour and how to wait for a target that doesn't
-// exist yet. It knows nothing about what any tour says — that's lib/walkthroughs.
+// Renders one step of one tour: a ring around the thing being talked about and
+// a small card that travels to it. It knows how to navigate between pages
+// mid-tour and how to wait for a target that doesn't exist yet. It knows
+// nothing about what any tour says — that's lib/walkthroughs.
 //
-// The mask is four fixed divs (above / below / left / right of the hole) rather
-// than one overlay with an SVG cutout, because nothing renders over the hole:
-// the highlighted button stays genuinely clickable, which the "Price your first
-// job" tour depends on completely — the user really does click New project and
-// really does build an estimate.
+// THE PAGE IS NEVER DIMMED AND NEVER BLOCKED (Andrew, 2026-08-13). The opt-in
+// modal is the only opaque thing; once a tour is running you're looking at the
+// real app. The first build dimmed the page AND put a Next button on every
+// card, which meant two things to click that did different things — you'd read
+// "Click New project", and then have to guess whether that meant the real
+// button or the tour's own button. Now there is exactly one thing to do at any
+// moment:
+//
+//   ACTION step  — the tour is waiting for you to do the real thing (click New
+//                  project, name the job). NO buttons on the card at all; it
+//                  advances the instant the app shows the result. Marked by
+//                  `advanceWhenNextAppears` in the tour script.
+//   INFO step    — nothing to do; the card carries Back/Next. This isn't a
+//                  fallback, it's required: the whole Welcome tour is a look
+//                  around the nav with nothing to click, so without a Next
+//                  button it could never move.
 //
 // Two failure modes are designed for rather than assumed away:
 //   • Target never appears — after WAIT_MS the step still shows, just centered
-//     with no spotlight. The copy lands even when the anchor doesn't. Steps
-//     flagged skipIfMissing (owner-only Settings) drop out instead.
+//     with no ring. The copy lands even when the anchor doesn't. Steps flagged
+//     skipIfMissing (owner-only Settings) drop out instead.
 //   • Target moves — the rect is re-measured every frame and only written to
 //     state when it actually changed, so sticky headers, dropdowns opening and
-//     lazy content don't leave the hole behind.
+//     lazy content don't leave the ring behind.
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -30,10 +41,16 @@ import { X } from 'lucide-react'
 import type { Tour, TourContext, TourStep } from '@/lib/walkthroughs'
 
 const WAIT_MS = 6000 // how long to look for a target before going centered
-const PAD = 6 // spotlight breathing room around the element
+const PAD = 6 // ring breathing room around the element
 const POPOVER_W = 340
-const GAP = 12 // popover ↔ spotlight
-const EDGE = 12 // popover ↔ viewport edge
+const GAP = 14 // card ↔ ring
+const EDGE = 12 // card ↔ viewport edge
+
+/** A target bigger than this much of the viewport isn't a thing you can point
+ *  at — it's the page. Ringing the whole screen says nothing, so those steps
+ *  render as a centered card with no ring. ("The project home" targets the
+ *  entire project page by design.) */
+const HUGE = 0.6
 
 interface Rect {
   top: number
@@ -110,14 +127,15 @@ function waitForTarget(
   })
 }
 
+/** The element's true viewport rect. Deliberately NOT clamped into the
+ *  viewport: an earlier version did `Math.max(0, top - PAD)`, so a target that
+ *  had scrolled above the fold got a ring pinned to y=0 — which is why "Send
+ *  the estimate" drew a box around the top nav instead of the Documents row.
+ *  An off-screen rect is honest; the caller scrolls to it or falls back to
+ *  centering. */
 function measure(el: HTMLElement): Rect {
   const r = el.getBoundingClientRect()
-  return {
-    top: Math.max(0, r.top - PAD),
-    left: Math.max(0, r.left - PAD),
-    width: Math.min(window.innerWidth, r.width + PAD * 2),
-    height: Math.min(window.innerHeight, r.height + PAD * 2),
-  }
+  return { top: r.top - PAD, left: r.left - PAD, width: r.width + PAD * 2, height: r.height + PAD * 2 }
 }
 
 const sameRect = (a: Rect | null, b: Rect | null) =>
@@ -129,7 +147,7 @@ const sameRect = (a: Rect | null, b: Rect | null) =>
     Math.abs(a.width - b.width) < 0.5 &&
     Math.abs(a.height - b.height) < 0.5)
 
-/** Where the popover sits relative to the hole, clamped into the viewport. The
+/** Where the card sits relative to the ring, clamped into the viewport. The
  *  requested placement is a preference — if it doesn't fit, the opposite side
  *  wins over hanging off screen. */
 function placePopover(
@@ -189,7 +207,7 @@ export default function TourRunner({
   )
   const [rect, setRect] = useState<Rect | null>(null)
   const [ready, setReady] = useState(false)
-  const [popHeight, setPopHeight] = useState(180)
+  const [popHeight, setPopHeight] = useState(160)
   const popRef = useRef<HTMLDivElement>(null)
   const targetElRef = useRef<HTMLElement | null>(null)
   const [viewport, setViewport] = useState({ w: 0, h: 0 })
@@ -206,6 +224,9 @@ export default function TourRunner({
   const step = tour.steps[index]
   const total = tour.steps.length
   const isLast = index === total - 1
+  // The tour is waiting on the user to do the real thing — so the card offers
+  // nothing to click and gets out of the way.
+  const isAction = !!step.advanceWhenNextAppears
 
   // Remember the project the user builds during the tour, so the step that
   // sends them back to the estimate knows where "back" is.
@@ -216,10 +237,7 @@ export default function TourRunner({
     onProjectSeen?.(m[1])
   }, [pathname, onProjectSeen])
 
-  const exit = useCallback(
-    (reason: ExitReason) => onExit(reason, index),
-    [onExit, index],
-  )
+  const exit = useCallback((reason: ExitReason) => onExit(reason, index), [onExit, index])
 
   // ── Resolve the current step: navigate, then find the target ──────────────
   useEffect(() => {
@@ -274,9 +292,9 @@ export default function TourRunner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, tour.id])
 
-  // ── Keep the hole on the element ─────────────────────────────────────────
+  // ── Keep the ring on the element ─────────────────────────────────────────
   // Re-measure every frame but only re-render when the numbers actually move,
-  // so sticky nav, smooth scrolling and dropdowns can't strand the spotlight.
+  // so sticky nav, smooth scrolling and dropdowns can't strand the highlight.
   useEffect(() => {
     if (!ready || !targetElRef.current) return
     let raf = 0
@@ -326,8 +344,6 @@ export default function TourRunner({
     return () => document.removeEventListener('keydown', onKey)
   }, [exit])
 
-  // The mask panels are sized from the viewport, so a resize has to re-render
-  // even when the spotlit element hasn't moved (centered steps never move).
   useEffect(() => {
     const sync = () => setViewport({ w: window.innerWidth, h: window.innerHeight })
     sync()
@@ -345,73 +361,78 @@ export default function TourRunner({
     setIndex((i) => Math.max(0, i - 1))
   }
 
+  // A target that fills the screen, or one that's scrolled out of sight, gets
+  // no ring — a box around everything (or around nothing) is worse than none.
+  const ringRect = useMemo(() => {
+    if (!rect || viewport.w === 0) return null
+    const fillsScreen = rect.width > viewport.w * HUGE && rect.height > viewport.h * HUGE
+    const offScreen =
+      rect.top + rect.height < 0 || rect.top > viewport.h || rect.left + rect.width < 0 || rect.left > viewport.w
+    return fillsScreen || offScreen ? null : rect
+  }, [rect, viewport])
+
   const pos = useMemo(
-    () => (ready ? placePopover(rect, step.placement, popHeight) : null),
-    [ready, rect, step.placement, popHeight],
+    () => (ready ? placePopover(ringRect, step.placement, popHeight) : null),
+    [ready, ringRect, step.placement, popHeight],
   )
 
-  // Render NOTHING until the step has resolved. The mask blocks clicks, so
-  // showing it while we're still navigating and hunting for a target would put
-  // a full-screen sheet over the app with no popover, no X and no explanation —
-  // for a route change plus a data load, or a full 6 seconds when a target is
-  // genuinely missing. Leaving the page alone until there's something to say is
-  // both safer and less startling.
-  if (typeof document === 'undefined' || viewport.w === 0 || !ready) return null
-
-  const maskStyle = 'fixed bg-[#111]/60 z-[9998]'
-  const { w: vw, h: vh } = viewport
+  // Render NOTHING until the step has resolved — no flash of a card pointing
+  // at the wrong thing while we're still navigating.
+  if (typeof document === 'undefined' || viewport.w === 0 || !ready || !pos) return null
 
   return createPortal(
     <>
-      {/* Mask. Four pieces around the hole so the highlighted element keeps
-          receiving real clicks. No hole → one full-screen sheet. */}
-      {rect ? (
-        <>
-          <div className={maskStyle} style={{ top: 0, left: 0, width: vw, height: rect.top }} />
-          <div
-            className={maskStyle}
-            style={{ top: rect.top + rect.height, left: 0, width: vw, height: Math.max(0, vh - rect.top - rect.height) }}
-          />
-          <div className={maskStyle} style={{ top: rect.top, left: 0, width: rect.left, height: rect.height }} />
-          <div
-            className={maskStyle}
-            style={{ top: rect.top, left: rect.left + rect.width, width: Math.max(0, vw - rect.left - rect.width), height: rect.height }}
-          />
-          {/* Ring. pointer-events:none so it never intercepts the click the
-              step is asking for. */}
-          <div
-            className="fixed z-[9998] rounded-lg ring-2 ring-[#2563EB] pointer-events-none transition-all duration-150"
-            style={{ top: rect.top, left: rect.left, width: rect.width, height: rect.height }}
-          />
-        </>
-      ) : (
-        <div className={`${maskStyle} inset-0`} style={{ width: vw, height: vh, top: 0, left: 0 }} />
+      {/* Ring only. No mask, no dimming, nothing over the page: the app stays
+          fully live and every click goes where the user aimed it. */}
+      {ringRect && (
+        <div
+          className="fixed z-[9998] rounded-lg pointer-events-none transition-all duration-200"
+          style={{
+            top: ringRect.top,
+            left: ringRect.left,
+            width: ringRect.width,
+            height: ringRect.height,
+            boxShadow: '0 0 0 2px #2563EB, 0 0 0 7px rgba(37,99,235,0.22)',
+          }}
+        />
       )}
 
-      {/* Popover */}
-      {pos && (
-        <div
-          ref={popRef}
-          role="dialog"
-          aria-live="polite"
-          aria-label={`${tour.title}: step ${index + 1} of ${total}`}
-          className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-[#E5E7EB] p-4"
-          style={{ top: pos.top, left: pos.left, width: POPOVER_W }}
+      <div
+        ref={popRef}
+        role="dialog"
+        aria-live="polite"
+        aria-label={`${tour.title}: step ${index + 1} of ${total}`}
+        className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-[#E5E7EB] p-4 transition-[top,left] duration-200"
+        style={{ top: pos.top, left: pos.left, width: POPOVER_W }}
+      >
+        <button
+          onClick={() => exit('dismissed')}
+          className="absolute top-3 right-3 p-1 rounded-lg text-[#9CA3AF] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors"
+          aria-label="Close walkthrough"
         >
-          <button
-            onClick={() => exit('dismissed')}
-            className="absolute top-3 right-3 p-1 rounded-lg text-[#9CA3AF] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors"
-            aria-label="Close walkthrough"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <X className="w-4 h-4" />
+        </button>
 
-          <div className="text-[11px] font-semibold text-[#2563EB] uppercase tracking-wider mb-1.5">
-            Step {index + 1} of {total}
+        <div className="text-[11px] font-semibold text-[#2563EB] uppercase tracking-wider mb-1.5">
+          Step {index + 1} of {total}
+        </div>
+        <h3 className="text-[15px] font-semibold text-[#111] mb-1.5 pr-6">{step.title}</h3>
+        <p className="text-[13px] text-[#6B7280] leading-relaxed">{step.body}</p>
+
+        {isAction ? (
+          // No buttons at all — the highlighted control IS the button. The one
+          // line of chrome exists because the first build left people guessing
+          // which of two things to click.
+          <div className="flex items-center gap-2 mt-3.5 pt-3 border-t border-[#F3F4F6]">
+            <span className="relative flex h-2 w-2 flex-shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2563EB] opacity-60" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2563EB]" />
+            </span>
+            <span className="text-[12px] text-[#9CA3AF]">
+              Go ahead — this moves on by itself.
+            </span>
           </div>
-          <h3 className="text-[15px] font-semibold text-[#111] mb-1.5 pr-6">{step.title}</h3>
-          <p className="text-[13px] text-[#6B7280] leading-relaxed">{step.body}</p>
-
+        ) : (
           <div className="flex items-center gap-2 mt-4">
             {index > 0 && (
               <button
@@ -446,8 +467,8 @@ export default function TourRunner({
               </button>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </>,
     document.body,
   )
