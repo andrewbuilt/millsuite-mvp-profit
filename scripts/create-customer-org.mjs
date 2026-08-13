@@ -7,9 +7,17 @@
 // the exact slug the customer's login URL will use.
 //
 // What you get: the org, the owner login, the 5 canonical departments (with
-// distinct colours, migration 081), a shop_rate_settings row, and plan
-// 'internal' — all 20 features, unlimited seats, unlimited drawing parses with
-// no daily cap, no billing UI.
+// distinct colours, migration 081), a shop_rate_settings row, and whichever
+// plan you ask for.
+//
+//   --plan internal   (default) all 20 features, unlimited seats + parses, no
+//                     billing UI. What a comped customer gets.
+//   --plan pro-ai     a real sellable tier on a no-card trial, so you can see
+//                     the app exactly as a paying Pro+ customer sees it —
+//                     tier gating, billing card, usage limits and all. Signup
+//                     can't produce this: it sends the paid tiers straight to
+//                     Stripe, so a trialing Pro+ org can only be made here.
+//                     Also: starter, pro.
 //
 // SAFETY:
 //   • Preview by default. Prints exactly what it would create and stops.
@@ -36,10 +44,24 @@ function arg(flag) {
 const email = (arg('--email') || '').trim().toLowerCase()
 const shopName = (arg('--name') || '').trim()
 const slug = (arg('--slug') || '').trim().toLowerCase()
+const plan = (arg('--plan') || 'internal').trim().toLowerCase()
+const trialDays = Number(arg('--trial-days') || 30)
 const apply = process.argv.includes('--apply')
 
+const SELLABLE = ['starter', 'pro', 'pro-ai']
+if (plan !== 'internal' && !SELLABLE.includes(plan)) {
+  console.error(`--plan must be internal, ${SELLABLE.join(', ')}. Got "${plan}".`)
+  process.exit(1)
+}
+// A sellable tier with no subscription needs the trial clock, or BillingGate
+// blocks the org out of its own app the moment they sign in.
+const isTrial = plan !== 'internal'
+const trialEndsAt = isTrial
+  ? new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString()
+  : null
+
 if (!email || !shopName || !slug) {
-  console.error('Usage: npx tsx scripts/create-customer-org.mjs --email <email> --name "<Shop Name>" --slug <slug> [--apply]')
+  console.error('Usage: npx tsx scripts/create-customer-org.mjs --email <email> --name "<Shop Name>" --slug <slug> [--plan internal|starter|pro|pro-ai] [--trial-days 30] [--apply]')
   process.exit(1)
 }
 if (!/^[a-z0-9-]+$/.test(slug)) {
@@ -102,7 +124,11 @@ console.log('\nWould create:')
 console.log(`  shop      ${shopName}`)
 console.log(`  owner     ${email}`)
 console.log(`  login URL https://millsuite.com/${slug}`)
-console.log(`  plan      internal (all features, unlimited seats + parses, no billing)`)
+console.log(
+  plan === 'internal'
+    ? `  plan      internal (all features, unlimited seats + parses, no billing)`
+    : `  plan      ${plan} · ${trialDays}-day no-card trial, ends ${trialEndsAt.slice(0, 10)}`,
+)
 console.log(`  also      5 departments, shop-rate settings row`)
 if (!apply) {
   console.log('\nPreview only — nothing created. Re-run with --apply.')
@@ -124,11 +150,13 @@ const { data: rows, error: rpcErr } = await sb.rpc('create_org_with_owner', {
   p_auth_user_id: created.user.id,
   p_email: email,
   p_shop_name: shopName,
-  p_plan: 'starter',
+  // The RPC only accepts sellable tiers, so an internal org is created as
+  // 'starter' here and comped immediately below.
+  p_plan: isTrial ? plan : 'starter',
   p_seats: 1,
   p_base_slug: slug,
-  p_plan_status: 'active',
-  p_trial_ends_at: null,
+  p_plan_status: isTrial ? 'trialing' : 'active',
+  p_trial_ends_at: trialEndsAt,
 })
 if (rpcErr) {
   // Roll back so the email is reusable on a retry.
@@ -140,14 +168,16 @@ const row = Array.isArray(rows) ? rows[0] : rows
 
 // Comp it. Separate from the RPC because 'internal' is deliberately not a
 // member of PLANS — validatePlan rejects it at every normal entry point.
-const { error: compErr } = await sb
-  .from('orgs')
-  .update({ plan: 'internal' })
-  .eq('id', row.org_id)
-if (compErr) {
-  console.error(`Org created but comping failed: ${compErr.message}`)
-  console.error(`Finish by hand: UPDATE public.orgs SET plan='internal' WHERE id='${row.org_id}';`)
-  process.exit(1)
+if (!isTrial) {
+  const { error: compErr } = await sb
+    .from('orgs')
+    .update({ plan: 'internal' })
+    .eq('id', row.org_id)
+  if (compErr) {
+    console.error(`Org created but comping failed: ${compErr.message}`)
+    console.error(`Finish by hand: UPDATE public.orgs SET plan='internal' WHERE id='${row.org_id}';`)
+    process.exit(1)
+  }
 }
 
 console.log('\n✅ Created.\n')
@@ -155,6 +185,7 @@ console.log(`  Login URL   https://millsuite.com/${row.slug}`)
 console.log(`  Email       ${email}`)
 console.log(`  Password    ${password}`)
 console.log(`  org_id      ${row.org_id}`)
+console.log(`  plan        ${plan}${isTrial ? ` (trialing until ${trialEndsAt.slice(0, 10)})` : ''}`)
 console.log('\nHand over the URL, email and password. He can change the password once in.')
 if (row.slug !== slug) {
   console.log(`\n⚠️  Slug came back as "${row.slug}", not "${slug}" — something else claimed it mid-run.`)
