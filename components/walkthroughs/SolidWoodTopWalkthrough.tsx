@@ -53,7 +53,7 @@ const OPERATIONS: OpDef[] = [
     dept: 'Assembly',
     heading: 'Wood selection',
     prompt:
-      'How long does it take to pull the right boards from the rack — color match, grain, defect culling?',
+      'How long does it take to pull the right boards from the rack, including color match, grain and defect culling?',
   },
   {
     key: 'asy_jointing',

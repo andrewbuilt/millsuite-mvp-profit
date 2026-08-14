@@ -78,7 +78,7 @@ export interface Tour {
 const WELCOME: Tour = {
   id: 'welcome',
   title: 'Welcome to MillSuite',
-  summary: 'Where everything lives — the five places you’ll actually use.',
+  summary: 'Where everything lives. The five places you’ll actually use.',
   minutes: 2,
   offer: {
     title: 'Get the lay of the land',
@@ -96,7 +96,7 @@ const WELCOME: Tour = {
       route: '/sales/kanban',
       target: 'nav-sales',
       title: 'Sales',
-      body: 'Every job starts here. The board tracks leads from first call to sold — drag a card between columns as the deal moves.',
+      body: 'Every job starts here. The board tracks leads from first call to sold. Drag a card between columns as the deal moves.',
       placement: 'bottom',
     },
     {
@@ -108,7 +108,7 @@ const WELCOME: Tour = {
     {
       target: 'nav-manage',
       title: 'Manage',
-      body: 'Your rate book, reports, team, and time tracking. The rate book is the engine — everything you price pulls from it.',
+      body: 'Your rate book, reports, team, and time tracking. The rate book is the engine. Everything you price pulls from it.',
       placement: 'bottom',
     },
     {
@@ -118,7 +118,7 @@ const WELCOME: Tour = {
       route: '/sales/kanban',
       target: 'kanban-new-project',
       title: 'New project',
-      body: 'This button starts a job — name it, pick the client, and it drops onto the board.',
+      body: 'This button starts a job. Name it, pick the client, and it drops onto the board.',
       placement: 'bottom',
     },
     {
@@ -126,14 +126,14 @@ const WELCOME: Tour = {
       // rather than reading about a button they can't see.
       target: 'nav-settings',
       title: 'Settings',
-      body: 'Company info, invoicing, your logo — and the Guides menu, where you can rerun any of these walkthroughs.',
+      body: 'Company info, invoicing, your logo, and the Guides menu where you can rerun any of these walkthroughs.',
       placement: 'bottom',
       skipIfMissing: true,
     },
     {
       // Centered: the learning loop is a concept, not a place on screen.
       title: 'The learning loop',
-      body: 'You estimate hours, your team tracks actual hours, and the system shows the difference — every job makes the next quote smarter.',
+      body: 'You estimate hours, your team tracks actual hours, and the system shows the difference. Every job makes the next quote smarter.',
     },
     {
       title: 'That’s the map',
@@ -152,23 +152,23 @@ const WELCOME: Tour = {
 const RATE_BOOK: Tour = {
   id: 'rate-book',
   title: 'Set up your rate book',
-  summary: 'One material and one door style — enough to quote a real job.',
+  summary: 'One material and one door style is enough to quote a real job.',
   minutes: 4,
   offer: {
     title: 'Set up your rate book',
-    body: 'Add one material and one door style — after this, you can price a real job. About four minutes.',
+    body: 'Add one material and one door style. After this you can price a real job. About four minutes.',
   },
   chainTo: { tourId: 'first-job', label: 'Price my first job', declineLabel: 'Done for now' },
   outro: {
     title: 'Your rate book is live',
-    body: 'Every quote you build from here prices off these numbers. Add more as you go — one material and one door style is all it takes to start.',
+    body: 'Every quote you build from here prices off these numbers. Add more as you go. One material and one door style is all it takes to start.',
   },
   steps: [
     {
       route: '/rate-book',
       target: 'rate-book-tabs',
       title: 'Your pricing engine',
-      body: 'Everything you quote is priced from here — labor on this side, materials in the catalog. Set it up once, refine it as jobs teach you.',
+      body: 'Everything you quote is priced from here. You can open this anytime and edit or add new rates, or add new rates and materials while pricing an actual job.',
       placement: 'bottom',
     },
     {
@@ -182,7 +182,7 @@ const RATE_BOOK: Tour = {
     {
       target: 'add-material',
       title: 'Add your first material',
-      body: 'A sheet good you actually buy — name it and enter what you pay per sheet.',
+      body: 'A sheet good you actually buy. Name it and enter what you pay per sheet.',
       placement: 'left',
       // Opening the add form reveals the "Shows in" checkboxes step 4 explains.
       advanceWhenNextAppears: true,
@@ -190,7 +190,7 @@ const RATE_BOOK: Tour = {
     {
       target: 'material-show-in',
       title: 'Where it shows up',
-      body: 'These checkboxes decide which dropdowns offer it — carcass, doors, shelves. Keep the quick lists short; "browse all" always reaches the whole catalog.',
+      body: 'These checkboxes decide which dropdowns offer it: carcass, doors, shelves. Keep the quick lists short. "Browse all" always reaches the whole catalog.',
       placement: 'right',
     },
     {
@@ -203,7 +203,7 @@ const RATE_BOOK: Tour = {
     {
       target: 'add-door-type',
       title: 'Calibrate it',
-      body: 'Four quick questions — your hours to build a small batch — and the style prices itself from then on.',
+      body: 'Four quick questions about your hours to build a small batch, and the style prices itself from then on.',
       placement: 'left',
     },
     {
@@ -231,11 +231,11 @@ const FIRST_JOB: Tour = {
   minutes: 5,
   offer: {
     title: 'Price your first job',
-    body: 'From blank board to a client-ready estimate PDF, eight steps. Uses your real rate book — nothing here is throwaway.',
+    body: 'From blank board to a client-ready estimate PDF, eight steps. Uses your real rate book, so nothing here is throwaway.',
   },
   outro: {
     title: 'That’s the whole loop',
-    body: 'Lead to subproject to priced line to estimate. Everything you just did used your real rate book — so the next job works exactly the same way, only faster.',
+    body: 'Lead to subproject to priced line to estimate. Everything you just did used your real rate book, so the next job works exactly the same way, only faster.',
   },
   steps: [
     {
@@ -249,7 +249,7 @@ const FIRST_JOB: Tour = {
     {
       target: 'new-project-modal',
       title: 'Name it',
-      body: 'Give the job a name and pick the client — or type a new client name and it’s created on the spot.',
+      body: 'Give the job a name and pick the client, or type a new client name and it’s created on the spot.',
       placement: 'right',
       // NOT advanceWhenNextAppears: saving here closes the modal and drops a
       // card on the board, it does not open the project. The tour watches for
@@ -265,14 +265,14 @@ const FIRST_JOB: Tour = {
     {
       target: 'add-subproject',
       title: 'Break it into subprojects',
-      body: 'One per room or scope area — "Kitchen," "Bar," "Install." Each gets its own drawings and approvals later.',
+      body: 'One per room or scope area: "Kitchen," "Bar," "Install." Each gets its own drawings and approvals later.',
       placement: 'left',
       advanceWhenNextAppears: true,
     },
     {
       target: 'compose-line',
       title: 'Compose a line',
-      body: 'Pick what you’re building — base run, uppers, one of your own products. The composer walks through materials, doors, and features, priced from your rate book.',
+      body: 'Pick what you’re building: base run, uppers, one of your own products. The composer walks through materials, doors, and features, priced from your rate book.',
       placement: 'left',
       // Opening the composer reveals step 6's target, so this waits on the
       // real click instead of putting a Next button next to one.
@@ -303,7 +303,7 @@ const FIRST_JOB: Tour = {
       // found (the board filters, or they deleted it mid-tour).
       target: 'tour-project-card',
       title: 'When they say yes',
-      body: 'Drag the card to Sold. The deposit, approvals, and production steps take over from there — that’s the next guide, whenever you want it.',
+      body: 'Drag the card to Sold. The deposit, approvals, and production steps take over from there. That’s the next guide, whenever you want it.',
       placement: 'top',
     },
   ],
@@ -375,7 +375,7 @@ export const PATH: PathStep[] = [
   {
     key: 'shop_setup',
     title: 'Set up your shop',
-    blurb: 'Your shop rate and your base cabinet labor — the two numbers everything else is priced from.',
+    blurb: 'Your shop rate and your base cabinet labor, the two numbers everything else is priced from.',
     tourId: 'welcome',
     after: null,
     doneWhen: 'Shop rate set and base cabinet hours entered',
@@ -454,7 +454,7 @@ export function resolvePath(status: PathStatus | null): PathStepState[] {
 // ============================================================================
 
 export const SHELF: { title: string; summary: string }[] = [
-  { title: 'Capacity calendar', summary: 'Birdseye planning — drag work across months, read the load.' },
+  { title: 'Capacity calendar', summary: 'Birdseye planning. Drag work across months, read the load.' },
   { title: 'The schedule', summary: 'Day-level production planning for the shop floor.' },
   { title: 'Reports and outlook', summary: 'What jobs actually cost, and what is booked ahead.' },
   { title: 'Change orders', summary: 'Price a change, get it approved, get it invoiced.' },

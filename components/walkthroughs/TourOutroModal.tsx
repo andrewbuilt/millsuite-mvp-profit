@@ -57,7 +57,7 @@ export default function TourOutroModal({
             <CheckCircle2 className="w-5 h-5 text-[#059669]" />
           </div>
           <h2 className="text-[17px] font-semibold text-[#111] mb-1.5">
-            {outro?.title || `${tour.title} — done`}
+            {outro?.title || `${tour.title} complete`}
           </h2>
           <p className="text-[13px] text-[#6B7280] leading-relaxed">
             {outro?.body || 'You can rerun this any time from Manage → Guides.'}
@@ -68,7 +68,7 @@ export default function TourOutroModal({
               <p className="text-[12.5px] text-[#92400E] leading-relaxed">
                 You built {many ? `${practiceIds.length} practice jobs` : 'a practice job'}.{' '}
                 {many ? 'They stay' : 'It stays'} out of reports, capacity and your dashboard. Delete
-                now, or keep {many ? 'them' : 'it'} as a template — Manage &rarr; Guides can remove{' '}
+                now, or keep {many ? 'them' : 'it'} as a template. Manage &rarr; Guides can remove{' '}
                 {many ? 'them' : 'it'} later.
               </p>
             </div>

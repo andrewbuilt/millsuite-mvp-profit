@@ -13,7 +13,7 @@
 export default function PracticeBadge({ className = '' }: { className?: string }) {
   return (
     <span
-      title="Practice project from a walkthrough — left out of reports, capacity and the dashboard. Delete it from Manage → Guides."
+      title="Practice project from a walkthrough. Left out of reports, capacity and the dashboard. Delete it from Manage → Guides."
       className={
         'inline-flex items-center shrink-0 text-[9.5px] font-semibold uppercase tracking-wider ' +
         'px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] ' +

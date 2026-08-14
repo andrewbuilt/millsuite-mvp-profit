@@ -183,19 +183,19 @@ export default function SolidWoodWalkthrough({
         return {
           eyebrow: `Step ${stepIdx + 1} of ${totalSteps} · Name`,
           title: 'What do you call this stock?',
-          body: "Operators will see this in pickers — make it specific.",
+          body: "Operators will see this in pickers, so make it specific.",
         }
       case 'species':
         return {
           eyebrow: `Step ${stepIdx + 1} of ${totalSteps} · Species`,
           title: 'What species is it?',
-          body: 'Free text — Walnut, White oak, Maple, anything.',
+          body: 'Free text. Walnut, White oak, Maple, anything.',
         }
       case 'thickness':
         return {
           eyebrow: `Step ${stepIdx + 1} of ${totalSteps} · Thickness`,
           title: 'How thick?',
-          body: 'Quarters — 4/4 = 1 inch, 8/4 = 2 inches. Pick a common value or enter a custom one.',
+          body: 'Quarters. 4/4 = 1 inch, 8/4 = 2 inches. Pick a common value or enter a custom one.',
         }
       case 'cost':
         return {
@@ -207,7 +207,7 @@ export default function SolidWoodWalkthrough({
         return {
           eyebrow: `Step ${stepIdx + 1} of ${totalSteps} · Waste %`,
           title: 'Typical waste?',
-          body: 'Hardwood typically runs 12–20% depending on grade — adjust to what your shop sees.',
+          body: 'Hardwood typically runs 12–20% depending on grade. Adjust to what your shop sees.',
         }
     }
   }, [currentKey, stepIdx, totalSteps])

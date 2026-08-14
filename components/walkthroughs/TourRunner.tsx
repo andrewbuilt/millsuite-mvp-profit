@@ -173,55 +173,79 @@ const sameRect = (a: Rect | null, b: Rect | null) =>
     Math.abs(a.width - b.width) < 0.5 &&
     Math.abs(a.height - b.height) < 0.5)
 
-/** Where the card sits relative to the ring, clamped into the viewport. The
- *  requested placement is a preference — if it doesn't fit, the opposite side
- *  wins over hanging off screen. */
+/** Where the card sits relative to the ring.
+ *
+ *  The requested placement is a PREFERENCE, not an instruction. Two rules
+ *  override it, in order:
+ *    1. It has to fit on screen.
+ *    2. It must not cover the ring.
+ *
+ *  Rule 2 is why this got rewritten. "Where it shows up" points at the full
+ *  width "Shows in" row, so a 'right' placement couldn't fit, fell back to
+ *  'left', clamped against the viewport edge — and landed on top of the name
+ *  field the user was being asked to fill in. Sliding a card to the nearest
+ *  edge is not the same as getting it out of the way.
+ *
+ *  If no side works, dock in the corner furthest from the ring: guaranteed not
+ *  to cover it, and predictable.
+ */
 function placePopover(
   rect: Rect | null,
   placement: TourStep['placement'],
   height: number,
-  /** The step names a target but we couldn't ring it — it's off screen, the
-   *  size of the page, or behind a modal. Dock out of the way instead of
-   *  centring: modals are centred too, and the card kept landing on top of the
-   *  very dialog the step was talking about. */
   dock = false,
 ): { top: number; left: number } {
   const vw = window.innerWidth
   const vh = window.innerHeight
+  const centred = {
+    top: Math.max(EDGE, vh / 2 - height / 2),
+    left: Math.max(EDGE, vw / 2 - POPOVER_W / 2),
+  }
   if (!rect) {
-    return dock
-      ? { top: Math.max(EDGE, vh - height - EDGE), left: EDGE }
-      : { top: Math.max(EDGE, vh / 2 - height / 2), left: Math.max(EDGE, vw / 2 - POPOVER_W / 2) }
+    return dock ? { top: Math.max(EDGE, vh - height - EDGE), left: EDGE } : centred
   }
-  const below = rect.top + rect.height + GAP
-  const above = rect.top - GAP - height
-  const rightOf = rect.left + rect.width + GAP
-  const leftOf = rect.left - GAP - POPOVER_W
 
-  let top: number
-  let left: number
-  switch (placement) {
-    case 'top':
-      top = above >= EDGE ? above : below
-      left = rect.left + rect.width / 2 - POPOVER_W / 2
-      break
-    case 'left':
-      left = leftOf >= EDGE ? leftOf : rightOf
-      top = rect.top + rect.height / 2 - height / 2
-      break
-    case 'right':
-      left = rightOf + POPOVER_W <= vw - EDGE ? rightOf : leftOf
-      top = rect.top + rect.height / 2 - height / 2
-      break
-    case 'bottom':
-    default:
-      top = below + height <= vh - EDGE ? below : above
-      left = rect.left + rect.width / 2 - POPOVER_W / 2
-      break
+  const clampX = (x: number) => Math.min(Math.max(EDGE, x), Math.max(EDGE, vw - POPOVER_W - EDGE))
+  const clampY = (y: number) => Math.min(Math.max(EDGE, y), Math.max(EDGE, vh - height - EDGE))
+  const midX = clampX(rect.left + rect.width / 2 - POPOVER_W / 2)
+  const midY = clampY(rect.top + rect.height / 2 - height / 2)
+
+  const candidates: Record<string, { top: number; left: number }> = {
+    bottom: { top: rect.top + rect.height + GAP, left: midX },
+    top: { top: rect.top - GAP - height, left: midX },
+    right: { top: midY, left: rect.left + rect.width + GAP },
+    left: { top: midY, left: rect.left - GAP - POPOVER_W },
   }
+
+  const fits = (p: { top: number; left: number }) =>
+    p.top >= EDGE && p.left >= EDGE && p.top + height <= vh - EDGE && p.left + POPOVER_W <= vw - EDGE
+
+  const overlapsRing = (p: { top: number; left: number }) =>
+    p.left < rect.left + rect.width &&
+    p.left + POPOVER_W > rect.left &&
+    p.top < rect.top + rect.height &&
+    p.top + height > rect.top
+
+  // Preferred side first, then the rest — opposite before perpendicular, since
+  // the opposite side is usually the roomiest.
+  const opposite: Record<string, string> = { bottom: 'top', top: 'bottom', left: 'right', right: 'left' }
+  const first = placement ?? 'bottom'
+  const order = [first, opposite[first], ...Object.keys(candidates)].filter(
+    (k, i, a) => a.indexOf(k) === i,
+  )
+
+  for (const key of order) {
+    const p = candidates[key]
+    if (p && fits(p) && !overlapsRing(p)) return p
+  }
+
+  // Nothing fits beside it. Take the corner furthest from the ring's centre so
+  // the card is as far from the work as the screen allows.
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
   return {
-    top: Math.min(Math.max(EDGE, top), Math.max(EDGE, vh - height - EDGE)),
-    left: Math.min(Math.max(EDGE, left), Math.max(EDGE, vw - POPOVER_W - EDGE)),
+    left: cx < vw / 2 ? vw - POPOVER_W - EDGE : EDGE,
+    top: cy < vh / 2 ? vh - height - EDGE : EDGE,
   }
 }
 
@@ -562,7 +586,7 @@ export default function TourRunner({
               <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2563EB]" />
             </span>
             <span className="text-[12px] text-[#9CA3AF]">
-              Go ahead — this moves on by itself.
+              Select the button to continue.
             </span>
             <div className="flex-1" />
             {/* Appears only once the step looks stuck, so the happy path still

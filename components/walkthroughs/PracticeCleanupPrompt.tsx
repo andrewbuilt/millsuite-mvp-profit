@@ -54,7 +54,7 @@ export default function PracticeCleanupPrompt({
       </h3>
       <p className="text-[12.5px] text-[#6B7280] leading-relaxed">
         {projectIds.length > 1 ? 'They\u2019re' : 'It\u2019s'} badged Practice and stay{projectIds.length > 1 ? '' : 's'} out of
-        reports, capacity and your dashboard. Delete now, or keep as a template — you can remove
+        reports, capacity and your dashboard. Delete now, or keep as a template. You can remove
         {projectIds.length > 1 ? ' them' : ' it'} any time from Manage &rarr; Guides.
       </p>
       {error && (
