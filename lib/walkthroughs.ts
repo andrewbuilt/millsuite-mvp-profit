@@ -171,39 +171,49 @@ const WELCOME: Tour = {
 }
 
 
-// ── Tour — Set up your rate book (path step 2) ───────────────────────────────
-// Runs entirely on /rate-book. The rate book's sections are TABS, not routes —
-// client state, no URL to navigate to — so the tour points at the tab and lets
-// the user press it. That works out better than faking it: each tab switch is a
-// clean signal (the target of the next step only exists once that view is
-// showing), so steps 2, 3 and 5 are action steps with no buttons of their own.
+// ── Lesson — Set up your rate book (path step 2) ─────────────────────────────
+// v2 script (specs/walkthroughs/v2-guide-system.md §6.2). This is a LESSON:
+// the user builds a real material and a real door style, and the lesson is not
+// done until they exist — the gate below is the same fact /api/guides/path
+// checks, so the outro can't celebrate an empty catalog.
+//
+// Runs entirely on /rate-book. The sections are TABS (client state, no URL),
+// so tab steps are DO steps advancing when that view's own content appears.
+// The two form steps ring the WHOLE form and advance on the save event — the
+// v1 script advanced the moment the form opened, which skipped name and price
+// and let the tour walk away from an unsaved form (spec §1, failures B/C/D).
 const RATE_BOOK: Tour = {
   id: 'rate-book',
   title: 'Set up your rate book',
   summary: 'One material and one door style is enough to quote a real job.',
   minutes: 4,
+  gate: 'rate_book',
   offer: {
     title: 'Set up your rate book',
-    body: 'Add one material and one door style. After this you can price a real job. About four minutes.',
+    body: 'You’ll add one material and one door style — for real, in your own catalog. After this you can price an actual job. About four minutes.',
   },
   chainTo: { tourId: 'first-job', label: 'Price my first job', declineLabel: 'Done for now' },
   outro: {
     title: 'Your rate book is live',
-    body: 'Every quote you build from here prices off these numbers. Add more as you go. One material and one door style is all it takes to start.',
+    body: 'Every quote you build from here prices off these numbers. Add more materials and styles as you go — the composer can add them mid-job too.',
+  },
+  outroPartial: {
+    title: 'Saved for where you got to',
+    body: 'Your rate book isn’t finished yet — it still needs a carcass material and a calibrated door style. Pick it up anytime from Manage → Guides.',
   },
   steps: [
     {
       route: '/rate-book',
       target: 'rate-book-tabs',
       title: 'Your pricing engine',
-      body: 'Everything you quote is priced from here. You can open this anytime and edit or add new rates, or add new rates and materials while pricing an actual job.',
+      body: 'Everything you quote prices from here. Set it up once, tighten it as real jobs teach you.',
       placement: 'bottom',
     },
     {
       route: '/rate-book',
       target: 'materials-tab',
-      title: 'The materials catalog',
-      body: 'One list, one price per material. Update a sheet price here and every product using it reprices.',
+      title: 'Open Materials',
+      body: 'Click the Materials tab. One list, one price per material — update a price here and every product using it reprices.',
       placement: 'bottom',
       // The New material button only exists once the Materials view is up.
       advanceWhenNextAppears: true,
@@ -212,44 +222,73 @@ const RATE_BOOK: Tour = {
       route: '/rate-book',
       target: 'add-material',
       title: 'Add your first material',
-      body: 'A sheet good you actually buy. Name it and enter what you pay per sheet.',
+      body: 'Click + New material. Pick a sheet good you actually buy.',
       placement: 'left',
-      // Opening the add form reveals the "Shows in" checkboxes step 4 explains.
+      // Waits for the FORM (material-form), not the checkboxes inside it —
+      // the v1 target here was the "Shows in" block, which is why the tour
+      // seemed to jump straight to checkboxes.
       advanceWhenNextAppears: true,
     },
     {
       route: '/rate-book',
-      target: 'material-show-in',
-      title: 'Where it shows up',
-      body: 'These checkboxes decide which dropdowns offer it: carcass, doors, shelves. Keep the quick lists short. "Browse all" always reaches the whole catalog.',
-      placement: 'right',
+      target: 'material-form',
+      title: 'Name it, price it, save it',
+      body: 'Type the name and what you pay per sheet, and tick Carcass so it offers itself when you’re pricing boxes. Then click Add material.',
+      placement: 'bottom',
+      advanceOnEvent: 'ms:material-created',
+    },
+    {
+      route: '/rate-book',
+      target: 'materials-table',
+      title: 'That’s a live price',
+      body: 'Every estimate line that uses this material prices from this row. Change the number and every quote after it follows.',
+      placement: 'bottom',
     },
     {
       route: '/rate-book',
       target: 'doors-tab',
-      title: 'Door styles',
-      body: 'Labor lives on the style, price lives on the material. Add the style you build most.',
+      title: 'Open Doors',
+      body: 'Click the Doors tab. Labor lives on the style — the material price stays in the catalog.',
       placement: 'bottom',
       advanceWhenNextAppears: true,
     },
     {
       route: '/rate-book',
       target: 'add-door-type',
-      title: 'Calibrate it',
-      body: 'Four quick questions about your hours to build a small batch, and the style prices itself from then on.',
+      title: 'The style you build most',
+      body: 'Click + New door type.',
       placement: 'left',
+      advanceWhenNextAppears: true,
+    },
+    {
+      route: '/rate-book',
+      target: 'door-form',
+      title: 'Enter your hours',
+      body: 'Name it, put in your hours per door for each department and hardware $, then click Add door type. Hours are what make the style calibrated — it prices itself from here on.',
+      placement: 'bottom',
+      advanceOnEvent: 'ms:door-type-created',
     },
     {
       route: '/rate-book',
       target: 'cabinets-tab',
+      title: 'Open Cabinets',
+      body: 'Click the Cabinets tab.',
+      placement: 'bottom',
+      // Item views auto-select their first item, so the labor block exists
+      // the moment the view is up — a clean appears-signal.
+      advanceWhenNextAppears: true,
+    },
+    {
+      route: '/rate-book',
+      target: 'cabinet-labor',
       title: 'Your cabinet labor',
-      body: 'The setup wizard already put your base-cabinet hours here. Come back and tighten these as tracked jobs show you the truth.',
+      body: 'These base-cabinet hours came from your setup answers. Tighten them as tracked jobs show you the truth.',
       placement: 'bottom',
     },
     {
       route: '/rate-book',
       title: 'You can price now',
-      body: 'One material + one door style is enough for a real quote.',
+      body: 'One material and one door style is enough for a real quote.',
     },
   ],
 }
