@@ -293,23 +293,33 @@ const RATE_BOOK: Tour = {
   ],
 }
 
-// ── Tour 2 — Price your first job ───────────────────────────────────────────
-// This one FOLLOWS the user. Steps 2, 3 and 5 land on targets that only exist
-// after they act, so those steps advance on appearance instead of on Next. The
-// project id isn't knowable up front — step 3 captures it, step 7 navigates back
-// to it.
+// ── Lesson — Price your first job ────────────────────────────────────────────
+// v2 script (specs/walkthroughs/v2-guide-system.md §6.3). This one FOLLOWS the
+// user: DO steps land on targets that only exist after they act. The project
+// id isn't knowable up front — the runner captures it, later steps navigate
+// back to it.
+//
+// The v2 fix: "Add the line" is its own DO step waiting on the save event.
+// v1's "Watch the price build" carried a Next that navigated away from the
+// composer with the line unsaved — the lesson's own fact (an estimate line
+// exists) could be false at the finish (spec §1).
 const FIRST_JOB: Tour = {
   id: 'first-job',
   title: 'Price your first job',
   summary: 'Blank board to a client-ready estimate PDF, on your real rate book.',
   minutes: 5,
+  gate: 'first_job',
   offer: {
     title: 'Price your first job',
-    body: 'From blank board to a client-ready estimate PDF, eight steps. Uses your real rate book, so nothing here is throwaway.',
+    body: 'From blank board to a client-ready estimate PDF, nine steps. Uses your real rate book, so nothing here is throwaway.',
   },
   outro: {
     title: 'That’s the whole loop',
     body: 'Lead to subproject to priced line to estimate. Everything you just did used your real rate book, so the next job works exactly the same way, only faster.',
+  },
+  outroPartial: {
+    title: 'Almost priced',
+    body: 'The job’s set up but no line is saved on it yet. Open the subproject and compose one — or resume this guide from Manage → Guides.',
   },
   steps: [
     {
@@ -342,7 +352,7 @@ const FIRST_JOB: Tour = {
       route: (ctx) => ctx.projectPath,
       target: 'add-subproject',
       title: 'Break it into subprojects',
-      body: 'One per room or scope area: "Kitchen," "Bar," "Install." Each gets its own drawings and approvals later.',
+      body: 'Click Add subproject — one per room or scope area: "Kitchen," "Bar," "Install." Each gets its own drawings and approvals later.',
       placement: 'left',
       advanceWhenNextAppears: true,
     },
@@ -350,22 +360,29 @@ const FIRST_JOB: Tour = {
       route: (ctx) => ctx.subprojectPath,
       target: 'compose-line',
       title: 'Compose a line',
-      body: 'Pick what you’re building: base run, uppers, one of your own products. The composer walks through materials, doors, and features, priced from your rate book.',
+      body: 'Click Compose line and pick what you’re building: base run, uppers, one of your own products. The composer walks through materials, doors, and features, priced from your rate book.',
       placement: 'left',
-      // Opening the composer reveals step 6's target, so this waits on the
-      // real click instead of putting a Next button next to one.
+      // Opening the composer reveals the next step's target, so this waits on
+      // the real click instead of putting a Next button next to one.
       advanceWhenNextAppears: true,
     },
     {
       route: (ctx) => ctx.subprojectPath,
-      // Re-anchored 2026-08-13: this is now the composer's OWN live breakdown
-      // panel, not the subproject page's sticky total. The copy is about the
-      // number moving "as you pick", and the old anchor sat behind the composer
-      // modal where you couldn't see it.
+      // The composer's OWN live breakdown panel, not the subproject page's
+      // sticky total — the copy is about the number moving "as you pick", and
+      // the page panel sits behind the composer modal where you can't see it.
       target: 'line-breakdown',
       title: 'Watch the price build',
       body: 'Labor, materials, and consumables total live as you pick. Margins apply at the project level, so subprojects stay honest costs.',
       placement: 'left',
+    },
+    {
+      route: (ctx) => ctx.subprojectPath,
+      target: 'composer-add-line',
+      title: 'Add the line',
+      body: 'Click Add line. It lands on the subproject with its full breakdown saved.',
+      placement: 'top',
+      advanceOnEvent: 'ms:estimate-line-created',
     },
     {
       // Back to the project the user just built out.
