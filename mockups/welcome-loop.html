@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MillSuite — Welcome loop (mockup)</title>
+<!-- ==========================================================================
+  Welcome moment mockup — specs/walkthroughs/v2-guide-system.md §5
+  ==========================================================================
+  The animated learning-loop sequence shown once, right after the setup wizard.
+  Five beats appear one by one, then glide into a ring; a pulse circulates;
+  the final frame carries the tour offer. Skippable at any instant.
+  prefers-reduced-motion jumps straight to the assembled ring.
+
+  Timeline (fast-forwardable by Skip):
+    0.0s  "Welcome to MillSuite" + subline
+    1.6s  beats 1..5 appear in a row, 1.1s apart
+    7.6s  beats glide into the ring, one-liners fade out
+    8.6s  connectors draw, center tagline fades in
+    9.8s  pulse starts circulating; CTA buttons fade in
+  ========================================================================== -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blue: #2563EB;
+    --blue-dark: #1D4ED8;
+    --blue-soft: #EFF6FF;
+    --blue-ring: rgba(37, 99, 235, 0.22);
+    --ink: #111111;
+    --gray: #6B7280;
+    --gray-light: #9CA3AF;
+    --border: #E5E7EB;
+    --bg: #F9FAFB;
+    --green: #16A34A;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: var(--bg);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(255,255,255,0.96);
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .stage {
+    position: relative;
+    width: 960px; height: 640px;
+    max-width: 100vw;
+  }
+
+  .skip {
+    position: absolute; top: 8px; right: 12px;
+    font-size: 13px; color: var(--gray-light);
+    background: none; border: none; cursor: pointer;
+    font-family: inherit; padding: 6px 10px; border-radius: 8px;
+    z-index: 10;
+  }
+  .skip:hover { color: var(--ink); background: #F3F4F6; }
+
+  /* ── Heading ─────────────────────────────────────────────────────────── */
+  .heading {
+    position: absolute; top: 24px; left: 0; right: 0;
+    text-align: center;
+    opacity: 0; transform: translateY(8px);
+    transition: opacity .7s ease, transform .7s ease;
+  }
+  .heading.show { opacity: 1; transform: none; }
+  .heading h1 { font-size: 30px; font-weight: 700; color: var(--ink); letter-spacing: -0.02em; }
+  .heading p { font-size: 15px; color: var(--gray); margin-top: 6px; transition: opacity .5s ease; }
+
+  /* ── Beats ───────────────────────────────────────────────────────────── */
+  .beat {
+    position: absolute;
+    width: 168px;
+    text-align: center;
+    opacity: 0; transform: translateY(14px) scale(.96);
+    transition: opacity .55s ease, transform .9s cubic-bezier(.22,.9,.3,1),
+                top .9s cubic-bezier(.22,.9,.3,1), left .9s cubic-bezier(.22,.9,.3,1);
+  }
+  .beat.show { opacity: 1; transform: none; }
+  .beat .icon {
+    width: 58px; height: 58px; margin: 0 auto 10px;
+    border-radius: 16px;
+    background: var(--blue-soft);
+    border: 1.5px solid #BFDBFE;
+    display: flex; align-items: center; justify-content: center;
+    transition: box-shadow .35s ease, background .35s ease, border-color .35s ease;
+  }
+  .beat .icon svg { width: 26px; height: 26px; stroke: var(--blue); }
+  .beat h3 { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.25; }
+  .beat p {
+    font-size: 12px; color: var(--gray); line-height: 1.45; margin-top: 5px;
+    transition: opacity .5s ease, max-height .5s ease;
+    max-height: 80px; overflow: hidden;
+  }
+  /* Ring mode: tighten to icon + title */
+  .stage.ring-mode .beat p { opacity: 0; max-height: 0; margin-top: 0; }
+  .stage.ring-mode .beat { width: 128px; }
+  .beat.lit .icon {
+    background: var(--blue);
+    border-color: var(--blue);
+    box-shadow: 0 0 0 6px var(--blue-ring);
+  }
+  .beat.lit .icon svg { stroke: #fff; }
+
+  /* ── Ring connectors ─────────────────────────────────────────────────── */
+  svg.connectors {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    overflow: visible;
+  }
+  .connectors path.arc {
+    fill: none; stroke: #C7D7FE; stroke-width: 2;
+    stroke-dasharray: 0 1000;
+    transition: stroke-dasharray 1.4s ease;
+  }
+  .connectors path.arc.draw { stroke-dasharray: 1000 0; }
+  .connectors .pulse { fill: var(--blue); opacity: 0; }
+  .connectors .pulse.go { opacity: 1; }
+
+  /* ── Center tagline ──────────────────────────────────────────────────── */
+  .center {
+    position: absolute;
+    text-align: center; width: 300px;
+    opacity: 0; transform: scale(.94);
+    transition: opacity .8s ease, transform .8s ease;
+  }
+  .center.show { opacity: 1; transform: none; }
+  .center .kicker {
+    font-size: 11px; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--blue); margin-bottom: 8px;
+  }
+  .center h2 { font-size: 21px; font-weight: 700; color: var(--ink); line-height: 1.3; letter-spacing: -0.01em; }
+
+  /* ── CTAs ────────────────────────────────────────────────────────────── */
+  .ctas {
+    position: absolute; bottom: 18px; left: 0; right: 0;
+    display: flex; gap: 10px; align-items: center; justify-content: center;
+    opacity: 0; transform: translateY(8px);
+    transition: opacity .7s ease, transform .7s ease;
+  }
+  .ctas.show { opacity: 1; transform: none; }
+  .btn {
+    font-family: inherit; font-size: 14px; font-weight: 600;
+    padding: 10px 22px; border-radius: 10px; cursor: pointer;
+    transition: background .15s ease;
+  }
+  .btn.primary { background: var(--blue); color: #fff; border: none; }
+  .btn.primary:hover { background: var(--blue-dark); }
+  .btn.ghost { background: none; color: var(--gray); border: none; font-weight: 500; }
+  .btn.ghost:hover { color: var(--ink); background: #F3F4F6; border-radius: 10px; }
+  .replay {
+    position: absolute; bottom: 22px; right: 16px;
+    font-size: 12px; color: var(--gray-light); background: none; border: none;
+    cursor: pointer; font-family: inherit; opacity: 0; transition: opacity .5s ease;
+  }
+  .replay.show { opacity: 1; }
+  .replay:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="overlay">
+  <div class="stage" id="stage">
+    <button class="skip" id="skip">Skip →</button>
+
+    <div class="heading" id="heading">
+      <h1>Welcome to MillSuite</h1>
+      <p id="subline">Here&rsquo;s how it works.</p>
+    </div>
+
+    <svg class="connectors" id="connectors"></svg>
+
+    <div class="center" id="center">
+      <div class="kicker">The loop</div>
+      <h2>Every job makes the next quote smarter.</h2>
+    </div>
+
+    <!-- Beats: icon SVGs are lucide-style outlines, matching the app's icon set -->
+    <div class="beat" id="b0">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h6M9 11h6"/></svg></div>
+      <h3>Build your rates</h3>
+      <p>Your shop rate and your labor numbers. Set once.</p>
+    </div>
+    <div class="beat" id="b1">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg></div>
+      <h3>Estimate the job</h3>
+      <p>Every line prices straight off your rate book.</p>
+    </div>
+    <div class="beat" id="b2">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+      <h3>Track it live</h3>
+      <p>Time and materials land on the job as it&rsquo;s built &mdash; the P&amp;L is real while it&rsquo;s happening.</p>
+    </div>
+    <div class="beat" id="b3">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div>
+      <h3>Review and tighten</h3>
+      <p>Estimated against actual. Fix the numbers that were off.</p>
+    </div>
+    <div class="beat" id="b4">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></div>
+      <h3>Price the next one smarter</h3>
+      <p>Your rates evolve. The loop runs again.</p>
+    </div>
+
+    <div class="ctas" id="ctas">
+      <button class="btn ghost" onclick="alert('(mockup) → dashboard')">I&rsquo;ll explore on my own</button>
+      <button class="btn primary" onclick="alert('(mockup) → starts the Welcome tour')">Show me around</button>
+    </div>
+    <button class="replay" id="replay">↻ Replay</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const stage = document.getElementById('stage')
+  const heading = document.getElementById('heading')
+  const subline = document.getElementById('subline')
+  const center = document.getElementById('center')
+  const ctas = document.getElementById('ctas')
+  const skip = document.getElementById('skip')
+  const replayBtn = document.getElementById('replay')
+  const connectors = document.getElementById('connectors')
+  const beats = [0, 1, 2, 3, 4].map((i) => document.getElementById('b' + i))
+
+  const W = stage.clientWidth, H = stage.clientHeight
+  const CX = W / 2, CY = H / 2 + 22
+  const R = 205 // ring radius
+  const BEAT_W_ROW = 168, BEAT_W_RING = 128
+
+  // Row layout: five across, below the heading.
+  function rowPos(i) {
+    const gap = 18
+    const total = 5 * BEAT_W_ROW + 4 * gap
+    return { left: (W - total) / 2 + i * (BEAT_W_ROW + gap), top: 150 }
+  }
+  // Ring layout: start at 12 o'clock, clockwise.
+  function ringAngle(i) { return -Math.PI / 2 + (i * 2 * Math.PI) / 5 }
+  function ringPos(i) {
+    const a = ringAngle(i)
+    return {
+      left: CX + R * Math.cos(a) - BEAT_W_RING / 2,
+      top: CY + R * Math.sin(a) - 44, // icon-centered
+    }
+  }
+
+  function place(el, pos) { el.style.left = pos.left + 'px'; el.style.top = pos.top + 'px' }
+
+  // Connector arcs between adjacent ring icons (icon centers, trimmed).
+  function iconCenter(i) {
+    const a = ringAngle(i)
+    return { x: CX + R * Math.cos(a), y: CY + R * Math.sin(a) - 44 + 29 }
+  }
+  function buildConnectors() {
+    connectors.setAttribute('viewBox', '0 0 ' + W + ' ' + H)
+    let html = ''
+    for (let i = 0; i < 5; i++) {
+      const a = iconCenter(i), b = iconCenter((i + 1) % 5)
+      // Quadratic arc bowed slightly outward from the ring center.
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
+      const dx = mx - CX, dy = my - CY
+      const d = Math.hypot(dx, dy) || 1
+      const bow = 1.16
+      const cx2 = CX + dx * bow, cy2 = CY + dy * bow
+      // Trim ends so arcs don't run under the icons.
+      const trim = (p, q, t) => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t })
+      const s = trim(a, { x: cx2, y: cy2 }, 0.22)
+      const e = trim(b, { x: cx2, y: cy2 }, 0.22)
+      html += '<path class="arc" id="arc' + i + '" d="M ' + s.x + ' ' + s.y +
+              ' Q ' + cx2 + ' ' + cy2 + ' ' + e.x + ' ' + e.y + '"/>'
+    }
+    html += '<circle class="pulse" id="pulse" r="5"/>'
+    connectors.innerHTML = html
+  }
+
+  // ── Timeline ────────────────────────────────────────────────────────────
+  let timers = []
+  const later = (fn, ms) => timers.push(setTimeout(fn, ms))
+  const clearAll = () => { timers.forEach(clearTimeout); timers = [] }
+
+  let pulseRaf = null
+  function startPulse() {
+    const pulse = document.getElementById('pulse')
+    pulse.classList.add('go')
+    const start = performance.now()
+    const LAP = 6000
+    function frame(now) {
+      const t = ((now - start) % LAP) / LAP
+      const a = -Math.PI / 2 + t * 2 * Math.PI
+      const px = CX + (R * 1.02) * Math.cos(a)
+      const py = CY + (R * 1.02) * Math.sin(a) - 15
+      pulse.setAttribute('cx', px)
+      pulse.setAttribute('cy', py)
+      // Light the beat the pulse is passing.
+      const idx = Math.round(t * 5) % 5
+      beats.forEach((b, i) => b.classList.toggle('lit', i === idx))
+      pulseRaf = requestAnimationFrame(frame)
+    }
+    pulseRaf = requestAnimationFrame(frame)
+  }
+  function stopPulse() { if (pulseRaf) cancelAnimationFrame(pulseRaf); pulseRaf = null }
+
+  function reset() {
+    clearAll(); stopPulse()
+    stage.classList.remove('ring-mode')
+    heading.classList.remove('show')
+    subline.style.opacity = 1
+    center.classList.remove('show')
+    ctas.classList.remove('show')
+    replayBtn.classList.remove('show')
+    skip.style.display = ''
+    beats.forEach((b, i) => { b.classList.remove('show', 'lit'); place(b, rowPos(i)) })
+    buildConnectors()
+    place(center, { left: CX - 150, top: CY - 58 })
+  }
+
+  function finale(instant) {
+    stage.classList.add('ring-mode')
+    beats.forEach((b, i) => { b.classList.add('show'); place(b, ringPos(i)) })
+    subline.style.opacity = 0
+    const drawDelay = instant ? 60 : 950
+    later(() => {
+      for (let i = 0; i < 5; i++) document.getElementById('arc' + i).classList.add('draw')
+      center.classList.add('show')
+    }, drawDelay)
+    later(() => {
+      startPulse()
+      ctas.classList.add('show')
+      replayBtn.classList.add('show')
+      skip.style.display = 'none'
+    }, drawDelay + (instant ? 200 : 1200))
+  }
+
+  function play() {
+    reset()
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    heading.classList.add('show')
+    if (reduced) { finale(true); return }
+    beats.forEach((b, i) => later(() => b.classList.add('show'), 1600 + i * 1100))
+    later(() => finale(false), 1600 + 5 * 1100 + 500)
+  }
+
+  skip.addEventListener('click', () => { clearAll(); stopPulse(); heading.classList.add('show'); finale(true) })
+  replayBtn.addEventListener('click', play)
+
+  play()
+})()
+</script>
+</body>
+</html>
