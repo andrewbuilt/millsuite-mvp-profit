@@ -541,7 +541,7 @@ export default function TourRunner({
   }, [rect, viewport, occluded])
 
   // A step that NAMES a target but couldn't get a ring docks out of the way;
-  // a step that never had one (the learning loop) is genuinely a centred card.
+  // a step that never had one (the closers) is genuinely a centred card.
   const dock = !!step.target && !ringRect
 
   const pos = useMemo(

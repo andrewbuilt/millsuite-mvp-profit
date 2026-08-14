@@ -4,13 +4,15 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-08-12 · **Branch:** `main`
+**Last updated:** 2026-08-14 · **Branch:** `main`
 
 ---
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-08-12)
 
 **⛔ NEVER WRITE TO `users` FROM THE BROWSER.** `users` has RLS on with a SELECT-self policy and a DELETE policy and **no UPDATE policy**, so `supabase.from('users').update(...)` matches zero rows and PostgREST returns `{ error: null }` — success-shaped silence that `if (error) throw` cannot catch. This had been quietly breaking `onboarded_at` since 083 landed on prod (2026-08-06); found and fixed 2026-08-12. Go through **`/api/me/progress`** (service role, own row only, three-column allowlist). Same trap as `orgs`, which is what `lib/org-write.ts` guards. Full detail under "Guided walkthroughs v1".
+
+**Session 2026-08-14 shipped: GUIDE SYSTEM V2** — the walkthroughs rebuilt as a coherent learning system after Andrew's "stuck between a casual look around and an actual learning system" read. New spec `specs/walkthroughs/v2-guide-system.md` (supersedes v1 scripts), `advanceOnEvent` save signals, gate-checked honest outros, granular lesson scripts that actually create the material/door/line, and the animated welcome-loop moment. No schema change. Full detail + Andrew's live-QA list under "Guide system v2" in Now.
 
 **Session 2026-08-12 shipped: guided walkthroughs v1** (both tours, in-house spotlight engine, Manage → Guides, practice projects, dashboard setup checklist) + the `users`-write fix above. **Migration `088` ✅ RUN ON PROD 2026-08-12 by Andrew** — verified through PostgREST with the public key that `users.walkthrough_state` and `projects.practice_at` are both live in the schema cache. Remaining: Andrew's interactive pass + two spec conflicts needing his call, both under "Guided walkthroughs v1" in Now.
 
@@ -188,8 +190,31 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 - **✅ "Set up your rate book" tour BUILT 2026-08-13 (`02755c6`)** — 8 steps verbatim from the spec + all 7 `data-tour` hooks. Path step 2 now has a real guide. **The rate book's sections are TABS (client state, no URL)**, so the tour points at the tab and lets the user press it rather than faking navigation — which works out better, because each tab switch is a clean signal (the next step's target only exists once that view is showing). Steps 2, 3 and 5 are therefore action steps with no buttons of their own. Step 3 → 4 rides the same mechanism: opening the add form is what reveals the "Shows in" checkboxes step 4 explains.
 - **Duplicate caught before shipping:** the "Shows in" block lives in a shared `DraftFields` rendered for the add form AND every row being edited, and opening the add form does NOT close an open editor. Inline tagging would have put two identical `data-tour` values in the document. The hook is a **prop**, passed only by the add form.
 - **`node scripts/check-tour-targets.mjs`** — run it after touching any `data-tour` or tour script. Fails on a target that resolves to zero tags OR more than one. Currently 19 targets, all resolve, no duplicates. (It earned its keep immediately by catching a real gap on first run.)
-- **⚠️ FLAGGED — this changed APPROVED COPY, wants a planning pass.** Welcome now chains to **"Set up my rate book"** instead of "Price my first job", because the path locks first-job until the rate book has a material and a door style — the old chain offered a button into a step the same page shows as locked. Consequence: Welcome step 7's body ("Ready to price your first job?") now reads slightly ahead of the button beneath it.
+- ~~⚠️ FLAGGED — this changed APPROVED COPY~~ **RESOLVED 2026-08-14 by the v2 planning pass:** the closer now reads "Ready to set up the numbers everything prices from?", matching the chain button.
 - **Superseded by this rework:** the old flat Guides list and its `COMING_SOON` array are gone. The first-job tour's offer/practice flow, the engine and the auto-offer are untouched.
+
+### Guide system v2 — ✅ **BUILT 2026-08-14** (one Cowork session: spec + full build; commits `1036b76`…`d661acf`). Spec: `specs/walkthroughs/v2-guide-system.md` — supersedes v1's SCRIPTS; engine/Path/practice machinery carried over.
+
+**Andrew's read, confirmed by audit:** the guides were "stuck between a casual look around and an actual learning system." Root cause was structural, not copy — the engine's only advance signal was *next target appears*, which fires the instant a form OPENS. So the rate-book tour skipped past name/price, never required Add material, had an INFO step (Back/Next) sitting on the "+ New door type" action button (the shipped step-6 bug), and could finish with NOTHING created while the outro said "Your rate book is live."
+
+**What shipped (no schema change, no migration):**
+- **Two guide kinds** (spec §2–3): **TOUR** = look around, Back/Next everywhere. **LESSON** = builds real state; DO steps carry NO Next and advance only on the real result. A LOOK step never targets a control its copy tells you to press.
+- **`advanceOnEvent` + `lib/tour-events.ts`** — `ms:material-created` / `ms:door-type-created` / `ms:estimate-line-created`, announced after the successful await (creates only). A form is ONE DO step ringing the whole form, advancing on the save.
+- **Honest outros:** lessons carry `gate` + `outroPartial`; TourProvider checks `/api/guides/path` before celebrating (fetch failure defaults to the celebration). Partial modal is amber.
+- **Rate-book lesson v2 — 11 steps** that actually create the material AND the door style. "Four quick questions" copy gone (the form is name + 4 dept-hour fields + hardware $).
+- **First-job lesson v2 — 9 steps** with a new "Add the line" DO step (`composer-add-line` + save event) so the tour can no longer leave the composer with the line unsaved.
+- **Welcome moment:** `components/walkthroughs/WelcomeLoop.tsx` — animated 5-beat learning loop (beats appear one by one → glide into a ring → pulse circulates → "Every job makes the next quote smarter"). **Replaces the welcome offer modal**: its final frame IS the offer; same one-shot `offered_at` stamping. Skippable always, Esc works, reduced-motion jumps to the ring. Rerunnable from Guides ("How MillSuite works" card). Welcome tour trimmed to 6 steps (the loop text card is gone — the moment teaches it). HTML mockup: `mockups/welcome-loop.html`.
+- **5 new `data-tour` hooks:** `material-form`, `materials-table`, `door-form`, `cabinet-labor`, `composer-add-line` (23 total).
+- **`check-tour-targets.mjs` now enforces the step grammar**, not just target resolution: appears-advance may not wait on an always-present element (the bug class that made step 6 unfixable by flag), `advanceOnEvent` names must exist in `lib/tour-events.ts`, LOOK steps may not target action buttons. It caught the live step-6 bug on first run, as designed. PASS — 26 steps / 23 targets; tsc clean.
+- Action-step chrome line rewritten: click steps say "The highlighted button is the next step.", save steps say "Moves on when it's saved." (deliberate split from spec §4.4's single line).
+
+**Left for Andrew — live QA (spec §8), needs the logged-in app:**
+1. Rate-book lesson start to finish doing only what each card says: step 4 must NOT advance until Add material actually succeeds (try Add with an empty name — must stay put), no card ever shows Next+ring-on-a-button, after the door save the row shows no "Uncalibrated" badge, finish = green "Your rate book is live" and the Guides path card agrees.
+2. Re-run using Skip on a form step → amber "Saved for where you got to" outro instead.
+3. First-job: step 7 "Add the line" — closing/cancelling the composer must not advance; only the saved line does.
+4. Fresh owner: wizard → animated loop plays once → "Show me around" starts the welcome tour (6 steps) → chains into the rate book. Replay from the Guides "How MillSuite works" card.
+
+**Open, small:** the welcome tour's OFFER modal copy still says "rerun it from Settings → Guides" (spec-conflict 1 from v1, still unresolved — the offer modal now only shows when welcome is launched from Guides itself, which makes the copy odder, not better). Wants a call: reword to "Manage → Guides" or drop the sentence.
 
 ### Guided walkthroughs v1 — ✅ **BUILT 2026-08-12** (scoped in the same-day Cowork pass; built to `specs/walkthroughs/v1-tours.md`). 6 commits, `cc2fa60`…`6f83bc1`, tsc clean.
 
@@ -224,11 +249,9 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 
 Also this pass: step 8 rings the card just created (`tour-project-card`, tagged via `useTours().tourProjectId`) rather than the whole board; finishing opens an opaque wrap-up modal which absorbs the practice-job cleanup so two things don't pop at once; step 5 became an action step now that a real signal exists.
 
-**⚠️ STILL OPEN — needs a planning call, don't improvise:** ~~first-job steps 5 and 6~~ (mechanically fixed above, but **the step 6 re-anchor changed which element the approved copy points at** — confirm that's what was meant). Step 5 ("Compose a line") reads as an instruction to click, but there's no DOM signal for "the composer opened", so it's an INFO step with a Next button — the exact ambiguity we just removed everywhere else. And step 6 ("Watch the price build") targets `line-breakdown`, which is the **subproject page's** sticky panel — it sits *behind* the composer modal, so at the moment the copy is describing, you can't see the thing it points at. Both probably want the composer itself tagged and the step re-pointed, which is a script change, not a code one.
+~~⚠️ STILL OPEN — first-job steps 5/6~~ **RESOLVED 2026-08-14 by the v2 planning pass + build:** step 6's composer re-anchor confirmed and kept; the deeper gap (nothing required the line to be SAVED) is closed by the new "Add the line" DO step. See "Guide system v2" above.
 
-**Two spec conflicts — flagged, not silently resolved. Both want a call from Andrew:**
-1. **Guides location.** Decision 2 says Manage → Guides, but Welcome step 5's copy and the tour's opt-in modal both say "Settings → Guides". Since approved copy isn't mine to reword, the page lives at `/guides` under Manage **and** Settings got a pointer card, so both statements are true. Say if you'd rather change the copy and drop the card.
-2. **Learning-loop step.** Decision 3 gave the body verbatim but no title and no target. It's a centered step (it's a concept, not a place) titled **"The learning loop"**, taken from the decision's own wording. Retitle if you want something else.
+**Spec conflicts:** conflict 2 (learning-loop step title) is **RESOLVED** — the step is gone, the animated welcome moment teaches the loop. Conflict 1 (offer-modal copy says "Settings → Guides") is still open, tracked under Guide system v2 above.
 
 **Post-setup landing changed 2026-08-13 (`e44f189`):** a newly set-up owner now lands on **`/dashboard`**, not `/sales`. The old redirect had a real reason — a brand-new dashboard was empty rollups and people thought nothing was happening — but the dashboard now carries the "Getting set up" checklist and is where the Welcome walkthrough offers itself. The stale comment arguing for `/sales` was replaced so nobody reverts it on the old logic. Also **`complete()` is now awaited before the redirect**: `onboarded_at` is what the tour provider waits on to offer Welcome, and racing the write meant the provider could re-read a still-null value on arrival and stay silent until the next navigation — an intermittent "the tour never offered itself".
 
