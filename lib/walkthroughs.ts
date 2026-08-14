@@ -109,12 +109,9 @@ const WELCOME: Tour = {
     title: 'Get the lay of the land',
     body: 'A two-minute walk through where everything lives. You can quit anytime, and rerun it from Settings → Guides.',
   },
-  // CHANGED 2026-08-13 by the path restructure, and it alters approved copy —
-  // flag for a planning pass. The script has Welcome chaining straight into
-  // "Price my first job", but the path now locks that tour until the rate book
-  // has a material and a door style, so the old chain offered a button into a
-  // step the same page shows as locked. Step 7's body ("Ready to price your
-  // first job?") now reads slightly ahead of the button under it.
+  // Chains to the rate book, not first-job: the path locks first-job until
+  // the rate book has a material and a door style, and the closer's copy now
+  // matches the button under it (v2 planning pass, resolves the 08-13 flag).
   chainTo: { tourId: 'rate-book', label: 'Set up my rate book', declineLabel: 'Done for now' },
   steps: [
     {
@@ -159,13 +156,10 @@ const WELCOME: Tour = {
       skipIfMissing: true,
     },
     {
-      // Centered: the learning loop is a concept, not a place on screen.
-      title: 'The learning loop',
-      body: 'You estimate hours, your team tracks actual hours, and the system shows the difference. Every job makes the next quote smarter.',
-    },
-    {
+      // v2: the learning loop is no longer a text card here — the animated
+      // welcome moment (WelcomeLoop) teaches it before this tour starts.
       title: 'That’s the map',
-      body: 'Ready to price your first job?',
+      body: 'Ready to set up the numbers everything prices from?',
     },
   ],
 }

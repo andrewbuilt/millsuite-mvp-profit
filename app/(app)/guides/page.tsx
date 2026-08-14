@@ -40,7 +40,7 @@ import { deleteAllPracticeData, listPracticeProjects, type PracticeProject } fro
 
 export default function GuidesPage() {
   const { user, org } = useAuth()
-  const { state, startTour, offerTour, restartTour } = useTours()
+  const { state, startTour, offerTour, restartTour, showWelcomeLoop } = useTours()
   const { confirm } = useConfirm()
   const allowed = canSeeTours(user?.role)
 
@@ -103,10 +103,26 @@ export default function GuidesPage() {
         <Compass className="w-5 h-5 text-[#2563EB]" />
         <h1 className="text-[20px] font-semibold text-[#111]">Guides &amp; walkthroughs</h1>
       </div>
-      <p className="text-sm text-[#6B7280] mb-6">
+      <p className="text-sm text-[#6B7280] mb-4">
         The path takes you from a blank shop to a paid job, in order. The shelf is there whenever
         you want it.
       </p>
+
+      {/* The animated learning-loop moment, rerunnable. It plays once on first
+          arrival; this is the only other way back to it. */}
+      <button
+        onClick={showWelcomeLoop}
+        className="w-full flex items-center gap-3 mb-6 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl px-4 py-3 text-left hover:border-[#2563EB] transition-colors"
+      >
+        <RotateCcw className="w-4 h-4 text-[#2563EB] flex-shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-semibold text-[#111]">How MillSuite works</span>
+          <span className="block text-[12px] text-[#6B7280]">
+            The loop in 15 seconds: rates → estimate → track → review → smarter rates.
+          </span>
+        </span>
+        <span className="text-[12px] font-semibold text-[#2563EB] flex-shrink-0">Watch</span>
+      </button>
 
       {error && (
         <div className="mb-4 px-3.5 py-2.5 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-xs text-[#B91C1C]">

@@ -39,6 +39,7 @@ import TourRunner, { type ExitReason } from './TourRunner'
 import TourOfferModal from './TourOfferModal'
 import PracticeCleanupPrompt from './PracticeCleanupPrompt'
 import TourOutroModal from './TourOutroModal'
+import WelcomeLoop from './WelcomeLoop'
 
 /** Survives a hard reload mid-tour. Session-scoped on purpose: a tour is a
  *  thing you're doing right now, not a thing you come back to next week —
@@ -55,6 +56,8 @@ interface TourApi {
   startTour: (id: TourId, fromStep?: number, practice?: boolean) => void
   /** Wipe a tour's progress so it reads as Not started again. */
   restartTour: (id: TourId) => Promise<void>
+  /** Replay the animated learning-loop moment (Guides: "How MillSuite works"). */
+  showWelcomeLoop: () => void
   canSee: boolean
   /** The project a running tour is working in, so its kanban card can tag
    *  itself as the thing the final step points at. Null when no tour is
@@ -68,6 +71,7 @@ const TourContext = createContext<TourApi>({
   offerTour: () => {},
   startTour: () => {},
   restartTour: async () => {},
+  showWelcomeLoop: () => {},
   canSee: false,
   tourProjectId: null,
 })
@@ -84,6 +88,9 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   const [onboardedAt, setOnboardedAt] = useState<string | null>(null)
   const [offering, setOffering] = useState<TourId | null>(null)
   const [active, setActive] = useState<{ id: TourId; from: number } | null>(null)
+  // The animated learning-loop moment. `replay` softens the buttons when it's
+  // rerun from Guides rather than shown on first arrival.
+  const [loop, setLoop] = useState<{ replay: boolean } | null>(null)
   const autoOfferedRef = useRef(false)
 
   // Practice mode. Default on for the first-job tour: someone learning the app
@@ -168,16 +175,19 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   }, [loading, canSee])
 
   // ── The one automatic offer ──────────────────────────────────────────────
+  // v2: the animated learning-loop moment IS the offer — its final frame
+  // carries "Show me around" / "I'll explore". Same one-shot rule as the old
+  // modal: offered_at stamps when it's SHOWN, so closing the tab counts.
   useEffect(() => {
-    if (loading || !canSee || active || offering || autoOfferedRef.current) return
+    if (loading || !canSee || active || offering || loop || autoOfferedRef.current) return
     if (!onboardedAt) return // setup wizard still has the floor
     if (state.welcome?.offered_at) return // already had its one shot
     autoOfferedRef.current = true
-    setOffering('welcome')
+    setLoop({ replay: false })
     void saveTourProgress('welcome', { offered_at: new Date().toISOString() })
       .then(() => setState((s) => ({ ...s, welcome: { ...s.welcome, offered_at: new Date().toISOString() } })))
       .catch(() => {})
-  }, [loading, canSee, active, offering, onboardedAt, state.welcome?.offered_at])
+  }, [loading, canSee, active, offering, loop, onboardedAt, state.welcome?.offered_at])
 
   const startTour = useCallback(
     (id: TourId, fromStep = 0, practice?: boolean) => {
@@ -227,6 +237,12 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   const offerTour = useCallback((id: TourId) => {
     setActive(null)
     setOffering(id)
+  }, [])
+
+  const showWelcomeLoop = useCallback(() => {
+    setActive(null)
+    setOffering(null)
+    setLoop({ replay: true })
   }, [])
 
   const restartTour = useCallback(
@@ -339,8 +355,8 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   }, [active, handleExit])
 
   const api = useMemo<TourApi>(
-    () => ({ state, loading, offerTour, startTour, restartTour, canSee, tourProjectId }),
-    [state, loading, offerTour, startTour, restartTour, canSee, tourProjectId],
+    () => ({ state, loading, offerTour, startTour, restartTour, showWelcomeLoop, canSee, tourProjectId }),
+    [state, loading, offerTour, startTour, restartTour, showWelcomeLoop, canSee, tourProjectId],
   )
 
   const activeTour = active ? getTour(active.id) : null
@@ -349,6 +365,16 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   return (
     <TourContext.Provider value={api}>
       {children}
+      {canSee && loop && (
+        <WelcomeLoop
+          replay={loop.replay}
+          onStart={() => {
+            setLoop(null)
+            startTour('welcome')
+          }}
+          onDismiss={() => setLoop(null)}
+        />
+      )}
       {canSee && offeredTour && (
         <TourOfferModal
           tour={offeredTour}
