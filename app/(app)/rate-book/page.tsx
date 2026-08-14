@@ -902,7 +902,11 @@ function CurrentTab({
   return (
     <div className="space-y-4">
       {/* ── LABOR ── */}
-      <section className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+      {/* data-tour: the rate-book lesson's "Your cabinet labor" step. Item
+          views auto-select their first item, so this exists the moment the
+          Cabinets tab opens — which is also the appears-signal the lesson's
+          "Open Cabinets" step advances on. */}
+      <section data-tour="cabinet-labor" className="border border-[#E5E7EB] rounded-lg overflow-hidden">
         <div className="px-4 py-2 border-b border-[#E5E7EB] bg-[#EFF6FF] flex items-center justify-between">
           <span className="text-[11px] font-semibold tracking-wider uppercase text-[#1E40AF]">
             Labor

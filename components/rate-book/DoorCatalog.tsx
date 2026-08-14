@@ -23,6 +23,7 @@ import {
   type DoorType,
   type DoorTypeMaterialFinish,
 } from '@/lib/door-types'
+import { announce } from '@/lib/tour-events'
 
 type Editing = { kind: 'type'; id: string } | { kind: 'finish'; id: string } | null
 type Adding = { kind: 'type' } | { kind: 'finish'; doorTypeId: string } | null
@@ -73,6 +74,9 @@ export default function DoorCatalog({ orgId }: { orgId: string }) {
         hardwareCost: num('hardware'),
       })
       await reload()
+      // Creates only, after the reload — the walkthrough waits on the style
+      // actually existing, not on the button press.
+      if (!existingId) announce('ms:door-type-created')
       reset()
     } catch (e: any) {
       setError(e?.message || 'Save failed')
@@ -154,7 +158,14 @@ export default function DoorCatalog({ orgId }: { orgId: string }) {
         )}
 
         {adding?.kind === 'type' && (
-          <div className="mb-4 border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-3">
+          /* data-tour: the lesson rings the whole form — name, the four hour
+             fields, hardware AND the Add button — and advances on
+             ms:door-type-created. Only the add form carries the hook; an open
+             row editor renders the same fields and must not double-tag. */
+          <div
+            data-tour="door-form"
+            className="mb-4 border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-3"
+          >
             <div className="text-[11px] font-semibold uppercase tracking-wider text-[#1E40AF] mb-2">
               New door type
             </div>

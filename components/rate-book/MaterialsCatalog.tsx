@@ -22,6 +22,7 @@ import {
   type Material,
   type MaterialCostUnit,
 } from '@/lib/materials'
+import { announce } from '@/lib/tour-events'
 
 const COST_UNITS: { value: MaterialCostUnit; label: string; per: string }[] = [
   { value: 'sheet', label: 'Sheet', per: '/ sheet' },
@@ -170,6 +171,9 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
         show_in_shelf: addDraft.show_in_shelf,
       })
       await reload()
+      // After the reload, so the walkthrough's next card shows up with the new
+      // row already on screen. Creates only — the lesson teaches the first one.
+      announce('ms:material-created')
       setAdding(false)
       setAddDraft(EMPTY_DRAFT)
     } catch (e: any) {
@@ -236,7 +240,13 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
 
         {/* Add row */}
         {adding && (
-          <div className="mb-4 border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-3">
+          /* data-tour: the rate-book lesson rings the WHOLE form — name, price,
+             flags AND the Add button — and advances on ms:material-created, so
+             the instruction covers the entire action, not one field of it. */
+          <div
+            data-tour="material-form"
+            className="mb-4 border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-3"
+          >
             <div className="text-[11px] font-semibold uppercase tracking-wider text-[#1E40AF] mb-2">
               New material
             </div>
@@ -272,7 +282,9 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
               : 'No materials match your search.'}
           </div>
         ) : (
-          <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+          /* data-tour: the lesson's "That's a live price" step points at the
+             table right after the first save lands in it. */
+          <div data-tour="materials-table" className="border border-[#E5E7EB] rounded-lg overflow-hidden">
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="bg-[#FAFAFA] text-[#6B7280] text-[11px] uppercase tracking-wider">

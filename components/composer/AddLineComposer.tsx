@@ -70,6 +70,7 @@ import {
   type LastUsedPerProduct,
 } from '@/lib/composer-persist'
 import { createMaterial, type Material } from '@/lib/materials'
+import { announce } from '@/lib/tour-events'
 import {
   createDoorTypeMaterialFinish,
   indexDoorTypeMaterialFinishes,
@@ -540,6 +541,9 @@ export default function AddLineComposer({
         })
       } else {
         await saveComposerLine({ subprojectId, draft, breakdown, rateBook })
+        // Creates only — the first-job lesson waits on the line actually
+        // landing, not on the Add line click (lib/tour-events).
+        announce('ms:estimate-line-created')
       }
       // Spec: every saved line updates the shop-wide last-used for its
       // product so the next line of the same type carries over.
@@ -1498,6 +1502,7 @@ function Composer(p: {
           <button
             onClick={p.onSave}
             disabled={!p.canSave}
+            data-tour="composer-add-line"
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {p.saving ? 'Saving…' : p.isEditMode ? 'Save changes' : 'Add line'}
