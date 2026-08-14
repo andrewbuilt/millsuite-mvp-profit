@@ -24,11 +24,21 @@ export type TourId = 'welcome' | 'rate-book' | 'first-job'
 export interface TourContext {
   /** '/projects/<id>' — captured the first time the tour sees a project page. */
   projectPath: string | null
+  /** '/projects/<id>/subprojects/<id>' — same, one level down. */
+  subprojectPath: string | null
 }
 
 export interface TourStep {
   /** Where the step lives. A string navigates there; a function builds the path
-   *  from what the tour has learned. Returning null means "stay put". */
+   *  from what the tour has learned. Returning null means "stay put".
+   *
+   *  Declare this on EVERY step, not just the first one on a page. Resume
+   *  starts a fresh runner with no memory of where earlier steps ran, so a
+   *  routeless step resumes wherever the user happened to be — which is how
+   *  Resume from Guides ended up running the rate-book tour on the Guides page.
+   *  Inheriting the previous step's route would be wrong: first-job's step 3
+   *  happens on the project the user just created, and inheriting would drag
+   *  them back to the kanban board. */
   route?: string | ((ctx: TourContext) => string | null)
   /** data-tour value to spotlight. Omitted = centered step, no spotlight. */
   target?: string
@@ -100,12 +110,14 @@ const WELCOME: Tour = {
       placement: 'bottom',
     },
     {
+      route: '/sales/kanban',
       target: 'nav-projects',
       title: 'Projects',
       body: 'Sold work lives here: the project pages, the production schedule, and the capacity calendar for planning months ahead.',
       placement: 'bottom',
     },
     {
+      route: '/sales/kanban',
       target: 'nav-manage',
       title: 'Manage',
       body: 'Your rate book, reports, team, and time tracking. The rate book is the engine. Everything you price pulls from it.',
@@ -122,6 +134,7 @@ const WELCOME: Tour = {
       placement: 'bottom',
     },
     {
+      route: '/sales/kanban',
       // Owner-only in the nav. A manager running this tour skips the step
       // rather than reading about a button they can't see.
       target: 'nav-settings',
@@ -172,6 +185,7 @@ const RATE_BOOK: Tour = {
       placement: 'bottom',
     },
     {
+      route: '/rate-book',
       target: 'materials-tab',
       title: 'The materials catalog',
       body: 'One list, one price per material. Update a sheet price here and every product using it reprices.',
@@ -180,6 +194,7 @@ const RATE_BOOK: Tour = {
       advanceWhenNextAppears: true,
     },
     {
+      route: '/rate-book',
       target: 'add-material',
       title: 'Add your first material',
       body: 'A sheet good you actually buy. Name it and enter what you pay per sheet.',
@@ -188,12 +203,14 @@ const RATE_BOOK: Tour = {
       advanceWhenNextAppears: true,
     },
     {
+      route: '/rate-book',
       target: 'material-show-in',
       title: 'Where it shows up',
       body: 'These checkboxes decide which dropdowns offer it: carcass, doors, shelves. Keep the quick lists short. "Browse all" always reaches the whole catalog.',
       placement: 'right',
     },
     {
+      route: '/rate-book',
       target: 'doors-tab',
       title: 'Door styles',
       body: 'Labor lives on the style, price lives on the material. Add the style you build most.',
@@ -201,18 +218,21 @@ const RATE_BOOK: Tour = {
       advanceWhenNextAppears: true,
     },
     {
+      route: '/rate-book',
       target: 'add-door-type',
       title: 'Calibrate it',
       body: 'Four quick questions about your hours to build a small batch, and the style prices itself from then on.',
       placement: 'left',
     },
     {
+      route: '/rate-book',
       target: 'cabinets-tab',
       title: 'Your cabinet labor',
       body: 'The setup wizard already put your base-cabinet hours here. Come back and tighten these as tracked jobs show you the truth.',
       placement: 'bottom',
     },
     {
+      route: '/rate-book',
       title: 'You can price now',
       body: 'One material + one door style is enough for a real quote.',
     },
@@ -247,6 +267,7 @@ const FIRST_JOB: Tour = {
       advanceWhenNextAppears: true,
     },
     {
+      route: '/sales/kanban',
       target: 'new-project-modal',
       title: 'Name it',
       body: 'Give the job a name and pick the client, or type a new client name and it’s created on the spot.',
@@ -257,12 +278,14 @@ const FIRST_JOB: Tour = {
       waitForNewProject: true,
     },
     {
+      route: (ctx) => ctx.projectPath,
       target: 'project-home',
       title: 'The project home',
       body: 'Estimate, documents, and money all live on this page. The panel on the right totals as you build.',
       placement: 'bottom',
     },
     {
+      route: (ctx) => ctx.projectPath,
       target: 'add-subproject',
       title: 'Break it into subprojects',
       body: 'One per room or scope area: "Kitchen," "Bar," "Install." Each gets its own drawings and approvals later.',
@@ -270,6 +293,7 @@ const FIRST_JOB: Tour = {
       advanceWhenNextAppears: true,
     },
     {
+      route: (ctx) => ctx.subprojectPath,
       target: 'compose-line',
       title: 'Compose a line',
       body: 'Pick what you’re building: base run, uppers, one of your own products. The composer walks through materials, doors, and features, priced from your rate book.',
@@ -279,6 +303,7 @@ const FIRST_JOB: Tour = {
       advanceWhenNextAppears: true,
     },
     {
+      route: (ctx) => ctx.subprojectPath,
       // Re-anchored 2026-08-13: this is now the composer's OWN live breakdown
       // panel, not the subproject page's sticky total. The copy is about the
       // number moving "as you pick", and the old anchor sat behind the composer

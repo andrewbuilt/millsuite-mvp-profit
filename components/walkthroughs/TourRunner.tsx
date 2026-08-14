@@ -279,7 +279,7 @@ export default function TourRunner({
 
   // What the tour has learned. A ref, not state: it's read inside async
   // resolution and must never trigger a re-render of its own.
-  const ctxRef = useRef<TourContext>({ projectPath: null })
+  const ctxRef = useRef<TourContext>({ projectPath: null, subprojectPath: null })
 
   // Where each step was actually shown. Back used to only navigate when the
   // step declared a `route`, so stepping back from the subproject page to a
@@ -300,6 +300,8 @@ export default function TourRunner({
     const m = /^\/projects\/([^/]+)/.exec(pathname || '')
     if (!m) return
     ctxRef.current.projectPath = `/projects/${m[1]}`
+    const sub = /^\/projects\/[^/]+\/subprojects\/[^/]+/.exec(pathname || '')
+    if (sub) ctxRef.current.subprojectPath = sub[0]
     onProjectSeen?.(m[1])
   }, [pathname, onProjectSeen])
 
@@ -331,7 +333,10 @@ export default function TourRunner({
         return
       }
 
-      const el = await waitForTarget(step.target, WAIT_MS, signal)
+      // Going BACKWARD, a missing target usually means its transient UI is
+      // gone (the add form closed, the modal dismissed) — waiting the full
+      // timeout just makes Back feel broken. Fail fast and show the copy.
+      const el = await waitForTarget(step.target, dirRef.current === -1 ? 1200 : WAIT_MS, signal)
       if (signal.cancelled) return
 
       if (!el) {
