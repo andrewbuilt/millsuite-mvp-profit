@@ -292,7 +292,7 @@ export default function TourRunner({
   const isLast = index === total - 1
   // The tour is waiting on the user to do the real thing — so the card offers
   // nothing to click and gets out of the way.
-  const isAction = !!(step.advanceWhenNextAppears || step.waitForNewProject)
+  const isAction = !!(step.advanceWhenNextAppears || step.waitForNewProject || step.advanceOnEvent)
 
   // Remember the project the user builds during the tour, so the step that
   // sends them back to the estimate knows where "back" is.
@@ -428,6 +428,19 @@ export default function TourRunner({
       signal.cancelled = true
     }
   }, [ready, index, step.advanceWhenNextAppears, tour.steps])
+
+  // ── Advance on the real save ─────────────────────────────────────────────
+  // The app announces successful saves (lib/tour-events); a form step advances
+  // on that, not on the form appearing or a click landing. This is what lets a
+  // lesson ring a whole form ("name it, price it, click Add material") and
+  // wait for the row to actually exist.
+  useEffect(() => {
+    if (!ready || !step.advanceOnEvent) return
+    const name = step.advanceOnEvent
+    const onFire = () => setIndex((i) => (i === index ? i + 1 : i))
+    window.addEventListener(name, onFire)
+    return () => window.removeEventListener(name, onFire)
+  }, [ready, index, step.advanceOnEvent])
 
   // ── Open the project the user just made ─────────────────────────────────
   // Creating from the kanban closes the modal and drops a card on the board;
@@ -591,7 +604,10 @@ export default function TourRunner({
               <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2563EB]" />
             </span>
             <span className="text-[12px] text-[#9CA3AF]">
-              Select the button to continue.
+              {/* Two kinds of waiting: a save step moves on when the row lands;
+                  a click step's next move is the highlighted control. Both
+                  point OUTWARD at the app — the card never claims the click. */}
+              {step.advanceOnEvent ? 'Moves on when it’s saved.' : 'The highlighted button is the next step.'}
             </span>
             <div className="flex-1" />
             {/* Appears only once the step looks stuck, so the happy path still

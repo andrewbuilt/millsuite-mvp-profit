@@ -26,7 +26,8 @@ import {
 } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
-import { canSeeTours, getTour, type TourId } from '@/lib/walkthroughs'
+import { supabase } from '@/lib/supabase'
+import { canSeeTours, getTour, type PathStatus, type TourId } from '@/lib/walkthroughs'
 import {
   loadMyProgress,
   saveTourProgress,
@@ -93,7 +94,13 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   const practiceRef = useRef(false)
   const stampedRef = useRef<Set<string>>(new Set())
   const [cleanupFor, setCleanupFor] = useState<string[]>([])
-  const [outroFor, setOutroFor] = useState<{ tourId: TourId; practiceIds: string[] } | null>(null)
+  const [outroFor, setOutroFor] = useState<{
+    tourId: TourId
+    practiceIds: string[]
+    /** The lesson's path gate came back false — the work isn't actually done,
+     *  so the modal shows outroPartial instead of the celebration. */
+    partial: boolean
+  } | null>(null)
   const [tourProjectId, setTourProjectId] = useState<string | null>(null)
 
   // Every project that existed when this practice run started. Nothing in it
@@ -281,7 +288,34 @@ export default function TourProvider({ children }: { children: React.ReactNode }
         // A finished tour gets an opaque full stop, and it absorbs the practice
         // cleanup — a wrap-up card AND a separate "delete your practice job?"
         // toast firing together is worse than one that says both.
-        setOutroFor({ tourId: id, practiceIds })
+        //
+        // LESSONS verify before celebrating: completion is a fact, never
+        // attendance (the same rule the Path lives by). If the gate says the
+        // work isn't there — a skipped save, a bailed form — the modal tells
+        // the truth instead. A failed fetch defaults to the celebration:
+        // following the lesson honestly guarantees the facts, so a network
+        // blip shouldn't scold someone who did the work.
+        const gate = tour.gate
+        if (gate && tour.outroPartial) {
+          void (async () => {
+            let partial = false
+            try {
+              const { data: { session } } = await supabase.auth.getSession()
+              const res = await fetch('/api/guides/path', {
+                headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+              })
+              if (res.ok) {
+                const status = (await res.json()) as PathStatus
+                partial = !status[gate]
+              }
+            } catch {
+              /* default to the full outro */
+            }
+            setOutroFor({ tourId: id, practiceIds, partial })
+          })()
+        } else {
+          setOutroFor({ tourId: id, practiceIds, partial: false })
+        }
       } else if (practiceIds.length > 0) {
         // Bailed out. Someone who quits halfway has MORE reason to want the
         // scratch project gone, not less.
@@ -345,6 +379,7 @@ export default function TourProvider({ children }: { children: React.ReactNode }
         <TourOutroModal
           tour={getTour(outroFor.tourId)!}
           practiceIds={outroFor.practiceIds}
+          partial={outroFor.partial}
           onClose={() => setOutroFor(null)}
         />
       )}

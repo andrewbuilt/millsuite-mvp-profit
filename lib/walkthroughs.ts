@@ -17,6 +17,8 @@
 // what a real tour is.
 // ============================================================================
 
+import type { TourEvent } from './tour-events'
+
 export type TourId = 'welcome' | 'rate-book' | 'first-job'
 
 /** What the engine has learned while the tour runs. The first-job tour follows
@@ -51,6 +53,11 @@ export interface TourStep {
    *  instead of asking them to press Next after every click. The Next button
    *  still works, for anyone who'd rather read than do. */
   advanceWhenNextAppears?: boolean
+  /** Advance when this app event fires — the real save, not the click.
+   *  This is how a form step waits for Add material to actually succeed
+   *  rather than advancing the moment the form opens. Marks the step as an
+   *  action step, same as advanceWhenNextAppears. See lib/tour-events. */
+  advanceOnEvent?: TourEvent
   /** A missing target is expected here, so drop the step rather than falling
    *  back to a centered popover. Settings is owner-only. */
   skipIfMissing?: boolean
@@ -79,6 +86,14 @@ export interface Tour {
   /** Shown opaque, over the app, when the tour finishes — a deliberate full
    *  stop so it's obvious the walkthrough ended rather than just stopping. */
   outro?: { title: string; body: string }
+  /** Shown INSTEAD of `outro` when the lesson's path gate is still false at
+   *  the finish — a skipped save, or work bailed on partway. The celebration
+   *  must never claim a state the Guides page will immediately contradict. */
+  outroPartial?: { title: string; body: string }
+  /** The path gate that says whether this guide's work actually got done.
+   *  Set on lessons (guides that build real state); tours have nothing to
+   *  verify and skip the check. */
+  gate?: PathGate
 }
 
 // ── Tour 1 — Welcome ────────────────────────────────────────────────────────

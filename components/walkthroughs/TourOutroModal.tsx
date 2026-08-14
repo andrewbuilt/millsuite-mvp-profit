@@ -17,16 +17,22 @@ import type { Tour } from '@/lib/walkthroughs'
 export default function TourOutroModal({
   tour,
   practiceIds,
+  partial = false,
   onClose,
 }: {
   tour: Tour
   /** Projects this run created as practice. Empty when the user opted out. */
   practiceIds: string[]
+  /** The lesson's path gate is still false — the work didn't actually happen
+   *  (a skipped save, a bailed form). Shows outroPartial: an honest "here's
+   *  what's left" instead of a celebration the Guides page would contradict. */
+  partial?: boolean
   onClose: () => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const outro = tour.outro
+  const outro = partial && tour.outroPartial ? tour.outroPartial : tour.outro
+  const isPartial = partial && !!tour.outroPartial
   const many = practiceIds.length > 1
 
   async function removePractice() {
@@ -53,8 +59,14 @@ export default function TourOutroModal({
         aria-label={outro?.title || 'Walkthrough complete'}
       >
         <div className="px-6 pt-6 pb-5">
-          <div className="w-9 h-9 rounded-xl bg-[#ECFDF5] flex items-center justify-center mb-3">
-            <CheckCircle2 className="w-5 h-5 text-[#059669]" />
+          {/* Green check only when the work is really done; the partial state
+              gets an amber mark so the visual can't out-claim the words. */}
+          <div
+            className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${
+              isPartial ? 'bg-[#FFFBEB]' : 'bg-[#ECFDF5]'
+            }`}
+          >
+            <CheckCircle2 className={`w-5 h-5 ${isPartial ? 'text-[#D97706]' : 'text-[#059669]'}`} />
           </div>
           <h2 className="text-[17px] font-semibold text-[#111] mb-1.5">
             {outro?.title || `${tour.title} complete`}
