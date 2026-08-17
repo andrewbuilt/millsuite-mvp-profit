@@ -38,6 +38,8 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
   const [
     shopRate,
     carcassLabor,
+    upperLabor,
+    fullLabor,
     doorTypes,
     doorTypeMaterialFinishes,
     drawerStyles,
@@ -49,7 +51,11 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     customProducts,
   ] = await Promise.all([
     loadShopRate(orgId),
-    loadCarcassLaborFromBaseCab(orgId),
+    loadCabinetLabor(orgId, 'Base cabinet'),
+    // Optional promoted rows (rate-book 2026-08-14). Names match what the
+    // rate book's promote action writes — PRODUCTS.upper/full labels.
+    loadCabinetLabor(orgId, 'Upper cabinet run'),
+    loadCabinetLabor(orgId, 'Full height run'),
     listDoorTypes(orgId),
     listDoorTypeMaterialFinishes(orgId),
     loadDrawerStyles(orgId),
@@ -61,8 +67,17 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     listCustomProducts(orgId),
   ])
 
-  const carcassCalibrated =
-    carcassLabor.eng + carcassLabor.cnc + carcassLabor.assembly + carcassLabor.finish > 0
+  const calibrated = (l: ComposerCarcassLabor | null): boolean =>
+    !!l && l.eng + l.cnc + l.assembly + l.finish > 0
+
+  const carcassCalibrated = calibrated(carcassLabor)
+
+  // A promoted Upper/Full row only overrides Base when it actually carries
+  // hours — an all-zero row reads as "not calibrated yet", not "free labor".
+  const carcassLaborOverrides = {
+    upper: calibrated(upperLabor) ? upperLabor : null,
+    full: calibrated(fullLabor) ? fullLabor : null,
+  }
 
   // Master materials catalog (chunk B/C). Carcass, back-panel AND door
   // materials are all catalog-native now: the full catalog drives "browse all"
@@ -87,7 +102,8 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
 
   return {
     shopRate,
-    carcassLabor,
+    carcassLabor: carcassLabor ?? { eng: 0, cnc: 0, assembly: 0, finish: 0 },
+    carcassLaborOverrides,
     carcassCalibrated,
     materials: catalog.map((m) => ({
       id: m.id,
@@ -173,18 +189,24 @@ async function loadShopRate(orgId: string): Promise<number> {
   return Number((data as { shop_rate: number | null } | null)?.shop_rate) || 0
 }
 
-// ── Carcass labor from "Base cabinet" item ──
+// ── Cabinet box labor by item name ──
+// "Base cabinet" (the anchor, written by BaseCabinetWalkthrough) plus the
+// optional promoted "Upper cabinet run" / "Full height run" rows. Name match
+// is case-insensitive so the lookup survives a retyped name. Returns null
+// when the row doesn't exist — the caller decides what absence means (zeros
+// for Base, fall-back-to-Base for Upper/Full).
 
-async function loadCarcassLaborFromBaseCab(orgId: string): Promise<ComposerCarcassLabor> {
-  // Match the name BaseCabinetWalkthrough uses on save. Case-insensitive
-  // so the lookup still works if a user typed it differently later.
+async function loadCabinetLabor(
+  orgId: string,
+  name: string,
+): Promise<ComposerCarcassLabor | null> {
   const { data } = await supabase
     .from('rate_book_items')
     .select(
       'base_labor_hours_eng, base_labor_hours_cnc, base_labor_hours_assembly, base_labor_hours_finish'
     )
     .eq('org_id', orgId)
-    .ilike('name', 'Base cabinet')
+    .ilike('name', name)
     .order('created_at', { ascending: true })
     .limit(1)
   const row = (data || [])[0] as
@@ -195,11 +217,12 @@ async function loadCarcassLaborFromBaseCab(orgId: string): Promise<ComposerCarca
         base_labor_hours_finish: number | null
       }
     | undefined
+  if (!row) return null
   return {
-    eng: Number(row?.base_labor_hours_eng ?? 0),
-    cnc: Number(row?.base_labor_hours_cnc ?? 0),
-    assembly: Number(row?.base_labor_hours_assembly ?? 0),
-    finish: Number(row?.base_labor_hours_finish ?? 0),
+    eng: Number(row.base_labor_hours_eng ?? 0),
+    cnc: Number(row.base_labor_hours_cnc ?? 0),
+    assembly: Number(row.base_labor_hours_assembly ?? 0),
+    finish: Number(row.base_labor_hours_finish ?? 0),
   }
 }
 

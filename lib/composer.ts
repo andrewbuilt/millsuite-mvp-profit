@@ -24,13 +24,32 @@ import type {
 import type { CustomProduct } from './custom-products'
 import type { CabinetFeature } from './features'
 
-/** Per-LF carcass labor hours, from the "Base cabinet" rate_book_item's
- *  base_labor_hours_*. Reused across Base / Upper / Full per the spec. */
+/** Per-LF carcass labor hours from a cabinet rate_book_item's
+ *  base_labor_hours_*. Base cabinet is the anchor; Upper / Full can carry
+ *  their OWN rows (rate-book 2026-08-14) and fall back to Base's numbers
+ *  until they do — see carcassLaborFor. */
 export interface ComposerCarcassLabor {
   eng: number
   cnc: number
   assembly: number
   finish: number
+}
+
+/** The box labor a product prices at: its own promoted row when one exists
+ *  and is calibrated, Base's numbers otherwise. The fallback is what every
+ *  org priced with before Upper/Full rows existed, so an org that never
+ *  promotes them prices identically. */
+export function carcassLaborFor(
+  rb: ComposerRateBook,
+  productId: ProductKey,
+): ComposerCarcassLabor {
+  const override =
+    productId === 'upper'
+      ? rb.carcassLaborOverrides?.upper
+      : productId === 'full'
+        ? rb.carcassLaborOverrides?.full
+        : null
+  return override ?? rb.carcassLabor
 }
 
 export interface ComposerCarcassMaterial {
@@ -156,6 +175,15 @@ export interface ComposerRateBook {
   /** Single blended rate from orgs.shop_rate, applied to total hours. */
   shopRate: number
   carcassLabor: ComposerCarcassLabor
+  /** Upper / Full box labor, when the shop has promoted those to real
+   *  rate-book rows ("Upper cabinet run" / "Full height run" items) with
+   *  their own hours. null or absent = that product prices its box at
+   *  Base's hours, exactly as before the row existed. The loader hands
+   *  all-zero rows over as null (uncalibrated). */
+  carcassLaborOverrides?: {
+    upper?: ComposerCarcassLabor | null
+    full?: ComposerCarcassLabor | null
+  }
   /** "Base cabinet" item row exists and at least one dept is non-zero.
    *  When false, the composer should surface "run BaseCabinetWalkthrough
    *  first" and block save. */
@@ -699,7 +727,9 @@ export function computeBreakdown(
       ? Math.min(qtyDoorsRaw, qtyCarcass) // clamp — never bill more doors than carcass
       : qtyCarcass
   const rate = Number(rb.shopRate) || 0
-  const cl = rb.carcassLabor
+  // Per-product box labor: a promoted Upper/Full row wins, Base is the
+  // fallback (and the only source for Base lines).
+  const cl = carcassLaborFor(rb, draft.productId)
 
   // Carcass labor — 4 depts captured for scheduling, but priced at the
   // single blended shop rate. Wood machining is already rolled into

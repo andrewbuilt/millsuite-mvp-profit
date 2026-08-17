@@ -37,6 +37,7 @@ import {
   computeBuildup,
   CONFIDENCE_LABEL, CONFIDENCE_COLOR,
 } from '@/lib/rate-book-v2'
+import { upsertRateBookItem } from '@/lib/rate-book'
 import {
   LABOR_DEPTS, LABOR_DEPT_LABEL, type LaborDept,
 } from '@/lib/rate-book-seed'
@@ -60,11 +61,15 @@ import DoorCatalog from '@/components/rate-book/DoorCatalog'
 import FeatureCatalog from '@/components/rate-book/FeatureCatalog'
 import ProductBuilder from '@/components/rate-book/ProductBuilder'
 
-// Upper / Full are multipliers on Base cabinet, not standalone rate
-// book rows. Surface them in the sidebar as derived read-only entries
-// so operators see all three cabinet types in one place. Each derived
-// row uses a synthetic id with this prefix so selectedId branches can
-// detect it.
+// Upper / Full start life as derived entries — Base cabinet's numbers under
+// the product's name — and can be PROMOTED to real rate_book_items rows with
+// their own per-LF hours ("Set its own hours" on the derived detail). Until
+// promoted, the sidebar synthesizes a read-only row so all three cabinet
+// types show in one place; once a real row with the product's label exists,
+// the synthetic one stands down. The composer prices box labor from the
+// promoted row when it's calibrated, Base otherwise (lib/composer
+// carcassLaborFor). Each derived row uses a synthetic id with this prefix so
+// selectedId branches can detect it.
 const DERIVED_ID_PREFIX = 'derived:'
 const DERIVED_PRODUCTS: { key: 'upper' | 'full'; id: string }[] = [
   { key: 'upper', id: `${DERIVED_ID_PREFIX}upper` },
@@ -300,8 +305,14 @@ export default function RateBookPage() {
         if (baseRow) {
           // Synthesize a thin derived row per upper/full; only the
           // fields the sidebar reads (id, name, confidence, hours)
-          // need to be present and meaningful.
-          const derivedRows: RateBookItemRow[] = DERIVED_PRODUCTS.map(
+          // need to be present and meaningful. A PROMOTED product (a real
+          // row already carries its label) doesn't get a synthetic twin.
+          const derivedRows: RateBookItemRow[] = DERIVED_PRODUCTS.filter(
+            ({ key }) =>
+              !catItems.some(
+                (it) => it.name.toLowerCase() === PRODUCTS[key].label.toLowerCase(),
+              ),
+          ).map(
             ({ key, id }) =>
               ({
                 ...baseRow,
@@ -348,6 +359,44 @@ export default function RateBookPage() {
         o.key.toLowerCase().includes(s)
     )
   }, [options, optionSearch])
+
+  // Promote a derived Upper/Full entry to a real rate_book_items row with its
+  // own hours, prefilled from Base so pricing is identical until the numbers
+  // are actually edited. The composer's loader picks the row up by its label.
+  async function promoteDerived(key: 'upper' | 'full') {
+    if (!orgId) return
+    const cabinetCat = categories.find((c) => c.item_type === 'cabinet_style')
+    const baseRow = items.find(
+      (it) => it.category_id === cabinetCat?.id && it.name === 'Base cabinet',
+    )
+    if (!cabinetCat || !baseRow) return
+    const newId = await upsertRateBookItem({
+      orgId,
+      categoryId: cabinetCat.id,
+      name: PRODUCTS[key].label,
+      patch: {
+        base_labor_hours_eng: baseRow.base_labor_hours_eng,
+        base_labor_hours_cnc: baseRow.base_labor_hours_cnc,
+        base_labor_hours_assembly: baseRow.base_labor_hours_assembly,
+        base_labor_hours_finish: baseRow.base_labor_hours_finish,
+        base_labor_hours_install: 0,
+        updated_at: new Date().toISOString(),
+      },
+      insertDefaults: {
+        unit: 'lf',
+        material_mode: 'sheets',
+        sheets_per_unit: 0,
+        sheet_cost: 0,
+        linear_cost: 0,
+        lump_cost: 0,
+        hardware_cost: 0,
+        confidence: 'untested',
+        active: true,
+      },
+    })
+    await refreshAll(orgId)
+    setSelectedId(newId)
+  }
 
   async function toggleOption(optId: string) {
     if (!selectedId) return
@@ -673,42 +722,45 @@ export default function RateBookPage() {
                 </div>
               </div>
 
-              {/* Derived-item explainer. Upper/Full are multipliers
-                  on Base — the rate book row doesn't exist for them.
-                  Show what the multiplier IS and point at Base for
-                  recalibration. */}
+              {/* Derived-item explainer. An unpromoted Upper/Full prices its
+                  box at Base cabinet's hours. "Set its own hours" creates the
+                  real row (prefilled from Base) and from then on this entry
+                  is a normal editable item. */}
               {selectedIsDerived && (() => {
                 const key = derivedKey(selectedId!) as 'upper' | 'full'
                 const product = PRODUCTS[key]
                 return (
-                  <div className="mb-5 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg text-[12.5px] text-[#374151] space-y-2">
+                  <div className="mb-5 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg text-[12.5px] text-[#374151] space-y-2.5">
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#6B7280] border border-[#E5E7EB]">
-                        Read-only
-                      </span>
-                      <span className="text-[#6B7280]">
-                        Multiplier of Base cabinet
+                        Using Base cabinet hours
                       </span>
                     </div>
                     <p className="leading-relaxed text-[12px] text-[#374151]">
-                      {product.label} shares Base cabinet's per-LF carcass
-                      labor + material. The composer applies a face-material
-                      multiplier (
+                      {product.label} doesn&rsquo;t have its own labor numbers
+                      yet — the composer prices its box at Base cabinet&rsquo;s
+                      per-LF hours. Material consumption (
                       <span className="font-mono">
-                        {(product.sheetsPerLfFace * 12).toFixed(2)}× sheets/LF
+                        {product.sheetsPerLfCarcass.toFixed(2)} sheets/LF
                       </span>
-                      ) and a door-labor multiplier (
+                      ) and door labor (
                       <span className="font-mono">
-                        {product.doorLaborMultiplier.toFixed(1)}×
+                        {product.doorLaborMultiplier.toFixed(1)}× base door hours
                       </span>
-                      ) at line compute time.
+                      ) are sized to the cab height automatically.
                     </p>
-                    <p className="leading-relaxed text-[11.5px] text-[#9CA3AF] italic">
-                      To recalibrate, edit the Base cabinet row above or
-                      re-run the BaseCabinet walkthrough. Door labor lives
-                      on the Slab door style row and the DoorStyle
-                      walkthrough.
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => promoteDerived(key)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#2563EB] text-white text-[12px] font-medium hover:bg-[#1D4ED8]"
+                      >
+                        Set its own hours
+                      </button>
+                      <span className="text-[11.5px] text-[#9CA3AF]">
+                        Starts from Base&rsquo;s numbers — nothing reprices
+                        until you change them.
+                      </span>
+                    </div>
                   </div>
                 )
               })()}
