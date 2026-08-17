@@ -193,6 +193,13 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 - ~~⚠️ FLAGGED — this changed APPROVED COPY~~ **RESOLVED 2026-08-14 by the v2 planning pass:** the closer now reads "Ready to set up the numbers everything prices from?", matching the chain button.
 - **Superseded by this rework:** the old flat Guides list and its `COMING_SOON` array are gone. The first-job tour's offer/practice flow, the engine and the auto-offer are untouched.
 
+### First-job lesson: Andrew's copy pass + composer steps — ✅ 2026-08-14 (`057fc11`)
+
+9 → 12 steps, all copy Andrew's (refined, no em dashes). The composer stops being one card: **Pick a composer** (rings the product tile grid, advances when the cabinet quantity field appears) → **set qty to 20 LF** → **Work your way down** (rings the whole cabinet form; covers add-new-material mid-compose, end panel/scribe sizing off the door type, drawer calibration) → **Add line** on the save event. New "Here it is, your first project" beat on the project's subproject list; the closer now teaches the funnel stages (New Leads = pricing in progress, 50/50 = first-time client, 90% = repeat client) and hands off to the sell-a-project guide (path step 4, not yet scripted).
+- New hooks: `composer-products`, `composer-qty` (only the cabinet body renders it, so it doubles as the "cabinet composer is open" appears-signal), `composer-form`, `project-subprojects`. `line-breakdown` stays tagged but is currently unscripted.
+- This also fixed a v2 seam: the old "Compose a line" step waited on `line-breakdown`, which only exists AFTER a product is picked, so the card lingered through the whole picker. The picker now has its own step.
+- **Andrew verify live:** run it end to end; the two things most worth watching are step 6 (picking Base cabinet run should advance the card; picking Solid Wood Top instead should leave it waiting and show Skip after ~12s) and step 10 landing back on the project page with the list ringed.
+
 ### Guide copy pass + door calibration + gate relax — ✅ 2026-08-14 (`383ecb6` + `5dfb50f`, Andrew's live run-through of the v2 rate-book lesson)
 
 Andrew rewrote the rate-book lesson copy in his own voice (all 11 steps + offer + outros; rule going forward: **no em dashes in user-facing copy** — swept from every guide string, the welcome-loop beats, and the rate-book/materials page headers). Three product changes rode along, all his calls:
