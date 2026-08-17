@@ -22,7 +22,7 @@ import { BarChart3, BookOpen, Clock, FileText, RefreshCw } from 'lucide-react'
 const BEATS = [
   { icon: BookOpen, title: 'Build your rates', line: 'Your shop rate and your labor numbers. Set once.' },
   { icon: FileText, title: 'Estimate the job', line: 'Every line prices straight off your rate book.' },
-  { icon: Clock, title: 'Track it live', line: 'Time and materials land on the job as it’s built — the P&L is real while it’s happening.' },
+  { icon: Clock, title: 'Track it live', line: 'Time and materials land on the job as it’s built. The P&L is real while it’s happening.' },
   { icon: BarChart3, title: 'Review and tighten', line: 'Estimated against actual. Fix the numbers that were off.' },
   { icon: RefreshCw, title: 'Price the next one smarter', line: 'Your rates evolve. The loop runs again.' },
 ]

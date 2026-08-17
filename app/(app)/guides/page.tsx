@@ -82,8 +82,8 @@ export default function GuidesPage() {
   const nextUp = path.find((p) => !p.complete && !p.locked) ?? null
 
   function launch(tourId: TourId, fromStep: number) {
-    // The first-job tour's offer is where the practice-project choice lives, so
-    // starting it fresh goes through the offer rather than straight in.
+    // A fresh first-job run still goes through its offer modal — the offer is
+    // the consent step and sets expectations for what the guide builds.
     if (tourId === 'first-job' && fromStep === 0) offerTour(tourId)
     else startTour(tourId, fromStep)
   }

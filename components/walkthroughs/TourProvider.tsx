@@ -93,11 +93,12 @@ export default function TourProvider({ children }: { children: React.ReactNode }
   const [loop, setLoop] = useState<{ replay: boolean } | null>(null)
   const autoOfferedRef = useRef(false)
 
-  // Practice mode. Default on for the first-job tour: someone learning the app
-  // shouldn't have to decide up front whether their first attempt is worth
-  // keeping. Held in refs as well as state because the project-seen callback
-  // fires from inside the runner, outside this render.
-  const [practiceMode, setPracticeMode] = useState(true)
+  // Practice mode — RETIRED from the offer (Andrew, 2026-08-14): the guide's
+  // copy now says projects are easy to edit and delete, so the up-front
+  // "practice project?" decision is gone. The stamping/cleanup machinery
+  // below stays dormant (previously stamped projects keep their badge and
+  // their Guides-page delete), so this is a constant, not state.
+  const practiceMode = false
   const practiceRef = useRef(false)
   const stampedRef = useRef<Set<string>>(new Set())
   const [cleanupFor, setCleanupFor] = useState<string[]>([])
@@ -348,9 +349,7 @@ export default function TourProvider({ children }: { children: React.ReactNode }
     // Finish the tour we're in before the next one starts, so the Guides page
     // shows Welcome as completed rather than abandoned at step 7.
     handleExit('completed', (tour?.steps.length ?? 1) - 1)
-    // OFFER the next tour rather than launching it. A tour never just starts —
-    // and the first-job offer is also where the practice-project choice lives,
-    // which someone arriving down the chain would otherwise never be given.
+    // OFFER the next tour rather than launching it — a tour never just starts.
     if (next) setTimeout(() => setOffering(next), 0)
   }, [active, handleExit])
 
@@ -380,11 +379,6 @@ export default function TourProvider({ children }: { children: React.ReactNode }
           tour={offeredTour}
           onStart={() => startTour(offeredTour.id as TourId, 0, practiceMode)}
           onDecline={() => setOffering(null)}
-          practice={
-            offeredTour.id === 'first-job'
-              ? { checked: practiceMode, onChange: setPracticeMode }
-              : undefined
-          }
         />
       )}
       {canSee && activeTour && (

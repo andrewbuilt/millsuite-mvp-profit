@@ -182,32 +182,33 @@ const RATE_BOOK: Tour = {
   summary: 'One material and one door style is enough to quote a real job.',
   minutes: 4,
   gate: 'rate_book',
+  // Copy: Andrew's pass, 2026-08-14. Plain shop language, no em dashes.
   offer: {
     title: 'Set up your rate book',
-    body: 'You’ll add one material and one door style — for real, in your own catalog. After this you can price an actual job. About four minutes.',
+    body: 'You’ll add one material and one door style to your own catalog. After this you can price an actual job. About four minutes.',
   },
   chainTo: { tourId: 'first-job', label: 'Price my first job', declineLabel: 'Done for now' },
   outro: {
     title: 'Your rate book is live',
-    body: 'Every quote you build from here prices off these numbers. Add more materials and styles as you go — the composer can add them mid-job too.',
+    body: 'Every quote pulls its numbers from the rate book. Add materials anytime, here or mid-job in the line composer.',
   },
   outroPartial: {
     title: 'Saved for where you got to',
-    body: 'Your rate book isn’t finished yet — it still needs a carcass material and a calibrated door style. Pick it up anytime from Manage → Guides.',
+    body: 'Your rate book isn’t finished yet. It still needs a material and a calibrated door style. Pick it up anytime from Manage → Guides.',
   },
   steps: [
     {
       route: '/rate-book',
       target: 'rate-book-tabs',
       title: 'Your pricing engine',
-      body: 'Everything you quote prices from here. Set it up once, tighten it as real jobs teach you.',
+      body: 'Everything you quote pulls its prices from this rate book. Use your best judgment for the initial setup. As your team tracks real jobs, MillSuite shows you the actual numbers so you can keep these honest.',
       placement: 'bottom',
     },
     {
       route: '/rate-book',
       target: 'materials-tab',
-      title: 'Open Materials',
-      body: 'Click the Materials tab. One list, one price per material — update a price here and every product using it reprices.',
+      title: 'Add a material',
+      body: 'Let’s add a new material. Click the Materials tab to open the catalog.',
       placement: 'bottom',
       // The New material button only exists once the Materials view is up.
       advanceWhenNextAppears: true,
@@ -216,7 +217,7 @@ const RATE_BOOK: Tour = {
       route: '/rate-book',
       target: 'add-material',
       title: 'Add your first material',
-      body: 'Click + New material. Pick a sheet good you actually buy.',
+      body: 'Click + New material.',
       placement: 'left',
       // Waits for the FORM (material-form), not the checkboxes inside it —
       // the v1 target here was the "Shows in" block, which is why the tour
@@ -227,7 +228,7 @@ const RATE_BOOK: Tour = {
       route: '/rate-book',
       target: 'material-form',
       title: 'Name it, price it, save it',
-      body: 'Type the name and what you pay per sheet, and tick Carcass so it offers itself when you’re pricing boxes. Then click Add material.',
+      body: 'Start with a veneered sheet good. Name it the way you already say it, like 3/4 MDF Quartersawn White Oak, and enter what you pay per sheet. Tick Door to put it in the estimator’s Door quick-pick list; a material can sit in several lists, and anything unticked is still findable while pricing. Then click Add material.',
       placement: 'bottom',
       advanceOnEvent: 'ms:material-created',
     },
@@ -235,21 +236,21 @@ const RATE_BOOK: Tour = {
       route: '/rate-book',
       target: 'materials-table',
       title: 'That’s a live price',
-      body: 'Every estimate line that uses this material prices from this row. Change the number and every quote after it follows.',
+      body: 'Adding and editing materials is that easy. Every estimate line that uses this material prices from this row, so change the number here and every quote after it follows.',
       placement: 'bottom',
     },
     {
       route: '/rate-book',
       target: 'doors-tab',
-      title: 'Open Doors',
-      body: 'Click the Doors tab. Labor lives on the style — the material price stays in the catalog.',
+      title: 'Add a door style',
+      body: 'Click the Doors tab. Labor hours for each door style live here. The door’s material price stays in the materials catalog.',
       placement: 'bottom',
       advanceWhenNextAppears: true,
     },
     {
       route: '/rate-book',
       target: 'add-door-type',
-      title: 'The style you build most',
+      title: 'Add a door type',
       body: 'Click + New door type.',
       placement: 'left',
       advanceWhenNextAppears: true,
@@ -257,8 +258,8 @@ const RATE_BOOK: Tour = {
     {
       route: '/rate-book',
       target: 'door-form',
-      title: 'Enter your hours',
-      body: 'Name it, put in your hours per door for each department and hardware $, then click Add door type. Hours are what make the style calibrated — it prices itself from here on.',
+      title: 'Enter your labor hours',
+      body: 'Name the style. Slab is already covered by the cabinet wizard, so add a door you actually build, like Micro Shaker. Enter your shop’s hours to build 8 feet of this door, about 4 doors, in each department, plus hardware. MillSuite stores it per door and prices any length from there. Click Add door type.',
       placement: 'bottom',
       advanceOnEvent: 'ms:door-type-created',
     },
@@ -276,13 +277,13 @@ const RATE_BOOK: Tour = {
       route: '/rate-book',
       target: 'cabinet-labor',
       title: 'Your cabinet labor',
-      body: 'These base-cabinet hours came from your setup answers. Tighten them as tracked jobs show you the truth.',
+      body: 'These base cabinet hours came from your setup answers. Combined with your materials and door styles, they can price nearly any cabinet you build. Edit them anytime, and as your team tracks time you’ll see what the hours really are.',
       placement: 'bottom',
     },
     {
       route: '/rate-book',
-      title: 'You can price now',
-      body: 'One material and one door style is enough for a real quote.',
+      title: 'All set!',
+      body: 'You’re ready to price your first cabinet job. Come back to this walkthrough anytime you need a refresher.',
     },
   ],
 }
@@ -305,7 +306,7 @@ const FIRST_JOB: Tour = {
   gate: 'first_job',
   offer: {
     title: 'Price your first job',
-    body: 'From blank board to a client-ready estimate PDF, nine steps. Uses your real rate book, so nothing here is throwaway.',
+    body: 'From empty project to a client-ready estimate in nine steps. Projects are easy to edit and delete, so use a real job or a throwaway, whichever you like.',
   },
   outro: {
     title: 'That’s the whole loop',
@@ -313,7 +314,7 @@ const FIRST_JOB: Tour = {
   },
   outroPartial: {
     title: 'Almost priced',
-    body: 'The job’s set up but no line is saved on it yet. Open the subproject and compose one — or resume this guide from Manage → Guides.',
+    body: 'The job’s set up but no line is saved on it yet. Open the subproject and compose one, or resume this guide from Manage → Guides.',
   },
   steps: [
     {
@@ -346,7 +347,7 @@ const FIRST_JOB: Tour = {
       route: (ctx) => ctx.projectPath,
       target: 'add-subproject',
       title: 'Break it into subprojects',
-      body: 'Click Add subproject — one per room or scope area: "Kitchen," "Bar," "Install." Each gets its own drawings and approvals later.',
+      body: 'Click Add subproject. One per room or scope area: "Kitchen," "Bar," "Install." Each gets its own drawings and approvals later.',
       placement: 'left',
       advanceWhenNextAppears: true,
     },
@@ -476,7 +477,7 @@ export const PATH: PathStep[] = [
     blurb: 'One material and one door style is enough to quote a real job.',
     tourId: 'rate-book',
     after: 'shop_setup',
-    doneWhen: 'A carcass material and a calibrated door style exist',
+    doneWhen: 'A material and a calibrated door style exist',
   },
   {
     key: 'first_job',

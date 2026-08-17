@@ -738,8 +738,8 @@ export default function RateBookPage() {
                     </div>
                     <p className="leading-relaxed text-[12px] text-[#374151]">
                       {product.label} doesn&rsquo;t have its own labor numbers
-                      yet — the composer prices its box at Base cabinet&rsquo;s
-                      per-LF hours. Material consumption (
+                      yet, so the composer prices its box at Base
+                      cabinet&rsquo;s per-LF hours. Material consumption (
                       <span className="font-mono">
                         {product.sheetsPerLfCarcass.toFixed(2)} sheets/LF
                       </span>
@@ -757,7 +757,7 @@ export default function RateBookPage() {
                         Set its own hours
                       </button>
                       <span className="text-[11.5px] text-[#9CA3AF]">
-                        Starts from Base&rsquo;s numbers — nothing reprices
+                        Starts from Base&rsquo;s numbers, so nothing reprices
                         until you change them.
                       </span>
                     </div>

@@ -216,7 +216,7 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
         </div>
         <p className="text-[12px] text-[#6B7280] mb-4 max-w-[560px]">
           One price per material. Edit a price here and every estimate line that uses it
-          reprices. "Shows in" controls which composer slots list it as a quick pick — a
+          reprices. "Shows in" controls which composer slots list it as a quick pick, and a
           material can appear in several. How much a product consumes (sheets per foot,
           etc.) lives on the product, not here.
         </p>

@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
   const [
     org,
     baseCabinet,
-    carcassMaterial,
+    anyMaterial,
     calibratedDoor,
     composedLine,
     productionProject,
@@ -88,12 +88,15 @@ export async function GET(req: NextRequest) {
         .ilike('name', 'Base cabinet')
         .limit(1),
     ),
+    // ANY active material, not carcass-flagged specifically (Andrew,
+    // 2026-08-14): the rate-book guide teaches a door-veneer sheet as the
+    // first material, and Browse-all reaches the whole catalog regardless of
+    // quick-pick flags, so composing still works.
     anyRow(
       supabaseAdmin
         .from('materials')
         .select('id')
         .eq('org_id', orgId)
-        .eq('show_in_carcass', true)
         .eq('active', true)
         .limit(1),
     ),
@@ -159,7 +162,7 @@ export async function GET(req: NextRequest) {
     // Base cabinet labor is in the rate-book gate too, deliberately: the spec
     // lists all three, and it keeps step 2 honest if step 1's numbers are later
     // cleared.
-    rate_book: carcassMaterial && calibratedDoor && hasBaseCabinetLabor,
+    rate_book: anyMaterial && calibratedDoor && hasBaseCabinetLabor,
     first_job: composedLine,
     sold_to_production: productionProject,
     team_on_clock: teamLogin && timeEntry,
