@@ -28,6 +28,15 @@ import { announce } from '@/lib/tour-events'
 type Editing = { kind: 'type'; id: string } | { kind: 'finish'; id: string } | null
 type Adding = { kind: 'type' } | { kind: 'finish'; doorTypeId: string } | null
 
+// Door labor is CALIBRATED on an 8' run, like features and custom products —
+// "how long to build 8 feet of this door" is a question a shop can answer
+// from memory; per-door decimals aren't. Storage stays per door: 8' at 0.5
+// doors/LF (lib/products doorsPerLf) is 4 doors, so the form divides by 4 on
+// save and multiplies by 4 when hydrating an edit.
+const DOOR_RUN_FEET = 8
+const DOORS_PER_RUN = 4
+const round3 = (n: number) => Math.round(n * 1000) / 1000
+
 export default function DoorCatalog({ orgId }: { orgId: string }) {
   const [doorTypes, setDoorTypes] = useState<DoorType[]>([])
   const [finsByType, setFinsByType] = useState<Map<string, DoorTypeMaterialFinish[]>>(new Map())
@@ -70,7 +79,13 @@ export default function DoorCatalog({ orgId }: { orgId: string }) {
         orgId,
         existingId,
         name: draft.name.trim(),
-        perDoor: { eng: num('eng'), cnc: num('cnc'), assembly: num('assembly'), finish: num('finish') },
+        // Form speaks in hours per 8' run; storage is per door.
+        perDoor: {
+          eng: num('eng') / DOORS_PER_RUN,
+          cnc: num('cnc') / DOORS_PER_RUN,
+          assembly: num('assembly') / DOORS_PER_RUN,
+          finish: num('finish') / DOORS_PER_RUN,
+        },
         hardwareCost: num('hardware'),
       })
       await reload()
@@ -145,10 +160,11 @@ export default function DoorCatalog({ orgId }: { orgId: string }) {
           </button>
         </div>
         <p className="text-[12px] text-[#6B7280] mb-4 max-w-[620px]">
-          Each door type carries its <strong>labor</strong> (hours per door) + hardware and its{' '}
-          <strong>finishes</strong> (labor + material per door). Door <strong>materials</strong> are
-          in the <strong>Materials</strong> tab — flag a material "Door" and it shows up in the
-          composer's door-material dropdown.
+          Each door type is calibrated on an <strong>8&prime; run</strong>: enter the hours to
+          build 8 feet of that door and MillSuite stores it per door. Hardware and{' '}
+          <strong>finishes</strong> (labor + material per door) live here too. Door{' '}
+          <strong>materials</strong> are in the <strong>Materials</strong> tab. Flag a material
+          "Door" and it shows up in the composer's door-material dropdown.
         </p>
 
         {error && (
@@ -220,7 +236,8 @@ export default function DoorCatalog({ orgId }: { orgId: string }) {
                             )}
                           </div>
                           <div className="text-[11.5px] text-[#6B7280] mt-0.5 font-mono">
-                            {totalHrs.toFixed(2)} hr/door
+                            {totalHrs.toFixed(2)} hr/door · {(totalHrs * DOORS_PER_RUN).toFixed(1)} hr
+                            per {DOOR_RUN_FEET}&prime; run
                             {dt.hardware_cost > 0 && (
                               <span> · ${dt.hardware_cost.toFixed(2)} hardware/door</span>
                             )}
@@ -232,10 +249,11 @@ export default function DoorCatalog({ orgId }: { orgId: string }) {
                             setEditing({ kind: 'type', id: dt.id })
                             setDraft({
                               name: dt.name,
-                              eng: String(dt.labor_hours_eng),
-                              cnc: String(dt.labor_hours_cnc),
-                              assembly: String(dt.labor_hours_assembly),
-                              finish: String(dt.labor_hours_finish),
+                              // Stored per door, edited per 8' run.
+                              eng: String(round3(dt.labor_hours_eng * DOORS_PER_RUN)),
+                              cnc: String(round3(dt.labor_hours_cnc * DOORS_PER_RUN)),
+                              assembly: String(round3(dt.labor_hours_assembly * DOORS_PER_RUN)),
+                              finish: String(round3(dt.labor_hours_finish * DOORS_PER_RUN)),
                               hardware: String(dt.hardware_cost),
                             })
                           }}
@@ -347,7 +365,10 @@ function TypeFields({
       <LabeledInput label="Name" value={draft.name || ''} onChange={(v) => set('name', v)} placeholder="e.g. Shaker" autoFocus />
       <div>
         <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
-          Labor hours per door
+          Labor hours per {DOOR_RUN_FEET}&prime; run
+          <span className="normal-case tracking-normal font-normal text-[#9CA3AF]">
+            {' '}(about {DOORS_PER_RUN} doors)
+          </span>
         </span>
         <div className="grid grid-cols-4 gap-2 mt-0.5">
           {(['eng', 'cnc', 'assembly', 'finish'] as const).map((k) => (
