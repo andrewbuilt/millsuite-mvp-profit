@@ -193,6 +193,15 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 - ~~⚠️ FLAGGED — this changed APPROVED COPY~~ **RESOLVED 2026-08-14 by the v2 planning pass:** the closer now reads "Ready to set up the numbers everything prices from?", matching the chain button.
 - **Superseded by this rework:** the old flat Guides list and its `COMING_SOON` array are gone. The first-job tour's offer/practice flow, the engine and the auto-offer are untouched.
 
+### Guide copy pass + door calibration + gate relax — ✅ 2026-08-14 (`383ecb6` + `5dfb50f`, Andrew's live run-through of the v2 rate-book lesson)
+
+Andrew rewrote the rate-book lesson copy in his own voice (all 11 steps + offer + outros; rule going forward: **no em dashes in user-facing copy** — swept from every guide string, the welcome-loop beats, and the rate-book/materials page headers). Three product changes rode along, all his calls:
+1. **Door labor now calibrates on an 8' run** (DoorCatalog form asks hours for 8 feet ≈ 4 doors, stores per-door; edit hydrates back to per-run; storage/composer unchanged). Matches how features and custom products calibrate.
+2. **rate_book path gate relaxed to ANY active material** (was carcass-flagged) — the lesson now teaches a door-veneer sheet as the first material and Browse-all reaches the whole catalog regardless of flags. `doneWhen` text updated.
+3. **Practice-project OFFER removed from first-job** (checkbox gone, `practiceMode` constant false; stamping/cleanup machinery dormant — old practice projects keep badge + delete). New offer copy: projects are easy to edit and delete.
+- Copy honesty note: Andrew's drafts said "MillSuite will update these hours as you track time" — softened to "shows you the actual numbers", since the learning loop *surfaces* tracked data (suggestions/review), it doesn't silently overwrite rates.
+- **Andrew verify live:** rerun the rate-book lesson with the new copy end to end; add a door type via the 8'-run form and confirm the stored hr/door reads as run÷4; finish the lesson with only a Door-flagged material and confirm the FULL outro fires and the Guides path card completes.
+
 ### Upper/Full cabinet labor — ✅ editable (2026-08-14, `a9c537f`, same session as guide v2 pickup)
 
 Andrew hit the V1 constraint mid-copy-pass: Base cabinet hours editable, Upper/Full read-only. Was by design (Upper/Full = derived rows; box labor reused Base's hours; door labor × hardcoded 1.3×/2.5× in `lib/products.ts` — "until we have real-world pushback", which this was). **His call: real rows, not editable multipliers; door multipliers stay fixed for now.**
