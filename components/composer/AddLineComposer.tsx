@@ -870,7 +870,10 @@ function ProductPicker({
         Pick what you're pricing. Each product has its own slots, and the
         composer walks you through them.
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* data-tour: the first-job guide's "Pick a composer" step rings the
+          grid; picking a cabinet product reveals composer-qty, which is the
+          appears-signal the step advances on. */}
+      <div data-tour="composer-products" className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {PRODUCT_ORDER.map((k) => {
           const p = PRODUCTS[k]
           return <ProductTile key={k} product={p} onPick={() => onPick(k)} />
@@ -1140,7 +1143,10 @@ function Composer(p: {
             setSlot={p.setSlot}
           />
         ) : (
-        <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
+        /* data-tour: the guide's "Work your way down" step rings the whole
+           cabinet form. Renders only for cabinet products, so it can't
+           double-tag against the custom/solid-wood bodies. */
+        <div data-tour="composer-form" className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
           <QuantityFields
             qty={draft.qty}
             qtyDoors={draft.slots.qty_doors ?? null}
@@ -1752,7 +1758,10 @@ function QuantityFields({
 }) {
   const split = qtyDoors != null
   return (
-    <div className="space-y-3">
+    /* data-tour: only the cabinet body renders QuantityFields, so this both
+       anchors the guide's qty step and serves as the "a cabinet composer is
+       open" appears-signal for the step before it. */
+    <div data-tour="composer-qty" className="space-y-3">
       <Field
         label={split ? 'Quantity (carcass)' : 'Quantity'}
         hint={split ? 'Total cabinet box run' : undefined}

@@ -1355,7 +1355,9 @@ export default function ProjectCoverPage() {
             <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-3">
               Subprojects · click any to {isPresold(project.stage) ? 'edit' : 'view'}
             </div>
-            <div className="space-y-2.5">
+            {/* data-tour: the first-job guide's "Here it is, your first
+                project" step points at the subproject list. */}
+            <div data-tour="project-subprojects" className="space-y-2.5">
               {cards.length === 0 && (
                 <div className="p-6 bg-white border border-[#E5E7EB] rounded-xl text-center text-sm text-[#9CA3AF]">
                   No subprojects yet.
