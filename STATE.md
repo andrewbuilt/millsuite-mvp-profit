@@ -193,6 +193,15 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 - ~~⚠️ FLAGGED — this changed APPROVED COPY~~ **RESOLVED 2026-08-14 by the v2 planning pass:** the closer now reads "Ready to set up the numbers everything prices from?", matching the chain button.
 - **Superseded by this rework:** the old flat Guides list and its `COMING_SOON` array are gone. The first-job tour's offer/practice flow, the engine and the auto-offer are untouched.
 
+### Upper/Full cabinet labor — ✅ editable (2026-08-14, `a9c537f`, same session as guide v2 pickup)
+
+Andrew hit the V1 constraint mid-copy-pass: Base cabinet hours editable, Upper/Full read-only. Was by design (Upper/Full = derived rows; box labor reused Base's hours; door labor × hardcoded 1.3×/2.5× in `lib/products.ts` — "until we have real-world pushback", which this was). **His call: real rows, not editable multipliers; door multipliers stay fixed for now.**
+
+- **Promote-on-demand:** the derived Upper/Full detail now says "Using Base cabinet hours" + a **Set its own hours** button → creates a real `rate_book_items` row (name = product label, hours prefilled from Base, so nothing reprices until edited). From then on it's a normal item — Edit, history, confidence all free. The synthetic sidebar row stands down once a real row with that label exists.
+- **Composer:** `carcassLaborFor(rb, productId)` in `lib/composer.ts` — promoted+calibrated row wins, Base is the fallback. All-zero promoted row = uncalibrated → falls back (never free labor). Loader (`loadCabinetLabor`) finds rows by label, same ilike pattern as 'Base cabinet'. No schema change, no migration.
+- Unchanged by design: door-labor multipliers (Upper 1.3×, Full 2.5×) and per-product material consumption (sheets/LF). If Andrew wants those editable it's its own pass.
+- **Andrew verify live:** open Cabinets → Upper cabinet run → Set its own hours → edit assembly hours → compose an Upper line and confirm the box labor moved while a Base line didn't; existing upper lines flag stale on reopen (expected, same as any rate change).
+
 ### Guide system v2 — ✅ **BUILT 2026-08-14** (one Cowork session: spec + full build; commits `1036b76`…`d661acf`). Spec: `specs/walkthroughs/v2-guide-system.md` — supersedes v1's SCRIPTS; engine/Path/practice machinery carried over.
 
 **Andrew's read, confirmed by audit:** the guides were "stuck between a casual look around and an actual learning system." Root cause was structural, not copy — the engine's only advance signal was *next target appears*, which fires the instant a form OPENS. So the rate-book tour skipped past name/price, never required Add material, had an INFO step (Back/Next) sitting on the "+ New door type" action button (the shipped step-6 bug), and could finish with NOTHING created while the outro said "Your rate book is live."
