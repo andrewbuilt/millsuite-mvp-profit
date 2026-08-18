@@ -601,6 +601,13 @@ export default function TourRunner({
           Step {index + 1} of {total}
         </div>
         <h3 className="text-[15px] font-semibold text-[#111] mb-1.5 pr-6">{step.title}</h3>
+        {step.bullets && (
+          <ol className="mb-2 pl-5 space-y-1 list-decimal text-[13px] text-[#6B7280] leading-relaxed">
+            {step.bullets.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ol>
+        )}
         <p className="text-[13px] text-[#6B7280] leading-relaxed">{step.body}</p>
 
         {isAction ? (

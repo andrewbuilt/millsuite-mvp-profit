@@ -55,6 +55,10 @@ export interface TourStep {
   target?: string
   title: string
   body: string
+  /** Numbered list rendered between title and body — for steps that teach a
+   *  short sequence the user works through before pressing Next. Body then
+   *  reads as the closing line. */
+  bullets?: string[]
   placement?: 'top' | 'bottom' | 'left' | 'right'
   /** Set when the NEXT step's target only appears once the user acts — opens
    *  the modal, creates the project. The engine watches for it and advances the
@@ -510,54 +514,47 @@ const SOLD_TO_PRODUCTION: Tour = {
     },
     {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
-      // The LIST, not one card — cards expand and shift as states change, so
-      // a single-card ring ends up pointing at the wrong spec mid-flow.
+      // One workspace step for the whole materials pass (Andrew, after two
+      // live runs: event-per-state made the cards fight the work). The ring
+      // covers the spec LIST (cards expand and shift as states change), the
+      // numbered list teaches the sequence, and Next is pressed when
+      // everything's approved.
       target: 'spec-list',
-      title: 'Submit a sample',
-      body: 'Pick a spec, open it with the arrow in its corner, and click Sample submitted.',
-      placement: 'right',
-      // With a card expanded the list is bigger than the engine's "that's
-      // the whole page" threshold — keep the ring anyway on all three spec
-      // steps: it means "work in here".
-      ringLarge: true,
-      advanceOnEvent: 'ms:spec-submitted',
-    },
-    {
-      route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
-      target: 'spec-list',
-      title: 'It’s with the client',
-      body: 'The spec moved to In review, timestamped, waiting on the client. Try Client requested change, then Sample submitted again. Every step gets its own stamp in the history.',
+      title: 'Approve the materials',
+      bullets: [
+        'Press the down arrow on a spec.',
+        'Press Sample submitted. It gets a timestamp.',
+        'Try a revision: press Client requested change.',
+        'Now submit it again.',
+        'And finally, approve it.',
+      ],
+      body: 'That’s the whole process for materials and finishes. Approve all the others the same way, then press Next.',
       placement: 'right',
       ringLarge: true,
-    },
-    {
-      route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
-      target: 'spec-list',
-      title: 'Approve it',
-      body: 'Click Client approved on that spec. That’s one material approved and locked.',
-      placement: 'right',
-      ringLarge: true,
-      advanceOnEvent: 'ms:spec-approved',
     },
     {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
       target: 'drawings-approve',
       title: 'Approve the drawings',
-      body: 'Click Mark approved manually for now. When your drawings live in MillSuite, you’ll approve the revision itself.',
+      body: 'Click Mark approved manually for now. Do the same on each subproject. When your drawings live in MillSuite, you’ll approve the revision itself.',
       placement: 'left',
       advanceOnEvent: 'ms:drawings-approved',
     },
     {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
-      // Rings the top-left Back to project button — where to go when done —
-      // so the card sits in the top corner, off the specs being worked.
+      target: 'approval-gate',
+      title: 'Everything is green lit',
+      body: 'The production gate is green: every material and drawing on this project reads approved.',
+      placement: 'bottom',
+    },
+    {
+      route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
       target: 'back-to-project',
-      title: 'Finish the rest',
-      body: 'Approve the rest of the materials and drawings the same way. When the banner reads Ready, click Back to project.',
+      title: 'Head back',
+      body: 'Press Back to project.',
       placement: 'bottom',
       // The next step's target (the Start production button) only exists on
-      // the project page once every gate is clear — so it doubles as the
-      // "you finished and went back" signal.
+      // the project page once every gate is clear.
       advanceWhenNextAppears: true,
     },
     {
