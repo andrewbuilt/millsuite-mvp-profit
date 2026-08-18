@@ -164,6 +164,31 @@ function isOccluded(el: HTMLElement): boolean {
   return !(el.contains(hit) || hit.contains(el))
 }
 
+/** Wait for a just-scrolled-to element to stop moving before the step shows.
+ *  Measuring mid-scroll used to catch the target off-screen, which dropped
+ *  the ring and flashed the card at the dock corner until the scroll landed —
+ *  the "card jumps to the bottom left, then leaps to the button" effect.
+ *  Resolves when the rect is stable across frames and at least partly
+ *  visible, or at the cap (a target that never arrives falls back to the
+ *  existing dock behavior). */
+function waitForScrollSettle(el: HTMLElement, signal: { cancelled: boolean }): Promise<void> {
+  return new Promise((resolve) => {
+    const start = performance.now()
+    let last: DOMRect | null = null
+    const tick = () => {
+      if (signal.cancelled) return resolve()
+      const r = el.getBoundingClientRect()
+      const visibleEnough = r.top < window.innerHeight && r.bottom > 0
+      const stable =
+        !!last && Math.abs(r.top - last.top) < 0.5 && Math.abs(r.left - last.left) < 0.5
+      last = r
+      if ((visibleEnough && stable) || performance.now() - start > 800) return resolve()
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+}
+
 const sameRect = (a: Rect | null, b: Rect | null) =>
   a === b ||
   (!!a &&
@@ -364,11 +389,16 @@ export default function TourRunner({
       // Only scroll to things we can actually point at. Centring a target the
       // size of the page dumps you in the MIDDLE of it — which is why opening
       // the new project landed halfway down.
-      const m = measure(el)
-      const pageSized = m.width > window.innerWidth * HUGE && m.height > window.innerHeight * HUGE
+      const first = measure(el)
+      const pageSized =
+        first.width > window.innerWidth * HUGE && first.height > window.innerHeight * HUGE
       if (pageSized) window.scrollTo({ top: 0, behavior: 'smooth' })
       else el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
-      setRect(m)
+      // Don't show the step until the scroll lands — measuring mid-scroll
+      // put the card at the dock corner, then leapt it to the target.
+      await waitForScrollSettle(el, signal)
+      if (signal.cancelled) return
+      setRect(measure(el))
       pathAtStep.current[index] = window.location.pathname
       setReady(true)
     })()
@@ -414,6 +444,28 @@ export default function TourRunner({
   useEffect(() => {
     if (popRef.current) setPopHeight(popRef.current.offsetHeight)
   }, [ready, index, rect])
+
+  // ── Entrance fade ────────────────────────────────────────────────────────
+  // Ring and card are keyed by step index, so a step change is a CUT to the
+  // new position with a short fade-in — not a glide across the page, which
+  // read as the card jumping around. Within a step, position changes still
+  // animate (sticky headers, live layout).
+  const [entered, setEntered] = useState(false)
+  useEffect(() => {
+    if (!ready) {
+      setEntered(false)
+      return
+    }
+    setEntered(false)
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setEntered(true))
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
+  }, [ready, index])
 
   // ── Follow the user ──────────────────────────────────────────────────────
   // When the next step's target is something the user has to conjure (a modal,
@@ -568,6 +620,7 @@ export default function TourRunner({
           fully live and every click goes where the user aimed it. */}
       {ringRect && (
         <div
+          key={`ring-${index}`}
           data-tour-ui="ring"
           className="fixed z-[9998] rounded-lg pointer-events-none transition-all duration-200"
           style={{
@@ -576,18 +629,20 @@ export default function TourRunner({
             width: ringRect.width,
             height: ringRect.height,
             boxShadow: '0 0 0 2px #2563EB, 0 0 0 7px rgba(37,99,235,0.22)',
+            opacity: entered ? 1 : 0,
           }}
         />
       )}
 
       <div
+        key={`card-${index}`}
         ref={popRef}
         data-tour-ui="card"
         role="dialog"
         aria-live="polite"
         aria-label={`${tour.title}: step ${index + 1} of ${total}`}
-        className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-[#E5E7EB] p-4 transition-[top,left] duration-200"
-        style={{ top: pos.top, left: pos.left, width: POPOVER_W }}
+        className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-[#E5E7EB] p-4 transition-[top,left,opacity] duration-200"
+        style={{ top: pos.top, left: pos.left, width: POPOVER_W, opacity: entered ? 1 : 0 }}
       >
         <button
           onClick={() => exit('dismissed')}
