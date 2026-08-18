@@ -22,9 +22,9 @@ import { BarChart3, BookOpen, Clock, FileText, RefreshCw } from 'lucide-react'
 const BEATS = [
   { icon: BookOpen, title: 'Build your rates', line: 'Your shop rate and your labor numbers. Set once.' },
   { icon: FileText, title: 'Estimate the job', line: 'Every line prices straight off your rate book.' },
-  { icon: Clock, title: 'Track it live', line: 'Time and materials land on the job as it’s built. The P&L is real while it’s happening.' },
-  { icon: BarChart3, title: 'Review and tighten', line: 'Estimated against actual. Fix the numbers that were off.' },
-  { icon: RefreshCw, title: 'Price the next one smarter', line: 'Your rates evolve. The loop runs again.' },
+  { icon: Clock, title: 'Track labor real time', line: 'Hours land on the job as the work happens.' },
+  { icon: BarChart3, title: 'Complete the project', line: 'See estimated against actual, side by side.' },
+  { icon: RefreshCw, title: 'Automatically update rate book', line: 'Your numbers get sharper for the next quote.' },
 ]
 
 // ── Stage geometry (fixed coordinates; the stage scales as one unit) ────────
@@ -47,28 +47,13 @@ const ringPos = (i: number) => ({
   left: CX + R * Math.cos(ringAngle(i)) - RING_W / 2,
   top: CY + R * Math.sin(ringAngle(i)) - 44,
 })
-const iconCenter = (i: number) => ({
-  x: CX + R * Math.cos(ringAngle(i)),
-  y: CY + R * Math.sin(ringAngle(i)) - 44 + ICON_DY,
-})
 
-/** Connector arcs between adjacent ring icons, bowed slightly outward and
- *  trimmed so they don't run under the icons. Pure geometry — computed once. */
-const ARCS = BEATS.map((_, i) => {
-  const a = iconCenter(i)
-  const b = iconCenter((i + 1) % 5)
-  const mx = (a.x + b.x) / 2
-  const my = (a.y + b.y) / 2
-  const cx2 = CX + (mx - CX) * 1.16
-  const cy2 = CY + (my - CY) * 1.16
-  const trim = (p: { x: number; y: number }, t: number) => ({
-    x: p.x + (cx2 - p.x) * t,
-    y: p.y + (cy2 - p.y) * t,
-  })
-  const s = trim(a, 0.22)
-  const e = trim(b, 0.22)
-  return `M ${s.x} ${s.y} Q ${cx2} ${cy2} ${e.x} ${e.y}`
-})
+/** The ring is ONE circle passing exactly through every icon center (they all
+ *  sit at radius R around (CX, RING_CY)), and the pulse rides the same circle
+ *  — no gaps, no arcs. The icon tiles have solid backgrounds, so the line
+ *  reads as connecting them rather than crossing them. */
+const RING_CY = CY - 44 + ICON_DY // every icon center's vertical base
+const RING_CIRCUMFERENCE = 2 * Math.PI * R
 
 type Phase = 'intro' | 'ring' | 'final'
 
@@ -144,8 +129,9 @@ export default function WelcomeLoop({
       const a = -Math.PI / 2 + t * 2 * Math.PI
       const el = pulseRef.current
       if (el) {
-        el.style.left = `${CX + R * 1.02 * Math.cos(a) - 5}px`
-        el.style.top = `${CY + R * 1.02 * Math.sin(a) - 15 - 5}px`
+        // Exactly on the ring circle — same center, same radius.
+        el.style.left = `${CX + R * Math.cos(a) - 5}px`
+        el.style.top = `${RING_CY + R * Math.sin(a) - 5}px`
       }
       setLit(Math.round(t * 5) % 5)
       raf = requestAnimationFrame(frame)
@@ -180,42 +166,46 @@ export default function WelcomeLoop({
           </p>
         </div>
 
-        {/* Connectors */}
+        {/* The ring — one circle, drawn in as the beats assemble. */}
         <svg className="absolute inset-0 pointer-events-none overflow-visible" viewBox={`0 0 ${W} ${H}`}>
-          {ARCS.map((d, i) => (
-            <path
-              key={i}
-              d={d}
-              fill="none"
-              stroke="#C7D7FE"
-              strokeWidth={2}
-              style={{
-                strokeDasharray: finale ? '1000 0' : '0 1000',
-                transition: 'stroke-dasharray 1.4s ease',
-              }}
-            />
-          ))}
+          <circle
+            cx={CX}
+            cy={RING_CY}
+            r={R}
+            fill="none"
+            stroke="#C7D7FE"
+            strokeWidth={2}
+            strokeDasharray={RING_CIRCUMFERENCE}
+            style={{
+              strokeDashoffset: finale ? 0 : RING_CIRCUMFERENCE,
+              transition: 'stroke-dashoffset 1.4s ease',
+              transform: 'rotate(-90deg)',
+              transformOrigin: `${CX}px ${RING_CY}px`,
+            }}
+          />
         </svg>
         {phase === 'final' && (
           <div ref={pulseRef} className="absolute w-2.5 h-2.5 rounded-full bg-[#2563EB]" />
         )}
 
-        {/* Center tagline */}
+        {/* Center tagline — sized to sit well inside the ring (beat tiles
+            reach in to about 130px from center, so the copy stays under
+            110px each side and can't collide). */}
         <div
           className="absolute text-center transition-all duration-700"
           style={{
-            width: 300,
-            left: CX - 150,
-            top: CY - 58,
+            width: 216,
+            left: CX - 108,
+            top: RING_CY - 40,
             opacity: finale ? 1 : 0,
             transform: finale ? 'none' : 'scale(0.94)',
           }}
         >
-          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#2563EB] mb-2">
+          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#2563EB] mb-1.5">
             The loop
           </div>
-          <h2 className="text-[21px] font-bold text-[#111] leading-snug">
-            Every job makes the next quote smarter.
+          <h2 className="text-[15px] font-bold text-[#111] leading-snug">
+            Every loop makes the next quote better.
           </h2>
         </div>
 

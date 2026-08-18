@@ -118,7 +118,7 @@ export default function GuidesPage() {
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-semibold text-[#111]">How MillSuite works</span>
           <span className="block text-[12px] text-[#6B7280]">
-            The loop in 15 seconds: rates → estimate → track → review → smarter rates.
+            The loop in 15 seconds: rates → estimate → track → complete → update.
           </span>
         </span>
         <span className="text-[12px] font-semibold text-[#2563EB] flex-shrink-0">Watch</span>
