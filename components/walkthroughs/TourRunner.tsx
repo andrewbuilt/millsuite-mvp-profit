@@ -175,19 +175,28 @@ function waitForScrollSettle(el: HTMLElement, signal: { cancelled: boolean }): P
   return new Promise((resolve) => {
     const start = performance.now()
     let last: DOMRect | null = null
+    let stableFrames = 0
     const tick = () => {
       if (signal.cancelled) return resolve()
       const r = el.getBoundingClientRect()
       const visibleEnough = r.top < window.innerHeight && r.bottom > 0
       const stable =
         !!last && Math.abs(r.top - last.top) < 0.5 && Math.abs(r.left - last.left) < 0.5
+      stableFrames = stable ? stableFrames + 1 : 0
       last = r
-      if ((visibleEnough && stable) || performance.now() - start > 800) return resolve()
+      if ((visibleEnough && stableFrames >= 3) || performance.now() - start > 800) return resolve()
       requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)
   })
 }
+
+/** How long after a step appears that position changes SNAP instead of
+ *  animate. The page keeps reacting for a moment after the action that
+ *  advanced the step (a reload removes the button just clicked, data loads
+ *  shift a banner) — gliding after those late reflows read as the card
+ *  jumping around. Snapping during the settle window is barely visible. */
+const SETTLE_GRACE_MS = 700
 
 const sameRect = (a: Rect | null, b: Rect | null) =>
   a === b ||
@@ -451,19 +460,25 @@ export default function TourRunner({
   // read as the card jumping around. Within a step, position changes still
   // animate (sticky headers, live layout).
   const [entered, setEntered] = useState(false)
+  // During the grace window, position changes snap; after it, they glide.
+  const [settled, setSettled] = useState(false)
   useEffect(() => {
     if (!ready) {
       setEntered(false)
+      setSettled(false)
       return
     }
     setEntered(false)
+    setSettled(false)
     let raf2 = 0
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => setEntered(true))
     })
+    const t = setTimeout(() => setSettled(true), SETTLE_GRACE_MS)
     return () => {
       cancelAnimationFrame(raf1)
       cancelAnimationFrame(raf2)
+      clearTimeout(t)
     }
   }, [ready, index])
 
@@ -622,7 +637,7 @@ export default function TourRunner({
         <div
           key={`ring-${index}`}
           data-tour-ui="ring"
-          className="fixed z-[9998] rounded-lg pointer-events-none transition-all duration-200"
+          className="fixed z-[9998] rounded-lg pointer-events-none"
           style={{
             top: ringRect.top,
             left: ringRect.left,
@@ -630,6 +645,10 @@ export default function TourRunner({
             height: ringRect.height,
             boxShadow: '0 0 0 2px #2563EB, 0 0 0 7px rgba(37,99,235,0.22)',
             opacity: entered ? 1 : 0,
+            // Snap while the page settles, glide after.
+            transition: settled
+              ? 'top 200ms ease, left 200ms ease, width 200ms ease, height 200ms ease, opacity 200ms ease'
+              : 'opacity 200ms ease',
           }}
         />
       )}
@@ -641,8 +660,16 @@ export default function TourRunner({
         role="dialog"
         aria-live="polite"
         aria-label={`${tour.title}: step ${index + 1} of ${total}`}
-        className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-[#E5E7EB] p-4 transition-[top,left,opacity] duration-200"
-        style={{ top: pos.top, left: pos.left, width: POPOVER_W, opacity: entered ? 1 : 0 }}
+        className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-[#E5E7EB] p-4"
+        style={{
+          top: pos.top,
+          left: pos.left,
+          width: POPOVER_W,
+          opacity: entered ? 1 : 0,
+          transition: settled
+            ? 'top 200ms ease, left 200ms ease, opacity 200ms ease'
+            : 'opacity 200ms ease',
+        }}
       >
         <button
           onClick={() => exit('dismissed')}
