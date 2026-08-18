@@ -193,6 +193,10 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 - ~~⚠️ FLAGGED — this changed APPROVED COPY~~ **RESOLVED 2026-08-14 by the v2 planning pass:** the closer now reads "Ready to set up the numbers everything prices from?", matching the chain button.
 - **Superseded by this rework:** the old flat Guides list and its `COMING_SOON` array are gone. The first-job tour's offer/practice flow, the engine and the auto-offer are untouched.
 
+### Tour engine: card no longer jumps between steps — ✅ 2026-08-14 (`2c340bb`)
+
+Andrew: "the modal jumps around between selections." Two roots: (1) measuring mid-scroll caught targets off-screen → ring dropped → card flashed at the dock corner, then leapt to the target when the smooth scroll landed. `waitForScrollSettle()` now holds the step until the target's rect is stable and visible (800ms cap). (2) Step changes GLIDED the card/ring across the page. Both are keyed by step index now: step change = cut to the new position with a 200ms fade-in; within-step tracking still animates.
+
 ### Sell-it guide round 3 — ✅ 2026-08-14 (`8909503`). One bulleted workspace step for materials. 12 steps.
 
 Andrew's call after the third live run: event-per-state steps made the cards fight the work. "Approve the materials" is now ONE look-step ringing the spec list with a numbered 5-item sequence (engine gained **`TourStep.bullets`**, rendered as an ordered list in the card) and a closing line: approve all the others, then press Next. Then: drawings (event) → "Everything is green lit" look at the gate banner → "Head back" DO on Back to project (advances when Start production appears) → start production → closer. `ms:spec-submitted`/`ms:spec-approved` stay wired in ApprovalSlots, currently unscripted.
