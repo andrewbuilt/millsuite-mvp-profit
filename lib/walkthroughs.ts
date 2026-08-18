@@ -70,6 +70,11 @@ export interface TourStep {
   /** A missing target is expected here, so drop the step rather than falling
    *  back to a centered popover. Settings is owner-only. */
   skipIfMissing?: boolean
+  /** Park the card in the bottom corner instead of centering it. For steps
+   *  where the user needs the whole page to work (finish a list of
+   *  approvals) — a centered card sits exactly where the work is. Use on
+   *  targetless steps. */
+  dock?: boolean
   /** Wait for a project that didn't exist when the step began, then open it.
    *
    *  Needed because creating a project from the kanban does NOT navigate to it
@@ -501,9 +506,26 @@ const SOLD_TO_PRODUCTION: Tour = {
     },
     {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
-      target: 'spec-card',
-      title: 'Approve a material',
-      body: 'Open this spec with the arrow in its corner and click Sample submitted. It’s timestamped while it waits on the client. Try Client requested change, then Sample submitted again. Every step gets its own stamp. Now click Client approved. That’s one material approved.',
+      // The LIST, not one card — cards expand and shift as states change, so
+      // a single-card ring ends up pointing at the wrong spec mid-flow.
+      target: 'spec-list',
+      title: 'Submit a sample',
+      body: 'Pick a spec, open it with the arrow in its corner, and click Sample submitted.',
+      placement: 'right',
+      advanceOnEvent: 'ms:spec-submitted',
+    },
+    {
+      route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
+      target: 'spec-list',
+      title: 'It’s with the client',
+      body: 'The spec moved to In review, timestamped, waiting on the client. Try Client requested change, then Sample submitted again. Every step gets its own stamp in the history.',
+      placement: 'right',
+    },
+    {
+      route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
+      target: 'spec-list',
+      title: 'Approve it',
+      body: 'Click Client approved on that spec. That’s one material approved and locked.',
       placement: 'right',
       advanceOnEvent: 'ms:spec-approved',
     },
@@ -517,10 +539,11 @@ const SOLD_TO_PRODUCTION: Tour = {
     },
     {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
-      target: 'approval-gate',
+      // Docked in the corner: the user needs the whole page to work through
+      // the remaining approvals, and a centered card sits on the work.
+      dock: true,
       title: 'Finish the rest',
-      body: 'Approve the rest of the materials and drawings the same way, then head back to the project page.',
-      placement: 'bottom',
+      body: 'Approve the rest of the materials and drawings the same way. When the banner reads Ready, head back to the project page.',
       // The next step's target (the Start production button) only exists on
       // the project page once every gate is clear — so it doubles as the
       // "you finished and went back" signal.

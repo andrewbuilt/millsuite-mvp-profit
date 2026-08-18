@@ -545,8 +545,10 @@ export default function TourRunner({
   }, [rect, viewport, occluded])
 
   // A step that NAMES a target but couldn't get a ring docks out of the way;
-  // a step that never had one (the closers) is genuinely a centred card.
-  const dock = !!step.target && !ringRect
+  // a step that never had one (the closers) is genuinely a centred card. A
+  // step can also ASK to dock (step.dock) — used when the user needs the
+  // whole page free to work through something.
+  const dock = !!step.dock || (!!step.target && !ringRect)
 
   const pos = useMemo(
     () => (ready ? placePopover(ringRect, step.placement, popHeight, dock) : null),

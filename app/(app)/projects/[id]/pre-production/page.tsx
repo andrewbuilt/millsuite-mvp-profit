@@ -439,8 +439,8 @@ export default function PreProductionPage() {
                       void openSpecCo(approvalItemId, sub.id, sub.name)
                     }
                     // First subproject only — a data-tour value must resolve
-                    // to exactly one element (the guide rings one spec card).
-                    tourTag={subIndex === 0 ? 'spec-card' : undefined}
+                    // to exactly one element (the guide rings the spec LIST).
+                    tourTag={subIndex === 0 ? 'spec-list' : undefined}
                   />
                 </div>
                 <div>

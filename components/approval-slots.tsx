@@ -48,9 +48,10 @@ interface Props {
    *  CreateCoModalSeed with source='spec' + preSelectedSlot, and mounts
    *  the modal. Buttons hide entirely when this prop isn't provided. */
   onCreateSpecCo?: (approvalItemId: string) => void
-  /** data-tour hook for the FIRST spec card only. Passed by the pre-prod
-   *  page for its first subproject alone — every card carrying the same
-   *  value would break querySelector (one tag per value, always). */
+  /** data-tour hook for the WHOLE spec list. Passed by the pre-prod page for
+   *  its first subproject alone (one tag per value, always). The list, not a
+   *  card: cards change position and expand/collapse as states move, so a
+   *  ring on one card ends up pointing at the wrong thing mid-flow. */
   tourTag?: string
 }
 
@@ -123,7 +124,7 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
   }
 
   return (
-    <div className="space-y-3">
+    <div data-tour={tourTag} className="space-y-3">
       {/* Section header — specs are derived from the locked estimate.
           Per-spec CO entry lives on each card now; the page-level
           "+ New change order" link was redundant. */}
@@ -149,7 +150,7 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
           spec-CO modal (parent decides). When the spec lands as
           approved, any draft CO targeting it auto-finalizes (see
           lib/change-orders.finalizeSpecCosOnApproval). */}
-      {items.map((item, index) => {
+      {items.map((item) => {
         const slotKey = slotKeyForApprovalLabel(item.label)
         // Spec-CO is only meaningful when:
         //   1. The parent wired onCreateSpecCo (pre-prod page does;
@@ -159,21 +160,18 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
         const canCreateCo =
           !!onCreateSpecCo && !!slotKey && item.state !== 'approved'
         return (
-          // The wrapper exists for the tour hook (first card only); it's a
-          // plain div so the parent's space-y spacing is unchanged.
-          <div key={item.id} data-tour={index === 0 ? tourTag : undefined}>
-            <SlotCard
-              item={item}
-              isExpanded={expanded.has(item.id)}
-              isBusy={busyItemId === item.id}
-              canCreateCo={canCreateCo}
-              onToggleExpanded={() => toggleExpanded(item.id)}
-              onSubmit={() => runTransition(submitSample, item.id)}
-              onApprove={() => runTransition(approve, item.id, 'ms:spec-approved')}
-              onRequestChange={() => runTransition(requestChange, item.id)}
-              onCreateCo={() => onCreateSpecCo?.(item.id)}
-            />
-          </div>
+          <SlotCard
+            key={item.id}
+            item={item}
+            isExpanded={expanded.has(item.id)}
+            isBusy={busyItemId === item.id}
+            canCreateCo={canCreateCo}
+            onToggleExpanded={() => toggleExpanded(item.id)}
+            onSubmit={() => runTransition(submitSample, item.id, 'ms:spec-submitted')}
+            onApprove={() => runTransition(approve, item.id, 'ms:spec-approved')}
+            onRequestChange={() => runTransition(requestChange, item.id)}
+            onCreateCo={() => onCreateSpecCo?.(item.id)}
+          />
         )
       })}
     </div>
