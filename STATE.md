@@ -193,6 +193,10 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 - ~~⚠️ FLAGGED — this changed APPROVED COPY~~ **RESOLVED 2026-08-14 by the v2 planning pass:** the closer now reads "Ready to set up the numbers everything prices from?", matching the chain button.
 - **Superseded by this rework:** the old flat Guides list and its `COMING_SOON` array are gone. The first-job tour's offer/practice flow, the engine and the auto-offer are untouched.
 
+### Sell-it guide live-run fixes round 2 — ✅ 2026-08-14 (`716f1e6`). Spec-step rings + Finish-the-rest anchor.
+
+Steps 8-9 lost their ring silently: an EXPANDED spec card pushes the list past the engine's 60%-of-viewport "that's the whole page" threshold, which drops the ring and docks the card. New **`TourStep.ringLarge`** keeps the ring on workspace-sized targets; all three spec steps carry it. "Finish the rest" re-anchored from dock to the top-left **Back to project** button (`back-to-project` hook) per Andrew — card sits in the top corner off the specs, and the named click is the navigation the step already advances on.
+
 ### Sell-it guide live-run fixes — ✅ 2026-08-14 (`48fe23a`, Andrew's screenshots). Now 13 steps.
 
 Three findings from Andrew's run: (1) the one-spec-card ring pointed at the wrong card after Sample submitted (cards expand/shift as states change) → the ring now covers the whole spec LIST (`spec-list` on the ApprovalSlots root; `spec-card` tag removed). (2) Step 7 split into three — Submit a sample (`ms:spec-submitted`, new event) / It's with the client (look) / Approve it (`ms:spec-approved`). (3) "Finish the rest" was centering ON the specs still needing approval → new engine flag **`TourStep.dock`** parks the card in the bottom corner; the step waits there until Start production appears back on the project page.
