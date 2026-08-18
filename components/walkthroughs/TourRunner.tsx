@@ -535,7 +535,10 @@ export default function TourRunner({
   // no ring — a box around everything (or around nothing) is worse than none.
   const ringRect = useMemo(() => {
     if (!rect || viewport.w === 0) return null
-    const fillsScreen = rect.width > viewport.w * HUGE && rect.height > viewport.h * HUGE
+    // ringLarge: a workspace-sized target keeps its ring — "work in here"
+    // is exactly what the step means (the spec list with a card expanded).
+    const fillsScreen =
+      !step.ringLarge && rect.width > viewport.w * HUGE && rect.height > viewport.h * HUGE
     const offScreen =
       rect.top + rect.height < 0 || rect.top > viewport.h || rect.left + rect.width < 0 || rect.left > viewport.w
     if (fillsScreen || offScreen) return null

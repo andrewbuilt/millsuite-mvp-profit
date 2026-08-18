@@ -311,6 +311,7 @@ export default function PreProductionPage() {
       <div className="sticky top-0 z-10 bg-white border-b border-[#E5E7EB] px-6 py-3 flex items-center justify-between">
         <button
           onClick={() => router.push(`/projects/${projectId}`)}
+          data-tour="back-to-project"
           className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />

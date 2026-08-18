@@ -75,6 +75,10 @@ export interface TourStep {
    *  approvals) — a centered card sits exactly where the work is. Use on
    *  targetless steps. */
   dock?: boolean
+  /** Keep the ring even when the target is bigger than the engine's
+   *  "that's the whole page" threshold. For workspace-sized targets (the
+   *  spec list with a card expanded) where the ring means "work in here". */
+  ringLarge?: boolean
   /** Wait for a project that didn't exist when the step began, then open it.
    *
    *  Needed because creating a project from the kanban does NOT navigate to it
@@ -512,6 +516,10 @@ const SOLD_TO_PRODUCTION: Tour = {
       title: 'Submit a sample',
       body: 'Pick a spec, open it with the arrow in its corner, and click Sample submitted.',
       placement: 'right',
+      // With a card expanded the list is bigger than the engine's "that's
+      // the whole page" threshold — keep the ring anyway on all three spec
+      // steps: it means "work in here".
+      ringLarge: true,
       advanceOnEvent: 'ms:spec-submitted',
     },
     {
@@ -520,6 +528,7 @@ const SOLD_TO_PRODUCTION: Tour = {
       title: 'It’s with the client',
       body: 'The spec moved to In review, timestamped, waiting on the client. Try Client requested change, then Sample submitted again. Every step gets its own stamp in the history.',
       placement: 'right',
+      ringLarge: true,
     },
     {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
@@ -527,6 +536,7 @@ const SOLD_TO_PRODUCTION: Tour = {
       title: 'Approve it',
       body: 'Click Client approved on that spec. That’s one material approved and locked.',
       placement: 'right',
+      ringLarge: true,
       advanceOnEvent: 'ms:spec-approved',
     },
     {
@@ -539,11 +549,12 @@ const SOLD_TO_PRODUCTION: Tour = {
     },
     {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
-      // Docked in the corner: the user needs the whole page to work through
-      // the remaining approvals, and a centered card sits on the work.
-      dock: true,
+      // Rings the top-left Back to project button — where to go when done —
+      // so the card sits in the top corner, off the specs being worked.
+      target: 'back-to-project',
       title: 'Finish the rest',
-      body: 'Approve the rest of the materials and drawings the same way. When the banner reads Ready, head back to the project page.',
+      body: 'Approve the rest of the materials and drawings the same way. When the banner reads Ready, click Back to project.',
+      placement: 'bottom',
       // The next step's target (the Start production button) only exists on
       // the project page once every gate is clear — so it doubles as the
       // "you finished and went back" signal.
