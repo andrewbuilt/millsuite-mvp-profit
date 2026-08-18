@@ -193,6 +193,11 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 - ~~⚠️ FLAGGED — this changed APPROVED COPY~~ **RESOLVED 2026-08-14 by the v2 planning pass:** the closer now reads "Ready to set up the numbers everything prices from?", matching the chain button.
 - **Superseded by this rework:** the old flat Guides list and its `COMING_SOON` array are gone. The first-job tour's offer/practice flow, the engine and the auto-offer are untouched.
 
+### Sell-it guide reworked per Andrew — ✅ 2026-08-14 (`59d1370`). 8 → 11 steps, approvals taught hands-on.
+
+Andrew's markup pass on guide 4. The pre-production page went from one look-step to a real walkthrough: gate banner ("Get approved") → approve ONE material through its actual states (Sample submitted → Client requested change → Sample submitted → Client approved; advances on new event `ms:spec-approved`) → Mark approved manually on drawings (`ms:drawings-approved`, also fired when a real revision is approved) → "Finish the rest", which advances when the Start production button appears back on the project page (clean navigate-back signal). Rings tightened: status strip for intro/closer (`project-status`), just the deposit button (`mark-deposit`), just the Pre-production link, just the ROW Start production button (`start-production` — the green banner renders a twin that stays untagged). Spec card + drawings button tagged via `tourTag` props passed for the FIRST subproject only (uniqueness rule). `stage-actions` hook is now unscripted but stays tagged.
+- **Andrew verify live:** step 7's spec dance — each state click should stamp and the card should only advance the guide on Client approved; step 9 should sit quietly until you're back on the project page with everything green.
+
 ### Welcome loop polish — ✅ 2026-08-14 (`75259cd`, from Andrew's markup)
 
 The five bowed connector arcs are now ONE circle through every icon center, and the blue dot rides exactly on it. Center tagline shrunk so it can't overlap the tiles; reads "Every loop makes the next quote better." Beats relabeled to Andrew's: Build your rates / Estimate the job / Track labor real time / Complete the project / Automatically update rate book. `mockups/welcome-loop.html` is superseded — the component (`components/walkthroughs/WelcomeLoop.tsx`) is canonical now.
