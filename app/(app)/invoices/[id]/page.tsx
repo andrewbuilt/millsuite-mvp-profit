@@ -491,7 +491,9 @@ export default function InvoiceDetailPage() {
   const tone = displayStatus ? INVOICE_STATUS_TONE[displayStatus] : null
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA]">
+    /* data-tour: appears-signal for the getting-paid guide's "open an
+       invoice" step; page-sized, so its own step centers the card. */
+    <div data-tour="invoice-detail" className="min-h-screen bg-[#FAFAFA]">
       <div className="p-6 max-w-[1100px] mx-auto">
         {/* Header */}
         <div className="flex items-center gap-3 mb-1">
@@ -1154,7 +1156,9 @@ function EditView(props: {
       </div>
 
       {/* Payments */}
-      <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
+      {/* data-tour: the getting-paid guide rings this section for both the
+          "click Record payment" and the after-save "Paid down" steps. */}
+      <div data-tour="invoice-payments" className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
         <div className="px-4 py-2.5 border-b border-[#E5E7EB] flex items-center justify-between">
           <div className="text-[11px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
             Payments

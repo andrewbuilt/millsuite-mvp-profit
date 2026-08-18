@@ -19,7 +19,13 @@
 
 import type { TourEvent } from './tour-events'
 
-export type TourId = 'welcome' | 'rate-book' | 'first-job'
+export type TourId =
+  | 'welcome'
+  | 'rate-book'
+  | 'first-job'
+  | 'sold-to-production'
+  | 'team-on-clock'
+  | 'getting-paid'
 
 /** What the engine has learned while the tour runs. The first-job tour follows
  *  the user into a project it can't know the id of up front. */
@@ -28,6 +34,9 @@ export interface TourContext {
   projectPath: string | null
   /** '/projects/<id>/subprojects/<id>' — same, one level down. */
   subprojectPath: string | null
+  /** '/invoices/<id>' — captured when the tour follows the user into an
+   *  invoice (the getting-paid lesson can't know the id up front). */
+  invoicePath: string | null
 }
 
 export interface TourStep {
@@ -316,6 +325,7 @@ const FIRST_JOB: Tour = {
     title: 'Almost priced',
     body: 'The job’s set up but no line is saved on it yet. Open the subproject and compose one, or resume this guide from Manage → Guides.',
   },
+  chainTo: { tourId: 'sold-to-production', label: 'Sell my project', declineLabel: 'Done for now' },
   steps: [
     {
       route: '/sales/kanban',
@@ -380,7 +390,7 @@ const FIRST_JOB: Tour = {
       route: (ctx) => ctx.subprojectPath,
       target: 'composer-form',
       title: 'Work your way down',
-      body: 'Make your material selections as you go. Missing one? Click Add new, give it a name and a cost, and it lands in your rate book, where you can rename or reprice it anytime. End panels and scribes size off your door type, 24 inch deep panels and 3 inch scribes; for oversized or custom pieces, bump the quantity or your margin. Drawers can be calibrated right here too.',
+      body: 'Pick a material for each part as you go. Missing one? Click Add new, type a name and cost, and it goes straight into your rate book. End panels run 24 inches deep and scribes 3 inches wide, priced from your door style. For oversized pieces, add quantity or raise the margin. Drawers can be set up here too.',
       placement: 'right',
     },
     {
@@ -418,7 +428,261 @@ const FIRST_JOB: Tour = {
   ],
 }
 
-export const TOURS: Tour[] = [WELCOME, RATE_BOOK, FIRST_JOB]
+// ── Lesson — Sell it, then build it (path step 4) ────────────────────────────
+// The user walks their priced job through the two gates: deposit and
+// approvals, then starts production. Every DO step advances on the real
+// state change (stage write, deposit recorded, production started), so the
+// guide can't outrun the job.
+const SOLD_TO_PRODUCTION: Tour = {
+  id: 'sold-to-production',
+  title: 'Sell it, then build it',
+  summary: 'Sold, deposit, approvals, and the button that starts production.',
+  minutes: 4,
+  gate: 'sold_to_production',
+  offer: {
+    title: 'Sell it, then build it',
+    body: 'A job needs two things before the shop can start: the deposit and the approvals. This guide walks a sold job through both. About four minutes.',
+  },
+  chainTo: { tourId: 'team-on-clock', label: 'Set up my team', declineLabel: 'Done for now' },
+  outro: {
+    title: 'That’s how a job reaches the floor',
+    body: 'Deposit, approvals, then production. Every job takes this same path, so nothing starts before it’s paid for and signed off.',
+  },
+  outroPartial: {
+    title: 'Not in production yet',
+    body: 'This job is still missing its deposit or an approval. The buttons on the project page tell you which. Pick this up anytime from Manage → Guides.',
+  },
+  steps: [
+    {
+      route: '/sales/kanban',
+      target: 'kanban-board',
+      title: 'Let’s sell a job',
+      body: 'Find the job you priced and drag its card into Sold.',
+      placement: 'bottom',
+      advanceOnEvent: 'ms:project-sold',
+    },
+    {
+      route: '/sales/kanban',
+      target: 'kanban-board',
+      title: 'Open the project',
+      body: 'Click the card to open it.',
+      placement: 'bottom',
+      advanceWhenNextAppears: true,
+    },
+    {
+      route: (ctx) => ctx.projectPath,
+      target: 'stage-actions',
+      title: 'The job is sold',
+      body: 'Two things happen before the shop starts: the deposit comes in, and the plans get approved. The buttons here walk you through both, in order.',
+      placement: 'bottom',
+    },
+    {
+      route: (ctx) => ctx.projectPath,
+      target: 'stage-actions',
+      title: 'Record the deposit',
+      body: 'When the money lands, click Mark deposit received. MillSuite creates the invoice and records the payment for you.',
+      placement: 'bottom',
+      advanceOnEvent: 'ms:deposit-received',
+    },
+    {
+      route: (ctx) => ctx.projectPath,
+      target: 'stage-actions',
+      title: 'Now the approvals',
+      body: 'Click Pre-production.',
+      placement: 'bottom',
+      advanceWhenNextAppears: true,
+    },
+    {
+      route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
+      target: 'approvals-page',
+      title: 'Get your sign offs',
+      body: 'Each subproject has a checklist: drawings, samples, anything that needs a yes from the client. Check items off as you get them. When everything reads ready, the job can start.',
+      placement: 'bottom',
+    },
+    {
+      route: (ctx) => ctx.projectPath,
+      target: 'stage-actions',
+      title: 'Start production',
+      body: 'Click Start production. If you don’t see the button, the deposit or an approval is still missing.',
+      placement: 'bottom',
+      advanceOnEvent: 'ms:production-started',
+    },
+    {
+      route: (ctx) => ctx.projectPath,
+      title: 'The shop takes it from here',
+      body: 'The job is now on the Schedule, and your crew’s hours will land against it. That’s the next guide.',
+    },
+  ],
+}
+
+// ── Lesson — Your team on the clock (path step 5) ───────────────────────────
+// Mostly setup the owner can finish in one sitting, plus one fact that can't
+// be forced from this chair: a worker actually clocking in. The partial outro
+// says exactly that, kindly — it's the normal way this lesson ends.
+const TEAM_ON_CLOCK: Tour = {
+  id: 'team-on-clock',
+  title: 'Your team on the clock',
+  summary: 'Add your crew, give them logins, and watch hours land on jobs.',
+  minutes: 3,
+  gate: 'team_on_clock',
+  offer: {
+    title: 'Your team on the clock',
+    body: 'Add your crew, give them logins, and see where their hours land. About three minutes.',
+  },
+  chainTo: { tourId: 'getting-paid', label: 'Get paid', declineLabel: 'Done for now' },
+  outro: {
+    title: 'Your team is on',
+    body: 'Logins are set and hours land where the work happened. Real hours against estimated hours is where your numbers start telling the truth.',
+  },
+  outroPartial: {
+    title: 'One thing left',
+    body: 'The setup is done. This step finishes on its own the first time someone clocks time on a job.',
+  },
+  steps: [
+    {
+      route: '/team',
+      target: 'team-members',
+      title: 'This is your team page',
+      body: 'Everyone who works in the shop goes here. Their pay and hours are what your shop rate is built from.',
+      placement: 'bottom',
+    },
+    {
+      route: '/team',
+      target: 'team-add-member',
+      title: 'Add a person',
+      body: 'Click + Add Member.',
+      placement: 'left',
+      advanceWhenNextAppears: true,
+    },
+    {
+      route: '/team',
+      target: 'team-member-form',
+      title: 'Name them',
+      body: 'Type their name and click Add. Pay and details can be filled in on their row after.',
+      placement: 'bottom',
+      advanceOnEvent: 'ms:team-member-added',
+    },
+    {
+      route: '/team',
+      target: 'team-roster',
+      title: 'Set them up',
+      body: 'Open their row to set departments and hours. A person’s departments decide which jobs show up on their clock.',
+      placement: 'top',
+    },
+    {
+      route: '/team',
+      target: 'team-roster',
+      title: 'Give them a login',
+      body: 'Find Create login on their row. Set an email and a password, and pick Worker. Workers get the time clock. Managers get the whole shop.',
+      placement: 'top',
+      advanceOnEvent: 'ms:worker-login-created',
+    },
+    {
+      route: '/team',
+      title: 'The phone app',
+      body: 'Workers sign in at millsuite.com/your-shop/portal on their phone. They clock in on a job, clock out, see their week, and request time off.',
+    },
+    {
+      route: '/time',
+      title: 'Hours land on jobs',
+      body: 'This page shows every hour your team tracks. Each hour lands on the job it was worked, so every project shows estimated hours against real ones.',
+    },
+    {
+      route: '/time',
+      title: 'That’s the clock',
+      body: 'This step checks itself off the first time someone clocks in on a job.',
+    },
+  ],
+}
+
+// ── Lesson — Getting paid (path step 6) ─────────────────────────────────────
+const GETTING_PAID: Tour = {
+  id: 'getting-paid',
+  title: 'Getting paid',
+  summary: 'Where invoices live, and what to do when the money lands.',
+  minutes: 3,
+  gate: 'getting_paid',
+  offer: {
+    title: 'Getting paid',
+    body: 'Where invoices live, and how to record a payment when the money lands. About three minutes.',
+  },
+  outro: {
+    title: 'You got paid',
+    body: 'Priced, sold, built, tracked, and paid. From here it’s just more jobs, and every one makes your numbers sharper.',
+  },
+  outroPartial: {
+    title: 'When the money lands',
+    body: 'No payment is recorded yet. When one comes in, open the invoice and click Record payment. This step finishes itself.',
+  },
+  steps: [
+    {
+      route: '/invoices',
+      target: 'invoices-summary',
+      title: 'This is your money page',
+      body: 'Outstanding is what clients owe you. Overdue needs a phone call. Paid this month is the good news.',
+      placement: 'bottom',
+    },
+    {
+      route: '/invoices',
+      target: 'invoices-table',
+      title: 'Every invoice in one list',
+      body: 'Deposits, milestones, and change orders all land here. MillSuite creates most of them for you, like the deposit invoice when you sold your job.',
+      placement: 'top',
+    },
+    {
+      route: '/invoices',
+      target: 'invoices-table',
+      title: 'Open one',
+      body: 'Click an invoice to open it.',
+      placement: 'top',
+      advanceWhenNextAppears: true,
+    },
+    {
+      route: (ctx) => ctx.invoicePath,
+      target: 'invoice-detail',
+      title: 'The invoice',
+      body: 'Send it, download the PDF, and watch the balance at the bottom. The client gets a clean bill. You see what’s been paid against it.',
+      placement: 'bottom',
+    },
+    {
+      route: (ctx) => ctx.invoicePath,
+      target: 'invoice-payments',
+      title: 'Money came in',
+      body: 'Click Record payment. If the invoice is still a draft, send it first.',
+      placement: 'top',
+      advanceWhenNextAppears: true,
+    },
+    {
+      route: (ctx) => ctx.invoicePath,
+      target: 'payment-modal',
+      title: 'Write it down',
+      body: 'Enter the amount and the date, then click Record payment. Set to balance due fills in the full amount for you.',
+      placement: 'right',
+      advanceOnEvent: 'ms:payment-recorded',
+    },
+    {
+      route: (ctx) => ctx.invoicePath,
+      target: 'invoice-payments',
+      title: 'Paid down',
+      body: 'The balance drops and the status updates on its own: partial until it’s covered, then paid.',
+      placement: 'top',
+    },
+    {
+      route: (ctx) => ctx.invoicePath,
+      title: 'That’s the whole loop',
+      body: 'Price it, build it, track it, get paid. If you invoice through QuickBooks, payments recorded there apply here on their own.',
+    },
+  ],
+}
+
+export const TOURS: Tour[] = [
+  WELCOME,
+  RATE_BOOK,
+  FIRST_JOB,
+  SOLD_TO_PRODUCTION,
+  TEAM_ON_CLOCK,
+  GETTING_PAID,
+]
 
 export const TOUR_IDS: TourId[] = TOURS.map((t) => t.id)
 
@@ -509,6 +773,7 @@ export const PATH: PathStep[] = [
     key: 'sold_to_production',
     title: 'Sell it, then build it',
     blurb: 'Sold, deposit, approvals, and the gates that start production.',
+    tourId: 'sold-to-production',
     after: 'first_job',
     doneWhen: 'A project reached production',
   },
@@ -516,6 +781,7 @@ export const PATH: PathStep[] = [
     key: 'team_on_clock',
     title: 'Your team on the clock',
     blurb: 'Crew logins, the phone app, and hours landing against the job.',
+    tourId: 'team-on-clock',
     after: 'sold_to_production',
     doneWhen: 'A team login exists and time has been logged',
   },
@@ -523,6 +789,7 @@ export const PATH: PathStep[] = [
     key: 'getting_paid',
     title: 'Getting paid',
     blurb: 'Invoice it, record the payment, watch the money view.',
+    tourId: 'getting-paid',
     after: 'sold_to_production',
     doneWhen: 'A payment has been recorded',
   },

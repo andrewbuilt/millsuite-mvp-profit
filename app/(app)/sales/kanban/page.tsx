@@ -26,6 +26,7 @@ import {
 } from '@/lib/sales'
 import { useConfirm } from '@/components/confirm-dialog'
 import NewProjectModal from '@/components/sales/NewProjectModal'
+import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
 import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus } from 'lucide-react'
 import ImportedBadge from '@/components/imported-badge'
@@ -117,6 +118,8 @@ function KanbanInner() {
     )
     try {
       await updateProjectStage(project.id, targetStage)
+      // The sell-it guide waits on the card actually landing in Sold.
+      if (targetStage === 'sold') announce('ms:project-sold')
     } catch (err) {
       console.error('updateProjectStage failed', err)
       // Reload to resync on failure.

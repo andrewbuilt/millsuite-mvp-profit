@@ -186,9 +186,11 @@ export default function InvoicesPage() {
         </div>
 
         {/* AR-aging summary — pre-filter aggregate so the numbers
-            don't shift as the operator filters the list. */}
+            don't shift as the operator filters the list.
+            data-tour: the getting-paid guide's "money page" step. Renders only
+            once invoices exist; a fresh org gets the card centered instead. */}
         {invoices.length > 0 && (
-          <div className="mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div data-tour="invoices-summary" className="mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="px-4 py-3 bg-white border border-[#E5E7EB] rounded-xl">
               <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
                 Outstanding
@@ -310,7 +312,7 @@ export default function InvoicesPage() {
         ) : sorted.length === 0 ? (
           <div className="text-sm text-[#9CA3AF]">No invoices match the current filters.</div>
         ) : (
-          <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
+          <div data-tour="invoices-table" className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
             <div className="grid grid-cols-[120px_1fr_1fr_110px_110px_110px_110px_90px] px-4 py-2.5 text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold border-b border-[#E5E7EB] bg-[#F9FAFB]">
               <div>Invoice #</div>
               <div>Project</div>

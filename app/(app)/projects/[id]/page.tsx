@@ -57,6 +57,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { announce } from '@/lib/tour-events'
 import {
   loadRateBook,
   loadEstimateLines,
@@ -730,6 +731,7 @@ export default function ProjectCoverPage() {
         return
       }
       setDepositReceived(true)
+      announce('ms:deposit-received')
       showToast(qbMode ? 'Deposit override applied.' : 'Deposit recorded on the contract invoice.')
       const ready = await isReadyForProduction(projectId)
       setReadyForProduction(ready)
@@ -754,6 +756,7 @@ export default function ProjectCoverPage() {
         return
       }
       setProject((p) => (p ? { ...p, stage: 'production' } : p))
+      announce('ms:production-started')
       showToast('Production started. Schedule allocations seeded.')
       reload()
     } finally {
@@ -791,6 +794,7 @@ export default function ProjectCoverPage() {
         return
       }
       setProject((p) => (p ? { ...p, stage: 'production' } : p))
+      announce('ms:production-started')
       showToast(
         `Production started. ${res.approvedCount} approval card(s) overridden; allocations seeded.`,
       )
@@ -2014,8 +2018,12 @@ export default function ProjectCoverPage() {
               )}
 
               {/* Stage action — moved here from the old bottom bar. One
-                  primary button per stage + a Pre-production link once sold. */}
-              <div className="mt-4 pt-4 border-t border-[#F3F4F6] flex flex-wrap items-center gap-2">
+                  primary button per stage + a Pre-production link once sold.
+                  data-tour: the sell-it guide rings this row for its deposit,
+                  approvals, and start-production steps — one hook, since the
+                  buttons come and go with stage state (and Start production
+                  renders twice when ready: here and in the green banner). */}
+              <div data-tour="stage-actions" className="mt-4 pt-4 border-t border-[#F3F4F6] flex flex-wrap items-center gap-2">
                 {stageCover === 'bidding' && (
                   <button
                     onClick={handleMarkSold}

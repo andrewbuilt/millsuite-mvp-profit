@@ -18,6 +18,7 @@
 
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import { announce } from '@/lib/tour-events'
 import {
   recordInvoicePayment,
   updateInvoicePayment,
@@ -97,6 +98,8 @@ export default function RecordPaymentModal({
             reference: reference.trim() || null,
             notes: notes.trim() || null,
           })
+      // Creates only — the getting-paid guide waits on the payment landing.
+      if (!isEdit) announce('ms:payment-recorded')
       onSaved(updated)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save payment')
@@ -111,6 +114,7 @@ export default function RecordPaymentModal({
       onClick={onClose}
     >
       <div
+        data-tour="payment-modal"
         className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >

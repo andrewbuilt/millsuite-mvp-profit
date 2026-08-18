@@ -21,11 +21,23 @@ export type TourEvent =
   | 'ms:material-created'
   | 'ms:door-type-created'
   | 'ms:estimate-line-created'
+  | 'ms:project-sold'
+  | 'ms:deposit-received'
+  | 'ms:production-started'
+  | 'ms:team-member-added'
+  | 'ms:worker-login-created'
+  | 'ms:payment-recorded'
 
 export const TOUR_EVENTS: TourEvent[] = [
   'ms:material-created',
   'ms:door-type-created',
   'ms:estimate-line-created',
+  'ms:project-sold',
+  'ms:deposit-received',
+  'ms:production-started',
+  'ms:team-member-added',
+  'ms:worker-login-created',
+  'ms:payment-recorded',
 ]
 
 /** Announce a save a walkthrough may be waiting on. Safe to call

@@ -279,7 +279,7 @@ export default function TourRunner({
 
   // What the tour has learned. A ref, not state: it's read inside async
   // resolution and must never trigger a re-render of its own.
-  const ctxRef = useRef<TourContext>({ projectPath: null, subprojectPath: null })
+  const ctxRef = useRef<TourContext>({ projectPath: null, subprojectPath: null, invoicePath: null })
 
   // Where each step was actually shown. Back used to only navigate when the
   // step declared a `route`, so stepping back from the subproject page to a
@@ -297,6 +297,10 @@ export default function TourRunner({
   // Remember the project the user builds during the tour, so the step that
   // sends them back to the estimate knows where "back" is.
   useEffect(() => {
+    // Invoices: same idea as projects below — the getting-paid lesson follows
+    // the user into an invoice it can't name up front.
+    const inv = /^\/invoices\/([^/]+)/.exec(pathname || '')
+    if (inv) ctxRef.current.invoicePath = `/invoices/${inv[1]}`
     const m = /^\/projects\/([^/]+)/.exec(pathname || '')
     if (!m) return
     ctxRef.current.projectPath = `/projects/${m[1]}`

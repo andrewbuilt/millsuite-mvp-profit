@@ -28,6 +28,7 @@ import { awaitPendingOrgWrites } from '@/lib/org-write'
 import SaveStatus from '@/components/save-status'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { announce } from '@/lib/tour-events'
 import { useConfirm } from '@/components/confirm-dialog'
 import { Trash2, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
@@ -383,6 +384,11 @@ function TeamContent() {
     setNewMemberName('')
     setNewMemberComp('')
     setAddingMember(false)
+    // The member exists in the roster from here; persistence rides the
+    // autosave (which flushes on unmount, so the row can't be lost). Fired
+    // here rather than after the save because this is the moment the guide's
+    // instruction is actually done.
+    announce('ms:team-member-added')
   }
 
   function patchMember(id: string, patch: Partial<TeamMember>) {
@@ -534,6 +540,8 @@ function TeamContent() {
       m.id === member.id ? { ...m, user_id: json.user_id, email: json.email } : m,
     )
     await persistTeamNow(next)
+    // After the roster write lands — the login exists AND is bridged.
+    announce('ms:worker-login-created')
   }
 
   async function resetPassword(member: TeamMember, password: string) {
@@ -735,7 +743,11 @@ function TeamContent() {
         </div>
 
         {/* Team Members */}
-        <div>
+        {/* data-tour hooks: the team guide's intro (section), add flow
+            (button + inline form), and roster steps (list). The form hook
+            only exists while the form is open, so it doubles as the
+            appears-signal for "+ Add Member". */}
+        <div data-tour="team-members">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <h2 className="text-sm font-semibold text-[#111]">Team Members</h2>
@@ -745,6 +757,7 @@ function TeamContent() {
             {!addingMember && (
               <button
                 onClick={() => setAddingMember(true)}
+                data-tour="team-add-member"
                 className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
               >
                 + Add Member
@@ -753,7 +766,7 @@ function TeamContent() {
           </div>
 
           {addingMember && (
-            <div className="flex gap-2 mb-3">
+            <div data-tour="team-member-form" className="flex gap-2 mb-3">
               <input
                 autoFocus
                 value={newMemberName}
@@ -787,7 +800,7 @@ function TeamContent() {
             </div>
           )}
 
-          <div className="space-y-2">
+          <div data-tour="team-roster" className="space-y-2">
             {team.map((member) => (
               <div
                 key={member.id}

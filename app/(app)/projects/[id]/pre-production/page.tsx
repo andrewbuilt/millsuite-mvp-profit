@@ -303,7 +303,10 @@ export default function PreProductionPage() {
   const installTarget = fmtDate(project.target_start_date)
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB]">
+    /* data-tour: the sell-it guide's approvals step lands here; the page-sized
+       target renders the card centered, which is right for a look-around. It
+       also doubles as the appears-signal for "Click Pre-production". */
+    <div data-tour="approvals-page" className="min-h-screen bg-[#F9FAFB]">
       {/* Top bar */}
       <div className="sticky top-0 z-10 bg-white border-b border-[#E5E7EB] px-6 py-3 flex items-center justify-between">
         <button
