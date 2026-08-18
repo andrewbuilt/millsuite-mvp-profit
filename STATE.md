@@ -193,6 +193,10 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 - ~~⚠️ FLAGGED — this changed APPROVED COPY~~ **RESOLVED 2026-08-14 by the v2 planning pass:** the closer now reads "Ready to set up the numbers everything prices from?", matching the chain button.
 - **Superseded by this rework:** the old flat Guides list and its `COMING_SOON` array are gone. The first-job tour's offer/practice flow, the engine and the auto-offer are untouched.
 
+### Welcome loop polish — ✅ 2026-08-14 (`75259cd`, from Andrew's markup)
+
+The five bowed connector arcs are now ONE circle through every icon center, and the blue dot rides exactly on it. Center tagline shrunk so it can't overlap the tiles; reads "Every loop makes the next quote better." Beats relabeled to Andrew's: Build your rates / Estimate the job / Track labor real time / Complete the project / Automatically update rate book. `mockups/welcome-loop.html` is superseded — the component (`components/walkthroughs/WelcomeLoop.tsx`) is canonical now.
+
 ### Path guides 4-6 built — ✅ 2026-08-14 (`1007831`). The whole path now has a guide on every step.
 
 Three new lessons in Andrew's plain voice (same rhythm: intro → this is the page → press here → how it works). All gates/outros honest, all DO steps ride real state changes.
