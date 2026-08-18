@@ -347,7 +347,9 @@ export default function PreProductionPage() {
         </div>
 
         {/* Gate banner */}
+        {/* data-tour: the sell-it guide's "Get approved" step. */}
         <div
+          data-tour="approval-gate"
           className={
             'rounded-xl px-5 py-4 flex items-center gap-5 flex-wrap border ' +
             (allReady
@@ -397,7 +399,7 @@ export default function PreProductionPage() {
           </div>
         )}
 
-        {subs.map((sub) => {
+        {subs.map((sub, subIndex) => {
           const status = statusMap[sub.id]
           const subReady = status?.ready_for_scheduling
           return (
@@ -436,6 +438,9 @@ export default function PreProductionPage() {
                     onCreateSpecCo={(approvalItemId) =>
                       void openSpecCo(approvalItemId, sub.id, sub.name)
                     }
+                    // First subproject only — a data-tour value must resolve
+                    // to exactly one element (the guide rings one spec card).
+                    tourTag={subIndex === 0 ? 'spec-card' : undefined}
                   />
                 </div>
                 <div>
@@ -446,6 +451,7 @@ export default function PreProductionPage() {
                     subprojectId={sub.id}
                     actorUserId={user?.id}
                     onChange={reload}
+                    tourTag={subIndex === 0 ? 'drawings-approve' : undefined}
                   />
                 </div>
               </div>

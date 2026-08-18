@@ -437,11 +437,11 @@ const SOLD_TO_PRODUCTION: Tour = {
   id: 'sold-to-production',
   title: 'Sell it, then build it',
   summary: 'Sold, deposit, approvals, and the button that starts production.',
-  minutes: 4,
+  minutes: 5,
   gate: 'sold_to_production',
   offer: {
     title: 'Sell it, then build it',
-    body: 'A job needs two things before the shop can start: the deposit and the approvals. This guide walks a sold job through both. About four minutes.',
+    body: 'A job needs two things before the shop can start: the deposit and the approvals. This guide walks a sold job through both. About five minutes.',
   },
   chainTo: { tourId: 'team-on-clock', label: 'Set up my team', declineLabel: 'Done for now' },
   outro: {
@@ -471,14 +471,14 @@ const SOLD_TO_PRODUCTION: Tour = {
     },
     {
       route: (ctx) => ctx.projectPath,
-      target: 'stage-actions',
-      title: 'The job is sold',
-      body: 'Two things happen before the shop starts: the deposit comes in, and the plans get approved. The buttons here walk you through both, in order.',
+      target: 'project-status',
+      title: 'We’re in pre-production',
+      body: 'The job is sold, and the project is officially in pre-production. Two things get any job into production: the down payment and the approvals.',
       placement: 'bottom',
     },
     {
       route: (ctx) => ctx.projectPath,
-      target: 'stage-actions',
+      target: 'mark-deposit',
       title: 'Record the deposit',
       body: 'When the money lands, click Mark deposit received. MillSuite creates the invoice and records the payment for you.',
       placement: 'bottom',
@@ -486,7 +486,7 @@ const SOLD_TO_PRODUCTION: Tour = {
     },
     {
       route: (ctx) => ctx.projectPath,
-      target: 'stage-actions',
+      target: 'pre-production-link',
       title: 'Now the approvals',
       body: 'Click Pre-production.',
       placement: 'bottom',
@@ -494,14 +494,41 @@ const SOLD_TO_PRODUCTION: Tour = {
     },
     {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
-      target: 'approvals-page',
-      title: 'Get your sign offs',
-      body: 'Each subproject has a checklist: drawings, samples, anything that needs a yes from the client. Check items off as you get them. When everything reads ready, the job can start.',
+      target: 'approval-gate',
+      title: 'Get approved',
+      body: 'Every project needs its drawings and samples approved. This banner is the quick view: how many are approved, in review, and still pending.',
       placement: 'bottom',
     },
     {
+      route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
+      target: 'spec-card',
+      title: 'Approve a material',
+      body: 'Open this spec with the arrow in its corner and click Sample submitted. It’s timestamped while it waits on the client. Try Client requested change, then Sample submitted again. Every step gets its own stamp. Now click Client approved. That’s one material approved.',
+      placement: 'right',
+      advanceOnEvent: 'ms:spec-approved',
+    },
+    {
+      route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
+      target: 'drawings-approve',
+      title: 'Approve the drawings',
+      body: 'Click Mark approved manually for now. When your drawings live in MillSuite, you’ll approve the revision itself.',
+      placement: 'left',
+      advanceOnEvent: 'ms:drawings-approved',
+    },
+    {
+      route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
+      target: 'approval-gate',
+      title: 'Finish the rest',
+      body: 'Approve the rest of the materials and drawings the same way, then head back to the project page.',
+      placement: 'bottom',
+      // The next step's target (the Start production button) only exists on
+      // the project page once every gate is clear — so it doubles as the
+      // "you finished and went back" signal.
+      advanceWhenNextAppears: true,
+    },
+    {
       route: (ctx) => ctx.projectPath,
-      target: 'stage-actions',
+      target: 'start-production',
       title: 'Start production',
       body: 'Click Start production. If you don’t see the button, the deposit or an approval is still missing.',
       placement: 'bottom',
@@ -509,8 +536,10 @@ const SOLD_TO_PRODUCTION: Tour = {
     },
     {
       route: (ctx) => ctx.projectPath,
-      title: 'The shop takes it from here',
-      body: 'The job is now on the Schedule, and your crew’s hours will land against it. That’s the next guide.',
+      target: 'project-status',
+      title: 'Ready for the shop floor',
+      body: 'This project is in production. Next we’ll look at the schedule and see what happens when time is tracked on this job.',
+      placement: 'bottom',
     },
   ],
 }

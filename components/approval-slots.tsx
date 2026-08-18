@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Clock, Send, RotateCcw, Link2, Lock, ChevronDown, ChevronUp } from 'lucide-react'
 import { useConfirm } from '@/components/confirm-dialog'
+import { announce, type TourEvent } from '@/lib/tour-events'
 import {
   ApprovalItem,
   ApprovalState,
@@ -47,6 +48,10 @@ interface Props {
    *  CreateCoModalSeed with source='spec' + preSelectedSlot, and mounts
    *  the modal. Buttons hide entirely when this prop isn't provided. */
   onCreateSpecCo?: (approvalItemId: string) => void
+  /** data-tour hook for the FIRST spec card only. Passed by the pre-prod
+   *  page for its first subproject alone — every card carrying the same
+   *  value would break querySelector (one tag per value, always). */
+  tourTag?: string
 }
 
 /** Map an approval_items.label to the composer slot key the spec drives.
@@ -60,7 +65,7 @@ function slotKeyForApprovalLabel(label: string): string | null {
   return null
 }
 
-export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onCreateSpecCo }: Props) {
+export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onCreateSpecCo, tourTag }: Props) {
   const { alert } = useConfirm()
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -91,13 +96,17 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
 
   const runTransition = async (
     fn: (id: string, args: { actorUserId?: string }) => Promise<void>,
-    itemId: string
+    itemId: string,
+    /** Announced only after the transition + reload succeed — the sell-it
+     *  guide waits on the approval actually landing. */
+    announceOnSuccess?: TourEvent
   ) => {
     setBusyItemId(itemId)
     try {
       await fn(itemId, { actorUserId })
       await reload()
       onChange?.()
+      if (announceOnSuccess) announce(announceOnSuccess)
     } catch (err) {
       console.error(err)
       await alert({
@@ -140,7 +149,7 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
           spec-CO modal (parent decides). When the spec lands as
           approved, any draft CO targeting it auto-finalizes (see
           lib/change-orders.finalizeSpecCosOnApproval). */}
-      {items.map((item) => {
+      {items.map((item, index) => {
         const slotKey = slotKeyForApprovalLabel(item.label)
         // Spec-CO is only meaningful when:
         //   1. The parent wired onCreateSpecCo (pre-prod page does;
@@ -150,18 +159,21 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
         const canCreateCo =
           !!onCreateSpecCo && !!slotKey && item.state !== 'approved'
         return (
-          <SlotCard
-            key={item.id}
-            item={item}
-            isExpanded={expanded.has(item.id)}
-            isBusy={busyItemId === item.id}
-            canCreateCo={canCreateCo}
-            onToggleExpanded={() => toggleExpanded(item.id)}
-            onSubmit={() => runTransition(submitSample, item.id)}
-            onApprove={() => runTransition(approve, item.id)}
-            onRequestChange={() => runTransition(requestChange, item.id)}
-            onCreateCo={() => onCreateSpecCo?.(item.id)}
-          />
+          // The wrapper exists for the tour hook (first card only); it's a
+          // plain div so the parent's space-y spacing is unchanged.
+          <div key={item.id} data-tour={index === 0 ? tourTag : undefined}>
+            <SlotCard
+              item={item}
+              isExpanded={expanded.has(item.id)}
+              isBusy={busyItemId === item.id}
+              canCreateCo={canCreateCo}
+              onToggleExpanded={() => toggleExpanded(item.id)}
+              onSubmit={() => runTransition(submitSample, item.id)}
+              onApprove={() => runTransition(approve, item.id, 'ms:spec-approved')}
+              onRequestChange={() => runTransition(requestChange, item.id)}
+              onCreateCo={() => onCreateSpecCo?.(item.id)}
+            />
+          </div>
         )
       })}
     </div>

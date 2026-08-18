@@ -24,6 +24,8 @@ export type TourEvent =
   | 'ms:project-sold'
   | 'ms:deposit-received'
   | 'ms:production-started'
+  | 'ms:spec-approved'
+  | 'ms:drawings-approved'
   | 'ms:team-member-added'
   | 'ms:worker-login-created'
   | 'ms:payment-recorded'
@@ -35,6 +37,8 @@ export const TOUR_EVENTS: TourEvent[] = [
   'ms:project-sold',
   'ms:deposit-received',
   'ms:production-started',
+  'ms:spec-approved',
+  'ms:drawings-approved',
   'ms:team-member-added',
   'ms:worker-login-created',
   'ms:payment-recorded',

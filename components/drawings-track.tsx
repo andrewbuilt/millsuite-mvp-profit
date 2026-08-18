@@ -38,6 +38,7 @@ import {
 } from '@/lib/drawings'
 import type { ApprovalState } from '@/lib/approvals'
 import { useConfirm } from '@/components/confirm-dialog'
+import { announce } from '@/lib/tour-events'
 
 interface Props {
   subprojectId: string
@@ -47,9 +48,12 @@ interface Props {
    *  approve / reopen / manual-approve). Lets the parent refetch the
    *  scheduling-gate view so the project header updates immediately. */
   onChange?: () => void
+  /** data-tour hook for the manual-approve button. Passed by the pre-prod
+   *  page for its first subproject only, so the value stays unique. */
+  tourTag?: string
 }
 
-export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: Props) {
+export default function DrawingsTrack({ subprojectId, actorUserId, onChange, tourTag }: Props) {
   const { confirm, alert } = useConfirm()
   const [revs, setRevs] = useState<DrawingRevision[]>([])
   const [loading, setLoading] = useState(true)
@@ -70,13 +74,16 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
 
   const runTransition = async (
     fn: (id: string) => Promise<void>,
-    revId: string
+    revId: string,
+    /** Announced after the transition + reload succeed. */
+    announceOnSuccess?: 'ms:drawings-approved'
   ) => {
     setBusyRevId(revId)
     try {
       await fn(revId)
       await reload()
       onChange?.()
+      if (announceOnSuccess) announce(announceOnSuccess)
     } catch (err) {
       console.error(err)
       await alert({
@@ -147,10 +154,14 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
                 }
                 await reload()
                 onChange?.()
+                // After the approval actually lands — the sell-it guide
+                // waits on this.
+                announce('ms:drawings-approved')
               } finally {
                 setMarkingManual(false)
               }
             }}
+            data-tour={tourTag}
             disabled={markingManual || alreadyApproved}
             className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed"
             title={
@@ -186,7 +197,7 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange }: P
           isLatest
           isBusy={busyRevId === latest.id}
           onSubmit={() => runTransition(submitRevisionForReview, latest.id)}
-          onApprove={() => runTransition(approveRevision, latest.id)}
+          onApprove={() => runTransition(approveRevision, latest.id, 'ms:drawings-approved')}
           onReopen={() => runTransition(reopenRevision, latest.id)}
         />
       )}

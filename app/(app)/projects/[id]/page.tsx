@@ -2034,8 +2034,13 @@ export default function ProjectCoverPage() {
                   </button>
                 )}
                 {stageCover === 'sold' && readyForProduction && (
+                  /* data-tour: only THIS instance is tagged — the green
+                     banner renders a second Start production button, and two
+                     tags would break querySelector. Also the guide's
+                     "finish the approvals" step advances when this appears. */
                   <button
                     onClick={handleStartProduction}
+                    data-tour="start-production"
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
                   >
                     Start production
@@ -2054,6 +2059,7 @@ export default function ProjectCoverPage() {
                 {stageCover === 'sold' && !depositReceived && (
                   <button
                     onClick={handleMarkDeposit}
+                    data-tour="mark-deposit"
                     disabled={markingDeposit}
                     title={
                       qbMode
@@ -2109,6 +2115,7 @@ export default function ProjectCoverPage() {
                   stageCover === 'complete') && (
                   <Link
                     href={`/projects/${projectId}/pre-production`}
+                    data-tour="pre-production-link"
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] border border-[#E5E7EB] transition-colors"
                   >
                     <CheckCircle2 className="w-4 h-4" /> Pre-production
@@ -3534,7 +3541,9 @@ function StageStrip({
   }
   const currentIdx = COVER_STAGE_ORDER.indexOf(cover)
   return (
-    <div className="px-8 py-4 bg-white border-b border-[#E5E7EB]">
+    /* data-tour: the sell-it guide's intro and closer both point at this
+       strip — the "where is my job in its life" view. */
+    <div data-tour="project-status" className="px-8 py-4 bg-white border-b border-[#E5E7EB]">
       <div className="max-w-[1240px] mx-auto flex items-center gap-3">
         {COVER_STAGE_ORDER.map((s, i) => {
           const isDone = i < currentIdx
