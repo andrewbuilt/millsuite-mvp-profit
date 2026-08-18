@@ -193,6 +193,10 @@ Original scope — products move from hardcoded `lib/products.ts` to **data** (o
 - ~~⚠️ FLAGGED — this changed APPROVED COPY~~ **RESOLVED 2026-08-14 by the v2 planning pass:** the closer now reads "Ready to set up the numbers everything prices from?", matching the chain button.
 - **Superseded by this rework:** the old flat Guides list and its `COMING_SOON` array are gone. The first-job tour's offer/practice flow, the engine and the auto-offer are untouched.
 
+### Tour engine: snap-then-glide — ✅ 2026-08-14 (`fb907f4`, round 2 of the jump fix)
+
+Andrew still saw jumps at sell-it 4→5 and 5→6: the PAGE keeps reacting after the action that advanced the step (reload removes the just-clicked deposit button and reflows the action row; the pre-prod page's banner shifts as data loads), and the card glided after those late reflows. Now every step has a **700ms grace window where card + ring track position changes instantly** (snap); gliding turns on only after the layout settles. Scroll-settle needs 3 stable frames. Engine-level — covers all guides.
+
 ### Tour engine: card no longer jumps between steps — ✅ 2026-08-14 (`2c340bb`)
 
 Andrew: "the modal jumps around between selections." Two roots: (1) measuring mid-scroll caught targets off-screen → ring dropped → card flashed at the dock corner, then leapt to the target when the smooth scroll landed. `waitForScrollSettle()` now holds the step until the target's rect is stable and visible (800ms cap). (2) Step changes GLIDED the card/ring across the page. Both are keyed by step index now: step change = cut to the new position with a 200ms fade-in; within-step tracking still animates.
