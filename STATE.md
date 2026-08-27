@@ -4,11 +4,15 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-08-14 · **Branch:** `main`
+**Last updated:** 2026-08-27 · **Branch:** `main`
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-08-12)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-08-27)
+
+**ACTIVE: "Small fixes wave" (top of Now, scoped 2026-08-27 Cowork pass with Andrew) — 3 items: project rename, materials-catalog organization, collapsible subproject scope. Work these next; NO new walkthrough work until they're done (Andrew's call).** The guide-v2 live QA list stays parked, not dropped.
+
+**⚠️ UNPUSHED as of 2026-08-27: `fb907f4` (snap-then-glide) + `33253c7` (its STATE docs) — `main` is ahead of origin by 2; prod runs `0fb737b` (deployed Aug 18).** Push before testing tour transitions. (Vercel build times are back to ~1 min — the 30-min warning below is resolved.)
 
 **⛔ NEVER WRITE TO `users` FROM THE BROWSER.** `users` has RLS on with a SELECT-self policy and a DELETE policy and **no UPDATE policy**, so `supabase.from('users').update(...)` matches zero rows and PostgREST returns `{ error: null }` — success-shaped silence that `if (error) throw` cannot catch. This had been quietly breaking `onboarded_at` since 083 landed on prod (2026-08-06); found and fixed 2026-08-12. Go through **`/api/me/progress`** (service role, own row only, three-column allowlist). Same trap as `orgs`, which is what `lib/org-write.ts` guards. Full detail under "Guided walkthroughs v1".
 
@@ -86,6 +90,19 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ---
 
 ## Now
+
+### Small fixes wave — scoped 2026-08-27 (Cowork pass with Andrew). **Build these first; no new walkthrough work until done.** Work in order, one at a time.
+
+**1. Project rename — project page header.** Today the name is write-once (`NewProjectModal` → `createBlankLeadProject`); **no update path exists** — `lib/sales.ts` has `updateProjectStage` but nothing that patches `name`. Build: click-to-edit (pencil) on the `<h1>` in `app/(app)/projects/[id]/page.tsx` (~line 1265, next to ImportedBadge/PracticeBadge) + a small org-scoped `updateProjectName(projectId, name)` in `lib/sales.ts`. Trim, reject empty; kanban cards / dashboards / QB modal headers all read the same row at render time, so they pick the new name up — no sync work. Andrew's call: header only, no kanban-card rename.
+
+**2. Materials catalog organization — structured fields (Andrew's call over tags/no-schema).** Today: one flat list; search covers name+notes; "use" already exists as the four `show_in_*` flags; **no thickness or material-type fields — it's all crammed into the name text.**
+   - **Migration `090_material_fields.sql`** (idempotent; `089` stays reserved for the annual_comp blob cleanup): add nullable `category` text + `thickness` text to `materials`; `NOTIFY pgrst, 'reload schema';`. Run on prod before deploying.
+   - `lib/materials.ts`: add both fields to the type + create/update paths.
+   - `MaterialsCatalog.tsx`: **group the list by category** (uncategorized last), **filter chips** for thickness + use (the show_in flags), search stays as-is; inline edit + add form get category (free-text with datalist of existing values — no fixed vocabulary) and thickness.
+   - Composer dropdowns unchanged (quick picks still ride show_in flags); optional nice-to-have: group the browse-all list by category.
+   - Verify: Andrew can find a material by thickness/category without reading every name.
+
+**3. Collapsible scope section on subprojects — collapsed by default (Andrew's call).** `ScopeEditor` (activity type + description blocks + exclusions, `app/(app)/projects/[id]/subprojects/[subId]/page.tsx` ~1340) sits always-open above the composer lines. Build: collapsed header row showing a one-line summary (activity type · N description blocks · N exclusions), chevron to expand — reuse the Change Orders chevron pattern from the project page (`coListOpen`). Client state only, no persistence, no schema change. Keep the tour hooks/QB push behavior untouched — this is display only.
 
 ### Rate book overhaul — scoped 2026-07-23 (Cowork deep-dive + design pass with Andrew; demo-feedback item 2). Build AFTER the fix list below is done.
 
@@ -322,7 +339,7 @@ Also this pass: step 8 rings the card just created (`tour-project-card`, tagged 
 
 **Pro+ test org (2026-08-13):** `millsuite.com/pro-plus-test` · `andrew+proplus@builtthings.com` · plan `pro-ai`, `plan_status='trialing'`, trial ends 2026-09-12, no Stripe subscription — verified against the live row, since `create_org_with_owner` could have coerced the plan. Real Pro+ tier gating and usage limits, unlike the comped `internal` orgs. **`scripts/create-customer-org.mjs` gained `--plan` + `--trial-days`** (default still `internal`); a sellable tier automatically gets the trial clock, because without `trial_ends_at` BillingGate locks the org out of its own app on first sign-in. **Signup is unchanged — Pro/Pro+ still go straight to Stripe.** If real trials on paid tiers are ever wanted, that's its own item and the missing piece is what happens when a paid trial expires with no card.
 
-**⚠️ DEPLOY LATENCY:** Vercel builds went from ~80s to ~30min on 2026-08-13. Nothing failed, but don't assume a push is live — check before testing.
+**⚠️ DEPLOY LATENCY — RESOLVED:** builds spiked to ~30min on 2026-08-13; back to ~1min as of the Aug 18 deploys. Still worth a glance at Vercel before testing a fresh push.
 
 **Still to do (all Andrew, needs a logged-in app — preview can't auth):**
 - **Re-run the first-job tour against the 2026-08-13 foundational pass** — page stays live and undimmed · the new project opens at the TOP · step 4 rings Add subproject · the card gets out of the way when a modal opens instead of covering it · step 5 advances when the composer opens · step 6 rings the composer's own breakdown · Back returns to the right page without a pause · step 8 rings the card you made · Done ends in an opaque wrap-up.
