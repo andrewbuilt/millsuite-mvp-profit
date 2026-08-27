@@ -52,6 +52,14 @@ export interface RateBookItemRow {
   base_labor_hours_assembly: number
   base_labor_hours_finish: number
   base_labor_hours_install: number
+  // Per-DRAWER hours + hardware (036/037). Drawers are the one item type the
+  // composer does NOT price from the base columns above — see `laborHoursFor`.
+  // There is deliberately no drawer install column.
+  drawer_labor_hours_eng: number
+  drawer_labor_hours_cnc: number
+  drawer_labor_hours_assembly: number
+  drawer_labor_hours_finish: number
+  drawer_hardware_cost: number
   // Physical inputs.
   sheets_per_unit: number
   sheet_cost: number
@@ -371,20 +379,65 @@ export interface ItemPriceBreakdown {
   perDept: Array<{ dept: LaborDept; hours: number; rate: number; cost: number }>
 }
 
+/** The one place that answers "which columns does the composer actually price
+ *  this item from". Drawers are the exception: `loadDrawerStyles`
+ *  (composer-loader) reads `drawer_labor_hours_*` + `drawer_hardware_cost`
+ *  and never touches the base columns, so anything in the rate book that
+ *  reads base hours for a drawer is showing a number nothing prices from.
+ *  Everything else uses the base columns. */
+export const DRAWER_ITEM_TYPE = 'drawer_style'
+
+export function isDrawerItemType(categoryItemType: string | null | undefined): boolean {
+  return categoryItemType === DRAWER_ITEM_TYPE
+}
+
+/** The column backing one dept's hours for this item type. Drawers have no
+ *  install column — `null` means "this dept doesn't apply here", which is what
+ *  hides the Install field in the edit modal. */
+export function laborHoursColumn(
+  dept: LaborDept,
+  categoryItemType: string | null | undefined,
+): keyof RateBookItemRow | null {
+  if (!isDrawerItemType(categoryItemType)) return `base_labor_hours_${dept}` as keyof RateBookItemRow
+  if (dept === 'install') return null
+  return `drawer_labor_hours_${dept}` as keyof RateBookItemRow
+}
+
+/** Per-dept hours the composer really uses, keyed by dept. */
+export function laborHoursFor(
+  item: Partial<RateBookItemRow>,
+  categoryItemType: string | null | undefined,
+): Record<LaborDept, number> {
+  const out = {} as Record<LaborDept, number>
+  for (const d of LABOR_DEPTS) {
+    const col = laborHoursColumn(d, categoryItemType)
+    out[d] = col ? Number(item[col] as number | undefined) || 0 : 0
+  }
+  return out
+}
+
+/** Hardware $ the composer really uses. Drawers charge per drawer from their
+ *  own column; `hardware_cost` is the cabinet one. */
+export function hardwareCostFor(
+  item: Partial<RateBookItemRow>,
+  categoryItemType: string | null | undefined,
+): number {
+  return isDrawerItemType(categoryItemType)
+    ? Number(item.drawer_hardware_cost) || 0
+    : Number(item.hardware_cost) || 0
+}
+
 export function computeBuildup(
   item: RateBookItemRow,
   shopRate: number,
-  consumablePct = 0.1
+  consumablePct = 0.1,
+  categoryItemType: string | null = null,
 ): ItemPriceBreakdown {
   const rate = Number(shopRate) || 0
+  const hoursByDept = laborHoursFor(item, categoryItemType)
   const perDept: ItemPriceBreakdown['perDept'] = LABOR_DEPTS.map((d) => {
-    const hours =
-      d === 'eng' ? item.base_labor_hours_eng :
-      d === 'cnc' ? item.base_labor_hours_cnc :
-      d === 'assembly' ? item.base_labor_hours_assembly :
-      d === 'finish' ? item.base_labor_hours_finish :
-      item.base_labor_hours_install
-    return { dept: d, hours: Number(hours) || 0, rate, cost: (Number(hours) || 0) * rate }
+    const hours = hoursByDept[d]
+    return { dept: d, hours, rate, cost: hours * rate }
   })
   const laborHours = perDept.reduce((s, x) => s + x.hours, 0)
   const laborCost = perDept.reduce((s, x) => s + x.cost, 0)
@@ -399,7 +452,7 @@ export function computeBuildup(
   }
 
   const consumables = materialCost * consumablePct
-  const hardware = Number(item.hardware_cost || 0)
+  const hardware = hardwareCostFor(item, categoryItemType)
   const total = laborCost + materialCost + consumables + hardware
 
   return { laborHours, laborCost, materialCost, consumables, hardware, total, perDept }

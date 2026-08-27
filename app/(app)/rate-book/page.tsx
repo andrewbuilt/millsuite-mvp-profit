@@ -35,6 +35,7 @@ import {
   attachOption, detachOption,
   updateItem,
   computeBuildup,
+  laborHoursColumn, laborHoursFor, hardwareCostFor, isDrawerItemType,
   CONFIDENCE_LABEL, CONFIDENCE_COLOR,
 } from '@/lib/rate-book-v2'
 import { upsertRateBookItem } from '@/lib/rate-book'
@@ -280,8 +281,11 @@ export default function RateBookPage() {
 
   const shopRate = org?.shop_rate ?? 0
   const buildup = useMemo(
-    () => (selectedItem ? computeBuildup(selectedItem, shopRate) : null),
-    [selectedItem, shopRate]
+    () =>
+      selectedItem
+        ? computeBuildup(selectedItem, shopRate, 0.1, selectedCategory?.item_type ?? null)
+        : null,
+    [selectedItem, shopRate, selectedCategory]
   )
 
   // Tree: categories → items, filtered by search.
@@ -536,12 +540,13 @@ export default function RateBookPage() {
                         // Surface as a small gray pill so an operator
                         // can tell intentional zero (custom freeform
                         // line) from unfinished setup.
-                        const totalHours =
-                          (Number(it.base_labor_hours_eng) || 0) +
-                          (Number(it.base_labor_hours_cnc) || 0) +
-                          (Number(it.base_labor_hours_assembly) || 0) +
-                          (Number(it.base_labor_hours_finish) || 0) +
-                          (Number(it.base_labor_hours_install) || 0)
+                        //
+                        // Reads whichever columns the composer prices this
+                        // item type from — a calibrated drawer stores its
+                        // hours in drawer_labor_hours_*, so summing the base
+                        // columns used to flag every drawer as uncalibrated.
+                        const hours = laborHoursFor(it, cat.item_type)
+                        const totalHours = LABOR_DEPTS.reduce((s, d) => s + hours[d], 0)
                         const uncalibrated = totalHours === 0
                         return (
                           <button
@@ -1198,7 +1203,10 @@ function isFieldRelevant(
   if (field === 'linear_cost') return item.material_mode === 'linear'
   if (field === 'lump_cost') return item.material_mode === 'lump'
   if (field === 'hardware_cost' || field === 'hardware_note') {
-    return categoryItemType === 'cabinet_style'
+    // Drawers carry hardware too — the slides/pulls the wizard prices per
+    // drawer. It lands in `drawer_hardware_cost`, a different column from the
+    // cabinet one, which the modal maps below.
+    return categoryItemType === 'cabinet_style' || isDrawerItemType(categoryItemType)
   }
   // material_mode is always editable; the operator may need to switch
   // a freshly-imported row to the right mode.
@@ -1227,6 +1235,14 @@ function EditItemModal({
     base_labor_hours_assembly: item.base_labor_hours_assembly,
     base_labor_hours_finish: item.base_labor_hours_finish,
     base_labor_hours_install: item.base_labor_hours_install,
+    // Drawer columns ride along so the modal can edit whichever set actually
+    // prices this item (see laborHoursColumn). updateItem diffs the whole
+    // draft, so the change history covers them without extra wiring.
+    drawer_labor_hours_eng: item.drawer_labor_hours_eng ?? 0,
+    drawer_labor_hours_cnc: item.drawer_labor_hours_cnc ?? 0,
+    drawer_labor_hours_assembly: item.drawer_labor_hours_assembly ?? 0,
+    drawer_labor_hours_finish: item.drawer_labor_hours_finish ?? 0,
+    drawer_hardware_cost: item.drawer_hardware_cost ?? 0,
     sheets_per_unit: item.sheets_per_unit,
     sheet_cost: item.sheet_cost,
     linear_cost: item.linear_cost,
@@ -1247,10 +1263,48 @@ function EditItemModal({
     }
     setSaving(true)
     try {
+      // The draft holds BOTH labor/hardware column sets so the inputs can bind
+      // cleanly, but only the set this item type prices from may be sent.
+      // Otherwise an "apply to all items in the shop" edit on a cabinet would
+      // write its (zero) drawer columns over every drawer's calibration — and
+      // vice versa. Strip the inactive set before it reaches updateItem, which
+      // blanket-applies whatever it's given across the scope.
+      const {
+        base_labor_hours_eng,
+        base_labor_hours_cnc,
+        base_labor_hours_assembly,
+        base_labor_hours_finish,
+        base_labor_hours_install,
+        drawer_labor_hours_eng,
+        drawer_labor_hours_cnc,
+        drawer_labor_hours_assembly,
+        drawer_labor_hours_finish,
+        hardware_cost,
+        drawer_hardware_cost,
+        ...common
+      } = draft
+      const laborAndHardware = isDrawer
+        ? {
+            drawer_labor_hours_eng,
+            drawer_labor_hours_cnc,
+            drawer_labor_hours_assembly,
+            drawer_labor_hours_finish,
+            drawer_hardware_cost,
+          }
+        : {
+            base_labor_hours_eng,
+            base_labor_hours_cnc,
+            base_labor_hours_assembly,
+            base_labor_hours_finish,
+            base_labor_hours_install,
+            hardware_cost,
+          }
+
       await updateItem(
         item.id,
         {
-          ...draft,
+          ...common,
+          ...laborAndHardware,
           material_description: draft.material_description || null,
           hardware_note: draft.hardware_note || null,
         } as any,
@@ -1278,6 +1332,9 @@ function EditItemModal({
   // rows — hide the material mode + material inputs entirely (chunk A).
   const isComposerDriven =
     categoryItemType != null && COMPOSER_DRIVEN_ITEM_TYPES.has(categoryItemType)
+  // Drawers price from their own labor + hardware columns, per drawer.
+  const isDrawer = isDrawerItemType(categoryItemType)
+  const hardwareKey = isDrawer ? 'drawer_hardware_cost' : 'hardware_cost'
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-6">
@@ -1362,14 +1419,21 @@ function EditItemModal({
 
           {/* Per-dept hours. Header makes the per-unit dimension
               explicit (e.g. "Labor hours / LF") so a 0.50 number isn't
-              misread as an absolute total. */}
+              misread as an absolute total.
+
+              Each field is bound to the column the COMPOSER prices from, via
+              laborHoursColumn — for a drawer that's drawer_labor_hours_*, not
+              the base columns this modal used to edit for every item type.
+              Install returns null for drawers (no such column), so that field
+              drops out instead of writing a number nothing reads. */}
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] mb-2">
-              Labor hours / {draft.unit}
+              Labor hours / {isDrawer ? 'drawer' : draft.unit}
             </div>
             <div className="grid grid-cols-5 gap-2">
               {LABOR_DEPTS.map((d) => {
-                const key = `base_labor_hours_${d}` as keyof typeof draft
+                const key = laborHoursColumn(d, categoryItemType) as keyof typeof draft | null
+                if (!key) return null
                 return (
                   <Field key={d} label={LABOR_DEPT_LABEL[d]}>
                     <input
@@ -1385,6 +1449,13 @@ function EditItemModal({
                 )
               })}
             </div>
+            {isDrawer && (
+              <p className="mt-1.5 text-[11px] text-[#6B7280] leading-snug">
+                Hours are <strong>per drawer</strong> — the composer multiplies them by the
+                drawer count on the line. Set by the drawer walkthrough; editing here writes
+                the same numbers.
+              </p>
+            )}
           </div>
 
           {/* Material fields (conditional on mode). Label dimension is
@@ -1481,22 +1552,27 @@ function EditItemModal({
             </div>
           )}
 
-          {/* Hardware. Only meaningful for cabinet_style items — door
-              and finish rows don't carry hardware costs. Disabled for
-              other category types so the operator doesn't accidentally
-              add a $ that won't be picked up by composer math. */}
+          {/* Hardware. Meaningful for cabinet_style (per unit) and
+              drawer_style (per drawer — slides and pulls, priced from
+              drawer_hardware_cost, a different column). Door and finish rows
+              don't carry hardware, so the fields stay disabled there rather
+              than inviting a $ no composer math will read. */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Hardware $">
+            <Field label={isDrawer ? 'Hardware $ / drawer' : 'Hardware $'}>
               <input
                 type="number"
                 step="0.01"
                 className={`w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md ${
                   canEditHardware ? '' : 'bg-[#F9FAFB] text-[#9CA3AF] cursor-not-allowed'
                 }`}
-                value={draft.hardware_cost}
+                value={draft[hardwareKey]}
                 disabled={!canEditHardware}
-                title={canEditHardware ? '' : 'Hardware $ only applies to cabinet items.'}
-                onChange={(e) => setDraft({ ...draft, hardware_cost: Number(e.target.value) })}
+                title={
+                  canEditHardware ? '' : 'Hardware $ only applies to cabinet and drawer items.'
+                }
+                onChange={(e) =>
+                  setDraft({ ...draft, [hardwareKey]: Number(e.target.value) } as any)
+                }
               />
             </Field>
             <Field label="Hardware note">
