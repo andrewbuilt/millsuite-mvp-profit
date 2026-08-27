@@ -11,16 +11,19 @@
 // door on the door type (door_type_material_finishes, Doors tab) since door
 // pricing v2 / migration 038 — see the `application` prop.
 //
-// One walkthrough, four collapsible combo rows (stain+clear on slab, paint
-// on slab, stain+clear on shaker, paint on shaker). Prefinished is
+// One walkthrough, four collapsible rows — Clear, Stain + clear, Paint,
+// Gloss paint. There is no door-style dimension: the inside of a box is flat
+// whether the doors are slab or shaker, so the old "on slab"/"on shaker"
+// split doubled the cards without ever changing a rate. Prefinished is
 // implicit-zero and doesn't show a row — we just ensure the rate_book_items
 // row exists so the composer's interior-finish default works.
 //
-// Each combo expands to three cab-height cards: Base 8' / Upper 8' / Full 8'.
-// Each card captures:
+// Each finish expands to three cab-height cards: Base 8' / Upper 8' / Full 8'.
+// That IS the real dimension — a full-height run costs more to finish than a
+// base run. Each card captures:
 //   - labor hours for the 8' run (folds to per-LF on save via ÷8)
-//   - material $ for the 8' run, broken out by the combo's fields
-//     (stain+clear → stain + lacquer; paint → primer + paint).
+//   - material $ for the 8' run, broken out by that finish's fields
+//     (clear → lacquer; stain+clear → stain + lacquer; paint → primer + paint).
 //
 // Partial calibration is a first-class state. Shops calibrate only what
 // they sell, one card at a time. Each card has its own Save so the user
@@ -33,7 +36,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X, ChevronDown, ChevronRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { saveFinishBreakdown, type FinishPerLf } from '@/lib/finish-breakdown'
+import {
+  INTERIOR_FINISH_NAME,
+  renameLegacyFinishCombos,
+  saveFinishBreakdown,
+  type FinishPerLf,
+} from '@/lib/finish-breakdown'
 
 type FinishFieldKey = 'primer' | 'paint' | 'stain' | 'lacquer'
 type ProductCategory = 'base' | 'upper' | 'full'
@@ -44,13 +52,22 @@ interface FinishCombo {
   fields: readonly FinishFieldKey[]
 }
 
-// Fixed combo list per spec. Prefinished is ensured but not rendered as a
-// row — its card would be "zero everywhere, already calibrated."
+// The four interior finishes. NO door-style dimension: the inside of a box is
+// flat whatever the doors look like, so "on slab" / "on shaker" was a
+// distinction that never affected the rate. What does affect it is the finish
+// itself and the cabinet type — the latter is the base/upper/full calibration
+// below.
+//
+// Prefinished is ensured but not rendered as a row — its card would be "zero
+// everywhere, already calibrated."
+// Names are load-bearing (ensureFinishItem matches on them) so they live in
+// lib/finish-breakdown alongside the legacy-rename map; only the per-finish
+// material fields are walkthrough business.
 const COMBOS: FinishCombo[] = [
-  { key: 'stain-clear-slab',   name: 'Stain + clear on slab',   fields: ['stain', 'lacquer'] },
-  { key: 'paint-slab',         name: 'Paint on slab',           fields: ['primer', 'paint'] },
-  { key: 'stain-clear-shaker', name: 'Stain + clear on shaker', fields: ['stain', 'lacquer'] },
-  { key: 'paint-shaker',       name: 'Paint on shaker',         fields: ['primer', 'paint'] },
+  { key: 'clear',       name: INTERIOR_FINISH_NAME.clear,      fields: ['lacquer'] },
+  { key: 'stain-clear', name: INTERIOR_FINISH_NAME.stainClear, fields: ['stain', 'lacquer'] },
+  { key: 'paint',       name: INTERIOR_FINISH_NAME.paint,      fields: ['primer', 'paint'] },
+  { key: 'gloss-paint', name: INTERIOR_FINISH_NAME.glossPaint, fields: ['primer', 'paint'] },
 ]
 
 const FINISHES_CATEGORY_NAME = 'Finishes'
@@ -274,7 +291,7 @@ export default function FinishWalkthrough({
               </div>
               <div className="text-[11px] text-[#6B7280] mt-0.5">
                 Rates for finishing the <strong>inside of the box</strong>, per linear foot.
-                Fill out the combos you sell — partial calibration is fine, and each card
+                Fill out the finishes you sell — partial calibration is fine, and each card
                 saves independently. Finishing on doors and fronts is priced per door, on
                 the door type.
               </div>
@@ -490,8 +507,13 @@ function NumberField({
 
 async function ensureAndLoadFinishData(
   orgId: string,
-  application: 'interior' | 'exterior'
+  application: 'interior'
 ): Promise<Record<string, ComboData>> {
+  // 0. Fold any legacy door-style-named rows onto the flat names FIRST —
+  //    ensureFinishItem matches on name, so running this after would mint
+  //    duplicates and leave the old rows orphaned in the tab.
+  await renameLegacyFinishCombos(orgId)
+
   // 1. Find-or-create the finish category.
   const categoryId = await ensureFinishCategory(orgId)
 
@@ -575,10 +597,11 @@ async function ensureFinishItem(
   orgId: string,
   categoryId: string,
   name: string,
-  application: 'interior' | 'exterior'
+  application: 'interior'
 ): Promise<string> {
-  // Match by (name, application) — same recipe on interior vs exterior
-  // is two rows. Don't bucket them together by name alone.
+  // Match by (name, application). Only interiors are created now, but the
+  // filter stays: a shop's pre-038 exterior rows can share a name, and
+  // bucketing by name alone would adopt one as an interior finish.
   const { data: existing } = await supabase
     .from('rate_book_items')
     .select('id')

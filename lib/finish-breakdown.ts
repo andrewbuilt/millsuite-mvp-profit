@@ -62,6 +62,104 @@ export const EMPTY_PER_LF: FinishPerLf = {
 const COLUMNS =
   'rate_book_item_id, product_category, labor_hr_per_lf, primer_cost_per_lf, paint_cost_per_lf, stain_cost_per_lf, lacquer_cost_per_lf'
 
+// ── The interior finish set ──
+//
+// Four finishes, no door-style dimension: the inside of a box is flat whatever
+// the doors look like, so the old "on slab" / "on shaker" split described
+// something that never changed the rate. What does change it is the finish and
+// the cabinet type — the latter being the base/upper/full breakdown rows.
+//
+// These names are LOAD-BEARING: `ensureFinishItem` matches rows on
+// (name, application), so they're centralised here rather than typed inline.
+
+export const INTERIOR_FINISH_NAME = {
+  clear: 'Clear',
+  stainClear: 'Stain + clear',
+  paint: 'Paint',
+  glossPaint: 'Gloss paint',
+} as const
+
+/** Pre-item-7 names mapped 1:1 onto the flat set. Without this the new names
+ *  would mint fresh items and strand the old four in the tab, where there's no
+ *  delete UI to clear them. */
+export const LEGACY_FINISH_RENAMES: ReadonlyArray<{ from: string; to: string }> = [
+  { from: 'Paint on shaker', to: INTERIOR_FINISH_NAME.paint },
+  { from: 'Paint on slab', to: INTERIOR_FINISH_NAME.glossPaint },
+  { from: 'Stain + clear on shaker', to: INTERIOR_FINISH_NAME.stainClear },
+  { from: 'Stain + clear on slab', to: INTERIOR_FINISH_NAME.clear },
+]
+
+const LEGACY_FINISH_NAMES = new Set(
+  LEGACY_FINISH_RENAMES.map(({ from }) => from.toLowerCase()),
+)
+
+/** Cheap local test so a caller that already has the item list can skip the
+ *  rename round-trip entirely — which is every load after the first. */
+export function hasLegacyFinishName(name: string): boolean {
+  return LEGACY_FINISH_NAMES.has(name.trim().toLowerCase())
+}
+
+/**
+ * Rename any legacy door-style-named interior finishes in place, 1:1.
+ *
+ * Deliberately conservative — it only touches a row when BOTH hold:
+ *   1. the row is uncalibrated (no breakdown row carries a non-zero rate), so
+ *      real numbers can never be relabelled out from under a shop; and
+ *   2. the target name is not already taken in this org, so it can't collide
+ *      with a row that already went through (or was renamed by hand).
+ * Anything failing either test is left exactly as it is.
+ *
+ * Idempotent and safe to call on every load — a no-op once done, and it
+ * self-heals every org rather than needing a migration or manual pass.
+ * Returns the number of rows actually renamed.
+ */
+export async function renameLegacyFinishCombos(orgId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('rate_book_items')
+    .select('id, name')
+    .eq('org_id', orgId)
+    .eq('application', 'interior')
+    .eq('active', true)
+  if (error) {
+    // Not worth surfacing — the tab still works, the names just stay legacy.
+    console.error('renameLegacyFinishCombos', error)
+    return 0
+  }
+
+  const rows = (data || []) as Array<{ id: string; name: string }>
+  if (rows.length === 0) return 0
+
+  const byName = new Map(rows.map((r) => [r.name.trim().toLowerCase(), r]))
+  const pending = LEGACY_FINISH_RENAMES.filter(({ from, to }) => {
+    const row = byName.get(from.toLowerCase())
+    return !!row && !byName.has(to.toLowerCase())
+  })
+  if (pending.length === 0) return 0
+
+  // One lookup for calibration state across every candidate.
+  const candidateIds = pending.map(({ from }) => byName.get(from.toLowerCase())!.id)
+  const calibrated = await loadCalibratedFinishItemIds(candidateIds)
+
+  let renamed = 0
+  for (const { from, to } of pending) {
+    const row = byName.get(from.toLowerCase())!
+    if (calibrated.has(row.id)) continue
+    const { error: updErr } = await supabase
+      .from('rate_book_items')
+      .update({ name: to, updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+    if (updErr) {
+      console.error('renameLegacyFinishCombos update', from, updErr)
+      continue
+    }
+    // Keep the local index honest so a later pair can't claim this name.
+    byName.set(to.toLowerCase(), row)
+    byName.delete(from.toLowerCase())
+    renamed++
+  }
+  return renamed
+}
+
 /** Σ of the four material buckets — what the composer folds into a line. */
 export function finishMaterialPerLf(row: FinishPerLf): number {
   return FINISH_MATERIAL_FIELDS.reduce((s, f) => s + (Number(row[f.key]) || 0), 0)

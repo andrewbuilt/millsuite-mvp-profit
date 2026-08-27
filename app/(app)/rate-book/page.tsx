@@ -62,7 +62,11 @@ import DoorCatalog from '@/components/rate-book/DoorCatalog'
 import FeatureCatalog from '@/components/rate-book/FeatureCatalog'
 import ProductBuilder from '@/components/rate-book/ProductBuilder'
 import FinishBreakdown from '@/components/rate-book/FinishBreakdown'
-import { loadCalibratedFinishItemIds } from '@/lib/finish-breakdown'
+import {
+  hasLegacyFinishName,
+  loadCalibratedFinishItemIds,
+  renameLegacyFinishCombos,
+} from '@/lib/finish-breakdown'
 
 // Upper / Full start life as derived entries — Base cabinet's numbers under
 // the product's name — and can be PROMOTED to real rate_book_items rows with
@@ -146,8 +150,9 @@ const VIEW_LABEL: Record<RateBookView, string> = {
   drawers: 'Drawers',
   // "Interior" is load-bearing, not decoration: these rows price the INSIDE
   // of the box, per LF. Finishing on doors and fronts is priced per door on
-  // the door type (Doors tab). Pre-038 both lived here, which is why a shop's
-  // older finish items carry names like "Paint on shaker".
+  // the door type (Doors tab). Pre-038 both lived here, which is why older
+  // rows carried door-style names like "Paint on shaker" —
+  // renameLegacyFinishCombos folds those onto the flat set on load.
   finishes: 'Interior finishes',
   lineitems: 'Line items',
   materials: 'Materials',
@@ -228,10 +233,22 @@ export default function RateBookPage() {
   }, [orgId])
 
   async function refreshAll(id: string) {
-    const [c, i, o, sw] = await Promise.all([
-      listCategories(id), listItems(id), listOptions(id),
-      loadSolidWoodComponents(id),
+    const [c, o, sw] = await Promise.all([
+      listCategories(id), listOptions(id), loadSolidWoodComponents(id),
     ])
+    let i = await listItems(id)
+
+    // Fold legacy door-style finish names ("Paint on shaker" → "Paint") onto
+    // the flat set, so the tab self-heals on first open rather than waiting
+    // for someone to run the walkthrough. Gated on actually seeing a legacy
+    // name in what we just read: a one-time fixup shouldn't cost every org a
+    // round-trip on every page load forever. Re-reads only when it renamed
+    // something, and it skips rows that are calibrated or whose target name
+    // is taken.
+    if (i.some((it) => hasLegacyFinishName(it.name))) {
+      if ((await renameLegacyFinishCombos(id)) > 0) i = await listItems(id)
+    }
+
     setCategories(c)
     setItems(i)
     setOptions(o)
@@ -321,7 +338,17 @@ export default function RateBookPage() {
     return categories
       .filter((cat) => viewTypes.includes(cat.item_type))
       .map((cat) => {
-      const catItems = items.filter((it) => it.category_id === cat.id)
+      const catItems = items
+        .filter((it) => it.category_id === cat.id)
+        // Interior finishes tab shows interiors only. A shop can still be
+        // carrying pre-038 rows stamped application='exterior' — nothing has
+        // been able to price those since exterior finishing moved onto the
+        // door type, so listing them here is just an invitation to calibrate
+        // a rate that will never be used.
+        .filter(
+          (it) =>
+            cat.item_type !== 'finish' || (it as { application?: string }).application === 'interior',
+        )
       let allItems: RateBookItemRow[] = catItems
       if (cat.item_type === 'cabinet_style') {
         const baseRow = catItems.find((it) => it.name === 'Base cabinet')
@@ -554,7 +581,7 @@ export default function RateBookPage() {
                       its.map((it) => {
                         const isSel = it.id === selectedId
                         // "Uncalibrated" = every per-dept hour is zero.
-                        // Pre-seeded finish combos land in this state
+                        // Pre-seeded interior finishes land in this state
                         // until FinishWalkthrough writes real numbers.
                         // Surface as a small gray pill so an operator
                         // can tell intentional zero (custom freeform
