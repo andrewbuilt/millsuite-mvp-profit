@@ -94,10 +94,15 @@ export default function FinishBreakdown({
 
   return (
     <div className="space-y-4">
+      <p className="text-[12px] text-[#6B7280] leading-snug">
+        What it costs to finish the <strong>inside of the box</strong>, per linear foot of
+        run. The rate differs by cabinet type, so each is calibrated separately.
+      </p>
+
       <section className="border border-[#E5E7EB] rounded-lg overflow-hidden">
         <div className="px-4 py-2 border-b border-[#E5E7EB] bg-[#EFF6FF] flex items-center justify-between">
           <span className="text-[11px] font-semibold tracking-wider uppercase text-[#1E40AF]">
-            Rates by cabinet type
+            Interior rates by cabinet type
           </span>
           <span className="text-[10px] text-[#6B7280]">per linear foot</span>
         </div>
@@ -199,15 +204,16 @@ export default function FinishBreakdown({
 
       {loaded && !anyCalibrated && (
         <div className="text-[12px] text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2 leading-snug">
-          No rates yet for this finish. Run the finish walkthrough from the composer to
-          calibrate it from a real 8' run, or type the per-foot numbers in directly above.
+          No interior rates yet for this finish. Run the finish walkthrough from the
+          composer to calibrate it from a real 8' run, or type the per-foot numbers in
+          directly above.
         </div>
       )}
 
       <div className="rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] px-3 py-2 text-[11.5px] text-[#6B7280] leading-snug">
-        These are the cabinet-run finish rates the composer prices from. Finishes applied
-        to <strong>doors</strong> are priced separately, per door type and material — edit
-        those on the <strong>Doors</strong> tab.
+        <strong>Finishing doors and fronts isn't priced here.</strong> That's charged per
+        door, on the door type and material — edit it on the <strong>Doors</strong> tab.
+        (Both apply to the same line: the interior by the foot, the doors by the door.)
       </div>
     </div>
   )

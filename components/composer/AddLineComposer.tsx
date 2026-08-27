@@ -243,8 +243,9 @@ export default function AddLineComposer({
   const [addFinishFor, setAddFinishFor] = useState<string | null>(null)
   // Finish walkthrough overlay — null when closed, otherwise carries
   // the application the user was calibrating for (drives the row-type
-  // the walkthrough writes).
-  const [finishWtApp, setFinishWtApp] = useState<'interior' | 'exterior' | null>(null)
+  // the walkthrough writes). Interior only since door pricing v2 — exterior
+  // finishing is priced per door on the door type.
+  const [finishWtApp, setFinishWtApp] = useState<'interior' | null>(null)
   // Solid Wood Top walkthrough auto-open — when the operator clicks the
   // tile and the org has no solid_wood_top_calibrations row, we open the
   // walkthrough first; on complete we resume the original tile pick so
@@ -346,7 +347,9 @@ export default function AddLineComposer({
     )
   }
 
-  function openFinishWalkthrough(app: 'interior' | 'exterior') {
+  // Interior only — exterior finishing moved onto the door type in door
+  // pricing v2, and this dropdown never offered anything else.
+  function openFinishWalkthrough(app: 'interior') {
     setOpenDropdown(null)
     setFinishWtApp(app)
   }
@@ -1108,7 +1111,7 @@ function Composer(p: {
   onAddDoorFinish: (doorTypeId: string) => void
   onDrawerUncalibratedPick: (styleId: string) => void
   onAddNewDrawerStyle: () => void
-  onOpenFinishWalkthrough: (app: 'interior' | 'exterior') => void
+  onOpenFinishWalkthrough: (app: 'interior') => void
 }) {
   const { draft, rateBook, breakdown, defaults } = p
 

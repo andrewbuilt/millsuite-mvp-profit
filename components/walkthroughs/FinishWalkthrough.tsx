@@ -1,9 +1,15 @@
 'use client'
 
 // ============================================================================
-// FinishWalkthrough — per-LF labor + material calibration for finish combos.
+// FinishWalkthrough — per-LF labor + material calibration for INTERIOR
+// finish combos (the inside of the box).
 // ============================================================================
 // Per BUILD-ORDER Phase 12 item 8 + specs/add-line-composer/README.md.
+//
+// Scope note: this calibrates interiors ONLY, priced per linear foot into
+// rate_book_finish_breakdown. Finishing on doors and fronts is priced per
+// door on the door type (door_type_material_finishes, Doors tab) since door
+// pricing v2 / migration 038 — see the `application` prop.
 //
 // One walkthrough, four collapsible combo rows (stain+clear on slab, paint
 // on slab, stain+clear on shaker, paint on shaker). Prefinished is
@@ -20,8 +26,8 @@
 // they sell, one card at a time. Each card has its own Save so the user
 // doesn't have to fill every cell before anything goes live.
 //
-// Fires from the composer's exterior-finish dropdown via "+ Calibrate
-// finishes" (or the empty-state hatch when no finishes exist yet).
+// Fires from the composer's interior-finish dropdown via "+ Calibrate
+// finishes", or the Interior finishes tab's empty-state hatch.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
@@ -70,14 +76,18 @@ const FIELD_LABEL: Record<FinishFieldKey, string> = {
 
 interface Props {
   orgId: string
-  /** Composer passes this when the user opened the walkthrough from
-   *  the Interior or Exterior finish dropdown. Newly-created combo
-   *  rows get stamped with this application so they land in the right
-   *  dropdown. Defaults to 'exterior' (historical behavior) — Item 8's
-   *  rewrite adds a "Duplicate for the other application" affordance
-   *  so operators can spin up interior twins when they finish cabinet
-   *  interiors. */
-  application?: 'interior' | 'exterior'
+  /** Always 'interior' — this walkthrough calibrates the INSIDE of the box,
+   *  priced per LF into `rate_book_finish_breakdown`.
+   *
+   *  It used to also do exterior (doors/fronts), and defaulted to it. Door
+   *  pricing v2 (migration 038) moved exterior finishing onto the door type
+   *  (`door_type_material_finishes`, per door, Doors tab), and the composer
+   *  has offered only interior finishes ever since — so an 'exterior' row
+   *  created here is a row nothing can ever price. The type is narrowed to
+   *  make that unrepresentable rather than merely unused. The stamp stays on
+   *  the row because `ensureFinishItem` matches on (name, application) and
+   *  a shop's pre-038 exterior rows still exist. */
+  application: 'interior'
   onComplete: () => void
   onCancel: () => void
 }
@@ -104,7 +114,7 @@ interface ComboData {
 
 export default function FinishWalkthrough({
   orgId,
-  application = 'exterior',
+  application,
   onCancel,
   onComplete,
 }: Props) {
@@ -115,10 +125,6 @@ export default function FinishWalkthrough({
   const [savingCard, setSavingCard] = useState<string | null>(null)
   // Uncommitted draft values per (combo × product). Keyed "combo:product".
   const [drafts, setDrafts] = useState<Record<string, CardValues>>({})
-  // "Duplicate for other application" affordance state.
-  const otherApp: 'interior' | 'exterior' = application === 'interior' ? 'exterior' : 'interior'
-  const [duplicating, setDuplicating] = useState(false)
-  const [duplicated, setDuplicated] = useState(false)
 
   // On open: ensure the 4 combo finish items exist + load breakdown rows.
   useEffect(() => {
@@ -233,26 +239,10 @@ export default function FinishWalkthrough({
     }
   }
 
-  /** Create blank twin combo rows under the OTHER application so the
-   *  operator can calibrate them later in context. Doesn't touch the
-   *  current walkthrough's data — just ensures the 4 rate_book_items
-   *  rows exist under the other application.
-   */
-  async function duplicateForOtherApplication() {
-    setDuplicating(true)
-    setError(null)
-    try {
-      const categoryId = await ensureFinishCategory(orgId)
-      for (const combo of COMBOS) {
-        await ensureFinishItem(orgId, categoryId, combo.name, otherApp)
-      }
-      setDuplicated(true)
-    } catch (err: any) {
-      setError(err?.message || 'Failed to duplicate combos')
-    } finally {
-      setDuplicating(false)
-    }
-  }
+  // Removed with the exterior branch: "Duplicate as Exterior", which created
+  // four blank exterior combo rows. Post-038 the composer can't offer those,
+  // so its only remaining effect was manufacturing dead rows in the Interior
+  // finishes tab — the exact confusion this pass exists to clear up.
 
   const totalCalibrated = useMemo(() => {
     if (!data) return 0
@@ -267,8 +257,6 @@ export default function FinishWalkthrough({
 
   // ── Render ──
 
-  const appLabel = application === 'interior' ? 'Interior' : 'Exterior'
-  const otherAppLabel = otherApp === 'interior' ? 'Interior' : 'Exterior'
 
   return (
     <div
@@ -282,11 +270,13 @@ export default function FinishWalkthrough({
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E5E7EB]">
             <div>
               <div className="text-[13px] font-semibold text-[#111]">
-                {appLabel} finish calibration
+                Interior finish calibration
               </div>
               <div className="text-[11px] text-[#6B7280] mt-0.5">
-                Fill out the combos you sell. Partial calibration is fine.
-                Each card saves independently.
+                Rates for finishing the <strong>inside of the box</strong>, per linear foot.
+                Fill out the combos you sell — partial calibration is fine, and each card
+                saves independently. Finishing on doors and fronts is priced per door, on
+                the door type.
               </div>
             </div>
             <button
@@ -334,20 +324,6 @@ export default function FinishWalkthrough({
                   The rest stay dormant until a line needs them.
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {duplicated ? (
-                    <span className="text-[12px] text-[#059669] font-medium">
-                      ✓ Blank {otherAppLabel.toLowerCase()} combos created
-                    </span>
-                  ) : (
-                    <button
-                      onClick={duplicateForOtherApplication}
-                      disabled={duplicating}
-                      className="px-3 py-2 text-sm text-[#2563EB] hover:bg-[#EFF6FF] rounded-md border border-[#E5E7EB] hover:border-[#2563EB] transition-colors disabled:opacity-50"
-                      title={`Creates four blank ${otherAppLabel.toLowerCase()} combo rows so they show up in the composer's ${otherAppLabel.toLowerCase()} dropdown. You calibrate them later in context.`}
-                    >
-                      {duplicating ? 'Duplicating…' : `Duplicate as ${otherAppLabel}`}
-                    </button>
-                  )}
                   <button
                     onClick={onComplete}
                     className="px-4 py-2 bg-[#2563EB] text-white text-sm font-semibold rounded-md hover:bg-[#1D4ED8] transition-colors"

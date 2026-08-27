@@ -144,7 +144,11 @@ const ITEM_VIEWS = Object.keys(ITEM_VIEW_TYPES)
 const VIEW_LABEL: Record<RateBookView, string> = {
   cabinets: 'Cabinets',
   drawers: 'Drawers',
-  finishes: 'Finishes',
+  // "Interior" is load-bearing, not decoration: these rows price the INSIDE
+  // of the box, per LF. Finishing on doors and fronts is priced per door on
+  // the door type (Doors tab). Pre-038 both lived here, which is why a shop's
+  // older finish items carry names like "Paint on shaker".
+  finishes: 'Interior finishes',
   lineitems: 'Line items',
   materials: 'Materials',
   doors: 'Doors',
@@ -209,7 +213,10 @@ export default function RateBookPage() {
   // for application='interior' kicks the operator into calibration. Other
   // entry points (composer Interior/Exterior dropdowns) own their own
   // FinishWalkthrough mount.
-  const [finishWtApp, setFinishWtApp] = useState<'interior' | 'exterior' | null>(null)
+  // Interior-only since door pricing v2 — exterior finishing lives on the
+  // door type now (Doors tab). Kept as a nullable 'interior' rather than a
+  // boolean so the mount below still reads as "which application".
+  const [finishWtApp, setFinishWtApp] = useState<'interior' | null>(null)
 
   useEffect(() => {
     if (!orgId) return
@@ -460,7 +467,7 @@ export default function RateBookPage() {
           Prices live here and history gets written. Day-to-day pricing happens in projects — come back to audit, tune, or add items.
         </span>
         <div className="flex-1" />
-        {/* View toggle — Cabinets | Drawers | Finishes | Line items |
+        {/* View toggle — Cabinets | Drawers | Interior finishes | Line items |
             Materials | Doors | Features | Products */}
         <div
           data-tour="rate-book-tabs"

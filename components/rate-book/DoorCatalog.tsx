@@ -265,10 +265,14 @@ export default function DoorCatalog({ orgId }: { orgId: string }) {
                     )}
                   </div>
 
-                  {/* Finishes */}
+                  {/* Door finishes — priced PER DOOR, scoped to this door
+                      type + material. Named explicitly because the rate book
+                      also has an "Interior finishes" tab, which prices the
+                      inside of the box per LF; the two used to share one
+                      concept pre-038 and reliably got mixed up. */}
                   <div className="p-3 space-y-1.5">
                     <div className="text-[10px] font-semibold uppercase tracking-wider text-[#166534]">
-                      Finishes
+                      Door finishes <span className="normal-case tracking-normal font-normal text-[#9CA3AF]">· per door</span>
                     </div>
                     {fins.length === 0 && !(adding?.kind === 'finish' && adding.doorTypeId === dt.id) && (
                       <div className="text-[11.5px] text-[#9CA3AF] italic">
