@@ -711,6 +711,41 @@ export async function updateProjectStage(
 }
 
 /**
+ * Rename a project. The name was write-once until now (set in NewProjectModal
+ * at create); the project-page header's inline edit is the only caller.
+ * Nothing to sync — kanban cards, dashboards, the QB push modal and the PDFs
+ * all read `projects.name` at render time, so they pick the new name up on
+ * their next load.
+ *
+ * Scoped by org so a stray id can't reach another tenant's row (RLS already
+ * blocks it; this makes the intent explicit). Selects the id back and treats
+ * zero rows as a failure — an update that matches nothing returns
+ * `{ error: null }`, which would otherwise read as success.
+ */
+export async function updateProjectName(
+  projectId: string,
+  name: string,
+  orgId?: string
+): Promise<string> {
+  const clean = name.trim()
+  if (!clean) throw new Error('Project name cannot be empty')
+
+  let q = supabase
+    .from('projects')
+    .update({ name: clean, updated_at: new Date().toISOString() })
+    .eq('id', projectId)
+  if (orgId) q = q.eq('org_id', orgId)
+
+  const { data, error } = await q.select('id')
+  if (error) {
+    console.error('updateProjectName', error)
+    throw error
+  }
+  if (!data || data.length === 0) throw new Error('Could not rename this project')
+  return clean
+}
+
+/**
  * Delete a project and its dependent rows. Most child tables are CASCADE on
  * project_id / subproject_id, but a handful (time_entries, invoices,
  * project_notes, cash_flow_receivables) aren't, so we clean those up first.

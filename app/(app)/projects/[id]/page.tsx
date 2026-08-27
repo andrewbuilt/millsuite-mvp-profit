@@ -118,7 +118,7 @@ import { type EstimatePdfPayload, downloadEstimatePdf } from '@/lib/estimate-pdf
 import SendEstimateModal from '@/components/estimates/SendEstimateModal'
 import ReparseModal from '@/components/reparse/ReparseModal'
 import { Trash2, AlertCircle } from 'lucide-react'
-import { updateProjectStage } from '@/lib/sales'
+import { updateProjectName, updateProjectStage } from '@/lib/sales'
 import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
 import { countFinishSpecsFromSlots } from '@/lib/composer'
 import {
@@ -357,6 +357,12 @@ export default function ProjectCoverPage() {
 
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
   const [coListOpen, setCoListOpen] = useState(false)
+  // Rename: the project name is set once in NewProjectModal and had no edit
+  // path. Pencil on the h1 swaps it for an input — Enter or the check saves,
+  // Escape or blur-with-no-change backs out.
+  const [renaming, setRenaming] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [renameSaving, setRenameSaving] = useState(false)
   const [invoices, setInvoices] = useState<Invoice[]>([])
   // Item 1 of post-sale-2: per-sub readiness map from
   // subproject_approval_status. Drives the AttentionStrip banner +
@@ -958,6 +964,33 @@ export default function ProjectCoverPage() {
     setTimeout(() => setToast(null), 2600)
   }
 
+  function startRename() {
+    if (!project) return
+    setNameDraft(project.name)
+    setRenaming(true)
+  }
+
+  async function saveProjectName() {
+    if (!project || renameSaving) return
+    const clean = nameDraft.trim()
+    // Empty or unchanged = just close; nothing to write.
+    if (!clean || clean === project.name) {
+      setRenaming(false)
+      return
+    }
+    setRenameSaving(true)
+    try {
+      await updateProjectName(project.id, clean, org?.id)
+      setProject((p) => (p ? { ...p, name: clean } : p))
+      setRenaming(false)
+      showToast('Project renamed')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not rename this project')
+    } finally {
+      setRenameSaving(false)
+    }
+  }
+
   // ── Estimate: direct download + explicit "mark as sent" ──
   const [downloadingEstimate, setDownloadingEstimate] = useState(false)
   async function handleDownloadEstimate() {
@@ -1262,10 +1295,50 @@ export default function ProjectCoverPage() {
       <div className="px-8 py-6 bg-white border-b border-[#E5E7EB]">
         <div className="max-w-[1240px] mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-start">
           <div>
-            <h1 className="text-[22px] font-semibold text-[#111] tracking-tight mb-2 flex items-center gap-2">
-              {project.name}
-              <ImportedBadge importedAt={project.imported_at} />
-              {practiceIds.has(project.id) && <PracticeBadge />}
+            <h1 className="text-[22px] font-semibold text-[#111] tracking-tight mb-2 flex items-center gap-2 group">
+              {renaming ? (
+                <>
+                  <input
+                    autoFocus
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveProjectName()
+                      if (e.key === 'Escape') setRenaming(false)
+                    }}
+                    disabled={renameSaving}
+                    className="text-[22px] font-semibold text-[#111] tracking-tight px-2 py-0.5 -ml-2 border border-[#D1D5DB] rounded-md focus:outline-none focus:border-[#1E40AF] min-w-[280px] max-w-full disabled:opacity-60"
+                  />
+                  <button
+                    onClick={saveProjectName}
+                    disabled={renameSaving}
+                    title="Save name"
+                    className="p-1.5 rounded-md text-[#1E40AF] hover:bg-[#EFF6FF] transition-colors disabled:opacity-50"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setRenaming(false)}
+                    disabled={renameSaving}
+                    className="text-xs font-normal text-[#6B7280] hover:text-[#111] transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  {project.name}
+                  <button
+                    onClick={startRename}
+                    title="Rename project"
+                    className="p-1.5 rounded-md text-[#9CA3AF] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[#111] hover:bg-[#F3F4F6] transition-all"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <ImportedBadge importedAt={project.imported_at} />
+                  {practiceIds.has(project.id) && <PracticeBadge />}
+                </>
+              )}
             </h1>
             <div className="flex gap-2.5 flex-wrap items-center text-xs text-[#6B7280]">
               {project.client_name && (
