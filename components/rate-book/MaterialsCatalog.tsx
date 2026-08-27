@@ -10,9 +10,16 @@
 // the product, not here — this list is purely price + which slots it shows in.
 //
 // Mounted in /rate-book behind the "Materials" view toggle.
+//
+// ORGANIZATION (migration 090): thickness and material type used to live
+// inside the name text ("3/4 Maple Ply"), so a long catalog could only be
+// read top to bottom. They're now their own free-text fields — the list
+// GROUPS by category (uncategorized last) and FILTERS by thickness and by
+// use. No fixed vocabulary: both inputs offer a datalist built from whatever
+// values this org already uses, so the naming converges on its own.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, Search } from 'lucide-react'
 import {
   listMaterials,
@@ -51,11 +58,15 @@ type DraftFlags = Pick<
   'show_in_carcass' | 'show_in_door' | 'show_in_back_panel' | 'show_in_shelf'
 >
 
+type SlotFlagKey = (typeof SLOT_FLAGS)[number]['key']
+
 interface Draft extends DraftFlags {
   name: string
   cost_value: string
   cost_unit: MaterialCostUnit
   notes: string
+  category: string
+  thickness: string
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -63,6 +74,8 @@ const EMPTY_DRAFT: Draft = {
   cost_value: '',
   cost_unit: 'sheet',
   notes: '',
+  category: '',
+  thickness: '',
   show_in_carcass: false,
   show_in_door: false,
   show_in_back_panel: false,
@@ -75,6 +88,8 @@ function toDraft(m: Material): Draft {
     cost_value: String(m.cost_value ?? ''),
     cost_unit: m.cost_unit,
     notes: m.notes ?? '',
+    category: m.category ?? '',
+    thickness: m.thickness ?? '',
     show_in_carcass: m.show_in_carcass,
     show_in_door: m.show_in_door,
     show_in_back_panel: m.show_in_back_panel,
@@ -82,10 +97,27 @@ function toDraft(m: Material): Draft {
   }
 }
 
+/** Uncategorized rows sort to the bottom under their own heading. */
+const UNCATEGORIZED = 'Uncategorized'
+
+/** Distinct non-empty values of one field, case-insensitively deduped and
+ *  sorted — feeds both the filter chips and the editor datalists. */
+function distinctValues(materials: Material[], field: 'category' | 'thickness'): string[] {
+  const seen = new Map<string, string>()
+  for (const m of materials) {
+    const v = (m[field] || '').trim()
+    if (v && !seen.has(v.toLowerCase())) seen.set(v.toLowerCase(), v)
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+}
+
 export default function MaterialsCatalog({ orgId }: { orgId: string }) {
   const [materials, setMaterials] = useState<Material[]>([])
   const [loaded, setLoaded] = useState(false)
   const [search, setSearch] = useState('')
+  // Chip filters, both single-select and independent of the search box.
+  const [thicknessFilter, setThicknessFilter] = useState<string | null>(null)
+  const [useFilter, setUseFilter] = useState<SlotFlagKey | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
   const [adding, setAdding] = useState(false)
@@ -104,13 +136,41 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
     reload()
   }, [reload])
 
+  const categoryOptions = useMemo(() => distinctValues(materials, 'category'), [materials])
+  const thicknessOptions = useMemo(() => distinctValues(materials, 'thickness'), [materials])
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase()
-    if (!s) return materials
-    return materials.filter(
-      (m) => m.name.toLowerCase().includes(s) || (m.notes || '').toLowerCase().includes(s),
-    )
-  }, [materials, search])
+    return materials.filter((m) => {
+      if (s && !m.name.toLowerCase().includes(s) && !(m.notes || '').toLowerCase().includes(s))
+        return false
+      if (thicknessFilter && (m.thickness || '').trim() !== thicknessFilter) return false
+      if (useFilter && !m[useFilter]) return false
+      return true
+    })
+  }, [materials, search, thicknessFilter, useFilter])
+
+  /** Filtered rows bucketed by category, alphabetical, uncategorized last.
+   *  Grouping is what makes a long catalog scannable — the whole point of
+   *  item 2. */
+  const groups = useMemo(() => {
+    const byCategory = new Map<string, Material[]>()
+    for (const m of filtered) {
+      const key = (m.category || '').trim() || UNCATEGORIZED
+      const bucket = byCategory.get(key)
+      if (bucket) bucket.push(m)
+      else byCategory.set(key, [m])
+    }
+    return [...byCategory.entries()]
+      .map(([label, rows]) => ({ label, rows }))
+      .sort((a, b) => {
+        if (a.label === UNCATEGORIZED) return 1
+        if (b.label === UNCATEGORIZED) return -1
+        return a.label.localeCompare(b.label)
+      })
+  }, [filtered])
+
+  const filtersActive = !!(thicknessFilter || useFilter || search.trim())
 
   function startEdit(m: Material) {
     setEditingId(m.id)
@@ -137,6 +197,8 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
         cost_value: Number(draft.cost_value) || 0,
         cost_unit: draft.cost_unit,
         notes: draft.notes.trim() || null,
+        category: draft.category.trim() || null,
+        thickness: draft.thickness.trim() || null,
         show_in_carcass: draft.show_in_carcass,
         show_in_door: draft.show_in_door,
         show_in_back_panel: draft.show_in_back_panel,
@@ -165,6 +227,8 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
         cost_value: Number(addDraft.cost_value) || 0,
         cost_unit: addDraft.cost_unit,
         notes: addDraft.notes.trim() || null,
+        category: addDraft.category.trim() || null,
+        thickness: addDraft.thickness.trim() || null,
         show_in_carcass: addDraft.show_in_carcass,
         show_in_door: addDraft.show_in_door,
         show_in_back_panel: addDraft.show_in_back_panel,
@@ -222,7 +286,7 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
         </p>
 
         {/* Search */}
-        <div className="relative mb-3 max-w-xs">
+        <div className="relative mb-2.5 max-w-xs">
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#9CA3AF]" />
           <input
             className="w-full pl-8 pr-2 py-1.5 text-[12px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
@@ -231,6 +295,68 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+
+        {/* Filter chips — thickness (only what this org actually stocks) and
+            use (the show_in flags). Single-select each; clicking an active
+            chip clears it. */}
+        {(thicknessOptions.length > 0 || materials.length > 0) && (
+          <div className="flex flex-col gap-1.5 mb-3">
+            {thicknessOptions.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] w-[64px] shrink-0">
+                  Thickness
+                </span>
+                {thicknessOptions.map((t) => (
+                  <FilterChip
+                    key={t}
+                    label={t}
+                    active={thicknessFilter === t}
+                    onClick={() => setThicknessFilter(thicknessFilter === t ? null : t)}
+                  />
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] w-[64px] shrink-0">
+                Use
+              </span>
+              {SLOT_FLAGS.map((f) => (
+                <FilterChip
+                  key={f.key}
+                  label={f.label}
+                  active={useFilter === f.key}
+                  onClick={() => setUseFilter(useFilter === f.key ? null : f.key)}
+                />
+              ))}
+              {filtersActive && (
+                <button
+                  onClick={() => {
+                    setThicknessFilter(null)
+                    setUseFilter(null)
+                    setSearch('')
+                  }}
+                  className="ml-1 text-[11px] text-[#6B7280] hover:text-[#111] underline underline-offset-2"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Hoisted so there's exactly ONE of each in the document — DraftFields
+            renders for the add form AND every row being edited, and opening the
+            add form doesn't close an open editor. */}
+        <datalist id="material-category-options">
+          {categoryOptions.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+        <datalist id="material-thickness-options">
+          {thicknessOptions.map((t) => (
+            <option key={t} value={t} />
+          ))}
+        </datalist>
 
         {error && (
           <div className="mb-3 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
@@ -279,7 +405,7 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
           <div className="text-[12px] text-[#9CA3AF] italic p-4 border border-dashed border-[#E5E7EB] rounded-lg text-center">
             {materials.length === 0
               ? 'No materials yet. Add one, or they appear here as you create them in the composer.'
-              : 'No materials match your search.'}
+              : 'No materials match these filters.'}
           </div>
         ) : (
           /* data-tour: the lesson's "That's a live price" step points at the
@@ -295,99 +421,21 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((m) => {
-                  const isEditing = editingId === m.id
-                  if (isEditing) {
-                    return (
-                      <tr key={m.id} className="border-t border-[#E5E7EB] bg-[#EFF6FF] align-top">
-                        <td colSpan={4} className="px-3 py-3">
-                          <DraftFields draft={draft} setDraft={setDraft} />
-                          <div className="flex items-center gap-2 mt-3">
-                            <button
-                              disabled={saving}
-                              onClick={() => saveEdit(m.id)}
-                              className="px-3 py-1.5 rounded-md bg-[#2563EB] text-white text-[12px] font-medium hover:bg-[#1D4ED8] disabled:opacity-50"
-                            >
-                              {saving ? 'Saving…' : 'Save'}
-                            </button>
-                            <button
-                              onClick={cancelEdit}
-                              className="px-3 py-1.5 rounded-md border border-[#E5E7EB] text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  }
-                  return (
-                    <tr key={m.id} className="border-t border-[#E5E7EB] hover:bg-[#FAFAFA]">
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-[#111]">{m.name}</div>
-                        {m.notes && <div className="text-[11px] text-[#9CA3AF]">{m.notes}</div>}
-                      </td>
-                      <td className="px-3 py-2 text-[#374151] whitespace-nowrap">
-                        <span className="text-[#2563EB] font-medium">
-                          ${Number(m.cost_value).toFixed(2)}
-                        </span>{' '}
-                        <span className="text-[#9CA3AF]">{PER_LABEL[m.cost_unit]}</span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap gap-1">
-                          {SLOT_FLAGS.filter((f) => m[f.key]).map((f) => (
-                            <span
-                              key={f.key}
-                              className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]"
-                            >
-                              {f.label}
-                            </span>
-                          ))}
-                          {!SLOT_FLAGS.some((f) => m[f.key]) && (
-                            <span className="text-[11px] text-[#9CA3AF] italic">
-                              browse-all only
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        {confirmDeleteId === m.id ? (
-                          <span className="inline-flex items-center gap-1">
-                            <button
-                              disabled={saving}
-                              onClick={() => remove(m.id)}
-                              className="px-2 py-1 rounded text-[11px] font-medium bg-[#DC2626] text-white hover:bg-[#B91C1C] disabled:opacity-50"
-                            >
-                              Remove
-                            </button>
-                            <button
-                              onClick={() => setConfirmDeleteId(null)}
-                              className="px-2 py-1 rounded text-[11px] text-[#6B7280] hover:bg-[#F3F4F6]"
-                            >
-                              Cancel
-                            </button>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1">
-                            <button
-                              onClick={() => startEdit(m)}
-                              className="px-2 py-1 rounded text-[11px] font-medium text-[#2563EB] hover:bg-[#EFF6FF]"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => setConfirmDeleteId(m.id)}
-                              title="Remove from catalog"
-                              className="p-1 rounded text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2]"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </span>
-                        )}
+                {groups.map((g) => (
+                  <Fragment key={g.label}>
+                    {/* Category heading row. One table, not one per group, so
+                        the columns stay aligned down the whole catalog. */}
+                    <tr className="bg-[#F3F4F6] border-t border-[#E5E7EB]">
+                      <td colSpan={4} className="px-3 py-1.5">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#4B5563]">
+                          {g.label}
+                        </span>
+                        <span className="ml-2 text-[11px] text-[#9CA3AF]">{g.rows.length}</span>
                       </td>
                     </tr>
-                  )
-                })}
+                    {g.rows.map(renderRow)}
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>
@@ -395,9 +443,134 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
       </div>
     </div>
   )
+
+  /** One catalog row — the inline editor when it's the row being edited,
+   *  otherwise the read view. Hoisted out of the map so the grouped tbody
+   *  stays legible. */
+  function renderRow(m: Material) {
+    if (editingId === m.id) {
+      return (
+        <tr key={m.id} className="border-t border-[#E5E7EB] bg-[#EFF6FF] align-top">
+          <td colSpan={4} className="px-3 py-3">
+            <DraftFields draft={draft} setDraft={setDraft} />
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                disabled={saving}
+                onClick={() => saveEdit(m.id)}
+                className="px-3 py-1.5 rounded-md bg-[#2563EB] text-white text-[12px] font-medium hover:bg-[#1D4ED8] disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                onClick={cancelEdit}
+                className="px-3 py-1.5 rounded-md border border-[#E5E7EB] text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
+              >
+                Cancel
+              </button>
+            </div>
+          </td>
+        </tr>
+      )
+    }
+    return (
+      <tr key={m.id} className="border-t border-[#E5E7EB] hover:bg-[#FAFAFA]">
+        <td className="px-3 py-2">
+          <div className="font-medium text-[#111] flex items-center gap-1.5">
+            {m.name}
+            {m.thickness && (
+              <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-[#EFF6FF] text-[#1E40AF] border border-[#BFDBFE]">
+                {m.thickness}
+              </span>
+            )}
+          </div>
+          {m.notes && <div className="text-[11px] text-[#9CA3AF]">{m.notes}</div>}
+        </td>
+        <td className="px-3 py-2 text-[#374151] whitespace-nowrap">
+          <span className="text-[#2563EB] font-medium">
+            ${Number(m.cost_value).toFixed(2)}
+          </span>{' '}
+          <span className="text-[#9CA3AF]">{PER_LABEL[m.cost_unit]}</span>
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex flex-wrap gap-1">
+            {SLOT_FLAGS.filter((f) => m[f.key]).map((f) => (
+              <span
+                key={f.key}
+                className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]"
+              >
+                {f.label}
+              </span>
+            ))}
+            {!SLOT_FLAGS.some((f) => m[f.key]) && (
+              <span className="text-[11px] text-[#9CA3AF] italic">browse-all only</span>
+            )}
+          </div>
+        </td>
+        <td className="px-3 py-2 text-right whitespace-nowrap">
+          {confirmDeleteId === m.id ? (
+            <span className="inline-flex items-center gap-1">
+              <button
+                disabled={saving}
+                onClick={() => remove(m.id)}
+                className="px-2 py-1 rounded text-[11px] font-medium bg-[#DC2626] text-white hover:bg-[#B91C1C] disabled:opacity-50"
+              >
+                Remove
+              </button>
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                className="px-2 py-1 rounded text-[11px] text-[#6B7280] hover:bg-[#F3F4F6]"
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <button
+                onClick={() => startEdit(m)}
+                className="px-2 py-1 rounded text-[11px] font-medium text-[#2563EB] hover:bg-[#EFF6FF]"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => setConfirmDeleteId(m.id)}
+                title="Remove from catalog"
+                className="p-1 rounded text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2]"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          )}
+        </td>
+      </tr>
+    )
+  }
 }
 
-// Shared name/price/unit/flags/notes editor for both add + inline edit.
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-2 py-0.5 rounded-full text-[11px] border transition-colors ${
+        active
+          ? 'bg-[#2563EB] text-white border-[#2563EB]'
+          : 'bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+// Shared name/price/unit/category/thickness/flags/notes editor for both the
+// add form and inline edit.
 function DraftFields({
   draft,
   setDraft,
@@ -456,6 +629,34 @@ function DraftFields({
               </option>
             ))}
           </select>
+        </label>
+      </div>
+      {/* Organization (090). Free text with a datalist of what this org
+          already uses — no fixed vocabulary, no lookup table. */}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
+            Category
+          </span>
+          <input
+            list="material-category-options"
+            className="w-full mt-0.5 px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
+            value={draft.category}
+            onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+            placeholder="e.g. Plywood"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
+            Thickness
+          </span>
+          <input
+            list="material-thickness-options"
+            className="w-full mt-0.5 px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
+            value={draft.thickness}
+            onChange={(e) => setDraft({ ...draft, thickness: e.target.value })}
+            placeholder='e.g. 3/4"'
+          />
         </label>
       </div>
       <div data-tour={tourTag}>
