@@ -61,6 +61,8 @@ import MaterialsCatalog from '@/components/rate-book/MaterialsCatalog'
 import DoorCatalog from '@/components/rate-book/DoorCatalog'
 import FeatureCatalog from '@/components/rate-book/FeatureCatalog'
 import ProductBuilder from '@/components/rate-book/ProductBuilder'
+import FinishBreakdown from '@/components/rate-book/FinishBreakdown'
+import { loadCalibratedFinishItemIds } from '@/lib/finish-breakdown'
 
 // Upper / Full start life as derived entries — Base cabinet's numbers under
 // the product's name — and can be PROMOTED to real rate_book_items rows with
@@ -176,6 +178,7 @@ export default function RateBookPage() {
   const [loaded, setLoaded] = useState(false)
   const [categories, setCategories] = useState<RateBookCategoryRow[]>([])
   const [items, setItems] = useState<RateBookItemRow[]>([])
+  const [calibratedFinishIds, setCalibratedFinishIds] = useState<Set<string>>(new Set())
   const [options, setOptions] = useState<RateBookOptionRow[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -226,6 +229,15 @@ export default function RateBookPage() {
     setItems(i)
     setOptions(o)
     setSolidWoodRows(sw)
+    // Finish calibration lives in rate_book_finish_breakdown, not on the item
+    // row, so the roster's "ø" pill needs it looked up separately — one query
+    // for every finish item on the page.
+    const finishCatIds = new Set(c.filter((x) => x.item_type === 'finish').map((x) => x.id))
+    setCalibratedFinishIds(
+      await loadCalibratedFinishItemIds(
+        i.filter((it) => it.category_id && finishCatIds.has(it.category_id)).map((it) => it.id),
+      ),
+    )
     // Auto-expand every category. Item selection is handled by the
     // view-aware effect below (picks the first item of the active view).
     if (expanded.size === 0) {
@@ -545,9 +557,16 @@ export default function RateBookPage() {
                         // item type from — a calibrated drawer stores its
                         // hours in drawer_labor_hours_*, so summing the base
                         // columns used to flag every drawer as uncalibrated.
+                        //
+                        // Finishes store nothing on the item row at all —
+                        // their rates live in rate_book_finish_breakdown — so
+                        // they're answered from the calibrated-id set instead.
                         const hours = laborHoursFor(it, cat.item_type)
                         const totalHours = LABOR_DEPTS.reduce((s, d) => s + hours[d], 0)
-                        const uncalibrated = totalHours === 0
+                        const uncalibrated =
+                          cat.item_type === 'finish'
+                            ? !calibratedFinishIds.has(it.id)
+                            : totalHours === 0
                         return (
                           <button
                             key={it.id}
@@ -808,6 +827,7 @@ export default function RateBookPage() {
                   item={selectedItem}
                   buildup={buildup}
                   categoryItemType={selectedCategory?.item_type ?? null}
+                  shopRate={shopRate}
                 />
               )}
               {tab === 'history' && <HistoryTab rows={history} />}
@@ -942,12 +962,21 @@ function CurrentTab({
   item,
   buildup,
   categoryItemType,
+  shopRate,
 }: {
   item: RateBookItemRow
   buildup: ReturnType<typeof computeBuildup>
   categoryItemType: string | null
+  shopRate: number
 }) {
   const [expandLabor, setExpandLabor] = useState(false)
+  // Finishes price from rate_book_finish_breakdown, per cabinet type — NOT
+  // from this item's base_labor_hours_* columns, which the composer ignores.
+  // Showing the generic labor/material/total buildup here displayed numbers
+  // nothing prices from, so finishes get their own panel entirely.
+  if (categoryItemType === 'finish') {
+    return <FinishBreakdown itemId={item.id} shopRate={shopRate} />
+  }
   // Composer-driven items (cabinet/door/drawer/finish) price their MATERIAL
   // per line in the composer from the catalog — the item's own material
   // fields are dead. So the Materials section shows a pointer, not numbers,

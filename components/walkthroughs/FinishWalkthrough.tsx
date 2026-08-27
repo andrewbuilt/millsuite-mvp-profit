@@ -27,6 +27,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X, ChevronDown, ChevronRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { saveFinishBreakdown, type FinishPerLf } from '@/lib/finish-breakdown'
 
 type FinishFieldKey = 'primer' | 'paint' | 'stain' | 'lacquer'
 type ProductCategory = 'base' | 'upper' | 'full'
@@ -636,28 +637,12 @@ async function ensureFinishItem(
   return (created as { id: string }).id
 }
 
+/** Thin alias — the write lives in lib/finish-breakdown so the wizard and the
+ *  Finishes tab's inline editor can't drift apart on what a breakdown row is. */
 async function upsertBreakdown(
   itemId: string,
   product: ProductCategory,
-  perLf: {
-    labor_hr_per_lf: number
-    primer_cost_per_lf: number
-    paint_cost_per_lf: number
-    stain_cost_per_lf: number
-    lacquer_cost_per_lf: number
-  }
+  perLf: FinishPerLf
 ): Promise<void> {
-  const { error } = await supabase
-    .from('rate_book_finish_breakdown')
-    .upsert(
-      {
-        rate_book_item_id: itemId,
-        product_category: product,
-        ...perLf,
-        calibrated_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'rate_book_item_id,product_category' }
-    )
-  if (error) throw error
+  await saveFinishBreakdown(itemId, product, perLf)
 }
