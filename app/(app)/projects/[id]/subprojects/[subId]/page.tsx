@@ -58,7 +58,7 @@ import {
   fmtActualHours,
   type SubActuals,
 } from '@/lib/actual-hours'
-import { ArrowLeft, Copy, Plus, Trash2, X, Pencil } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Copy, Plus, Trash2, X, Pencil } from 'lucide-react'
 import AddLineComposer from '@/components/composer/AddLineComposer'
 import FreeformLineModal from '@/components/subproject/FreeformLineModal'
 import InstallPrefill from '@/components/subproject/InstallPrefill'
@@ -1343,6 +1343,10 @@ function ScopeEditor({
   const [activityType, setActivityType] = useState('')
   const [blocks, setBlocks] = useState<string[]>([])
   const [exclusions, setExclusions] = useState<string[]>([])
+  // Collapsed by default (Andrew's call): scope is written once and then read
+  // rarely, but it sat always-open above the composer lines — the part of the
+  // page actually being worked. Client state only, nothing persisted.
+  const [open, setOpen] = useState(false)
 
   // The cached QB item for the current activity type (→ its prefill text).
   const itemFor = (name: string) =>
@@ -1381,171 +1385,202 @@ function ScopeEditor({
   const addBtnCls =
     'text-[11px] font-semibold text-[#2563EB] hover:text-[#1D4ED8] disabled:opacity-40'
 
+  // What the collapsed header says, so it's clear whether there's anything
+  // in there without expanding. Counts the blocks that actually have text —
+  // "+ Add" leaves an empty one behind until it's typed into.
+  const blockCount = blocks.filter((b) => b.trim()).length
+  const exclusionCount = exclusions.filter((x) => x.trim()).length
+  const summaryBits = [
+    activityType.trim() || 'No activity type',
+    `${blockCount} description block${blockCount === 1 ? '' : 's'}`,
+    ...(exclusionCount > 0
+      ? [`${exclusionCount} exclusion${exclusionCount === 1 ? '' : 's'}`]
+      : []),
+  ]
+
   return (
-    <div className="mb-4 px-4 py-3 bg-[#F9FAFB] border border-[#F3F4F6] rounded-xl space-y-3">
-      {/* Activity type → QB item */}
-      <div>
-        <div className={labelCls + ' mb-1'}>Activity type</div>
-        {editable ? (
-          <>
-            <select
-              value={activityType}
-              onChange={(e) => {
-                const v = e.target.value
-                setActivityType(v)
-                // Autofill the description from the QB item — but only when the
-                // description is empty, so we never clobber real edits silently.
-                // "Restore default" (below) is the explicit re-pull.
-                const hasContent = blocks.some((b) => b.trim())
-                const filled = blocksFromItemDescription(itemFor(v)?.description)
-                if (!hasContent && filled.length) {
-                  setBlocks(filled)
-                  persist({ activityType: v, blocks: filled })
-                } else {
-                  persist({ activityType: v })
-                }
-              }}
-              className="w-full max-w-xs px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
-            >
-              <option value="">— none —</option>
-              {options.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-            {qbItems.length === 0 && (
-              <div className="text-[11px] text-[#9CA3AF] mt-1">
-                Sync your QuickBooks items (Settings → QuickBooks) to map to your item list.
+    <div className="mb-4 bg-[#F9FAFB] border border-[#F3F4F6] rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#F3F4F6] focus:outline-none group text-left"
+      >
+        {open ? (
+          <ChevronUp className="w-3.5 h-3.5 text-[#9CA3AF] shrink-0" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5 text-[#9CA3AF] shrink-0" />
+        )}
+        <span className={labelCls + ' group-hover:text-[#6B7280]'}>Scope</span>
+        <span className="text-[11px] text-[#9CA3AF] truncate">{summaryBits.join(' · ')}</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-3 pt-1 space-y-3 border-t border-[#F3F4F6]">
+          {/* Activity type → QB item */}
+          <div>
+            <div className={labelCls + ' mb-1'}>Activity type</div>
+            {editable ? (
+              <>
+                <select
+                  value={activityType}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setActivityType(v)
+                    // Autofill the description from the QB item — but only when the
+                    // description is empty, so we never clobber real edits silently.
+                    // "Restore default" (below) is the explicit re-pull.
+                    const hasContent = blocks.some((b) => b.trim())
+                    const filled = blocksFromItemDescription(itemFor(v)?.description)
+                    if (!hasContent && filled.length) {
+                      setBlocks(filled)
+                      persist({ activityType: v, blocks: filled })
+                    } else {
+                      persist({ activityType: v })
+                    }
+                  }}
+                  className="w-full max-w-xs px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
+                >
+                  <option value="">— none —</option>
+                  {options.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                {qbItems.length === 0 && (
+                  <div className="text-[11px] text-[#9CA3AF] mt-1">
+                    Sync your QuickBooks items (Settings → QuickBooks) to map to your item list.
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-[13px] text-[#374151]">{activityType || '—'}</div>
+            )}
+          </div>
+
+          {/* Description blocks */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className={labelCls}>Description</span>
+              {editable && (
+                <div className="flex items-center gap-3">
+                  {blocksFromItemDescription(itemFor(activityType)?.description).length > 0 && (
+                    <button
+                      type="button"
+                      className={addBtnCls}
+                      title="Replace with the default description for this activity type"
+                      onClick={() => {
+                        const filled = blocksFromItemDescription(itemFor(activityType)?.description)
+                        if (!filled.length) return
+                        if (
+                          blocks.some((b) => b.trim()) &&
+                          !window.confirm('Replace the description with the default text for this activity type?')
+                        ) {
+                          return
+                        }
+                        setBlocks(filled)
+                        persist({ blocks: filled })
+                      }}
+                    >
+                      Restore default
+                    </button>
+                  )}
+                  <button type="button" className={addBtnCls} onClick={() => setBlocks((b) => [...b, ''])}>
+                    + Add
+                  </button>
+                </div>
+              )}
+            </div>
+            {blocks.length === 0 && !editable ? (
+              <div className="text-[13px] text-[#9CA3AF] italic">—</div>
+            ) : (
+              <div className="space-y-2">
+                {blocks.map((blk, i) =>
+                  editable ? (
+                    <div key={i} className="flex gap-2 items-start">
+                      <textarea
+                        value={blk}
+                        rows={Math.max(2, blk.split('\n').length)}
+                        onChange={(e) =>
+                          setBlocks((b) => b.map((x, j) => (j === i ? e.target.value : x)))
+                        }
+                        onBlur={() => persist({})}
+                        placeholder="Material / dimensions / details…"
+                        className="flex-1 px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none resize-y whitespace-pre-wrap leading-relaxed"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Remove block"
+                        className="text-[#9CA3AF] hover:text-[#DC2626] mt-1.5"
+                        onClick={() => {
+                          const nextBlocks = blocks.filter((_, j) => j !== i)
+                          setBlocks(nextBlocks)
+                          persist({ blocks: nextBlocks })
+                        }}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p key={i} className="text-[13px] text-[#374151] whitespace-pre-line leading-relaxed">
+                      {blk}
+                    </p>
+                  ),
+                )}
               </div>
             )}
-          </>
-        ) : (
-          <div className="text-[13px] text-[#374151]">{activityType || '—'}</div>
-        )}
-      </div>
+          </div>
 
-      {/* Description blocks */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <span className={labelCls}>Description</span>
-          {editable && (
-            <div className="flex items-center gap-3">
-              {blocksFromItemDescription(itemFor(activityType)?.description).length > 0 && (
-                <button
-                  type="button"
-                  className={addBtnCls}
-                  title="Replace with the default description for this activity type"
-                  onClick={() => {
-                    const filled = blocksFromItemDescription(itemFor(activityType)?.description)
-                    if (!filled.length) return
-                    if (
-                      blocks.some((b) => b.trim()) &&
-                      !window.confirm('Replace the description with the default text for this activity type?')
-                    ) {
-                      return
-                    }
-                    setBlocks(filled)
-                    persist({ blocks: filled })
-                  }}
-                >
-                  Restore default
-                </button>
-              )}
-              <button type="button" className={addBtnCls} onClick={() => setBlocks((b) => [...b, ''])}>
-                + Add
-              </button>
+          {/* Exclusions */}
+          {(editable || exclusions.length > 0) && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className={labelCls}>Exclusions</span>
+                {editable && (
+                  <button
+                    type="button"
+                    className={addBtnCls}
+                    onClick={() => setExclusions((x) => [...x, ''])}
+                  >
+                    + Add
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                {exclusions.map((ex, i) =>
+                  editable ? (
+                    <div key={i} className="flex gap-2 items-center">
+                      <input
+                        value={ex}
+                        onChange={(e) =>
+                          setExclusions((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))
+                        }
+                        onBlur={() => persist({})}
+                        placeholder="Excluded from this scope…"
+                        className="flex-1 px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Remove exclusion"
+                        className="text-[#9CA3AF] hover:text-[#DC2626]"
+                        onClick={() => {
+                          const nextEx = exclusions.filter((_, j) => j !== i)
+                          setExclusions(nextEx)
+                          persist({ exclusions: nextEx })
+                        }}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p key={i} className="text-[13px] text-[#374151] leading-relaxed">
+                      • {ex}
+                    </p>
+                  ),
+                )}
+              </div>
             </div>
           )}
-        </div>
-        {blocks.length === 0 && !editable ? (
-          <div className="text-[13px] text-[#9CA3AF] italic">—</div>
-        ) : (
-          <div className="space-y-2">
-            {blocks.map((blk, i) =>
-              editable ? (
-                <div key={i} className="flex gap-2 items-start">
-                  <textarea
-                    value={blk}
-                    rows={Math.max(2, blk.split('\n').length)}
-                    onChange={(e) =>
-                      setBlocks((b) => b.map((x, j) => (j === i ? e.target.value : x)))
-                    }
-                    onBlur={() => persist({})}
-                    placeholder="Material / dimensions / details…"
-                    className="flex-1 px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none resize-y whitespace-pre-wrap leading-relaxed"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Remove block"
-                    className="text-[#9CA3AF] hover:text-[#DC2626] mt-1.5"
-                    onClick={() => {
-                      const nextBlocks = blocks.filter((_, j) => j !== i)
-                      setBlocks(nextBlocks)
-                      persist({ blocks: nextBlocks })
-                    }}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <p key={i} className="text-[13px] text-[#374151] whitespace-pre-line leading-relaxed">
-                  {blk}
-                </p>
-              ),
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Exclusions */}
-      {(editable || exclusions.length > 0) && (
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className={labelCls}>Exclusions</span>
-            {editable && (
-              <button
-                type="button"
-                className={addBtnCls}
-                onClick={() => setExclusions((x) => [...x, ''])}
-              >
-                + Add
-              </button>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            {exclusions.map((ex, i) =>
-              editable ? (
-                <div key={i} className="flex gap-2 items-center">
-                  <input
-                    value={ex}
-                    onChange={(e) =>
-                      setExclusions((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))
-                    }
-                    onBlur={() => persist({})}
-                    placeholder="Excluded from this scope…"
-                    className="flex-1 px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Remove exclusion"
-                    className="text-[#9CA3AF] hover:text-[#DC2626]"
-                    onClick={() => {
-                      const nextEx = exclusions.filter((_, j) => j !== i)
-                      setExclusions(nextEx)
-                      persist({ exclusions: nextEx })
-                    }}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <p key={i} className="text-[13px] text-[#374151] leading-relaxed">
-                  • {ex}
-                </p>
-              ),
-            )}
-          </div>
         </div>
       )}
     </div>
