@@ -176,6 +176,10 @@ export default function SettingsPage() {
   const [invoiceFooterText, setInvoiceFooterText] = useState('')
   const [invoiceEmailTemplate, setInvoiceEmailTemplate] = useState('')
 
+  // Estimate closing note (091) — the shop's own sign-off, rendered as the
+  // final "Thank you" section of every estimate PDF.
+  const [estimateClosingNote, setEstimateClosingNote] = useState('')
+
   // Invoicing backend — 'internal' | 'quickbooks' (migration 057). A discrete
   // toggle, so it saves immediately on change (not debounced) and calls
   // refreshOrg() so the app-wide org reflects it for later mode-gated surfaces.
@@ -283,6 +287,23 @@ export default function SettingsPage() {
           )
           setInvoiceFooterText(invSettings.invoice_footer_text || '')
           setInvoiceEmailTemplate(invSettings.invoice_email_template || '')
+        }
+
+        // Estimate copy — its OWN select on purpose. Folded into the query
+        // above, a pre-091 database would fail the whole thing (PostgREST
+        // rejects the entire select on one unknown column), leaving every
+        // invoicing field blank on screen — which autosave could then write
+        // back over real settings. Isolated, an un-migrated environment just
+        // gets an empty closing note.
+        const { data: estSettings } = await supabase
+          .from('orgs')
+          .select('estimate_closing_note')
+          .eq('id', org.id)
+          .single()
+        if (estSettings && !cancelled) {
+          setEstimateClosingNote(
+            (estSettings as { estimate_closing_note?: string | null }).estimate_closing_note || '',
+          )
         }
         setLoaded(true)
       }
@@ -417,6 +438,22 @@ export default function SettingsPage() {
     label: 'invoicing save',
   })
 
+  // Estimate copy (091). Its own autosave so typing a long sign-off doesn't
+  // keep re-writing the invoicing columns alongside it.
+  const estimateDefaults = useMemo(
+    () => ({ estimate_closing_note: estimateClosingNote.trim() || null }),
+    [estimateClosingNote],
+  )
+  const persistEstimate = useCallback(
+    (v: typeof estimateDefaults) => updateOrgChecked(orgId!, v),
+    [orgId],
+  )
+  const estimateSave = useAutosave(estimateDefaults, persistEstimate, {
+    enabled: canPersist,
+    delayMs: 800,
+    label: 'estimate save',
+  })
+
   async function handleResetInvoiceNumber() {
     if (!org?.id) return
     const ok = window.confirm(
@@ -538,10 +575,19 @@ export default function SettingsPage() {
   const rateDelta = Math.abs(derivedRate - currentRate)
   const rateOutOfSync = currentRate > 0 && rateDelta > 0.005
 
-  // One indicator for the whole page: the most urgent state across the five
-  // autosaves wins, so a failed write can't hide behind four quiet ones.
+  // One indicator for the whole page: the most urgent state across the six
+  // autosaves wins, so a failed write can't hide behind five quiet ones.
+  // ⚠️ Add every new autosave here — one left out is a write whose failure
+  // (including the org-RLS one updateOrgChecked exists to catch) is invisible.
   const settingsSave = useMemo<Autosave>(() => {
-    const all = [overheadSave, teamSave, billableSave, orgDefaultsSave, invoicingSave]
+    const all = [
+      overheadSave,
+      teamSave,
+      billableSave,
+      orgDefaultsSave,
+      invoicingSave,
+      estimateSave,
+    ]
     const rank = { error: 4, unsaved: 3, saving: 2, saved: 1, idle: 0 } as const
     const worst = all.reduce((a, b) => (rank[b.status] > rank[a.status] ? b : a))
     return {
@@ -549,7 +595,7 @@ export default function SettingsPage() {
       error: worst.error,
       saveNow: () => all.forEach((s) => s.saveNow()),
     }
-  }, [overheadSave, teamSave, billableSave, orgDefaultsSave, invoicingSave])
+  }, [overheadSave, teamSave, billableSave, orgDefaultsSave, invoicingSave, estimateSave])
 
   return (
     <>
@@ -1122,6 +1168,32 @@ export default function SettingsPage() {
               </div>
             </div>
             {logoError && <div className="text-xs text-[#B91C1C] text-right">{logoError}</div>}
+          </div>
+        </div>
+
+        {/* Estimates — org-level copy that appears on every estimate PDF. */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-[#E5E7EB]">
+            <h2 className="text-base font-semibold">Estimates</h2>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">
+              Your own words, on every estimate you send.
+            </p>
+          </div>
+          <div className="px-6 py-4">
+            <label className="text-sm text-[#6B7280] block mb-1.5">
+              Estimate closing note
+              <span className="block text-[11px] text-[#9CA3AF] font-normal">
+                Shows as a "Thank you" section at the end of every estimate PDF. Leave it
+                empty and the section doesn't appear at all.
+              </span>
+            </label>
+            <textarea
+              value={estimateClosingNote}
+              onChange={(e) => setEstimateClosingNote(e.target.value)}
+              rows={5}
+              placeholder="Thank you for trusting us with your project…"
+              className="w-full px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] resize-none"
+            />
           </div>
         </div>
 

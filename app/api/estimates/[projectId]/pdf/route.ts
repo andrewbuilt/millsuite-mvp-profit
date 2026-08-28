@@ -66,7 +66,7 @@ export async function POST(
     supabaseAdmin
       .from('orgs')
       .select(
-        'name, logo_url, business_address, business_city, business_state, business_zip, business_phone, business_email, estimate_prefix, next_estimate_number, estimate_footer_text',
+        'name, logo_url, business_address, business_city, business_state, business_zip, business_phone, business_email, estimate_prefix, next_estimate_number, estimate_footer_text, estimate_closing_note',
       )
       .eq('id', callerOrgId)
       .single(),
@@ -106,6 +106,9 @@ export async function POST(
   const estimateDate = new Date().toISOString().slice(0, 10)
   const totals = body.totals || { subtotal: 0, taxPct: 0, taxAmount: 0, total: 0 }
   const terms = body.terms ?? org.estimate_footer_text ?? null
+  // Org-level only — no request override. The sign-off is the shop's standing
+  // copy, not something a caller should be able to swap per estimate.
+  const closingNote = (org as { estimate_closing_note?: string | null }).estimate_closing_note ?? null
   const schedule = Array.isArray(body.schedule) ? body.schedule : []
 
   const element = React.createElement(EstimatePdf, {
@@ -119,6 +122,7 @@ export async function POST(
     schedule,
     totals,
     terms,
+    closingNote,
   })
   const buffer: Buffer = await renderToBuffer(element as any)
 

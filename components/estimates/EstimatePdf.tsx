@@ -60,6 +60,10 @@ export interface EstimatePdfProps {
   schedule: EstimateScheduleRow[]
   totals: { subtotal: number; taxPct: number; taxAmount: number; total: number }
   terms?: string | null
+  /** Per-org sign-off, rendered as the final "Thank you" section (091).
+   *  Deliberately not hardcoded — the copy is the shop's own, and every org
+   *  on the platform has its own story to tell. Empty/null → no section. */
+  closingNote?: string | null
 }
 
 const COLORS = {
@@ -178,6 +182,7 @@ export function EstimatePdf({
   schedule,
   totals,
   terms,
+  closingNote,
 }: EstimatePdfProps) {
   const cityLine = [org.business_city, org.business_state, org.business_zip]
     .filter(Boolean)
@@ -300,10 +305,21 @@ export function EstimatePdf({
           </View>
         ) : null}
 
-        {/* Terms */}
+        {/* Terms. Titled to match Payment schedule above — the tail of the
+            PDF is three consistently-headed sections, not one headed block
+            followed by two anonymous ones. */}
         {terms ? (
           <View style={styles.notesBlock}>
+            <Text style={styles.smallLabel}>Terms</Text>
             <Text style={styles.notesText}>{terms}</Text>
+          </View>
+        ) : null}
+
+        {/* Thank you — the org's own sign-off (091). Last thing on the page. */}
+        {closingNote && closingNote.trim() ? (
+          <View style={styles.notesBlock}>
+            <Text style={styles.smallLabel}>Thank you</Text>
+            <Text style={styles.notesText}>{closingNote.trim()}</Text>
           </View>
         ) : null}
       </Page>
