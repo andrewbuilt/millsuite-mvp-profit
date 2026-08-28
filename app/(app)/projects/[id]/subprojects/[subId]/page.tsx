@@ -58,7 +58,8 @@ import {
   fmtActualHours,
   type SubActuals,
 } from '@/lib/actual-hours'
-import { ArrowLeft, ChevronDown, ChevronUp, Copy, Plus, Trash2, X, Pencil } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, ChevronUp, Copy, Plus, Trash2, X, Pencil } from 'lucide-react'
+import { updateSubprojectName } from '@/lib/sales'
 import AddLineComposer from '@/components/composer/AddLineComposer'
 import FreeformLineModal from '@/components/subproject/FreeformLineModal'
 import InstallPrefill from '@/components/subproject/InstallPrefill'
@@ -151,6 +152,11 @@ export default function SubprojectEditorPage() {
 
   const [project, setProject] = useState<ProjectRow | null>(null)
   const [subproject, setSubproject] = useState<SubprojectRow | null>(null)
+  // Rename, same affordance as the project header: pencil on the h1 → input,
+  // Enter or the check saves, Escape backs out.
+  const [renaming, setRenaming] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [renameSaving, setRenameSaving] = useState(false)
   // Synced QB service items → activity-type dropdown. Empty until a QB item
   // sync has run (Settings → QuickBooks); the field still shows the current
   // value so nothing is lost when the cache is cold.
@@ -327,6 +333,39 @@ export default function SubprojectEditorPage() {
       cancelled = true
     }
   }, [org?.id, projectId, subId])
+
+  function startRename() {
+    if (!subproject) return
+    setNameDraft(subproject.name)
+    setRenaming(true)
+  }
+
+  async function saveSubprojectName() {
+    if (!subproject || renameSaving) return
+    const clean = nameDraft.trim()
+    if (!clean || clean === subproject.name) {
+      setRenaming(false)
+      return
+    }
+    setRenameSaving(true)
+    try {
+      await updateSubprojectName(subproject.id, clean, org?.id)
+      setSubproject((s) => (s ? { ...s, name: clean } : s))
+      // The tab bar holds its own cached copy of every sibling's name — patch
+      // it too, or this subproject's tab keeps the old name until a reload.
+      setSiblingSubs((subs) =>
+        subs.map((s) => (s.id === subproject.id ? { ...s, name: clean } : s)),
+      )
+      setRenaming(false)
+    } catch (e) {
+      await showAlert({
+        title: 'Rename failed',
+        message: e instanceof Error ? e.message : 'Could not rename this subproject.',
+      })
+    } finally {
+      setRenameSaving(false)
+    }
+  }
 
   // Delete this subproject. estimate_lines + line options cascade (001 FKs);
   // time entries set-null (clock-ins survive). Route back to the project.
@@ -763,7 +802,49 @@ export default function SubprojectEditorPage() {
           <div className="min-w-0">
           <div className="flex items-baseline justify-between mb-4">
             <div>
-              <h1 className="text-xl font-semibold tracking-tight text-[#111]">{subproject.name}</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-[#111] flex items-center gap-2 group">
+                {renaming ? (
+                  <>
+                    <input
+                      autoFocus
+                      value={nameDraft}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveSubprojectName()
+                        if (e.key === 'Escape') setRenaming(false)
+                      }}
+                      disabled={renameSaving}
+                      className="text-xl font-semibold tracking-tight text-[#111] px-2 py-0.5 -ml-2 border border-[#D1D5DB] rounded-md focus:outline-none focus:border-[#2563EB] min-w-[240px] max-w-full disabled:opacity-60"
+                    />
+                    <button
+                      onClick={saveSubprojectName}
+                      disabled={renameSaving}
+                      title="Save name"
+                      className="p-1.5 rounded-md text-[#2563EB] hover:bg-[#EFF6FF] transition-colors disabled:opacity-50"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setRenaming(false)}
+                      disabled={renameSaving}
+                      className="text-xs font-normal text-[#6B7280] hover:text-[#111] transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {subproject.name}
+                    <button
+                      onClick={startRename}
+                      title="Rename subproject"
+                      className="p-1.5 rounded-md text-[#9CA3AF] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[#111] hover:bg-[#F3F4F6] transition-all"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
+              </h1>
               <p className="text-xs text-[#6B7280] mt-0.5">
                 {subproject.linear_feet ? `${subproject.linear_feet} LF · ` : ''}
                 {lines.length} {lines.length === 1 ? 'line' : 'lines'}

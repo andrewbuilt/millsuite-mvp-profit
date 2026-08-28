@@ -746,6 +746,42 @@ export async function updateProjectName(
 }
 
 /**
+ * Rename a subproject. Same shape and same reasoning as `updateProjectName`
+ * above — the name was write-once (NewSubprojectModal at create, or the
+ * parser's room name on reparse) with no edit path.
+ *
+ * Nothing snapshots it: the schedule, worker time, CO PDFs and the approvals
+ * roster all read `subprojects.name` at render time, and the QuickBooks push
+ * builds its line from the activity type + scope description, not the name.
+ * So a rename propagates on its own, including to already-pushed jobs.
+ */
+export async function updateSubprojectName(
+  subprojectId: string,
+  name: string,
+  orgId?: string
+): Promise<string> {
+  const clean = name.trim()
+  if (!clean) throw new Error('Subproject name cannot be empty')
+
+  // No `updated_at` here — unlike `projects`, the subprojects table doesn't
+  // have that column (verified against the live schema; PostgREST 42703).
+  // Setting it would fail the whole update at runtime, which tsc can't catch.
+  let q = supabase
+    .from('subprojects')
+    .update({ name: clean })
+    .eq('id', subprojectId)
+  if (orgId) q = q.eq('org_id', orgId)
+
+  const { data, error } = await q.select('id')
+  if (error) {
+    console.error('updateSubprojectName', error)
+    throw error
+  }
+  if (!data || data.length === 0) throw new Error('Could not rename this subproject')
+  return clean
+}
+
+/**
  * Delete a project and its dependent rows. Most child tables are CASCADE on
  * project_id / subproject_id, but a handful (time_entries, invoices,
  * project_notes, cash_flow_receivables) aren't, so we clean those up first.
