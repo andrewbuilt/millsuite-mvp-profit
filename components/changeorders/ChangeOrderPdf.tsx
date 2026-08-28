@@ -6,6 +6,7 @@
 
 import { Document, Image, Page, Path, StyleSheet, Svg, Text, View } from '@react-pdf/renderer'
 import { pdfLogoOk } from '@/components/estimates/EstimatePdf'
+import { pdfText } from '@/lib/pdf-text'
 
 /** A right-pointing arrow drawn as vector (the Helvetica font can't render a
  *  → glyph). Used between the original/proposed chips. */
@@ -87,12 +88,14 @@ function money(n: number): string {
   // ASCII hyphen — the PDF Helvetica font has no U+2212 minus glyph.
   return `${n < 0 ? '-' : ''}$${v}`
 }
-/** The built-in PDF Helvetica font can't render arrow/minus glyphs (they show
- *  as a stray apostrophe). In text, read "→" as " to "; the visual arrow
- *  between chips is drawn as vector (ArrowGlyph). */
-function pdfSafe(s: string | null | undefined): string {
-  return (s ?? '').replace(/\s*→\s*/g, ' to ').replace(/[−–—]/g, '-')
-}
+/** Font-safe text. In prose an arrow reads as " to "; the visual arrow between
+ *  the chips is drawn as vector instead (ArrowGlyph).
+ *
+ *  This was a third private copy of the same sanitizer — invoice and estimate
+ *  each had their own — so it now delegates to lib/pdf-text and the broken-
+ *  glyph list is maintained in ONE place. It no longer rewrites en/em dashes:
+ *  those render correctly, verified against the real component. */
+const pdfSafe = pdfText
 function fmtDate(iso: string): string {
   const d = new Date(iso + (iso.length <= 10 ? 'T12:00:00Z' : ''))
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -125,14 +128,14 @@ export function ChangeOrderPdf({
             {pdfLogoOk(org.logo_url) ? (
               <Image src={org.logo_url} style={S.logo} />
             ) : null}
-            <Text style={S.orgName}>{org.name}</Text>
-            {orgAddr ? <Text style={S.orgLine}>{orgAddr}</Text> : null}
-            {org.business_phone ? <Text style={S.orgLine}>{org.business_phone}</Text> : null}
-            {org.business_email ? <Text style={S.orgLine}>{org.business_email}</Text> : null}
+            <Text style={S.orgName}>{pdfSafe(org.name)}</Text>
+            {orgAddr ? <Text style={S.orgLine}>{pdfSafe(orgAddr)}</Text> : null}
+            {org.business_phone ? <Text style={S.orgLine}>{pdfSafe(org.business_phone)}</Text> : null}
+            {org.business_email ? <Text style={S.orgLine}>{pdfSafe(org.business_email)}</Text> : null}
           </View>
           <View>
             <Text style={S.docLabel}>CHANGE ORDER</Text>
-            <Text style={S.docNumber}>{coNumber}</Text>
+            <Text style={S.docNumber}>{pdfSafe(coNumber)}</Text>
             <Text style={S.docMeta}>{fmtDate(coDate)}</Text>
           </View>
         </View>
@@ -140,13 +143,13 @@ export function ChangeOrderPdf({
         <View style={S.twoCol}>
           <View style={S.colHalf}>
             <Text style={S.smallLabel}>For</Text>
-            <Text style={[S.body, { fontFamily: 'Helvetica-Bold' }]}>{client?.name ?? '—'}</Text>
-            {client?.address ? <Text style={S.meta}>{client.address}</Text> : null}
-            {client?.email ? <Text style={S.meta}>{client.email}</Text> : null}
+            <Text style={[S.body, { fontFamily: 'Helvetica-Bold' }]}>{pdfSafe(client?.name) || '—'}</Text>
+            {client?.address ? <Text style={S.meta}>{pdfSafe(client.address)}</Text> : null}
+            {client?.email ? <Text style={S.meta}>{pdfSafe(client.email)}</Text> : null}
           </View>
           <View style={S.colHalf}>
             <Text style={S.smallLabel}>Project</Text>
-            <Text style={S.body}>{project?.name ?? '—'}</Text>
+            <Text style={S.body}>{pdfSafe(project?.name) || '—'}</Text>
           </View>
         </View>
 
@@ -172,7 +175,7 @@ export function ChangeOrderPdf({
             {materials!.map((m, i) => (
               <View key={i} style={S.matRow}>
                 <Text style={S.matDesc}>
-                  {m.desc}
+                  {pdfSafe(m.desc)}
                   {m.vendor ? ' (vendor)' : ''}
                 </Text>
                 <Text style={S.matNum}>

@@ -13,6 +13,7 @@
 
 import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 import { parseRichDescription } from '@/lib/subproject-description'
+import { pdfText } from '@/lib/pdf-text'
 
 /** react-pdf <Image> renders raster only (no SVG) — show the logo when it's a
  *  PNG/JPG/etc., otherwise fall back to the org name text. */
@@ -208,15 +209,15 @@ export function EstimatePdf({
             {pdfLogoOk(org.logo_url) ? (
               <Image src={org.logo_url} style={styles.logo} />
             ) : null}
-            <Text style={styles.orgName}>{org.name || 'Your Company'}</Text>
-            {org.business_address ? <Text style={styles.orgLine}>{org.business_address}</Text> : null}
+            <Text style={styles.orgName}>{pdfText(org.name) || 'Your Company'}</Text>
+            {org.business_address ? <Text style={styles.orgLine}>{pdfText(org.business_address)}</Text> : null}
             {cityLine ? <Text style={styles.orgLine}>{cityLine}</Text> : null}
-            {org.business_phone ? <Text style={styles.orgLine}>{org.business_phone}</Text> : null}
-            {org.business_email ? <Text style={styles.orgLine}>{org.business_email}</Text> : null}
+            {org.business_phone ? <Text style={styles.orgLine}>{pdfText(org.business_phone)}</Text> : null}
+            {org.business_email ? <Text style={styles.orgLine}>{pdfText(org.business_email)}</Text> : null}
           </View>
           <View>
             <Text style={styles.docLabel}>ESTIMATE</Text>
-            <Text style={styles.docNumber}>{estimateNumber}</Text>
+            <Text style={styles.docNumber}>{pdfText(estimateNumber)}</Text>
             <Text style={styles.docMeta}>Date: {fmtDate(estimateDate)}</Text>
             {validUntil ? <Text style={styles.docMeta}>Valid until: {fmtDate(validUntil)}</Text> : null}
           </View>
@@ -228,10 +229,10 @@ export function EstimatePdf({
             <Text style={styles.smallLabel}>Prepared for</Text>
             {client ? (
               <View>
-                <Text style={[styles.blockBody, styles.blockBold]}>{client.name}</Text>
-                {client.address ? <Text style={styles.blockMeta}>{client.address}</Text> : null}
-                {client.email ? <Text style={styles.blockMeta}>{client.email}</Text> : null}
-                {client.phone ? <Text style={styles.blockMeta}>{client.phone}</Text> : null}
+                <Text style={[styles.blockBody, styles.blockBold]}>{pdfText(client.name)}</Text>
+                {client.address ? <Text style={styles.blockMeta}>{pdfText(client.address)}</Text> : null}
+                {client.email ? <Text style={styles.blockMeta}>{pdfText(client.email)}</Text> : null}
+                {client.phone ? <Text style={styles.blockMeta}>{pdfText(client.phone)}</Text> : null}
               </View>
             ) : (
               <Text style={styles.blockMeta}>—</Text>
@@ -239,7 +240,7 @@ export function EstimatePdf({
           </View>
           <View style={styles.colHalf}>
             <Text style={styles.smallLabel}>Project</Text>
-            <Text style={[styles.blockBody, styles.blockBold]}>{project?.name ?? '—'}</Text>
+            <Text style={[styles.blockBody, styles.blockBold]}>{pdfText(project?.name) || '—'}</Text>
           </View>
         </View>
 
@@ -272,7 +273,7 @@ export function EstimatePdf({
                 spacing is newlines, NOT margins. Don't "improve" this into
                 Views without re-checking row overlap on a multi-line item. */}
             <Text style={[styles.bodyText, styles.cellDesc]}>
-              <Text style={styles.blockBold}>{titleLine}</Text>
+              <Text style={styles.blockBold}>{pdfText(titleLine)}</Text>
               {sections.map((s, si) => (
                 <Text key={si}>
                   {'\n\n'}
@@ -281,8 +282,8 @@ export function EstimatePdf({
                   ) : null}
                   <Text style={styles.scopeBody}>
                     {s.bullets
-                      ? s.lines.map((l) => `—  ${l}`).join('\n')
-                      : s.lines.join('\n')}
+                      ? s.lines.map((l) => `—  ${pdfText(l)}`).join('\n')
+                      : s.lines.map(pdfText).join('\n')}
                   </Text>
                 </Text>
               ))}
@@ -326,9 +327,9 @@ export function EstimatePdf({
               <View key={i} style={styles.scheduleRow} wrap={false}>
                 <View>
                   <Text style={styles.scheduleLabel}>
-                    {m.label} ({m.pct.toFixed(0)}%)
+                    {pdfText(m.label)} ({m.pct.toFixed(0)}%)
                   </Text>
-                  {m.trigger ? <Text style={styles.scheduleTrigger}>{m.trigger}</Text> : null}
+                  {m.trigger ? <Text style={styles.scheduleTrigger}>{pdfText(m.trigger)}</Text> : null}
                 </View>
                 <Text style={styles.scheduleAmount}>{money(m.amount)}</Text>
               </View>
@@ -342,7 +343,7 @@ export function EstimatePdf({
         {terms ? (
           <View style={styles.notesBlock}>
             <Text style={styles.smallLabel}>Terms</Text>
-            <Text style={styles.notesText}>{terms}</Text>
+            <Text style={styles.notesText}>{pdfText(terms)}</Text>
           </View>
         ) : null}
 
@@ -350,7 +351,7 @@ export function EstimatePdf({
         {closingNote && closingNote.trim() ? (
           <View style={styles.notesBlock}>
             <Text style={styles.smallLabel}>Thank you</Text>
-            <Text style={styles.notesText}>{closingNote.trim()}</Text>
+            <Text style={styles.notesText}>{pdfText(closingNote)}</Text>
           </View>
         ) : null}
       </Page>

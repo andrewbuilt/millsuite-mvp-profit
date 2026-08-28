@@ -13,6 +13,7 @@
 
 import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 import { pdfLogoOk } from '@/components/estimates/EstimatePdf'
+import { pdfText } from '@/lib/pdf-text'
 import type { Invoice, InvoiceLineItem, InvoicePayment } from '@/lib/invoices'
 
 export interface InvoicePdfProps {
@@ -237,12 +238,11 @@ function fmt$(n: number): string {
   return `$${(n || 0).toFixed(2)}`
 }
 
-/** The built-in PDF Helvetica font has no arrow/minus glyph (they render as a
- *  stray apostrophe). CO line descriptions carry "→"; read it as " to " here so
- *  it renders cleanly. */
-function pdfText(s: string): string {
-  return (s ?? '').replace(/\s*→\s*/g, ' to ').replace(/[−–—]/g, '-')
-}
+// The local pdfText moved to lib/pdf-text.ts so the estimate and change-order
+// PDFs get the same protection — the font problem was never invoice-specific.
+// It also dropped the en/em dash replacement: those two DO render correctly
+// (verified against the real component), so rewriting them to "-" was making
+// output slightly worse for no reason. The genuinely broken set is in the lib.
 
 function fmtDate(iso: string): string {
   if (!iso) return '—'
