@@ -20,7 +20,7 @@
 
 **✅ Wave item 6 BUILT 2026-08-27** (`a474c25`) — the Finishes tab is now **"Interior finishes"** and the Doors tab's list is **"Door finishes · per door"**, because the two are genuinely different things (box inside, per LF, by cabinet type · vs doors/fronts, per door, by door type + material) and only shared a name for historical reasons. **`FinishWalkthrough`'s exterior branch is retired** — it defaulted to `'exterior'` and its "Duplicate as Exterior" button created blank rows nothing can price, so it was generating the confusion, not just carrying it. `application` is narrowed to `'interior'` everywhere. **Open, Andrew's call, unscoped: pre-038 `application='exterior'` finish rows may still sit in his data and would list in the Interior finishes tab — hide them or delete by hand.**
 
-**NEW — wave item 7 scoped 2026-08-27 (fourth Cowork pass): flat interior-finish set — NOT built, build next.** Item 6 renamed the surfaces, but `FinishWalkthrough` still hardcodes four DOOR-STYLE combos ("Stain + clear on slab"…), so it re-mints door-style-named items forever. Andrew's model correction: **the inside of a cabinet is always a flat surface — door style is irrelevant to interior finishing.** The interior finish set is just: **Clear · Stain + clear · Paint · Gloss paint**, each per base/upper/full. Spec under "Small fixes wave" in Now.
+**NEW — wave items 9–10 scoped 2026-08-27 (fifth Cowork pass): estimate PDF polish — NOT built, build next.** (9) An org-level **closing note** at the end of the estimate PDF (thank-you / who the shop supports; Andrew's approved copy for Built is in the spec — it's an org setting, NOT hardcoded, because Bam's estimates must not carry Built's blurb). (10) **Line-description readability** — the PDF renders each line as one squashed text blob; split it into labeled sections with spacing. Specs under "Small fixes wave" in Now.
 
 **Deploy state 2026-08-27: the old unpushed-commit warning is RESOLVED** — `fb907f4` + `33253c7` are on origin. `main` now carries the three small-fixes commits on top. (Vercel build times are back to ~1 min — the 30-min warning below is resolved.)
 
@@ -101,7 +101,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Small fixes wave — ✅ ALL 8 ITEMS BUILT 2026-08-27 (migration `090` on prod; 1–3 + 6 confirmed live by Andrew). **Nothing left to build — only Andrew's live pass on 4, 5, 7 and 8, list at the bottom of this section.**
+### Small fixes wave — items 1–8 ✅ BUILT 2026-08-27 (migration `090` on prod; 1–3 + 6 confirmed live by Andrew). **Items 9–10 scoped 2026-08-27 (fifth Cowork pass) — BUILD NEXT.** Andrew's live pass on 4, 5, 7, 8 also open — list at the bottom of this section.
 
 **Migration `090_material_fields.sql` ✅ RUN ON PROD 2026-08-27 by Andrew.** Additive + idempotent: two nullable text columns (`materials.category`, `materials.thickness`) + a schema reload. Nothing prices off them. Verified through PostgREST with the public key (schema-only, `limit=0`) — both columns visible, so the cache reloaded. The code also survives an un-migrated environment: a "column does not exist" on the first read flips `lib/materials.ts` to the pre-090 column list for the rest of the page's life, so it degrades to "no category/thickness" rather than a blank catalog. That net still covers local/preview databases.
 
@@ -134,6 +134,20 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
    - **⚠️ `subprojects` has NO `updated_at` column** — verified against the live schema (PostgREST 42703; `saveSubprojectDefaults` and `ScopeEditor.persist` both omit it too). `projects` DOES have one, so the two rename helpers legitimately differ. Setting it here fails the whole update at runtime with nothing for tsc to catch — don't "tidy" it back in.
    - **The subproject tab bar caches sibling names** (`siblingSubs`), so the save patches that array as well; without it the renamed subproject's own tab keeps the old name until a reload.
    - Audited before building: nothing snapshots the name. Schedule, worker time, CO PDFs and the approvals roster all read `subprojects.name` at render time (`approval_items` drops `subproject_name` before insert), and the QB push builds its line from activity type + scope description. So a rename propagates by itself, including on already-pushed jobs.
+
+**9. Estimate closing note (org-level) — scoped 2026-08-27, NOT built.** A warm sign-off block at the very end of the estimate PDF. **This is an org SETTING, not hardcoded copy** — Bam's estimates must not thank anyone for considering Built. Build:
+   - **Migration `091_org_estimate_closing_note.sql`** (idempotent, `NOTIFY pgrst`): nullable text `orgs.estimate_closing_note`. Run on prod before deploy.
+   - **Settings:** a textarea card ("Estimate closing note — shows at the end of every estimate PDF"). ⛔ **`orgs` writes go through the `lib/org-write.ts` guard** (the RLS success-shaped-silence trap at the top of this file) — do not `from('orgs').update()` in the browser.
+   - **`EstimatePdf.tsx`:** render as the final block AFTER the existing `terms` block (~line 304), same `notesBlock` pattern, slightly warmer type than the fine print (Code's eye). Empty/null → nothing renders. Estimate PDF only for now (CO/invoice PDFs = later if Andrew asks).
+   - **Andrew pastes Built's copy into Settings after deploy** (no data migration). Approved text, verbatim:
+     > Thank you for trusting us with your project. Built has been family owned since 2013. When you work with us, you're supporting 15 craftspeople, 8 families, 12 kids, and 16 pets — and every one of them takes pride in what leaves this shop. We'd be honored to build for you.
+   - Verify: Built's estimate ends on the blurb; an org with the field empty gets the current PDF unchanged.
+
+**10. Estimate line-description readability — scoped 2026-08-27, NOT built.** Andrew: "tough to read easily" — confirmed on EST-0010: each line renders as ONE squashed blob ("Description - Material - … Dimensions - … Details - …" + exclusions), all same weight, no gaps. `EstimatePdf.tsx` gets a pre-flattened `li.description` string and splits only the title line (~239–253). Build:
+   - **Pass structured fields per line to the PDF** instead of (or alongside) the flat string: material/description, dimensions, detail lines (`details_json` blocks), includes-installation, exclusions (`exclusions_json`). The flatten lives upstream in the estimate PDF API route via the `buildRichDescription`/`squashScope` path — **QB push keeps the flat format; only the PDF rendering changes.**
+   - **Render as labeled mini-sections with breathing room:** small-caps or bold lead-ins (Material · Dimensions · Details · Exclusions), ~5–6pt gaps between sections, exclusions as a proper dash list, "Includes installation" on its own line. Fall back to the flat string if structured data is missing (old lines).
+   - **⚠️ react-pdf traps, both already hit before:** the row is a single `<Text>` because a nested `<View>` made rows overlap (comment at ~247) — restructuring the cell must re-test that; and rows are `wrap={false}`, so a long item (the kitchen line is nearly a full page) must still break sanely — check page-spanning behavior before calling it done.
+   - Verify: regenerate EST-0010 — sections visibly separated, nothing overlaps, long items still paginate, QB line text unchanged.
 
 **Left for Andrew (live, logged in — the preview can't auth):**
 - **Items 1–3:** ✅ confirmed working live by Andrew 2026-08-27.
