@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { parseRichDescription } from '@/lib/subproject-description'
 
 /** react-pdf <Image> renders raster only (no SVG) — show the logo when it's a
  *  PNG/JPG/etc., otherwise fall back to the org name text. */
@@ -131,6 +132,16 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   bodyText: { fontSize: 10.5, color: COLORS.ink },
+  // Scope sections inside the description cell. These are inline styles on
+  // nested <Text> runs, not blocks — the cell has to stay ONE <Text> (see the
+  // comment at the row), so spacing comes from newlines rather than margins.
+  scopeLabel: {
+    fontSize: 8,
+    fontFamily: 'Helvetica-Bold',
+    color: COLORS.dim,
+    letterSpacing: 1,
+  },
+  scopeBody: { fontSize: 10, color: COLORS.fg },
   monoRight: { fontSize: 10.5, fontFamily: 'Courier', color: COLORS.ink, textAlign: 'right' },
 
   totalsWrap: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 },
@@ -247,14 +258,34 @@ export function EstimatePdf({
           const nl = li.description.indexOf('\n')
           const titleLine = nl >= 0 ? li.description.slice(0, nl) : li.description
           const bodyLines = nl >= 0 ? li.description.slice(nl + 1).replace(/^\n+/, '') : ''
+          // Re-read the flattened scope as labelled sections. Parsed rather
+          // than passed structured, so estimates already sent (which re-render
+          // from the stored flat snapshot) get the readable layout too — see
+          // parseRichDescription. Unrecognised text comes back as one
+          // unlabelled block, i.e. exactly what used to render.
+          const sections = bodyLines ? parseRichDescription(bodyLines) : []
           return (
           <View key={i} style={styles.tableRow} wrap={false}>
             {/* Single Text (not a nested View) so react-pdf sizes the row
-                height correctly — a View here made rows overlap. Bold title,
-                blank line, then the body in a lighter tone. */}
+                height correctly — a View here made rows overlap. Everything
+                below is nested <Text> runs for the same reason: section
+                spacing is newlines, NOT margins. Don't "improve" this into
+                Views without re-checking row overlap on a multi-line item. */}
             <Text style={[styles.bodyText, styles.cellDesc]}>
               <Text style={styles.blockBold}>{titleLine}</Text>
-              {bodyLines ? <Text style={{ color: COLORS.fg }}>{'\n\n' + bodyLines}</Text> : null}
+              {sections.map((s, si) => (
+                <Text key={si}>
+                  {'\n\n'}
+                  {s.label ? (
+                    <Text style={styles.scopeLabel}>{s.label.toUpperCase() + '\n'}</Text>
+                  ) : null}
+                  <Text style={styles.scopeBody}>
+                    {s.bullets
+                      ? s.lines.map((l) => `—  ${l}`).join('\n')
+                      : s.lines.join('\n')}
+                  </Text>
+                </Text>
+              ))}
             </Text>
             <Text style={[styles.monoRight, styles.cellQty]}>{li.quantity}</Text>
             <Text style={[styles.bodyText, styles.cellUnit, { textAlign: 'right' }]}>{li.unit ?? '—'}</Text>
