@@ -198,6 +198,17 @@ export async function resolvePortalToken(token: string): Promise<PortalIdentity 
   return { clientId: row.id, orgId: row.org_id, clientName: row.name || 'there' }
 }
 
+/** Just the shop's name, for the browser tab. The portal is the client's view
+ *  of THEIR cabinet shop, so the tab must not read "MillSuite — Project Profit
+ *  Tracker" (the root layout's title): the client has no idea what MillSuite is,
+ *  and "profit tracker" is the last phrase to put in front of them. Two small
+ *  indexed reads, run from generateMetadata. */
+export async function loadPortalOrgName(token: string): Promise<string | null> {
+  const id = await resolvePortalToken(token)
+  if (!id) return null
+  return (await loadOrg(id.orgId)).name
+}
+
 /** The gate every portal WRITE goes through. Resolves the token AND proves the
  *  project it names belongs to that token's client, in one call, so a route
  *  handler can't accidentally check one and forget the other. Returns null on

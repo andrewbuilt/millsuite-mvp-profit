@@ -96,11 +96,13 @@ export function SignChangeOrder({
         </div>
       ) : null}
 
-      <div className="mt-4 flex items-baseline justify-between gap-3">
+      {/* Stacks under 640px: at 375px the label and the figure fight for the
+          same line and the total wraps mid-phrase. */}
+      <div className="mt-4 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
         <span className="text-[10px] uppercase" style={{ ...mono, letterSpacing: '0.18em', color: MUTED }}>
           {newTotal !== null ? `New contract total ${money(newTotal)}` : 'Change to your contract'}
         </span>
-        <span className="text-[24px] font-extrabold" style={{ letterSpacing: '-0.03em' }}>
+        <span className="text-[24px] font-extrabold leading-none" style={{ letterSpacing: '-0.03em' }}>
           {co.netChange === 0 ? 'No charge' : `${co.netChange > 0 ? '+' : '−'}${money(Math.abs(co.netChange))}`}
         </span>
       </div>
