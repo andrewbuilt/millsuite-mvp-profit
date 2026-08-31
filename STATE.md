@@ -10,7 +10,9 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-08-31)
 
-**⛔ NEW 2026-08-31: CLIENT PORTAL — ALL FOUR CHUNKS BUILT. ONE THING BLOCKS IT: MIGRATION `092` IS NOT ON PROD YET.** (`96dcb4e` migration · `af73483` read model + the two writes · `ed9bd56` pages · `bea7728` view split + layout fixes · `e5c7799` the shop's side · `feaa449` design files.) tsc clean, `check-tour-targets` PASS (57 steps / 44 targets), both screens rendered and read at 375px and 1280px against fixture data. **Andrew: run `db/migrations/092_client_portal.sql` on prod, then deploy** — until it runs every portal URL 404s, which is the correct failure rather than a crash. Both open calls were answered by Andrew 2026-08-31 and are closed. Full detail + his live pass list under "### Client portal" in Now.
+**✅ NEW 2026-08-31: CLIENT PORTAL — BUILT, MIGRATION `092` RUN ON PROD, AND DEPLOYED.** (`96dcb4e` migration · `af73483` read model + the two writes · `ed9bd56` pages · `bea7728` view split + layout fixes · `e5c7799` the shop's side · `feaa449` design files.) tsc clean, production `next build` clean (49 static pages; both portal routes correctly `ƒ` server-rendered, never static), `check-tour-targets` PASS, both screens rendered and read at 375px and 1280px against fixture data. **Deploy verified live 2026-08-31:** `x-matched-path: /portal/[token]` on prod, so the route is matched rather than merely 404-ing as a nonexistent path; `/api/portal-admin/link` → 401 unauthenticated; both write routes → 400 on an empty body and a uniform **404** for an unknown *and* a malformed token, with no 500 and nothing to tell the two apart. **Nothing blocking — only Andrew's live pass**, list at the end of "### Client portal" in Now. Both open calls were answered by Andrew 2026-08-31 and are closed.
+
+**The app's canonical host is `www.millsuite.com` — the apex 307s to it.** Worth knowing for the portal link the shop copies: `/api/portal-admin/link` builds the URL from `NEXT_PUBLIC_APP_URL`/`NEXT_PUBLIC_SITE_URL` and falls back to the request's own origin, so a link minted from the apex still works (it just redirects once). If those env vars are unset on prod and the redirect ever becomes a nuisance, set one rather than hardcoding a host.
 
 **⛔ THE PORTAL RECORDS CONSENT; THE APP APPLIES THE MONEY. Don't "finish the job" by making the portal flip a change order to `approved`.** `approveCo()` chains into `applyApprovedCo` → `recomputeProjectBidTotal`, all on the **browser** supabase client — which in a route handler has no session, so RLS refuses it and PostgREST reports the refusal as a **zero-row success**. Re-implementing that on a public endpoint, first exercised by a real client, isn't a trade worth making. So portal signing stamps `signed_name`/`signed_at`/`signed_pdf_url` and leaves the CO in `sent_to_client`; the CO card then tells the shop to approve it, which runs the one path that has always moved the contract total. The same reasoning drives the approve guard: an approval item carrying a **draft** CO is deliberately not one-click approvable in the portal, because approving it in-app finalizes a priced change the client was never shown a number for.
 
@@ -111,15 +113,15 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Client portal — ✅ ALL FOUR CHUNKS BUILT 2026-08-31. **Blocked on one thing: migration `092` must run on prod before deploy.**
+### Client portal — ✅ BUILT, MIGRATED AND DEPLOYED 2026-08-31. **Nothing blocking; only Andrew's live pass (list at the end).**
 
 Scoped in Cowork (brainstorm + prototype pass, then a final-design review with Andrew's v1 calls) and built the same day. Design source of truth: **`prototypes/design/client-portal-final.dc.html`** (Turn 3, "progress rail"; now committed, needs `support.js` + `assets/` beside it). Copy rules held to: no em dashes in client copy (use `·`), flat `#161614`, brass `#9A7B3F`, Archivo + Courier Prime.
 
-**⛔ Andrew, in order:** (1) run `db/migrations/092_client_portal.sql` on prod; (2) deploy; (3) live pass below. Before 092 runs, every portal URL 404s — verified, and that's the intended failure, not a crash.
+**Migration + deploy both done 2026-08-31** — see the deploy verification in CURRENT FOCUS. Only the live pass is left.
 
 **URLs:** `/portal/{token}` (client home) → `/portal/{token}/{projectId}`. Top-level, **not** `/{shop}/portal` — that's the worker login, and the two can't collide because `portal` was already in `RESERVED_SLUGS`. `/portal/` is registered public in `lib/auth-context.tsx`, so it never bounces to `/login`.
 
-**1. ✅ Migration `092_client_portal.sql` — NOT YET ON PROD.** Additive + idempotent + `NOTIFY pgrst`. Five pieces: `clients.portal_token` (+ `portal_token_issued_at`, partial-unique index) · `project_photos` (org-scoped RLS via `current_org_id()`) · the **public** `shop-photos` bucket · `projects.finishing_at` · `change_orders.signed_name/at/ip/pdf_url`.
+**1. ✅ Migration `092_client_portal.sql` — RUN ON PROD 2026-08-31 by Andrew.** Additive + idempotent + `NOTIFY pgrst`. Five pieces: `clients.portal_token` (+ `portal_token_issued_at`, partial-unique index) · `project_photos` (org-scoped RLS via `current_org_id()`) · the **public** `shop-photos` bucket · `projects.finishing_at` · `change_orders.signed_name/at/ip/pdf_url`.
    - **Token lives on `clients`, not a `portal_tokens` table** (the migration's "Code's call"). Access is per client, and revoke/regenerate is just overwriting the column. A table would buy multi-token/expiry/audit, none of which v1 wants. Promote it if per-project or expiring links ever land.
    - **No RLS policy grants `anon` anything here, deliberately.** A "read clients by token" policy would put the whole row one crafted PostgREST query away. The portal reads only through service-role server routes.
    - Bucket is **public read** to match `invoice-pdfs`/`org-logos` — the portal already links straight at public `invoice-pdfs` URLs for estimates and COs, and paths carry two uuids. Writes all go through the service role, so no storage policy is needed.
@@ -145,8 +147,8 @@ Scoped in Cowork (brainstorm + prototype pass, then a final-design review with A
 - **"Finishing" phase** → **manual toggle** on the project page (`projects.finishing_at`). Not derived from the schedule: that can be wrong and can't be corrected.
 - **QB payment link** → **no Pay button in v1.** There is zero payment-link code in the repo; QB's `InvoiceLink` is a separate API call returning links that expire, so it's real work with an uncertain payoff. Payments show what's been received and what's scheduled, plus a line saying the shop will invoice when each payment comes due. Revisit only if Andrew wants it.
 
-**Left for Andrew (live, after 092 + deploy):**
-- Open a sold project → **Client portal** panel → **Copy portal link**, then open it in a private window. Expect the client home listing that client's projects.
+**Left for Andrew (live, logged in — the preview can't auth):**
+- Open a sold project → **Client portal** panel → **Copy portal link**, then open it in a private window. Expect the client home listing that client's projects. _(This is the first end-to-end check that the `092` columns are really in the schema cache — the prod probes from this session could only reach the unauthenticated 404 path, which looks identical whether the token is unknown or the column is missing.)_
 - Post two or three shop photos with captions; confirm they appear in the portal feed newest first, and that removing one removes it from both places.
 - With the project in production, tick **In finishing** → the portal rail should move to phase 5 / 7 and read "Finishing".
 - Send a change order to a client, sign it in the portal, then check: the CO card in the app says "Signed by the client", the countersigned PDF opens, and **approving it in the app still moves the project total exactly as it does today.** That last one is the important check.
