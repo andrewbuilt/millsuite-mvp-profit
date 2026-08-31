@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  MillSuite CLIENT PORTAL — Prototype V1 ("Phase Cards")
+  Single self-contained file: all CSS/JS inline, no dependencies.
+
+  COPY MAP — all client-facing text lives in the <body> HTML:
+  · Header greeting ......... <header> (project name, "Hi Sarah…")
+  · Needs-you banner ........ <div class="attn">
+  · Phase cards ............. <div class="phase"> ×7 (title, date, description)
+  · Approvals list .......... <section id="court"> (item names, status lines)
+  · Documents ............... .doc-row entries
+  · Payments ................ .pay-card (milestone names, amounts, button label)
+  · Install scheduling ...... .slot entries + intro sentence
+  · Footer .................. .notify-note + .contact
+
+  All colors are CSS variables in :root at the top of <style>.
+  ============================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Built · Henderson Kitchen — Client Portal Prototype</title>
+<style>
+  /* ============ PROTOTYPE V1 — "Phase Cards" direction ============
+     Mobile-first client portal. Magic-link access (no login).
+     Everything below maps to existing MillSuite tables — see
+     comments per section. */
+
+  :root {
+    --cream: #f7f3ec;
+    --paper: #fffdf9;
+    --ink: #221c15;
+    --ink-soft: #6b6156;
+    --walnut: #7a4a26;
+    --walnut-deep: #5b3319;
+    --brass: #b98a3d;
+    --brass-soft: #f0e2c8;
+    --green: #3d7a4a;
+    --green-soft: #e3efe5;
+    --amber: #b06e1e;
+    --amber-soft: #fdf0dc;
+    --line: #e8e0d4;
+    --radius: 16px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #2a241d;
+    background-image: radial-gradient(ellipse at 50% -20%, #4a3d2e 0%, #2a241d 60%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 32px 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Phone frame (desktop preview only) */
+  .phone {
+    width: 400px;
+    max-width: 100%;
+    background: var(--cream);
+    border-radius: 40px;
+    box-shadow: 0 0 0 10px #1b1611, 0 30px 80px rgba(0,0,0,.55);
+    overflow: hidden;
+    position: relative;
+  }
+  @media (max-width: 480px) {
+    body { padding: 0; background: var(--cream); }
+    .phone { border-radius: 0; box-shadow: none; width: 100%; }
+  }
+
+  .screen {
+    height: 844px;
+    max-height: 92vh;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+  }
+  .screen::-webkit-scrollbar { display: none; }
+  @media (max-width: 480px) { .screen { height: 100vh; max-height: none; } }
+
+  /* ============ HEADER — orgs.name, orgs.logo_url, projects.name ============ */
+  header {
+    background: linear-gradient(160deg, var(--walnut-deep) 0%, var(--walnut) 100%);
+    color: var(--cream);
+    padding: 54px 24px 26px;
+    position: relative;
+    overflow: hidden;
+  }
+  header::after {
+    content: "";
+    position: absolute; inset: 0;
+    background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.03) 0 2px, transparent 2px 9px);
+    pointer-events: none;
+  }
+  .logo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .logo-mark {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: var(--brass);
+    display: grid; place-items: center;
+    font-weight: 800; font-size: 17px; color: var(--walnut-deep);
+    letter-spacing: -.5px;
+  }
+  .logo-name { font-weight: 700; letter-spacing: .16em; font-size: 13px; text-transform: uppercase; }
+  .proj-eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .14em; opacity: .65; margin-bottom: 4px; }
+  .proj-name { font-size: 26px; font-weight: 750; letter-spacing: -.02em; }
+  .proj-sub { font-size: 13px; opacity: .8; margin-top: 6px; }
+
+  /* ============ ATTENTION BANNER — approval_items where ball_in_court='client' ============ */
+  .attn {
+    margin: -14px 20px 0;
+    position: relative; z-index: 2;
+    background: var(--amber-soft);
+    border: 1px solid #ecd3ab;
+    border-radius: 14px;
+    padding: 13px 16px;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 6px 18px rgba(60,40,10,.12);
+    cursor: pointer;
+  }
+  .attn .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--amber); flex-shrink: 0;
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(176,110,30,.45); }
+    50% { box-shadow: 0 0 0 7px rgba(176,110,30,0); }
+  }
+  .attn b { font-size: 13.5px; color: #7c4c0e; display: block; }
+  .attn span { font-size: 12px; color: #a07434; }
+  .attn .chev { margin-left: auto; color: var(--amber); font-size: 18px; }
+
+  /* ============ SECTION SHELL ============ */
+  section { padding: 28px 20px 0; }
+  .sec-label {
+    font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .13em; color: var(--ink-soft); margin-bottom: 12px;
+    display: flex; align-items: baseline; justify-content: space-between;
+  }
+  .sec-label .hint { font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 11.5px; color: #a89a88; }
+
+  /* ============ PHASE CAROUSEL — projects.stage + derived sub-states ============ */
+  .carousel-wrap { position: relative; }
+  .carousel {
+    display: flex; gap: 12px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    padding: 4px 2px 6px;
+    cursor: grab;
+  }
+  .carousel::-webkit-scrollbar { display: none; }
+  .carousel.dragging { cursor: grabbing; scroll-snap-type: none; }
+
+  .phase {
+    flex: 0 0 236px;
+    scroll-snap-align: center;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 18px 18px;
+    position: relative;
+    user-select: none;
+  }
+  .phase.done { opacity: .78; }
+  .phase.current {
+    border: 2px solid var(--brass);
+    box-shadow: 0 10px 26px rgba(122,74,38,.16);
+    opacity: 1;
+  }
+  .phase.upcoming { background: #fbf8f2; }
+
+  .phase-icon {
+    width: 52px; height: 52px; border-radius: 14px;
+    display: grid; place-items: center;
+    margin-bottom: 14px;
+  }
+  .done .phase-icon { background: var(--green-soft); }
+  .current .phase-icon { background: var(--brass-soft); }
+  .upcoming .phase-icon { background: #f1ebe0; }
+  .phase-icon svg { width: 27px; height: 27px; }
+
+  /* current-phase icon animation: gentle working motion */
+  .current .phase-icon svg { animation: work 2.6s ease-in-out infinite; transform-origin: 50% 60%; }
+  @keyframes work {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(-7deg); }
+    75% { transform: rotate(7deg); }
+  }
+
+  .phase-status {
+    position: absolute; top: 16px; right: 16px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    padding: 4px 9px; border-radius: 99px;
+  }
+  .done .phase-status { background: var(--green-soft); color: var(--green); }
+  .current .phase-status { background: var(--brass); color: #fff; }
+  .upcoming .phase-status { background: #efe8db; color: #a3947f; }
+
+  .phase h3 { font-size: 16.5px; font-weight: 700; letter-spacing: -.01em; }
+  .phase .p-date { font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+  .phase p.desc { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; margin-top: 10px; }
+
+  .progress-track { height: 4px; background: var(--line); border-radius: 99px; margin-top: 8px; overflow: hidden; }
+  .progress-fill { height: 100%; width: 62%; background: linear-gradient(90deg, var(--green), var(--brass)); border-radius: 99px; animation: grow 1.2s ease-out; }
+  @keyframes grow { from { width: 0; } }
+
+  .dots { display: flex; gap: 6px; justify-content: center; margin-top: 12px; }
+  .dots i {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #d9cfc0; transition: all .25s;
+  }
+  .dots i.on { background: var(--walnut); width: 18px; border-radius: 99px; }
+
+  /* ============ BALL IN COURT — approval_items (state, ball_in_court, timestamps)
+                  + drawing_revisions ============ */
+  .item {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 15px 16px;
+    margin-bottom: 10px;
+    display: flex; gap: 13px; align-items: flex-start;
+  }
+  .item.needs-you { border-color: #ecd3ab; background: #fffaf1; }
+  .item-ico {
+    width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 16px;
+  }
+  .ico-ok { background: var(--green-soft); color: var(--green); }
+  .ico-you { background: var(--amber-soft); color: var(--amber); }
+  .ico-shop { background: #e9e2f5; color: #6a5591; }
+  .item b { font-size: 14px; display: block; letter-spacing: -.01em; }
+  .item .meta { font-size: 12px; color: var(--ink-soft); margin-top: 3px; line-height: 1.45; }
+  .court {
+    display: inline-block; font-size: 10.5px; font-weight: 700;
+    letter-spacing: .07em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 99px; margin-top: 7px;
+  }
+  .court.you { background: var(--amber-soft); color: #96600f; }
+  .court.shop { background: #e9e2f5; color: #6a5591; }
+  .court.ok { background: var(--green-soft); color: var(--green); }
+  .approve-btn {
+    margin-top: 10px; display: inline-block;
+    background: var(--walnut); color: #fff;
+    font-size: 12.5px; font-weight: 650;
+    padding: 8px 14px; border-radius: 9px; border: none; cursor: pointer;
+  }
+  .approve-btn:active { transform: scale(.97); }
+
+  /* ============ DOCUMENTS — estimate_pdf_url, drawing_revisions.file_url,
+                  change_orders, project_documents ============ */
+  .doc-row {
+    display: flex; align-items: center; gap: 13px;
+    background: var(--paper); border: 1px solid var(--line);
+    border-radius: 13px; padding: 13px 15px; margin-bottom: 9px;
+    text-decoration: none; color: var(--ink); cursor: pointer;
+  }
+  .doc-ico {
+    width: 36px; height: 36px; border-radius: 9px; flex-shrink: 0;
+    background: #eee7db; display: grid; place-items: center;
+    font-size: 10px; font-weight: 800; color: var(--walnut); letter-spacing: .04em;
+  }
+  .doc-row b { font-size: 13.5px; display: block; }
+  .doc-row span { font-size: 11.5px; color: var(--ink-soft); }
+  .doc-row .open { margin-left: auto; color: #b3a591; font-size: 17px; }
+
+  /* ============ PAYMENTS — client_invoices (total, amount_received),
+                  client_invoice_payments, payment_terms milestones, QB link ============ */
+  .pay-card {
+    background: var(--paper); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px 18px;
+  }
+  .pay-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .pay-big { font-size: 24px; font-weight: 750; letter-spacing: -.02em; }
+  .pay-of { font-size: 12.5px; color: var(--ink-soft); }
+  .pay-bar { height: 8px; background: #efe8db; border-radius: 99px; margin: 14px 0 18px; overflow: hidden; }
+  .pay-bar i { display: block; height: 100%; width: 40%; background: linear-gradient(90deg, var(--green), #5c9c69); border-radius: 99px; animation: grow 1.2s ease-out; }
+
+  .pay-line { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+  .pay-line:first-of-type { border-top: none; }
+  .pay-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .pd-paid { background: var(--green); }
+  .pd-due { background: var(--amber); box-shadow: 0 0 0 4px var(--amber-soft); }
+  .pd-later { background: #d9cfc0; }
+  .pay-line b { font-size: 13.5px; display: block; }
+  .pay-line span { font-size: 11.5px; color: var(--ink-soft); }
+  .pay-line .amt { margin-left: auto; text-align: right; font-size: 14px; font-weight: 700; }
+  .pay-line .amt small { display: block; font-size: 10.5px; font-weight: 500; color: var(--ink-soft); }
+
+  .qb-btn {
+    width: 100%; margin-top: 14px;
+    background: var(--green); color: #fff; border: none;
+    font-size: 14.5px; font-weight: 700;
+    padding: 14px; border-radius: 12px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .qb-btn:active { transform: scale(.98); }
+  .qb-note { text-align: center; font-size: 11px; color: #a89a88; margin-top: 8px; }
+
+  /* ============ INSTALL SCHEDULING — target dates + confirm ============ */
+  .slot {
+    background: var(--paper); border: 1.5px solid var(--line);
+    border-radius: 12px; padding: 13px 15px; margin-bottom: 9px;
+    display: flex; align-items: center; gap: 12px; cursor: pointer;
+    transition: border-color .15s;
+  }
+  .slot.sel { border-color: var(--walnut); background: #fdf9f2; }
+  .slot .radio {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid #cfc3b1; flex-shrink: 0; display: grid; place-items: center;
+  }
+  .slot.sel .radio { border-color: var(--walnut); }
+  .slot.sel .radio::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--walnut); }
+  .slot b { font-size: 13.5px; display: block; }
+  .slot span { font-size: 11.5px; color: var(--ink-soft); }
+  .confirm-btn {
+    width: 100%; background: var(--walnut); color: #fff; border: none;
+    font-size: 14px; font-weight: 700; padding: 13px; border-radius: 12px;
+    cursor: pointer; margin-top: 4px;
+  }
+  .confirm-btn:disabled { opacity: .4; cursor: default; }
+  .confirm-btn:active:not(:disabled) { transform: scale(.98); }
+
+  /* ============ FOOTER ============ */
+  footer { padding: 30px 20px 40px; text-align: center; }
+  .notify-note {
+    background: var(--paper); border: 1px dashed #d8ccba;
+    border-radius: 12px; padding: 13px 16px;
+    font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; margin-bottom: 22px;
+  }
+  .contact { font-size: 13px; color: var(--ink-soft); line-height: 1.7; }
+  .contact a { color: var(--walnut); font-weight: 650; text-decoration: none; }
+  .powered { margin-top: 18px; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: #bdb0a0; }
+
+  /* toast */
+  .toast {
+    position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%) translateY(80px);
+    background: var(--ink); color: var(--cream);
+    font-size: 13px; font-weight: 600;
+    padding: 12px 20px; border-radius: 99px;
+    transition: transform .35s cubic-bezier(.2,1.2,.4,1);
+    white-space: nowrap; z-index: 50; pointer-events: none;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="screen" id="screen">
+
+    <!-- Shop-branded header · orgs.name / logo_url / projects.name / clients.name -->
+    <header>
+      <div class="logo-row">
+        <div class="logo-mark">B</div>
+        <div class="logo-name">Built</div>
+      </div>
+      <div class="proj-eyebrow">Your project</div>
+      <div class="proj-name">Henderson Kitchen</div>
+      <div class="proj-sub">Hi Sarah — here's where everything stands.</div>
+    </header>
+
+    <!-- Needs-you banner · approval_items where ball_in_court='client' -->
+    <div class="attn" onclick="document.getElementById('court').scrollIntoView()">
+      <div class="dot"></div>
+      <div>
+        <b>1 item needs your OK</b>
+        <span>Door hardware — waiting since Aug 28</span>
+      </div>
+      <div class="chev">›</div>
+    </div>
+
+    <!-- ============ PHASES · projects.stage + derived sub-states ============ -->
+    <section>
+      <div class="sec-label">Project phases <span class="hint">swipe →</span></div>
+      <div class="carousel-wrap">
+        <div class="carousel" id="carousel">
+
+          <div class="phase done">
+            <div class="phase-status">Done</div>
+            <div class="phase-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#3d7a4a" stroke-width="2" stroke-linecap="round"><path d="M9 12l2 2 4-5"/><rect x="4" y="3" width="16" height="18" rx="2"/></svg>
+            </div>
+            <h3>Estimate</h3>
+            <div class="p-date">Approved Jul 18</div>
+            <p class="desc">You reviewed and accepted estimate EST-0014 — $46,000.</p>
+          </div>
+
+          <div class="phase done">
+            <div class="phase-status">Done</div>
+            <div class="phase-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#3d7a4a" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            </div>
+            <h3>Deposit</h3>
+            <div class="p-date">Received Jul 30</div>
+            <p class="desc">$18,400 deposit received. Your spot in the production schedule is locked in.</p>
+          </div>
+
+          <div class="phase done">
+            <div class="phase-status">Done</div>
+            <div class="phase-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#3d7a4a" stroke-width="2" stroke-linecap="round"><path d="M4 20h16M6 16l4-8 3 5 2-3 3 6"/></svg>
+            </div>
+            <h3>Drawings</h3>
+            <div class="p-date">Approved Aug 14</div>
+            <p class="desc">Shop drawings Rev 2 approved. This is what we're building to.</p>
+          </div>
+
+          <div class="phase current" id="currentPhase">
+            <div class="phase-status">Happening now</div>
+            <div class="phase-icon">
+              <!-- hand saw, animated -->
+              <svg viewBox="0 0 24 24" fill="none" stroke="#b98a3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l8-8 3-1 6-6 2 2-6 6-1 3-8 8z"/><path d="M8 12l1.5 1.5M11 9l1.5 1.5"/></svg>
+            </div>
+            <h3>In Production</h3>
+            <div class="p-date">Started Aug 20 · est. 5 weeks</div>
+            <p class="desc">Your cabinets are on the shop floor. Boxes are cut and assembly is underway.</p>
+            <div class="progress-track"><div class="progress-fill"></div></div>
+          </div>
+
+          <div class="phase upcoming">
+            <div class="phase-status">Up next</div>
+            <div class="phase-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#a3947f" stroke-width="2" stroke-linecap="round"><path d="M12 3v3m0 0c-3 0-4 2-4 4v11h8V10c0-2-1-4-4-4z"/><path d="M8 15h8"/></svg>
+            </div>
+            <h3>Finishing</h3>
+            <div class="p-date">Est. late Sep</div>
+            <p class="desc">Sanding, sealing, and your hand-applied paint finish — the slow part worth waiting for.</p>
+          </div>
+
+          <div class="phase upcoming">
+            <div class="phase-status">Up next</div>
+            <div class="phase-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#a3947f" stroke-width="2" stroke-linecap="round"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M9 21v-6h6v6"/></svg>
+            </div>
+            <h3>Installation</h3>
+            <div class="p-date">Target week of Oct 12</div>
+            <p class="desc">Our install crew at your home — most kitchens take 3–4 days.</p>
+          </div>
+
+          <div class="phase upcoming">
+            <div class="phase-status">Up next</div>
+            <div class="phase-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#a3947f" stroke-width="2" stroke-linecap="round"><path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.5-.8z"/></svg>
+            </div>
+            <h3>Complete</h3>
+            <div class="p-date">—</div>
+            <p class="desc">Final walkthrough together, punch list closed, and your kitchen is yours.</p>
+          </div>
+
+        </div>
+        <div class="dots" id="dots"></div>
+      </div>
+    </section>
+
+    <!-- ============ BALL IN COURT · approval_items + drawing_revisions ============ -->
+    <section id="court">
+      <div class="sec-label">Approvals &amp; selections</div>
+
+      <div class="item needs-you" id="hardwareItem">
+        <div class="item-ico ico-you">✋</div>
+        <div>
+          <b>Door hardware — Emtek "Alexander" pulls</b>
+          <div class="meta">Sample photos sent Aug 28. We need your OK before ordering (2-week lead time).</div>
+          <span class="court you">Waiting on you · 3 days</span><br>
+          <button class="approve-btn" onclick="approveHardware()">Review &amp; approve</button>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-ico ico-shop">🔨</div>
+        <div>
+          <b>Crown profile — Rev 2 drawing</b>
+          <div class="meta">You asked for a simpler profile Aug 26. Revised drawing in progress.</div>
+          <span class="court shop">With Built · since Aug 30</span>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-ico ico-ok">✓</div>
+        <div>
+          <b>Walnut veneer — island panels</b>
+          <div class="meta">Sample approved in person.</div>
+          <span class="court ok">Approved Aug 12</span>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-ico ico-ok">✓</div>
+        <div>
+          <b>Paint — BM "Simply White" satin</b>
+          <div class="meta">Drawdown sample approved.</div>
+          <span class="court ok">Approved Aug 9</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ DOCUMENTS · estimate_pdf_url / drawing_revisions / change_orders ============ -->
+    <section>
+      <div class="sec-label">Your documents</div>
+      <a class="doc-row" onclick="toast('Opens estimate PDF (estimate_pdf_url)')">
+        <div class="doc-ico">PDF</div>
+        <div><b>Estimate EST-0014</b><span>Accepted Jul 18 · $46,000</span></div>
+        <div class="open">›</div>
+      </a>
+      <a class="doc-row" onclick="toast('Opens drawing_revisions.file_url')">
+        <div class="doc-ico">DWG</div>
+        <div><b>Shop drawings — Rev 2</b><span>Approved Aug 14</span></div>
+        <div class="open">›</div>
+      </a>
+      <a class="doc-row" onclick="toast('Opens change order PDF')">
+        <div class="doc-ico">CO</div>
+        <div><b>Change order #1 — Island extension</b><span>Approved Aug 5 · +$2,150</span></div>
+        <div class="open">›</div>
+      </a>
+    </section>
+
+    <!-- ============ PAYMENTS · client_invoices + client_invoice_payments + QB link ============ -->
+    <section>
+      <div class="sec-label">Payments</div>
+      <div class="pay-card">
+        <div class="pay-top">
+          <div class="pay-big">$18,400 <span style="font-size:14px;font-weight:500;color:var(--ink-soft)">paid</span></div>
+          <div class="pay-of">of $48,150</div>
+        </div>
+        <div class="pay-bar"><i style="width:38%"></i></div>
+
+        <div class="pay-line">
+          <div class="pay-dot pd-paid"></div>
+          <div><b>Deposit</b><span>Paid Jul 30 · check #4471</span></div>
+          <div class="amt">$18,400<small>received</small></div>
+        </div>
+        <div class="pay-line">
+          <div class="pay-dot pd-due"></div>
+          <div><b>Production milestone</b><span>Due Sep 15</span></div>
+          <div class="amt">$19,250<small>due next</small></div>
+        </div>
+        <div class="pay-line">
+          <div class="pay-dot pd-later"></div>
+          <div><b>Final — at installation</b><span>Due on completion</span></div>
+          <div class="amt">$10,500<small>upcoming</small></div>
+        </div>
+
+        <button class="qb-btn" onclick="toast('→ QuickBooks payment link opens here')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+          Pay $19,250 invoice
+        </button>
+        <div class="qb-note">Secure payment through QuickBooks · card or bank transfer</div>
+      </div>
+    </section>
+
+    <!-- ============ INSTALL SCHEDULING ============ -->
+    <section>
+      <div class="sec-label">Schedule your installation</div>
+      <div style="font-size:12.5px;color:var(--ink-soft);margin:-4px 0 12px;line-height:1.5">
+        We're targeting the week of <b style="color:var(--ink)">Oct 12</b>. Pick the window that works best — we'll confirm within a day.
+      </div>
+      <div class="slot" onclick="pickSlot(this)"><div class="radio"></div><div><b>Mon Oct 12 – Thu Oct 15</b><span>Crew arrives 8am Monday</span></div></div>
+      <div class="slot" onclick="pickSlot(this)"><div class="radio"></div><div><b>Wed Oct 14 – Sat Oct 17</b><span>Crew arrives 8am Wednesday</span></div></div>
+      <div class="slot" onclick="pickSlot(this)"><div class="radio"></div><div><b>Week of Oct 19</b><span>If you need a little more time</span></div></div>
+      <button class="confirm-btn" id="confirmBtn" disabled onclick="confirmSlot()">Request this window</button>
+    </section>
+
+    <!-- ============ FOOTER · Klaviyo status-change emails ============ -->
+    <footer>
+      <div class="notify-note">
+        📬 You'll get an email the moment anything changes — a phase moves, a payment posts, or we need something from you. No need to keep checking.
+      </div>
+      <div class="contact">
+        Questions? Text or call us anytime.<br>
+        <a href="#">(555) 214-8890</a> · <a href="#">hello@builtthings.com</a>
+      </div>
+      <div class="powered">Powered by MillSuite</div>
+    </footer>
+
+  </div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+  // ---------- carousel: drag/swipe + dot sync ----------
+  const car = document.getElementById('carousel');
+  const dotsWrap = document.getElementById('dots');
+  const phases = car.querySelectorAll('.phase');
+
+  phases.forEach((_, i) => {
+    const d = document.createElement('i');
+    if (i === 0) d.classList.add('on');
+    dotsWrap.appendChild(d);
+  });
+  const dots = dotsWrap.querySelectorAll('i');
+
+  function syncDots() {
+    const center = car.scrollLeft + car.clientWidth / 2;
+    let best = 0, bestDist = Infinity;
+    phases.forEach((p, i) => {
+      const mid = p.offsetLeft + p.offsetWidth / 2;
+      const dist = Math.abs(mid - center);
+      if (dist < bestDist) { bestDist = dist; best = i; }
+    });
+    dots.forEach((d, i) => d.classList.toggle('on', i === best));
+  }
+  car.addEventListener('scroll', () => requestAnimationFrame(syncDots));
+
+  // mouse-drag support for desktop preview
+  let isDown = false, startX = 0, startScroll = 0, moved = false;
+  car.addEventListener('pointerdown', e => {
+    isDown = true; moved = false;
+    startX = e.clientX; startScroll = car.scrollLeft;
+    car.classList.add('dragging');
+  });
+  window.addEventListener('pointermove', e => {
+    if (!isDown) return;
+    const dx = e.clientX - startX;
+    if (Math.abs(dx) > 4) moved = true;
+    car.scrollLeft = startScroll - dx;
+  });
+  window.addEventListener('pointerup', () => {
+    isDown = false;
+    car.classList.remove('dragging');
+  });
+
+  // start scrolled to the current phase
+  window.addEventListener('load', () => {
+    const cur = document.getElementById('currentPhase');
+    car.scrollLeft = cur.offsetLeft - (car.clientWidth - cur.offsetWidth) / 2;
+    syncDots();
+  });
+
+  // ---------- toast ----------
+  let toastTimer;
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+  }
+
+  // ---------- approve demo ----------
+  function approveHardware() {
+    const item = document.getElementById('hardwareItem');
+    item.classList.remove('needs-you');
+    item.innerHTML = `
+      <div class="item-ico ico-ok">✓</div>
+      <div>
+        <b>Door hardware — Emtek "Alexander" pulls</b>
+        <div class="meta">Approved just now. We're placing the order today.</div>
+        <span class="court ok">Approved · Aug 31</span>
+      </div>`;
+    const attn = document.querySelector('.attn');
+    attn.style.transition = 'opacity .4s, max-height .4s';
+    attn.style.opacity = '0';
+    setTimeout(() => attn.remove(), 400);
+    toast('✓ Approved — Built has been notified');
+  }
+
+  // ---------- install slot picking ----------
+  function pickSlot(el) {
+    document.querySelectorAll('.slot').forEach(s => s.classList.remove('sel'));
+    el.classList.add('sel');
+    document.getElementById('confirmBtn').disabled = false;
+  }
+  function confirmSlot() {
+    const btn = document.getElementById('confirmBtn');
+    btn.textContent = '✓ Requested — we\'ll confirm by tomorrow';
+    btn.disabled = true;
+    btn.style.background = 'var(--green)';
+    btn.style.opacity = '1';
+    toast('Install window requested');
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #E4E1DA; font-family: Archivo, Helvetica, Arial, sans-serif; color: #161614; -webkit-font-smoothing: antialiased; }
+  a { color: #161614; text-decoration: none; }
+  a:hover { color: #9A7B3F; }
+  ::-webkit-scrollbar { height: 0; width: 0; }
+  @keyframes grow { from { transform: scaleX(0); } }
+</style>
+</helmet>
+
+<section style="display:flex;flex-direction:column;gap:40px;padding:56px 48px 96px">
+  <div style="display:flex;align-items:baseline;gap:16px;font-family:'Courier Prime',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#726E66">
+    <span style="font-family:Archivo;font-size:13px;font-weight:700;letter-spacing:.02em;color:#161614">TURN 1</span>
+    <span>Built client portal — V2 · brand-aligned · two phase directions (<a href="#1a">1a</a>, <a href="#1b">1b</a>) + supporting screens (<a href="#1c">1c</a>)</span>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+    <!-- ============================== 1A ============================== -->
+    <div id="1a" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-family:Archivo;font-size:11px;font-weight:800;letter-spacing:.1em;background:#161614;color:#F2F0EC;padding:4px 8px">1A</span>
+        <span style="font-family:'Courier Prime',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#726E66">Direction A — progress rail</span>
+      </div>
+
+      <div style="width:390px;background:#F2F0EC;border:1px solid #CFCBC2;overflow:hidden">
+        <div style="height:812px;overflow-y:auto">
+
+          <div style="background:#161614;color:#F2F0EC;padding:20px 22px 28px">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:34px">
+              <img src="assets/built-mark-dark.jpg" alt="Built" style="width:26px;height:26px;display:block">
+              <span style="font-family:Archivo;font-size:13px;font-weight:800;letter-spacing:.2em">BUILT</span>
+              <span style="margin-left:auto;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.18em;color:#8F8B83">CLIENT PORTAL</span>
+            </div>
+            <div style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.2em;color:#8F8B83;margin-bottom:8px">HENDERSON RESIDENCE</div>
+            <div style="font-family:Archivo;font-size:31px;font-weight:800;letter-spacing:-.025em;line-height:.98;text-transform:uppercase">Kitchen &amp;<br>Pantry</div>
+            <div style="font-family:'Courier Prime',monospace;font-size:11.5px;color:#A8A39A;margin-top:12px">Sarah Henderson · Tampa, FL</div>
+          </div>
+
+          <div style="display:flex;gap:12px;align-items:center;padding:15px 22px;background:#FBFAF7;border-bottom:1px solid #DCD8D0;cursor:pointer">
+            <span style="width:7px;height:7px;background:#9A7B3F;flex:0 0 auto"></span>
+            <div>
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#9A7B3F;margin-bottom:4px">FOR YOUR REVIEW</div>
+              <div style="font-family:Archivo;font-size:13.5px;font-weight:600;letter-spacing:-.01em">Door hardware — Emtek "Alexander"</div>
+            </div>
+            <span style="margin-left:auto;font-family:'Courier Prime',monospace;font-size:15px;color:#9A7B3F">→</span>
+          </div>
+
+          <div style="padding:30px 22px 0">
+            <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:9px;border-bottom:1px solid #DCD8D0">WHERE THINGS STAND</div>
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin:22px 0 16px">
+              <span style="height:3px;background:#161614"></span>
+              <span style="height:3px;background:#161614"></span>
+              <span style="height:3px;background:#161614"></span>
+              <span style="height:3px;background:linear-gradient(90deg,#9A7B3F 0 62%,#D6D2C9 62%)"></span>
+              <span style="height:3px;background:#D6D2C9"></span>
+              <span style="height:3px;background:#D6D2C9"></span>
+              <span style="height:3px;background:#D6D2C9"></span>
+            </div>
+            <div style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.18em;color:#9A7B3F;margin-bottom:8px">PHASE 04 / 07</div>
+            <div style="font-family:Archivo;font-size:27px;font-weight:800;letter-spacing:-.025em;text-transform:uppercase;line-height:1">In production</div>
+            <div style="font-family:'Courier Prime',monospace;font-size:11.5px;color:#726E66;margin-top:10px">Started Aug 20 · est. 5 weeks</div>
+            <div style="font-size:13.5px;line-height:1.55;color:#3A3833;margin-top:14px;text-wrap:pretty">Boxes are cut and assembly is underway on the shop floor.</div>
+            <div style="display:flex;flex-direction:column;margin-top:22px;border-top:1px solid #DCD8D0">
+              <div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #DCD8D0;font-family:'Courier Prime',monospace;font-size:11px;color:#726E66">
+                <span>LAST — DRAWINGS REV 2</span><span style="color:#161614">APPROVED AUG 14</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #DCD8D0;font-family:'Courier Prime',monospace;font-size:11px;color:#726E66">
+                <span>NEXT — FINISHING</span><span style="color:#161614">EST. LATE SEP</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0;font-family:'Courier Prime',monospace;font-size:11px;color:#726E66">
+                <span>INSTALL TARGET</span><span style="color:#161614">WEEK OF OCT 12</span>
+              </div>
+            </div>
+          </div>
+
+          <sc-if value="{{ showPhotos }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:34px 0 0">
+            <div style="margin:0 22px;font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:9px;border-bottom:1px solid #DCD8D0;display:flex;justify-content:space-between">
+              <span>FROM THE SHOP</span><span style="letter-spacing:.1em">AUG 28</span>
+            </div>
+            <div style="display:flex;gap:10px;overflow-x:auto;padding:16px 22px 4px">
+              <div style="flex:0 0 210px">
+                <div style="height:150px;background:repeating-linear-gradient(45deg,#E4E0D8 0 5px,#EFEDE7 5px 10px);display:grid;place-items:center;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.12em;color:#8B867D;text-align:center;padding:8px">SHOP PHOTO<br>base cabinets, dry-fit</div>
+                <div style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66;margin-top:8px">Base run dry-fit · Aug 28</div>
+              </div>
+              <div style="flex:0 0 210px">
+                <div style="height:150px;background:repeating-linear-gradient(45deg,#E4E0D8 0 5px,#EFEDE7 5px 10px);display:grid;place-items:center;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.12em;color:#8B867D;text-align:center;padding:8px">SHOP PHOTO<br>walnut island panels</div>
+                <div style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66;margin-top:8px">Island panels, veneer laid up · Aug 26</div>
+              </div>
+              <div style="flex:0 0 210px">
+                <div style="height:150px;background:repeating-linear-gradient(45deg,#E4E0D8 0 5px,#EFEDE7 5px 10px);display:grid;place-items:center;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.12em;color:#8B867D;text-align:center;padding:8px">SHOP PHOTO<br>door stock milled</div>
+                <div style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66;margin-top:8px">Door stock milled · Aug 22</div>
+              </div>
+            </div>
+          </div>
+          </sc-if>
+
+          <div style="padding:34px 22px 0">
+            <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:9px;border-bottom:1px solid #DCD8D0">APPROVALS &amp; SELECTIONS</div>
+
+            <sc-if value="{{ hwOpenA }}" hint-placeholder-val="{{ true }}">
+            <div style="border-left:2px solid #9A7B3F;background:#FBFAF7;padding:16px 16px 16px 18px;margin-top:16px">
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#9A7B3F;margin-bottom:8px">WITH YOU</div>
+              <div style="font-family:Archivo;font-size:14.5px;font-weight:600;letter-spacing:-.01em">Door hardware — Emtek "Alexander" pulls</div>
+              <div style="font-size:12.5px;line-height:1.55;color:#5C5951;margin-top:7px">Sample photos sent Aug 28. Your OK releases the order — two-week lead time.</div>
+              <div style="display:flex;gap:8px;margin-top:14px">
+                <button onClick="{{ approveA }}" style="border:none;background:#161614;color:#F2F0EC;font-family:Archivo;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:11px 16px;cursor:pointer">Review &amp; approve</button>
+                <button style="border:1px solid #CFCBC2;background:transparent;color:#161614;font-family:Archivo;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:11px 16px;cursor:pointer">Ask a question</button>
+              </div>
+            </div>
+            </sc-if>
+            <sc-if value="{{ hwDoneA }}" hint-placeholder-val="{{ false }}">
+            <div style="border-left:2px solid #161614;padding:16px 16px 16px 18px;margin-top:16px">
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;margin-bottom:8px">APPROVED — JUST NOW</div>
+              <div style="font-family:Archivo;font-size:14.5px;font-weight:600;letter-spacing:-.01em">Door hardware — Emtek "Alexander" pulls</div>
+              <div style="font-size:12.5px;line-height:1.55;color:#5C5951;margin-top:7px">Order goes in today. We'll note it here when it ships.</div>
+            </div>
+            </sc-if>
+
+            <div style="display:flex;justify-content:space-between;gap:14px;padding:15px 0;border-top:1px solid #DCD8D0">
+              <div>
+                <div style="font-family:Archivo;font-size:13.5px;font-weight:600">Crown profile — Rev 2 drawing</div>
+                <div style="font-size:12px;color:#726E66;margin-top:5px;line-height:1.5">Simpler profile in progress after your Aug 26 note.</div>
+              </div>
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.16em;color:#726E66;white-space:nowrap;padding-top:3px">WITH BUILT</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:14px;padding:15px 0;border-top:1px solid #DCD8D0">
+              <div style="font-family:Archivo;font-size:13.5px;font-weight:600">Walnut veneer — island panels</div>
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.16em;color:#A19C93;white-space:nowrap;padding-top:3px">AUG 12</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:14px;padding:15px 0;border-top:1px solid #DCD8D0">
+              <div style="font-family:Archivo;font-size:13.5px;font-weight:600">Paint — BM "Simply White" satin</div>
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.16em;color:#A19C93;white-space:nowrap;padding-top:3px">AUG 9</div>
+            </div>
+          </div>
+
+          <div style="padding:34px 22px 0">
+            <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:9px;border-bottom:1px solid #DCD8D0">DOCUMENTS</div>
+            <a style="display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid #DCD8D0;cursor:pointer">
+              <span style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.1em;color:#726E66;width:34px">PDF</span>
+              <span style="flex:1"><b style="display:block;font-family:Archivo;font-size:13.5px;font-weight:600">Estimate EST-0014</b><span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">Accepted Jul 18 · $46,000</span></span>
+              <span style="font-family:'Courier Prime',monospace;color:#A19C93">→</span>
+            </a>
+            <a style="display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid #DCD8D0;cursor:pointer">
+              <span style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.1em;color:#726E66;width:34px">DWG</span>
+              <span style="flex:1"><b style="display:block;font-family:Archivo;font-size:13.5px;font-weight:600">Shop drawings — Rev 2</b><span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">Approved Aug 14</span></span>
+              <span style="font-family:'Courier Prime',monospace;color:#A19C93">→</span>
+            </a>
+            <a onClick="{{ openCO }}" style="display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid #DCD8D0;cursor:pointer">
+              <span style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.1em;color:#726E66;width:34px">CO-1</span>
+              <span style="flex:1"><b style="display:block;font-family:Archivo;font-size:13.5px;font-weight:600">Change order — island extension</b><span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">Signed Aug 5 · +$2,150</span></span>
+              <span style="font-family:'Courier Prime',monospace;color:#A19C93">→</span>
+            </a>
+          </div>
+
+          <div style="padding:34px 22px 0">
+            <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:9px;border-bottom:1px solid #DCD8D0">PAYMENTS</div>
+            <div style="display:flex;align-items:baseline;gap:10px;margin-top:20px">
+              <span style="font-family:Archivo;font-size:34px;font-weight:800;letter-spacing:-.035em">$18,400</span>
+              <span style="font-family:'Courier Prime',monospace;font-size:11px;color:#726E66">paid of $48,150</span>
+            </div>
+            <div style="height:3px;background:#D6D2C9;margin:16px 0 20px"><span style="display:block;height:100%;width:38%;background:#161614;transform-origin:left;animation:grow .9s ease-out"></span></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid #DCD8D0">
+              <span><b style="display:block;font-family:Archivo;font-size:13px;font-weight:600">Deposit</b><span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">Paid Jul 30 · check #4471</span></span>
+              <span style="font-family:'Courier Prime',monospace;font-size:12.5px;color:#A19C93">$18,400</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid #DCD8D0">
+              <span><b style="display:block;font-family:Archivo;font-size:13px;font-weight:600">Production milestone</b><span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#9A7B3F">Due Sep 15</span></span>
+              <span style="font-family:'Courier Prime',monospace;font-size:12.5px;font-weight:700">$19,250</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid #DCD8D0;border-bottom:1px solid #DCD8D0">
+              <span><b style="display:block;font-family:Archivo;font-size:13px;font-weight:600">Final — at installation</b><span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">Due on completion</span></span>
+              <span style="font-family:'Courier Prime',monospace;font-size:12.5px;color:#A19C93">$10,500</span>
+            </div>
+            <button style="width:100%;margin-top:18px;border:none;background:#161614;color:#F2F0EC;font-family:Archivo;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:16px;cursor:pointer">Pay $19,250</button>
+            <div style="font-family:'Courier Prime',monospace;font-size:10px;color:#8B867D;text-align:center;margin-top:9px">Card or bank transfer via QuickBooks</div>
+          </div>
+
+          <div style="padding:38px 22px 40px;margin-top:34px;border-top:1px solid #DCD8D0;text-align:center">
+            <div style="font-family:'Courier Prime',monospace;font-size:11.5px;line-height:1.7;color:#726E66">Questions on anything here?<br><a href="#1a">(555) 214-8890</a> · <a href="#1a">hello@builtthings.com</a></div>
+            <sc-if value="{{ whiteLabel }}" hint-placeholder-val="{{ false }}">
+              <div style="font-family:'Courier Prime',monospace;font-size:9px;letter-spacing:.2em;color:#B4AFA6;margin-top:22px">POWERED BY MILLSUITE</div>
+            </sc-if>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================== 1B ============================== -->
+    <div id="1b" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-family:Archivo;font-size:11px;font-weight:800;letter-spacing:.1em;background:#161614;color:#F2F0EC;padding:4px 8px">1B</span>
+        <span style="font-family:'Courier Prime',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#726E66">Direction B — project ledger</span>
+      </div>
+
+      <div style="width:390px;background:#F2F0EC;border:1px solid #CFCBC2;overflow:hidden">
+        <div style="height:812px;overflow-y:auto">
+
+          <div style="background:#161614;color:#F2F0EC;padding:20px 22px 28px">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:34px">
+              <img src="assets/built-mark-dark.jpg" alt="Built" style="width:26px;height:26px;display:block">
+              <span style="font-family:Archivo;font-size:13px;font-weight:800;letter-spacing:.2em">BUILT</span>
+              <span style="margin-left:auto;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.18em;color:#8F8B83">CLIENT PORTAL</span>
+            </div>
+            <div style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.2em;color:#8F8B83;margin-bottom:8px">HENDERSON RESIDENCE</div>
+            <div style="font-family:Archivo;font-size:31px;font-weight:800;letter-spacing:-.025em;line-height:.98;text-transform:uppercase">Kitchen &amp;<br>Pantry</div>
+            <div style="display:flex;gap:20px;margin-top:20px;font-family:'Courier Prime',monospace;font-size:10.5px;color:#A8A39A">
+              <span>PHASE 4 / 7</span><span>INSTALL WK OF OCT 12</span>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:12px;align-items:center;padding:15px 22px;background:#FBFAF7;border-bottom:1px solid #DCD8D0;cursor:pointer">
+            <span style="width:7px;height:7px;background:#9A7B3F;flex:0 0 auto"></span>
+            <div>
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#9A7B3F;margin-bottom:4px">FOR YOUR REVIEW</div>
+              <div style="font-family:Archivo;font-size:13.5px;font-weight:600;letter-spacing:-.01em">Door hardware — Emtek "Alexander"</div>
+            </div>
+            <span style="margin-left:auto;font-family:'Courier Prime',monospace;font-size:15px;color:#9A7B3F">→</span>
+          </div>
+
+          <div style="padding:30px 22px 0">
+            <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:9px;border-bottom:1px solid #DCD8D0">PROJECT LEDGER</div>
+
+            <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:14px 0;border-bottom:1px solid #DCD8D0;color:#A19C93">
+              <span style="font-family:'Courier Prime',monospace;font-size:10.5px">01</span>
+              <span style="font-family:Archivo;font-size:13.5px;font-weight:600;text-transform:uppercase;letter-spacing:.01em">Estimate</span>
+              <span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em">JUL 18</span>
+            </div>
+            <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:14px 0;border-bottom:1px solid #DCD8D0;color:#A19C93">
+              <span style="font-family:'Courier Prime',monospace;font-size:10.5px">02</span>
+              <span style="font-family:Archivo;font-size:13.5px;font-weight:600;text-transform:uppercase;letter-spacing:.01em">Deposit</span>
+              <span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em">JUL 30</span>
+            </div>
+            <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:14px 0;border-bottom:1px solid #DCD8D0;color:#A19C93">
+              <span style="font-family:'Courier Prime',monospace;font-size:10.5px">03</span>
+              <span style="font-family:Archivo;font-size:13.5px;font-weight:600;text-transform:uppercase;letter-spacing:.01em">Drawings</span>
+              <span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em">AUG 14</span>
+            </div>
+
+            <div style="background:#161614;color:#F2F0EC;padding:20px;margin:6px 0">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.18em;color:#9A7B3F">
+                <span>04 — NOW</span><span>WEEK 2 OF 5</span>
+              </div>
+              <div style="font-family:Archivo;font-size:24px;font-weight:800;letter-spacing:-.02em;text-transform:uppercase;margin-top:10px;line-height:1">In production</div>
+              <div style="height:2px;background:#3A3833;margin:16px 0"><span style="display:block;height:100%;width:38%;background:#9A7B3F;transform-origin:left;animation:grow .9s ease-out"></span></div>
+              <div style="font-size:12.5px;line-height:1.6;color:#C7C3BA;text-wrap:pretty">Boxes are cut and assembly is underway. Finishing starts once the last carcase is closed up.</div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:14px 0;border-bottom:1px solid #DCD8D0">
+              <span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">05</span>
+              <span style="font-family:Archivo;font-size:13.5px;font-weight:600;text-transform:uppercase;letter-spacing:.01em">Finishing</span>
+              <span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em;color:#726E66">EST. LATE SEP</span>
+            </div>
+            <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:14px 0;border-bottom:1px solid #DCD8D0">
+              <span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">06</span>
+              <span style="font-family:Archivo;font-size:13.5px;font-weight:600;text-transform:uppercase;letter-spacing:.01em">Installation</span>
+              <span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em;color:#726E66">WK OF OCT 12</span>
+            </div>
+            <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:14px 0;border-bottom:1px solid #DCD8D0">
+              <span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">07</span>
+              <span style="font-family:Archivo;font-size:13.5px;font-weight:600;text-transform:uppercase;letter-spacing:.01em">Walkthrough</span>
+              <span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em;color:#726E66">—</span>
+            </div>
+          </div>
+
+          <sc-if value="{{ showPhotos }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:34px 0 0">
+            <div style="margin:0 22px;font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:9px;border-bottom:1px solid #DCD8D0;display:flex;justify-content:space-between">
+              <span>FROM THE SHOP</span><span style="letter-spacing:.1em">3 NEW</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;padding:16px 22px 0">
+              <div style="height:130px;background:repeating-linear-gradient(45deg,#E4E0D8 0 5px,#EFEDE7 5px 10px);display:grid;place-items:center;font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.12em;color:#8B867D;text-align:center;padding:8px">SHOP PHOTO<br>base run dry-fit</div>
+              <div style="height:130px;background:repeating-linear-gradient(45deg,#E4E0D8 0 5px,#EFEDE7 5px 10px);display:grid;place-items:center;font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.12em;color:#8B867D;text-align:center;padding:8px">SHOP PHOTO<br>island panels</div>
+              <div style="height:130px;grid-column:span 2;background:repeating-linear-gradient(45deg,#E4E0D8 0 5px,#EFEDE7 5px 10px);display:grid;place-items:center;font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.12em;color:#8B867D;text-align:center;padding:8px">SHOP PHOTO<br>door stock milled</div>
+            </div>
+            <div style="padding:10px 22px 0;font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">Latest from the floor · Aug 28</div>
+          </div>
+          </sc-if>
+
+          <div style="padding:34px 22px 0">
+            <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:9px;border-bottom:1px solid #DCD8D0">APPROVALS &amp; SELECTIONS</div>
+            <sc-if value="{{ hwOpenB }}" hint-placeholder-val="{{ true }}">
+            <div style="border-left:2px solid #9A7B3F;background:#FBFAF7;padding:16px 16px 16px 18px;margin-top:16px">
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#9A7B3F;margin-bottom:8px">WITH YOU</div>
+              <div style="font-family:Archivo;font-size:14.5px;font-weight:600;letter-spacing:-.01em">Door hardware — Emtek "Alexander" pulls</div>
+              <div style="font-size:12.5px;line-height:1.55;color:#5C5951;margin-top:7px">Sample photos sent Aug 28. Your OK releases the order — two-week lead time.</div>
+              <div style="display:flex;gap:8px;margin-top:14px">
+                <button onClick="{{ approveB }}" style="border:none;background:#161614;color:#F2F0EC;font-family:Archivo;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:11px 16px;cursor:pointer">Review &amp; approve</button>
+                <button style="border:1px solid #CFCBC2;background:transparent;color:#161614;font-family:Archivo;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:11px 16px;cursor:pointer">Ask a question</button>
+              </div>
+            </div>
+            </sc-if>
+            <sc-if value="{{ hwDoneB }}" hint-placeholder-val="{{ false }}">
+            <div style="border-left:2px solid #161614;padding:16px 16px 16px 18px;margin-top:16px">
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;margin-bottom:8px">APPROVED — JUST NOW</div>
+              <div style="font-family:Archivo;font-size:14.5px;font-weight:600;letter-spacing:-.01em">Door hardware — Emtek "Alexander" pulls</div>
+              <div style="font-size:12.5px;line-height:1.55;color:#5C5951;margin-top:7px">Order goes in today. We'll note it here when it ships.</div>
+            </div>
+            </sc-if>
+            <div style="display:flex;justify-content:space-between;gap:14px;padding:15px 0;border-top:1px solid #DCD8D0">
+              <div>
+                <div style="font-family:Archivo;font-size:13.5px;font-weight:600">Crown profile — Rev 2 drawing</div>
+                <div style="font-size:12px;color:#726E66;margin-top:5px;line-height:1.5">Simpler profile in progress after your Aug 26 note.</div>
+              </div>
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.16em;color:#726E66;white-space:nowrap;padding-top:3px">WITH BUILT</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:14px;padding:15px 0;border-top:1px solid #DCD8D0">
+              <div style="font-family:Archivo;font-size:13.5px;font-weight:600">Walnut veneer — island panels</div>
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.16em;color:#A19C93;white-space:nowrap;padding-top:3px">AUG 12</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:14px;padding:15px 0;border-top:1px solid #DCD8D0">
+              <div style="font-family:Archivo;font-size:13.5px;font-weight:600">Paint — BM "Simply White" satin</div>
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.16em;color:#A19C93;white-space:nowrap;padding-top:3px">AUG 9</div>
+            </div>
+          </div>
+
+          <div style="padding:34px 22px 0">
+            <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:9px;border-bottom:1px solid #DCD8D0">MONEY &amp; PAPER</div>
+            <div style="display:flex;align-items:baseline;gap:10px;margin-top:20px">
+              <span style="font-family:Archivo;font-size:34px;font-weight:800;letter-spacing:-.035em">$19,250</span>
+              <span style="font-family:'Courier Prime',monospace;font-size:11px;color:#9A7B3F">due Sep 15</span>
+            </div>
+            <div style="font-family:'Courier Prime',monospace;font-size:11px;color:#726E66;margin-top:8px">$18,400 paid of $48,150 · deposit Jul 30</div>
+            <button style="width:100%;margin-top:18px;border:none;background:#161614;color:#F2F0EC;font-family:Archivo;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:16px;cursor:pointer">Pay production milestone</button>
+            <a style="display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid #DCD8D0;margin-top:14px;cursor:pointer">
+              <span style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.1em;color:#726E66;width:34px">PDF</span>
+              <span style="flex:1;font-family:Archivo;font-size:13.5px;font-weight:600">Estimate EST-0014</span>
+              <span style="font-family:'Courier Prime',monospace;color:#A19C93">→</span>
+            </a>
+            <a style="display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid #DCD8D0;cursor:pointer">
+              <span style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.1em;color:#726E66;width:34px">DWG</span>
+              <span style="flex:1;font-family:Archivo;font-size:13.5px;font-weight:600">Shop drawings — Rev 2</span>
+              <span style="font-family:'Courier Prime',monospace;color:#A19C93">→</span>
+            </a>
+            <a style="display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid #DCD8D0;cursor:pointer">
+              <span style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.1em;color:#726E66;width:34px">CO-1</span>
+              <span style="flex:1;font-family:Archivo;font-size:13.5px;font-weight:600">Change order — island extension</span>
+              <span style="font-family:'Courier Prime',monospace;color:#A19C93">→</span>
+            </a>
+          </div>
+
+          <div style="padding:38px 22px 40px;margin-top:34px;border-top:1px solid #DCD8D0;text-align:center">
+            <div style="font-family:'Courier Prime',monospace;font-size:11.5px;line-height:1.7;color:#726E66">Questions on anything here?<br><a href="#1b">(555) 214-8890</a> · <a href="#1b">hello@builtthings.com</a></div>
+            <sc-if value="{{ whiteLabel }}" hint-placeholder-val="{{ false }}">
+              <div style="font-family:'Courier Prime',monospace;font-size:9px;letter-spacing:.2em;color:#B4AFA6;margin-top:22px">POWERED BY MILLSUITE</div>
+            </sc-if>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================== 1C ============================== -->
+    <div id="1c" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-family:Archivo;font-size:11px;font-weight:800;letter-spacing:.1em;background:#161614;color:#F2F0EC;padding:4px 8px">1C</span>
+        <span style="font-family:'Courier Prime',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#726E66">Supporting screens — client home, desktop, change-order signing</span>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:28px">
+
+        <!-- client home -->
+        <div style="width:1180px;background:#F2F0EC;border:1px solid #CFCBC2">
+          <div style="display:flex;align-items:center;gap:12px;padding:16px 32px;background:#161614;color:#F2F0EC">
+            <img src="assets/built-mark-dark.jpg" alt="Built" style="width:24px;height:24px;display:block">
+            <span style="font-family:Archivo;font-size:12px;font-weight:800;letter-spacing:.2em">BUILT</span>
+            <span style="margin-left:auto;font-family:'Courier Prime',monospace;font-size:10.5px;letter-spacing:.14em;color:#8F8B83">SARAH HENDERSON · SIGNED IN VIA EMAIL LINK</span>
+          </div>
+          <div style="padding:44px 32px 40px">
+            <div style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.2em;color:#726E66">YOUR PROJECTS</div>
+            <div style="font-family:Archivo;font-size:40px;font-weight:800;letter-spacing:-.035em;text-transform:uppercase;margin-top:12px;line-height:1">Two projects with Built</div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-top:34px">
+              <a style="background:#FBFAF7;border:1px solid #DCD8D0;padding:26px;display:block;cursor:pointer" style-hover="border-color:#161614">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.16em;color:#9A7B3F">
+                  <span>1 ITEM FOR YOUR REVIEW</span><span style="color:#726E66">PHASE 4 / 7</span>
+                </div>
+                <div style="font-family:Archivo;font-size:26px;font-weight:800;letter-spacing:-.025em;text-transform:uppercase;margin-top:14px;line-height:1.02">Kitchen &amp;<br>pantry</div>
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin:22px 0 14px">
+                  <span style="height:3px;background:#161614"></span><span style="height:3px;background:#161614"></span><span style="height:3px;background:#161614"></span>
+                  <span style="height:3px;background:linear-gradient(90deg,#9A7B3F 0 62%,#D6D2C9 62%)"></span>
+                  <span style="height:3px;background:#D6D2C9"></span><span style="height:3px;background:#D6D2C9"></span><span style="height:3px;background:#D6D2C9"></span>
+                </div>
+                <div style="font-family:'Courier Prime',monospace;font-size:11px;color:#726E66">In production · install week of Oct 12</div>
+                <div style="font-family:'Courier Prime',monospace;font-size:11px;color:#726E66;margin-top:4px">$19,250 due Sep 15</div>
+              </a>
+              <a style="background:#FBFAF7;border:1px solid #DCD8D0;padding:26px;display:block;cursor:pointer" style-hover="border-color:#161614">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.16em;color:#726E66">
+                  <span>NOTHING NEEDED FROM YOU</span><span>PHASE 2 / 7</span>
+                </div>
+                <div style="font-family:Archivo;font-size:26px;font-weight:800;letter-spacing:-.025em;text-transform:uppercase;margin-top:14px;line-height:1.02">Primary bath<br>vanity</div>
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin:22px 0 14px">
+                  <span style="height:3px;background:#161614"></span>
+                  <span style="height:3px;background:linear-gradient(90deg,#9A7B3F 0 40%,#D6D2C9 40%)"></span>
+                  <span style="height:3px;background:#D6D2C9"></span><span style="height:3px;background:#D6D2C9"></span><span style="height:3px;background:#D6D2C9"></span><span style="height:3px;background:#D6D2C9"></span><span style="height:3px;background:#D6D2C9"></span>
+                </div>
+                <div style="font-family:'Courier Prime',monospace;font-size:11px;color:#726E66">Deposit received Aug 24 · drawings next</div>
+                <div style="font-family:'Courier Prime',monospace;font-size:11px;color:#726E66;margin-top:4px">$4,300 paid of $11,800</div>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- desktop project view -->
+        <div style="width:1180px;background:#F2F0EC;border:1px solid #CFCBC2">
+          <div style="display:flex;align-items:center;gap:12px;padding:16px 32px;background:#161614;color:#F2F0EC">
+            <img src="assets/built-mark-dark.jpg" alt="Built" style="width:24px;height:24px;display:block">
+            <span style="font-family:Archivo;font-size:12px;font-weight:800;letter-spacing:.2em">BUILT</span>
+            <span style="font-family:'Courier Prime',monospace;font-size:10.5px;letter-spacing:.14em;color:#8F8B83;margin-left:18px">/ KITCHEN &amp; PANTRY</span>
+            <span style="margin-left:auto;font-family:'Courier Prime',monospace;font-size:10.5px;letter-spacing:.14em;color:#8F8B83">SARAH HENDERSON</span>
+          </div>
+
+          <div style="display:grid;grid-template-columns:380px 1fr;gap:2px;padding:2px;background:#DCD8D0">
+            <div style="background:#F2F0EC;padding:36px 30px">
+              <div style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.2em;color:#726E66">HENDERSON RESIDENCE</div>
+              <div style="font-family:Archivo;font-size:34px;font-weight:800;letter-spacing:-.03em;text-transform:uppercase;line-height:.98;margin-top:12px">Kitchen &amp;<br>Pantry</div>
+              <div style="font-family:'Courier Prime',monospace;font-size:11px;color:#726E66;margin-top:14px">Est. total $48,150 · install week of Oct 12</div>
+
+              <div style="margin-top:34px;border-top:1px solid #DCD8D0">
+                <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:13px 0;border-bottom:1px solid #DCD8D0;color:#A19C93">
+                  <span style="font-family:'Courier Prime',monospace;font-size:10.5px">01</span><span style="font-family:Archivo;font-size:13px;font-weight:600;text-transform:uppercase">Estimate</span><span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em">JUL 18</span>
+                </div>
+                <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:13px 0;border-bottom:1px solid #DCD8D0;color:#A19C93">
+                  <span style="font-family:'Courier Prime',monospace;font-size:10.5px">02</span><span style="font-family:Archivo;font-size:13px;font-weight:600;text-transform:uppercase">Deposit</span><span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em">JUL 30</span>
+                </div>
+                <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:13px 0;border-bottom:1px solid #DCD8D0;color:#A19C93">
+                  <span style="font-family:'Courier Prime',monospace;font-size:10.5px">03</span><span style="font-family:Archivo;font-size:13px;font-weight:600;text-transform:uppercase">Drawings</span><span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em">AUG 14</span>
+                </div>
+                <div style="background:#161614;color:#F2F0EC;padding:18px 20px">
+                  <div style="display:flex;justify-content:space-between;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.18em;color:#9A7B3F"><span>04 — NOW</span><span>WEEK 2 OF 5</span></div>
+                  <div style="font-family:Archivo;font-size:21px;font-weight:800;letter-spacing:-.02em;text-transform:uppercase;margin-top:8px">In production</div>
+                  <div style="height:2px;background:#3A3833;margin-top:14px"><span style="display:block;height:100%;width:38%;background:#9A7B3F"></span></div>
+                </div>
+                <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:13px 0;border-bottom:1px solid #DCD8D0">
+                  <span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">05</span><span style="font-family:Archivo;font-size:13px;font-weight:600;text-transform:uppercase">Finishing</span><span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em;color:#726E66">LATE SEP</span>
+                </div>
+                <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:13px 0;border-bottom:1px solid #DCD8D0">
+                  <span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">06</span><span style="font-family:Archivo;font-size:13px;font-weight:600;text-transform:uppercase">Installation</span><span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em;color:#726E66">OCT 12</span>
+                </div>
+                <div style="display:grid;grid-template-columns:26px 1fr auto;gap:12px;align-items:baseline;padding:13px 0;border-bottom:1px solid #DCD8D0">
+                  <span style="font-family:'Courier Prime',monospace;font-size:10.5px;color:#726E66">07</span><span style="font-family:Archivo;font-size:13px;font-weight:600;text-transform:uppercase">Walkthrough</span><span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.1em;color:#726E66">—</span>
+                </div>
+              </div>
+
+              <div style="margin-top:32px;font-family:'Courier Prime',monospace;font-size:11.5px;line-height:1.7;color:#726E66">
+                Questions on anything here?<br><a href="#1c">(555) 214-8890</a> · <a href="#1c">hello@builtthings.com</a>
+              </div>
+            </div>
+
+            <div style="background:#F2F0EC;padding:36px 34px 44px;display:flex;flex-direction:column;gap:38px">
+              <div style="display:flex;gap:14px;align-items:center;background:#FBFAF7;border-left:2px solid #9A7B3F;padding:20px 22px">
+                <div style="flex:1">
+                  <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#9A7B3F;margin-bottom:7px">FOR YOUR REVIEW</div>
+                  <div style="font-family:Archivo;font-size:17px;font-weight:700;letter-spacing:-.015em">Door hardware — Emtek "Alexander" pulls</div>
+                  <div style="font-size:13px;color:#5C5951;margin-top:6px;line-height:1.5">Sample photos sent Aug 28. Your OK releases the order — two-week lead time.</div>
+                </div>
+                <button style="border:none;background:#161614;color:#F2F0EC;font-family:Archivo;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:13px 20px;cursor:pointer;white-space:nowrap">Review &amp; approve</button>
+              </div>
+
+              <div>
+                <div style="display:flex;justify-content:space-between;font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:10px;border-bottom:1px solid #DCD8D0">
+                  <span>FROM THE SHOP</span><span style="letter-spacing:.1em">AUG 22 — AUG 28</span>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-top:16px">
+                  <div style="height:170px;background:repeating-linear-gradient(45deg,#E4E0D8 0 5px,#EFEDE7 5px 10px);display:grid;place-items:center;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.12em;color:#8B867D;text-align:center;padding:10px">SHOP PHOTO<br>base run dry-fit</div>
+                  <div style="height:170px;background:repeating-linear-gradient(45deg,#E4E0D8 0 5px,#EFEDE7 5px 10px);display:grid;place-items:center;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.12em;color:#8B867D;text-align:center;padding:10px">SHOP PHOTO<br>island panels</div>
+                  <div style="height:170px;background:repeating-linear-gradient(45deg,#E4E0D8 0 5px,#EFEDE7 5px 10px);display:grid;place-items:center;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.12em;color:#8B867D;text-align:center;padding:10px">SHOP PHOTO<br>door stock milled</div>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:34px">
+                <div>
+                  <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:10px;border-bottom:1px solid #DCD8D0">PAYMENTS</div>
+                  <div style="display:flex;align-items:baseline;gap:9px;margin-top:18px">
+                    <span style="font-family:Archivo;font-size:30px;font-weight:800;letter-spacing:-.035em">$19,250</span>
+                    <span style="font-family:'Courier Prime',monospace;font-size:11px;color:#9A7B3F">due Sep 15</span>
+                  </div>
+                  <div style="height:3px;background:#D6D2C9;margin:16px 0 16px"><span style="display:block;height:100%;width:38%;background:#161614"></span></div>
+                  <div style="font-family:'Courier Prime',monospace;font-size:11px;color:#726E66">$18,400 paid of $48,150</div>
+                  <button style="width:100%;margin-top:16px;border:none;background:#161614;color:#F2F0EC;font-family:Archivo;font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:15px;cursor:pointer">Pay production milestone</button>
+                </div>
+                <div>
+                  <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66;padding-bottom:10px;border-bottom:1px solid #DCD8D0">DOCUMENTS</div>
+                  <a style="display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid #DCD8D0;cursor:pointer">
+                    <span style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.1em;color:#726E66;width:34px">PDF</span>
+                    <span style="flex:1;font-family:Archivo;font-size:13.5px;font-weight:600">Estimate EST-0014</span>
+                    <span style="font-family:'Courier Prime',monospace;color:#A19C93">→</span>
+                  </a>
+                  <a style="display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid #DCD8D0;cursor:pointer">
+                    <span style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.1em;color:#726E66;width:34px">DWG</span>
+                    <span style="flex:1;font-family:Archivo;font-size:13.5px;font-weight:600">Shop drawings — Rev 2</span>
+                    <span style="font-family:'Courier Prime',monospace;color:#A19C93">→</span>
+                  </a>
+                  <a style="display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid #DCD8D0;cursor:pointer">
+                    <span style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.1em;color:#726E66;width:34px">CO-1</span>
+                    <span style="flex:1;font-family:Archivo;font-size:13.5px;font-weight:600">Change order — island extension</span>
+                    <span style="font-family:'Courier Prime',monospace;color:#A19C93">→</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- change order signing -->
+        <div style="display:flex;gap:28px;align-items:flex-start">
+          <div style="width:560px;background:#F2F0EC;border:1px solid #CFCBC2;padding:32px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.18em;color:#726E66;padding-bottom:10px;border-bottom:1px solid #DCD8D0">
+              <span>CHANGE ORDER 02</span><span>SENT AUG 30</span>
+            </div>
+            <div style="font-family:Archivo;font-size:28px;font-weight:800;letter-spacing:-.03em;text-transform:uppercase;line-height:1.02;margin-top:20px">Appliance panel<br>revision</div>
+            <div style="font-size:13.5px;line-height:1.6;color:#3A3833;margin-top:14px;text-wrap:pretty">New panel-ready refrigerator means two integrated panels and a filler strip in place of the original 36" opening. Adds four days to production.</div>
+
+            <div style="margin-top:26px;border-top:1px solid #DCD8D0">
+              <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #DCD8D0;font-family:'Courier Prime',monospace;font-size:11.5px;color:#726E66"><span>Integrated panels (2)</span><span style="color:#161614">$1,480</span></div>
+              <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #DCD8D0;font-family:'Courier Prime',monospace;font-size:11.5px;color:#726E66"><span>Filler + scribe</span><span style="color:#161614">$260</span></div>
+              <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #DCD8D0;font-family:'Courier Prime',monospace;font-size:11.5px;color:#726E66"><span>Finish to match</span><span style="color:#161614">$390</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 0">
+                <span style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.18em;color:#726E66">NEW CONTRACT TOTAL $50,280</span>
+                <span style="font-family:Archivo;font-size:26px;font-weight:800;letter-spacing:-.03em">+$2,130</span>
+              </div>
+            </div>
+
+            <sc-if value="{{ unsigned }}" hint-placeholder-val="{{ true }}">
+            <div style="border-top:1px solid #DCD8D0;padding-top:22px">
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66">SIGN TO APPROVE</div>
+              <input value="{{ signName }}" onChange="{{ setName }}" placeholder="Type your full name" style="width:100%;margin-top:12px;background:#FBFAF7;border:1px solid #CFCBC2;padding:14px 15px;font-family:'Courier Prime',monospace;font-size:15px;color:#161614;outline:none">
+              <label style="display:flex;gap:10px;align-items:flex-start;margin-top:14px;font-family:'Courier Prime',monospace;font-size:11px;line-height:1.6;color:#5C5951;cursor:pointer">
+                <input type="checkbox" checked="{{ agreed }}" onChange="{{ toggleAgree }}" style="margin-top:2px;accent-color:#161614;width:15px;height:15px">
+                <span>I approve this change order and the revised contract total. Typing my name counts as my signature.</span>
+              </label>
+              <button onClick="{{ sign }}" disabled="{{ signDisabled }}" style="width:100%;margin-top:18px;border:none;background:#161614;color:#F2F0EC;font-family:Archivo;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:16px;cursor:pointer">Sign change order</button>
+              <div style="font-family:'Courier Prime',monospace;font-size:10px;color:#8B867D;text-align:center;margin-top:9px">A countersigned PDF lands in your documents</div>
+            </div>
+            </sc-if>
+            <sc-if value="{{ signed }}" hint-placeholder-val="{{ false }}">
+            <div style="border-top:1px solid #DCD8D0;padding-top:22px">
+              <div style="font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;color:#726E66">SIGNED</div>
+              <div style="font-family:Archivo;font-size:26px;font-weight:700;letter-spacing:-.02em;margin-top:10px">{{ signName }}</div>
+              <div style="font-family:'Courier Prime',monospace;font-size:11px;color:#726E66;margin-top:8px">{{ signedStamp }}</div>
+              <div style="font-size:13px;color:#3A3833;line-height:1.6;margin-top:16px">Countersigned PDF is in your documents. Production schedule updated — install moves to the week of Oct 19.</div>
+            </div>
+            </sc-if>
+          </div>
+
+          <div style="width:390px;background:#F2F0EC;border:1px solid #CFCBC2;padding:26px">
+            <div style="font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.18em;color:#726E66;padding-bottom:10px;border-bottom:1px solid #DCD8D0">EMAIL — STATUS CHANGED</div>
+            <div style="background:#161614;color:#F2F0EC;padding:22px;margin-top:18px">
+              <img src="assets/built-mark-dark.jpg" alt="Built" style="width:22px;height:22px;display:block">
+              <div style="font-family:Archivo;font-size:22px;font-weight:800;letter-spacing:-.02em;text-transform:uppercase;line-height:1.05;margin-top:18px">Your cabinets<br>are in finishing</div>
+              <div style="font-family:'Courier Prime',monospace;font-size:11px;color:#A8A39A;margin-top:14px;line-height:1.6">Henderson Residence · Kitchen &amp; Pantry<br>Phase 5 of 7 · install still week of Oct 12</div>
+              <div style="display:inline-block;margin-top:20px;border:1px solid #F2F0EC;font-family:Archivo;font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:11px 16px">Open your portal</div>
+            </div>
+            <div style="font-family:'Courier Prime',monospace;font-size:10.5px;line-height:1.7;color:#726E66;margin-top:18px">One email per real change — phase moves, payments posted, anything needing your OK. No login, the link is the key.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showPhotos&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Portal&quot;},&quot;whiteLabel&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Portal&quot;}}">
+class Component extends DCLogic {
+  state = { hwA: false, hwB: false, signName: "", agreed: false, signed: false, stamp: "" };
+  renderVals() {
+    const s = this.state;
+    return {
+      showPhotos: this.props.showPhotos ?? true,
+      whiteLabel: this.props.whiteLabel ?? false,
+      hwOpenA: !s.hwA, hwDoneA: s.hwA,
+      hwOpenB: !s.hwB, hwDoneB: s.hwB,
+      approveA: () => this.setState({ hwA: true }),
+      approveB: () => this.setState({ hwB: true }),
+      openCO: () => {},
+      signName: s.signName,
+      setName: e => this.setState({ signName: e.target.value }),
+      agreed: s.agreed,
+      toggleAgree: () => this.setState({ agreed: !s.agreed }),
+      signDisabled: !(s.agreed && s.signName.trim().length > 2),
+      unsigned: !s.signed,
+      signed: s.signed,
+      signedStamp: s.stamp,
+      sign: () => {
+        if (!s.agreed || s.signName.trim().length < 3) return;
+        this.setState({ signed: true, stamp: "Signed Aug 31, 2026 · " + s.signName.trim() + " · IP recorded" });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

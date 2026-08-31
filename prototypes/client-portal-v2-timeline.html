@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Built · Henderson Kitchen — Timeline Variant</title>
+<style>
+  /* ============ PROTOTYPE V2 — "Timeline / Feed" direction ============
+     Same data as V1, opposite philosophy:
+     V1 = a dashboard organized by TOPIC (phases / approvals / payments).
+     V2 = a story organized by TIME — one feed, newest at top, like
+     package tracking. Sticky status bar keeps "where are we" visible.
+     Cheaper to build; every event is just a row. */
+
+  :root {
+    --bg: #14110d;
+    --card: #1e1a14;
+    --card2: #262117;
+    --ink: #f2ece2;
+    --ink-soft: #a1968a;
+    --brass: #c99a4b;
+    --green: #6fb37e;
+    --amber: #e0a04f;
+    --line: #322b21;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #060504;
+    display: flex; justify-content: center; padding: 32px 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .phone {
+    width: 400px; max-width: 100%;
+    background: var(--bg); border-radius: 40px;
+    box-shadow: 0 0 0 10px #000, 0 30px 80px rgba(0,0,0,.8);
+    overflow: hidden;
+  }
+  @media (max-width: 480px) {
+    body { padding: 0; background: var(--bg); }
+    .phone { border-radius: 0; box-shadow: none; width: 100%; }
+  }
+  .screen { height: 844px; max-height: 92vh; overflow-y: auto; scrollbar-width: none; }
+  .screen::-webkit-scrollbar { display: none; }
+  @media (max-width: 480px) { .screen { height: 100vh; max-height: none; } }
+
+  /* sticky status header */
+  .status-bar {
+    position: sticky; top: 0; z-index: 10;
+    background: linear-gradient(180deg, var(--bg) 75%, transparent);
+    padding: 50px 22px 20px;
+  }
+  .shop-row { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; }
+  .mark { width: 30px; height: 30px; border-radius: 8px; background: var(--brass); display: grid; place-items: center; font-weight: 800; color: #14110d; font-size: 15px; }
+  .shop-row b { font-size: 12px; letter-spacing: .15em; text-transform: uppercase; color: var(--ink); }
+  .proj { color: var(--ink); font-size: 23px; font-weight: 750; letter-spacing: -.02em; }
+
+  /* mini stage strip — 7 segments */
+  .strip { display: flex; gap: 5px; margin-top: 14px; }
+  .strip i { flex: 1; height: 5px; border-radius: 99px; background: var(--line); position: relative; }
+  .strip i.done { background: var(--green); }
+  .strip i.cur { background: var(--brass); overflow: hidden; }
+  .strip i.cur::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+    animation: shimmer 1.8s infinite;
+  }
+  @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  .strip-label { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; color: var(--ink-soft); }
+  .strip-label b { color: var(--brass); font-weight: 700; }
+
+  /* stat chips */
+  .chips { display: flex; gap: 8px; padding: 0 22px 6px; }
+  .chip {
+    flex: 1; background: var(--card); border: 1px solid var(--line);
+    border-radius: 13px; padding: 11px 12px;
+  }
+  .chip b { display: block; color: var(--ink); font-size: 15px; font-weight: 750; letter-spacing: -.01em; }
+  .chip span { font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--ink-soft); }
+  .chip.warn { border-color: #5c471f; background: #2b2213; }
+  .chip.warn b { color: var(--amber); }
+
+  /* feed */
+  .feed { padding: 22px 22px 40px; position: relative; }
+  .feed::before {
+    content: ""; position: absolute; left: 39px; top: 30px; bottom: 60px;
+    width: 2px; background: var(--line);
+  }
+  .ev { display: flex; gap: 16px; margin-bottom: 22px; position: relative; }
+  .ev-dot {
+    width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+    background: var(--card2); border: 2px solid var(--line);
+    display: grid; place-items: center; font-size: 15px; z-index: 1;
+  }
+  .ev.hot .ev-dot { border-color: var(--amber); background: #2b2213; animation: ring 2s infinite; }
+  @keyframes ring {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(224,160,79,.35); }
+    50% { box-shadow: 0 0 0 8px rgba(224,160,79,0); }
+  }
+  .ev.now .ev-dot { border-color: var(--brass); }
+  .ev-body { flex: 1; }
+  .ev-date { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-soft); margin-bottom: 4px; }
+  .ev-card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 15px;
+  }
+  .ev.hot .ev-card { border-color: #5c471f; background: #241d10; }
+  .ev-card b { color: var(--ink); font-size: 14px; display: block; letter-spacing: -.01em; }
+  .ev-card p { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; margin-top: 5px; }
+  .ev-photo {
+    margin-top: 10px; height: 110px; border-radius: 10px;
+    background: linear-gradient(135deg, #3a3126, #241f17);
+    display: grid; place-items: center;
+    color: #6e6355; font-size: 11.5px; letter-spacing: .05em;
+    border: 1px dashed #40372a;
+  }
+  .btn-row { display: flex; gap: 8px; margin-top: 11px; }
+  .btn {
+    flex: 1; text-align: center; font-size: 12.5px; font-weight: 700;
+    padding: 10px; border-radius: 9px; cursor: pointer; border: none;
+  }
+  .btn.primary { background: var(--brass); color: #14110d; }
+  .btn.ghost { background: transparent; color: var(--ink-soft); border: 1px solid var(--line); }
+  .btn:active { transform: scale(.97); }
+  .tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 99px; margin-top: 8px; }
+  .tag.pay { background: #1c2e21; color: var(--green); }
+  .tag.doc { background: #21262e; color: #7da3d0; }
+  .tag.you { background: #382a12; color: var(--amber); }
+
+  .upcoming-label {
+    text-align: center; font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .14em; color: #574e42; margin: 6px 0 20px;
+  }
+  .ev.future { opacity: .45; }
+
+  footer { text-align: center; padding: 0 22px 44px; font-size: 12px; color: var(--ink-soft); line-height: 1.7; }
+  footer a { color: var(--brass); text-decoration: none; font-weight: 650; }
+  .powered { margin-top: 14px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #4d4539; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="screen">
+
+    <div class="status-bar">
+      <div class="shop-row"><div class="mark">B</div><b>Built</b></div>
+      <div class="proj">Henderson Kitchen</div>
+      <div class="strip">
+        <i class="done"></i><i class="done"></i><i class="done"></i><i class="cur"></i><i></i><i></i><i></i>
+      </div>
+      <div class="strip-label"><span>Estimate</span><b>In Production</b><span>Complete</span></div>
+    </div>
+
+    <div class="chips">
+      <div class="chip"><b>Oct 12</b><span>Install target</span></div>
+      <div class="chip"><b>$18.4k</b><span>Paid of $48.1k</span></div>
+      <div class="chip warn"><b>1 item</b><span>Needs you</span></div>
+    </div>
+
+    <div class="feed">
+
+      <!-- ball_in_court = client → "hot" event pinned at top -->
+      <div class="ev hot">
+        <div class="ev-dot">✋</div>
+        <div class="ev-body">
+          <div class="ev-date">Waiting on you · since Aug 28</div>
+          <div class="ev-card">
+            <b>Approve your door hardware</b>
+            <p>Emtek "Alexander" pulls — sample photos below. We need your OK to order (2-week lead time).</p>
+            <div class="ev-photo">📷 sample photo</div>
+            <div class="btn-row">
+              <button class="btn primary" onclick="this.closest('.ev').classList.remove('hot'); this.closest('.ev-card').querySelector('b').textContent='Hardware approved ✓'; this.closest('.btn-row').remove();">Approve</button>
+              <button class="btn ghost">Ask a question</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ev now">
+        <div class="ev-dot">🪚</div>
+        <div class="ev-body">
+          <div class="ev-date">Aug 20 · happening now</div>
+          <div class="ev-card">
+            <b>Production started</b>
+            <p>Your cabinets are on the shop floor — boxes cut, assembly underway. Est. 5 weeks.</p>
+            <div class="ev-photo">📷 shop floor photo — your parts</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ev">
+        <div class="ev-dot">📐</div>
+        <div class="ev-body">
+          <div class="ev-date">Aug 14</div>
+          <div class="ev-card">
+            <b>Drawings Rev 2 approved</b>
+            <p>You signed off on the revised shop drawings. This is the build spec.</p>
+            <span class="tag doc">View drawings</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ev">
+        <div class="ev-dot">🎨</div>
+        <div class="ev-body">
+          <div class="ev-date">Aug 9 – 12</div>
+          <div class="ev-card">
+            <b>Materials approved</b>
+            <p>Walnut veneer (island) and BM "Simply White" satin — both approved.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="ev">
+        <div class="ev-dot">💵</div>
+        <div class="ev-body">
+          <div class="ev-date">Jul 30</div>
+          <div class="ev-card">
+            <b>Deposit received — $18,400</b>
+            <p>Check #4471. Your production slot is locked in.</p>
+            <span class="tag pay">Receipt</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ev">
+        <div class="ev-dot">📄</div>
+        <div class="ev-body">
+          <div class="ev-date">Jul 18</div>
+          <div class="ev-card">
+            <b>Estimate accepted — $46,000</b>
+            <p>EST-0014, plus change order #1 (+$2,150) approved Aug 5.</p>
+            <span class="tag doc">View estimate</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="upcoming-label">— Coming up —</div>
+
+      <div class="ev future">
+        <div class="ev-dot">💳</div>
+        <div class="ev-body">
+          <div class="ev-date">Sep 15</div>
+          <div class="ev-card"><b>Production milestone — $19,250 due</b><p>You'll get a QuickBooks payment link by email.</p></div>
+        </div>
+      </div>
+
+      <div class="ev future">
+        <div class="ev-dot">🏠</div>
+        <div class="ev-body">
+          <div class="ev-date">Week of Oct 12</div>
+          <div class="ev-card"><b>Installation</b><p>We'll ask you to pick your window as the date firms up.</p></div>
+        </div>
+      </div>
+
+    </div>
+
+    <footer>
+      Questions? Text or call anytime — <a href="#">(555) 214-8890</a>
+      <div class="powered">Powered by MillSuite</div>
+    </footer>
+
+  </div>
+</div>
+</body>
+</html>
