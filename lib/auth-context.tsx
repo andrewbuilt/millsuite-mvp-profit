@@ -97,6 +97,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     publicPaths.includes(pathname) ||
     pathname.startsWith('/api') ||
     pathname.startsWith('/join') ||
+    // The client portal. Public by design — the token in the URL is the only
+    // credential, and the client has no MillSuite account to be bounced to.
+    // Note this is /portal/{token} at the ROOT, which is a different thing from
+    // /{shop}/portal (the worker login) and cannot collide with it: 'portal' is
+    // in RESERVED_SLUGS, so no org can hold that first segment.
+    pathname.startsWith('/portal/') ||
     isShopLoginPath
 
   const loadUserData = useCallback(async (authId: string) => {

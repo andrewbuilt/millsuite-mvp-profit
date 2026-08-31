@@ -44,6 +44,11 @@ export interface ChangeOrderPdfProps {
   clientPrice: number
   noCharge: boolean
   drawingRevisionRequired: boolean
+  /** Present only on the COUNTERSIGNED copy generated when a client signs in
+   *  the portal. When set, the blank signature rules are replaced by the typed
+   *  name and the stamp, and the acceptance paragraph switches to past tense.
+   *  Absent = the ordinary blank-for-wet-signature PDF, unchanged. */
+  signature?: { name: string; at: string } | null
 }
 
 const C = { ink: '#111', fg: '#374151', meta: '#6B7280', dim: '#9CA3AF', hair: '#E5E7EB' }
@@ -81,6 +86,7 @@ const S = StyleSheet.create({
   sigCol: { width: '46%' },
   sigRule: { borderTopWidth: 0.75, borderTopColor: C.ink, marginBottom: 4 },
   sigLabel: { fontSize: 8.5, color: C.meta },
+  sigTyped: { fontSize: 13, fontFamily: 'Helvetica-Oblique', marginBottom: 3 },
 })
 
 function money(n: number): string {
@@ -115,6 +121,7 @@ export function ChangeOrderPdf({
   clientPrice,
   noCharge,
   drawingRevisionRequired,
+  signature,
 }: ChangeOrderPdfProps) {
   const orgAddr = [org.business_address, [org.business_city, org.business_state].filter(Boolean).join(', '), org.business_zip]
     .filter(Boolean)
@@ -202,20 +209,46 @@ export function ChangeOrderPdf({
 
         <View style={S.acceptWrap}>
           <Text style={S.smallLabel}>Acceptance</Text>
-          <Text style={S.meta}>
-            By signing below, the client approves the change described above{noCharge ? '' : ' and the associated cost'}.
-            Approved changes may affect the project timeline.
-          </Text>
-          <View style={S.sigLine}>
-            <View style={S.sigCol}>
-              <View style={S.sigRule} />
-              <Text style={S.sigLabel}>Client signature</Text>
-            </View>
-            <View style={S.sigCol}>
-              <View style={S.sigRule} />
-              <Text style={S.sigLabel}>Date</Text>
-            </View>
-          </View>
+          {signature ? (
+            <>
+              <Text style={S.meta}>
+                The client approved the change described above{noCharge ? '' : ' and the associated cost'} in the client
+                portal. A typed name was accepted as an electronic signature. Approved changes may affect the project
+                timeline.
+              </Text>
+              <View style={S.sigLine}>
+                <View style={S.sigCol}>
+                  {/* The typed name sits ABOVE the rule so it reads as a
+                      signature on the line, not as a caption under it. */}
+                  <Text style={S.sigTyped}>{pdfSafe(signature.name)}</Text>
+                  <View style={S.sigRule} />
+                  <Text style={S.sigLabel}>Client signature (electronic)</Text>
+                </View>
+                <View style={S.sigCol}>
+                  <Text style={S.sigTyped}>{pdfSafe(fmtDate(signature.at))}</Text>
+                  <View style={S.sigRule} />
+                  <Text style={S.sigLabel}>Date</Text>
+                </View>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={S.meta}>
+                By signing below, the client approves the change described above
+                {noCharge ? '' : ' and the associated cost'}. Approved changes may affect the project timeline.
+              </Text>
+              <View style={S.sigLine}>
+                <View style={S.sigCol}>
+                  <View style={S.sigRule} />
+                  <Text style={S.sigLabel}>Client signature</Text>
+                </View>
+                <View style={S.sigCol}>
+                  <View style={S.sigRule} />
+                  <Text style={S.sigLabel}>Date</Text>
+                </View>
+              </View>
+            </>
+          )}
         </View>
       </Page>
     </Document>
