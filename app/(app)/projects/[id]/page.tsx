@@ -101,6 +101,7 @@ import {
 import CreateInvoiceModal from '@/components/invoices/CreateInvoiceModal'
 import QbPushModal from '@/components/QbPushModal'
 import ProjectDocuments from '@/components/projects/ProjectDocuments'
+import ClientPortalPanel from '@/components/projects/ClientPortalPanel'
 import { invoicingMode } from '@/lib/org-settings'
 import { buildRichDescription, DEFAULT_ACTIVITY_TYPE } from '@/lib/subproject-description'
 import {
@@ -1890,6 +1891,18 @@ export default function ProjectCoverPage() {
               }
               onCreateAdHocInvoice={() => setAdHocInvoiceOpen(true)}
               qbMode={qbMode}
+            />
+
+            {/* Client portal — the shop's side of it: the client's link, the
+                shop-photo feed, and the Finishing toggle (which exists only
+                because there's no 'finishing' stage to derive it from). */}
+            <ClientPortalPanel
+              projectId={projectId}
+              orgId={org?.id ?? null}
+              clientId={project.client_id}
+              finishingAt={(project as { finishing_at?: string | null }).finishing_at ?? null}
+              stage={project.stage}
+              onToast={showToast}
             />
           </div>
 

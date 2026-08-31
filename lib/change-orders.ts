@@ -75,6 +75,15 @@ export interface ChangeOrder {
   internal_cost_delta: number | null
   drawing_revision_required: boolean
   co_invoice_id: string | null
+  // Client portal (migration 092). Set when the client typed their name in the
+  // portal. The portal records CONSENT ONLY — it deliberately leaves the CO in
+  // `sent_to_client` so approveCo() below stays the single path that moves the
+  // contract total. A signed CO is therefore still waiting on the shop to
+  // approve it, and the CO card says exactly that.
+  signed_name: string | null
+  signed_at: string | null
+  signed_ip: string | null
+  signed_pdf_url: string | null
 }
 
 // ── Reads ──

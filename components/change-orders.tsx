@@ -328,6 +328,37 @@ function CoCard({
             </div>
           )}
 
+          {/* Signed in the client portal (migration 092). The portal records
+              consent only — it leaves the CO in `sent_to_client` on purpose so
+              approveCo() stays the single path that touches the contract
+              total. So a signed CO is still waiting on YOU: approve it below
+              and the money moves exactly as it always has. */}
+          {co.signed_at && co.signed_name && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded px-3 py-2 text-xs text-emerald-900">
+              <span className="font-medium">Signed by the client:</span> {co.signed_name} ·{' '}
+              {new Date(co.signed_at).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+              {co.state === 'sent_to_client' && (
+                <span className="block mt-0.5 text-emerald-800">
+                  Approve it below to apply the change to the project total.
+                </span>
+              )}
+              {co.signed_pdf_url && (
+                <a
+                  href={co.signed_pdf_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block mt-0.5 underline"
+                >
+                  Countersigned PDF
+                </a>
+              )}
+            </div>
+          )}
+
           {/* State transition buttons */}
           <CoActions
             state={co.state}
