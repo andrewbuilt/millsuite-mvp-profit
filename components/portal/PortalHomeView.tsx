@@ -11,19 +11,26 @@ import type { PortalHome } from '@/lib/client-portal'
 import { Eyebrow, PortalHeader, PortalFooter, ProgressRail, mono, MUTED, PAPER, LINE, INK } from '@/components/portal/ui'
 
 export function PortalHomeView({ token, home }: { token: string; home: PortalHome }) {
-
   const { org, clientName, projects } = home
   const count = projects.length
 
   return (
-    <div className="mx-auto min-h-screen max-w-[1180px]">
+    <div className="min-h-screen">
+      {/* Full-bleed: the bar is chrome, not a card floating in the page. */}
       <PortalHeader
         orgName={org.name}
         logoUrl={org.logo_url}
         trail={`${clientName.toUpperCase()} · SIGNED IN VIA LINK`}
       />
 
-      <div className="px-[18px] pb-10 pt-9 sm:px-[30px] sm:pt-11">
+      {/* One project is the common case, and a lone card stranded in a
+          half-width grid column reads as a page that failed to load the rest.
+          Narrow the whole column instead so it's deliberate. */}
+      <div
+        className={`mx-auto px-[18px] pb-10 pt-9 sm:px-[30px] sm:pt-11 ${
+          count > 1 ? 'max-w-[1180px]' : 'max-w-[620px]'
+        }`}
+      >
         <Eyebrow>Your projects</Eyebrow>
         <h1
           className="mt-3 text-[30px] font-extrabold uppercase leading-none sm:text-[40px]"
@@ -41,7 +48,7 @@ export function PortalHomeView({ token, home }: { token: string; home: PortalHom
             When {org.name} starts a project for you, it will show up here. This link stays good, so you can keep it.
           </p>
         ) : (
-          <div className="mt-8 grid gap-5 sm:grid-cols-2">
+          <div className={`mt-8 grid gap-5 ${count > 1 ? 'sm:grid-cols-2' : ''}`}>
             {projects.map((p) => (
               <Link
                 key={p.id}

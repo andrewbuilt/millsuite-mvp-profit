@@ -773,22 +773,81 @@ async function loadDocuments(p: RawProject, subprojectIds: string[]): Promise<Po
 
 async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalPayments> {
   const total = sig.contractInvoice?.total || Number(p.bid_total) || 0
-  const paid = sig.contractInvoice?.amount_received || 0
 
   const rows: PortalPaymentRow[] = []
 
-  // Payments already received, oldest first — the "Paid Jul 30 · check #4471"
-  // rows. Method and reference only; internal notes are not selected.
+  // ── The milestone schedule IS the client's payment plan ──────────────────
+  // ⛔ Read this before "simplifying" back to invoice payments only.
+  //
+  // A milestone can be marked received in TWO different ways depending on the
+  // org's invoicing mode (lib/milestones.markMilestoneReceived):
+  //   • internal mode → flips the milestone AND records a real payment on the
+  //     contract invoice, so `client_invoice_payments` has a row.
+  //   • QUICKBOOKS mode → flips the milestone and deliberately stops there.
+  //     Money is supposed to arrive via the QB watcher, so the invoice's
+  //     amount_received legitimately stays 0 until then.
+  //
+  // Built is a QB org. The first version of this read only invoice payments
+  // and additionally FILTERED OUT received milestones, so a project with real
+  // money against it rendered as "$0 paid" with the paid rows missing
+  // entirely — the one record that existed was the one thing being ignored.
+  //
+  // So: every milestone renders, and its own status says whether it's paid.
+  const { data: ms } = await supabaseAdmin
+    .from('cash_flow_receivables')
+    .select('milestone_label, amount, status, expected_date, received_date')
+    .eq('project_id', p.id)
+    .eq('type', 'receivable')
+    .order('created_at', { ascending: true })
+  const milestones = (
+    (ms as
+      | {
+          milestone_label: string | null
+          amount: number | null
+          status: string
+          expected_date: string | null
+          received_date: string | null
+        }[]
+      | null) || []
+  ).filter((m) => m.status !== 'cancelled')
+
+  milestones.forEach((m) => {
+    const paid = m.status === 'received'
+    rows.push({
+      label: m.milestone_label || 'Milestone',
+      sublabel: paid
+        ? `Paid${portalDate(m.received_date) ? ` ${portalDate(m.received_date)}` : ''}`
+        : m.expected_date
+          ? `Due ${portalDate(m.expected_date)}`
+          : 'Due on schedule',
+      amount: Number(m.amount) || 0,
+      paid,
+      due: !paid && !!m.expected_date,
+    })
+  })
+
+  const paidFromMilestones = milestones
+    .filter((m) => m.status === 'received')
+    .reduce((sum, m) => sum + (Number(m.amount) || 0), 0)
+
+  // Invoice payments. With milestones present these are the SAME money seen
+  // from the other side (internal mode records both), so they're only listed
+  // when there is no milestone schedule to list instead — otherwise every
+  // internal-mode payment would appear twice.
+  let paidFromInvoice = 0
   if (sig.contractInvoice) {
     const { data } = await supabaseAdmin
       .from('client_invoice_payments')
       .select('amount, payment_date, payment_method, reference')
       .eq('invoice_id', sig.contractInvoice.id)
       .order('payment_date', { ascending: true })
-    ;(
-      (data as { amount: number | null; payment_date: string | null; payment_method: string | null; reference: string | null }[] | null) ||
-      []
-    ).forEach((pay) => {
+    const payments =
+      (data as
+        | { amount: number | null; payment_date: string | null; payment_method: string | null; reference: string | null }[]
+        | null) || []
+    payments.forEach((pay) => {
+      paidFromInvoice += Number(pay.amount) || 0
+      if (milestones.length > 0) return
       const bits = [portalDate(pay.payment_date) ? `Paid ${portalDate(pay.payment_date)}` : null]
       if (pay.reference) bits.push(pay.reference)
       else if (pay.payment_method) bits.push(pay.payment_method)
@@ -802,28 +861,11 @@ async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalP
     })
   }
 
-  // What's still scheduled. Milestones are projection-only in this system, so
-  // they're shown as a schedule, never as an amount owed today.
-  const { data: ms } = await supabaseAdmin
-    .from('cash_flow_receivables')
-    .select('milestone_label, amount, status, expected_date')
-    .eq('project_id', p.id)
-    .eq('type', 'receivable')
-    .order('created_at', { ascending: true })
-  ;(
-    (ms as { milestone_label: string | null; amount: number | null; status: string; expected_date: string | null }[] | null) ||
-    []
-  )
-    .filter((m) => m.status !== 'received' && m.status !== 'cancelled')
-    .forEach((m) => {
-      rows.push({
-        label: m.milestone_label || 'Milestone',
-        sublabel: m.expected_date ? `Due ${portalDate(m.expected_date)}` : 'Due on schedule',
-        amount: Number(m.amount) || 0,
-        paid: false,
-        due: !!m.expected_date,
-      })
-    })
+  // MAX, not sum: in internal mode the same money is recorded in both places,
+  // so adding them would double the figure on a client-facing page. In QB mode
+  // only the milestone side moves until the watcher posts, and after it posts
+  // only the invoice side may be complete — max is right in every combination.
+  const paid = Math.max(paidFromInvoice, paidFromMilestones)
 
   return { total, paid, rows }
 }

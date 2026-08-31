@@ -47,8 +47,19 @@ export function PortalProjectView({ token, p }: { token: string; p: PortalProjec
   const unsignedCos = p.changeOrders.filter((c) => c.awaitingSignature)
   const reviewCount = withYou.length + unsignedCos.length
 
+  // A project with no photos, no approvals and no change orders has nothing to
+  // fill a second column with — and the two-column layout turned that into a
+  // ragged band of cards across the top with two thirds of the screen empty
+  // underneath. So the layout follows the content: sparse projects get one
+  // narrow centred column, which reads like a document instead of a dashboard
+  // with the data missing. Most projects are sparse early on, so this is the
+  // FIRST thing a client sees, not an edge case.
+  const rich = p.photos.length > 0 || p.approvals.length > 0 || p.changeOrders.length > 0
+
   return (
-    <div className="mx-auto min-h-screen max-w-[1180px]">
+    <div className="min-h-screen">
+      {/* Full-bleed: the bar is chrome, so it shouldn't sit inside the content
+          column with a margin either side looking like a floating card. */}
       <PortalHeader
         orgName={org.name}
         logoUrl={org.logo_url}
@@ -56,7 +67,13 @@ export function PortalProjectView({ token, p }: { token: string; p: PortalProjec
         trail={p.clientName.toUpperCase()}
       />
 
-      <div className="p-3 sm:p-6 lg:grid lg:grid-cols-[392px_1fr] lg:items-start lg:gap-5">
+      <div
+        className={`mx-auto p-3 sm:p-6 ${
+          rich
+            ? 'max-w-[1180px] lg:grid lg:grid-cols-[392px_1fr] lg:items-start lg:gap-5'
+            : 'max-w-[620px]'
+        }`}
+      >
         {/* ── Left column ─────────────────────────────────────────────── */}
         <div className="flex flex-col gap-3 sm:gap-5">
           {/* Hero */}
@@ -186,7 +203,7 @@ export function PortalProjectView({ token, p }: { token: string; p: PortalProjec
         </div>
 
         {/* ── Right column ────────────────────────────────────────────── */}
-        <div className="mt-3 flex flex-col gap-3 sm:mt-5 sm:gap-5 lg:mt-0">
+        <div className={`mt-3 flex flex-col gap-3 sm:mt-5 sm:gap-5 ${rich ? 'lg:mt-0' : ''}`}>
           {/* From the shop */}
           {p.photos.length > 0 ? (
             <Card className="!pr-0">
@@ -197,15 +214,23 @@ export function PortalProjectView({ token, p }: { token: string; p: PortalProjec
               <div className="flex gap-[10px] overflow-x-auto pb-1 pr-[22px] pt-[18px] lg:grid lg:grid-cols-3 lg:overflow-visible">
                 {p.photos.map((ph) => (
                   <figure key={ph.id} className="w-[205px] flex-none lg:w-auto">
-                    {/* eslint-disable-next-line @next/next/no-img-element -- Supabase
-                        storage URLs; next/image would need every shop's host allowed. */}
-                    <img
-                      src={ph.url}
-                      alt={ph.caption || 'Shop photo'}
-                      loading="lazy"
-                      className="h-[150px] w-full rounded-[10px] object-cover lg:h-[170px]"
-                      style={{ boxShadow: 'inset 0 0 0 1px rgba(22,22,20,.06)', background: '#EFEDE7' }}
-                    />
+                    {/* Opens full size in a new tab. These are the one thing on
+                        the page a client actually wants to look AT rather than
+                        read, and a 150px thumbnail of their cabinets is not
+                        that — the first version had no way to enlarge them. A
+                        plain link beats a lightbox here: it works with no JS,
+                        pinch-zooms natively on a phone, and can be saved. */}
+                    <a href={ph.url} target="_blank" rel="noopener noreferrer" className="block">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- Supabase
+                          storage URLs; next/image would need every shop's host allowed. */}
+                      <img
+                        src={ph.url}
+                        alt={ph.caption || 'Shop photo'}
+                        loading="lazy"
+                        className="h-[150px] w-full cursor-zoom-in rounded-[10px] object-cover lg:h-[170px]"
+                        style={{ boxShadow: 'inset 0 0 0 1px rgba(22,22,20,.06)', background: '#EFEDE7' }}
+                      />
+                    </a>
                     {ph.caption || ph.takenOn ? (
                       <figcaption className="mt-[9px] text-[10.5px]" style={{ ...mono, color: MUTED }}>
                         {[ph.caption, portalDate(ph.takenOn)].filter(Boolean).join(' · ')}
@@ -279,8 +304,14 @@ export function PortalProjectView({ token, p }: { token: string; p: PortalProjec
             </Card>
           ) : null}
 
-          {/* Payments + documents */}
-          <div className="flex flex-col gap-3 sm:gap-5 lg:grid lg:grid-cols-2 lg:items-start">
+          {/* Payments + documents. Side by side only when there's other content
+              in this column to sit under — otherwise they're two narrow cards
+              stranded in a wide empty row. */}
+          <div
+            className={`flex flex-col gap-3 sm:gap-5 ${
+              rich ? 'lg:grid lg:grid-cols-2 lg:items-start' : ''
+            }`}
+          >
             <Card>
               <Eyebrow>Payments</Eyebrow>
               <div className="mt-[18px] flex flex-wrap items-baseline gap-[10px]">

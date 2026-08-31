@@ -167,7 +167,15 @@ export function PortalHeader({
         // eslint-disable-next-line @next/next/no-img-element -- org logos are
         // arbitrary remote Supabase URLs; next/image would need every shop's
         // storage host in next.config remotePatterns.
-        <img src={logoUrl} alt={orgName} className="block h-[22px] w-[22px] rounded-[5px] object-cover" />
+        //
+        // ⚠️ object-CONTAIN in a fixed-height, auto-width box. A square
+        // object-cover box cropped Built's wide wordmark down to "bui" — a
+        // shop's own logo mangled on the one page their client sees.
+        <img
+          src={logoUrl}
+          alt={orgName}
+          className="block h-[22px] w-auto max-w-[110px] rounded-[4px] object-contain"
+        />
       ) : null}
       <span className="text-[12px] font-extrabold uppercase" style={{ letterSpacing: '0.2em' }}>
         {orgName}
