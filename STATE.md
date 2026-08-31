@@ -4,11 +4,17 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-08-27 · **Branch:** `main`
+**Last updated:** 2026-08-31 · **Branch:** `main`
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-08-27)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-08-31)
+
+**⛔ NEW 2026-08-31: CLIENT PORTAL — ALL FOUR CHUNKS BUILT. ONE THING BLOCKS IT: MIGRATION `092` IS NOT ON PROD YET.** (`96dcb4e` migration · `af73483` read model + the two writes · `ed9bd56` pages · `bea7728` view split + layout fixes · `e5c7799` the shop's side · `feaa449` design files.) tsc clean, `check-tour-targets` PASS (57 steps / 44 targets), both screens rendered and read at 375px and 1280px against fixture data. **Andrew: run `db/migrations/092_client_portal.sql` on prod, then deploy** — until it runs every portal URL 404s, which is the correct failure rather than a crash. Both open calls were answered by Andrew 2026-08-31 and are closed. Full detail + his live pass list under "### Client portal" in Now.
+
+**⛔ THE PORTAL RECORDS CONSENT; THE APP APPLIES THE MONEY. Don't "finish the job" by making the portal flip a change order to `approved`.** `approveCo()` chains into `applyApprovedCo` → `recomputeProjectBidTotal`, all on the **browser** supabase client — which in a route handler has no session, so RLS refuses it and PostgREST reports the refusal as a **zero-row success**. Re-implementing that on a public endpoint, first exercised by a real client, isn't a trade worth making. So portal signing stamps `signed_name`/`signed_at`/`signed_pdf_url` and leaves the CO in `sent_to_client`; the CO card then tells the shop to approve it, which runs the one path that has always moved the contract total. The same reasoning drives the approve guard: an approval item carrying a **draft** CO is deliberately not one-click approvable in the portal, because approving it in-app finalizes a priced change the client was never shown a number for.
+
+**⛔ `lib/client-portal.ts` IS A SECURITY BOUNDARY, NOT AN ORDINARY LIB.** It runs on the service role and is reachable by anyone holding a URL. Every select in it names its columns by hand; there is **no `select('*')` and there must never be one** — these tables carry costs, margins, labor hours and other clients' rows. Adding a field to a portal type means adding the column deliberately and asking whether a client should see it. The portal pages are React **Server** Components on purpose: the browser never holds a Supabase key there, and there is no public GET endpoint to enumerate. Only the two writes are routes.
 
 **✅ "Small fixes wave" — ALL 10 ITEMS BUILT 2026-08-27** (`6d16258` project rename · `d67230a` materials-catalog organization · `d880979` collapsible subproject scope · `fb85606` drawer edit-modal truth-up · `8359a18` finishes-tab truth-up · `a474c25` interior-finishes naming · `a9abbfc` flat interior-finish set · `04cb629` subproject rename · `8aeccab` estimate closing note · `51e1fec` estimate line readability · `e771ddc` PDF glyph sanitizer). **Items 1–3 + 6 confirmed working live by Andrew.** tsc clean throughout, every touched route compiles 200, `check-tour-targets` passes (44 targets, no duplicates). **Migrations `090` + `091` ✅ BOTH RUN ON PROD 2026-08-27 by Andrew** (091 verified through PostgREST with the public key: `select=id,estimate_closing_note&limit=0` → 200, so the column is in the schema cache). **Nothing blocking — deploy, then Andrew's live pass on 4, 5, 7, 8, 9, 10 + the glyph check.** The guide-v2 live QA list stays parked, not dropped; no new walkthrough work until then.
 
@@ -104,6 +110,52 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ---
 
 ## Now
+
+### Client portal — ✅ ALL FOUR CHUNKS BUILT 2026-08-31. **Blocked on one thing: migration `092` must run on prod before deploy.**
+
+Scoped in Cowork (brainstorm + prototype pass, then a final-design review with Andrew's v1 calls) and built the same day. Design source of truth: **`prototypes/design/client-portal-final.dc.html`** (Turn 3, "progress rail"; now committed, needs `support.js` + `assets/` beside it). Copy rules held to: no em dashes in client copy (use `·`), flat `#161614`, brass `#9A7B3F`, Archivo + Courier Prime.
+
+**⛔ Andrew, in order:** (1) run `db/migrations/092_client_portal.sql` on prod; (2) deploy; (3) live pass below. Before 092 runs, every portal URL 404s — verified, and that's the intended failure, not a crash.
+
+**URLs:** `/portal/{token}` (client home) → `/portal/{token}/{projectId}`. Top-level, **not** `/{shop}/portal` — that's the worker login, and the two can't collide because `portal` was already in `RESERVED_SLUGS`. `/portal/` is registered public in `lib/auth-context.tsx`, so it never bounces to `/login`.
+
+**1. ✅ Migration `092_client_portal.sql` — NOT YET ON PROD.** Additive + idempotent + `NOTIFY pgrst`. Five pieces: `clients.portal_token` (+ `portal_token_issued_at`, partial-unique index) · `project_photos` (org-scoped RLS via `current_org_id()`) · the **public** `shop-photos` bucket · `projects.finishing_at` · `change_orders.signed_name/at/ip/pdf_url`.
+   - **Token lives on `clients`, not a `portal_tokens` table** (the migration's "Code's call"). Access is per client, and revoke/regenerate is just overwriting the column. A table would buy multi-token/expiry/audit, none of which v1 wants. Promote it if per-project or expiring links ever land.
+   - **No RLS policy grants `anon` anything here, deliberately.** A "read clients by token" policy would put the whole row one crafted PostgREST query away. The portal reads only through service-role server routes.
+   - Bucket is **public read** to match `invoice-pdfs`/`org-logos` — the portal already links straight at public `invoice-pdfs` URLs for estimates and COs, and paths carry two uuids. Writes all go through the service role, so no storage policy is needed.
+
+**2. ✅ Read model — `lib/client-portal.ts` (`af73483`).** Server-only, service role, one explicit field allowlist. See the boundary warning at the top of this file before touching it. Project reads are re-scoped to the token's client, so a valid token asking for another client's `projectId` 404s. Phases derive from `stage` + deposit (`amount_received > 0` or `deposit_override`) + drawings (`subproject_approval_status`) + `finishing_at`; **the current phase is the first one that isn't done**, so a job whose drawings are finished but whose deposit hasn't landed correctly reads as sitting on Deposit.
+   - **Install target + "Started" come from `department_allocations.scheduled_date`, not a stored stage timestamp** — nothing stamps "production began", but `startProduction()` seeds allocations at that moment, so the earliest one *is* the start; install = the earliest allocation whose dept name matches `/install/i`. Both return null freely and drop their row rather than showing a guess.
+   - **The design's 62% part-filled rail segment was not built.** Nothing in the schema knows how far through a phase a job is, and a made-up percentage on a client-facing page is the exact failure this portal exists to avoid. Current segment is solid brass. If a real signal ever lands (allocation hours done / total), `ProgressRail` in `components/portal/ui.tsx` is where it goes.
+
+**3. ✅ Pages (`ed9bd56`) + view split (`bea7728`).** React **Server** Components; routes are thin (resolve → load → notFound) and all markup lives in `components/portal/PortalHomeView` + `PortalProjectView`. **That split is what makes the screens checkable** — the portal is unreachable locally without a live token against a migrated database, so both views were rendered against fixture data and read at 375px and 1280px. Keep them free of data access so that stays possible.
+   - Own route group `app/(portal)` so it gets Archivo + Courier Prime and the portal palette without the app's nav or the marketing dark theme; the fonts load there and nowhere else.
+   - **One deliberate layout deviation, noted in the file:** the design puts "FOR YOUR REVIEW" top-right on desktop and second-from-top on mobile. Two column stacks can't do both, so it sits in the left rail under the hero — mobile matches the design exactly, desktop still has it as the darkest thing above the fold. Changing that needs explicit grid placement, not an `order` utility.
+   - Three things the render check caught and fixed: the browser tab read "MillSuite — Project Profit Tracker" on a client-facing page (now `generateMetadata` titles it with the shop's name); "New contract total" fought the +$2,130 figure for one line at 375px; and the payment schedule painted "Due on schedule" in brass, the attention colour, which now needs a real due date.
+
+**4. ✅ The two writes (`af73483`).** Both re-prove the token server-side and return an identical 404 for unknown-token / not-your-project / no-such-project, so a stranger can't tell them apart.
+   - **approve** re-implements `applyTransition()` on the service role — state flip **+ the `item_revisions` audit row + linked-slot propagation**. It can't call `lib/approvals.approve()` because that runs on the browser client. **If `applyTransition` grows a fourth step, mirror it here or portal approvals quietly diverge from in-app ones.** Idempotent, and refuses an item whose ball isn't with the client.
+   - **sign-change-order** records the signature and renders a countersigned PDF (separate storage path, so the blank-signature copy already sent isn't overwritten), and **stops there** — see the consent-vs-money warning at the top of this file. `ChangeOrderPdf` gained an optional `signature` prop; dynamic strings go through `pdfText`. PDF failure is caught and logged: the signature is already recorded, and a render error must not tell a client their signature didn't take.
+
+**5. ✅ The shop's side (`e5c7799`).** A "Client portal" panel on the project page under Documents: Copy portal link (+ Regenerate, confirm-gated because it dead-links every URL already sent), shop-photo upload with captions + thumbnails + remove, and the Finishing toggle. Change-order cards now show **"Signed by the client: name · date"** plus the countersigned PDF, and on a still-`sent_to_client` CO they say outright to approve it below to apply the change — that instruction is the whole reason the portal doesn't flip the state itself.
+   - Photo uploads go through `/api/projects/[id]/photos` on the service role; the row inserts only after the object lands, and a failed insert removes the object, so a bucket orphan can't become a broken image on a client-facing page.
+   - **`finishing_at` is DISPLAY ONLY** — grep-verified that nothing outside the portal and its toggle reads it. `stage` stays the single source of truth. The toggle only enables in production.
+
+**Both open calls — CLOSED by Andrew 2026-08-31:**
+- **"Finishing" phase** → **manual toggle** on the project page (`projects.finishing_at`). Not derived from the schedule: that can be wrong and can't be corrected.
+- **QB payment link** → **no Pay button in v1.** There is zero payment-link code in the repo; QB's `InvoiceLink` is a separate API call returning links that expire, so it's real work with an uncertain payoff. Payments show what's been received and what's scheduled, plus a line saying the shop will invoice when each payment comes due. Revisit only if Andrew wants it.
+
+**Left for Andrew (live, after 092 + deploy):**
+- Open a sold project → **Client portal** panel → **Copy portal link**, then open it in a private window. Expect the client home listing that client's projects.
+- Post two or three shop photos with captions; confirm they appear in the portal feed newest first, and that removing one removes it from both places.
+- With the project in production, tick **In finishing** → the portal rail should move to phase 5 / 7 and read "Finishing".
+- Send a change order to a client, sign it in the portal, then check: the CO card in the app says "Signed by the client", the countersigned PDF opens, and **approving it in the app still moves the project total exactly as it does today.** That last one is the important check.
+- Approve a selection from the portal → the approvals board should show it approved with the ball cleared, and the item's history should carry the "Approved by client in the portal" row.
+- Eyeball it on a phone — that's the primary surface.
+
+**Phase 2 (separate scoping, not built):** Klaviyo events on stage change / needs-you items, to the email already designed in the final `.dc` file ("one email per real change"). `lib/klaviyo.ts` is marketing-only today.
+
+**Known gaps, none blocking:** no "Ask a question" thread (mailto only, as scoped) · drawings show as documents but aren't approvable from the portal · the countersigned PDF isn't attached to an email, it just appears in Documents.
 
 ### Small fixes wave — ✅ ALL 10 ITEMS BUILT 2026-08-27 (1–3 + 6 confirmed live by Andrew; migrations `090` + `091` both on prod). **Nothing left to build and nothing blocking the deploy** — only Andrew's live pass on 4, 5, 7, 8, 9, 10, list at the bottom of this section.
 
