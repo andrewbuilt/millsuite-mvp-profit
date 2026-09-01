@@ -4,11 +4,13 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-08-31 · **Branch:** `main`
+**Last updated:** 2026-09-01 · **Branch:** `main`
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-08-31)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-09-01)
+
+**NEW 2026-09-01: "Small fixes wave 2" scoped (Cowork pass with Andrew) — BUILD ITEMS 1–4 NEXT; item 5 is NOT buildable yet.** (1) schedule backward paging · (2) mark schedule cards complete (the `completed` column already exists) · (3) capacity double-count quick fix (even split across a member's depts; the real week-by-week crew assignment is `[unscoped]` under Next) · (4) approval card opens on whole-card click · (5) pre-production redesign — **plan/prototype in Cowork first; a mockup is in `mockups/preprod-redesign-mockup.html`, spec follows Andrew's markup. Do not build 5 from intent.** Specs under "Small fixes wave 2" in Now.
 
 **✅ NEW 2026-08-31: CLIENT PORTAL — BUILT, MIGRATION `092` RUN ON PROD, AND DEPLOYED.** (`96dcb4e` migration · `af73483` read model + the two writes · `ed9bd56` pages · `bea7728` view split + layout fixes · `e5c7799` the shop's side · `feaa449` design files.) tsc clean, production `next build` clean (49 static pages; both portal routes correctly `ƒ` server-rendered, never static), `check-tour-targets` PASS, both screens rendered and read at 375px and 1280px against fixture data. **Deploy verified live 2026-08-31:** `x-matched-path: /portal/[token]` on prod, so the route is matched rather than merely 404-ing as a nonexistent path; `/api/portal-admin/link` → 401 unauthenticated; both write routes → 400 on an empty body and a uniform **404** for an unknown *and* a malformed token, with no 500 and nothing to tell the two apart. **Nothing blocking — only Andrew's live pass**, list at the end of "### Client portal" in Now. Both open calls were answered by Andrew 2026-08-31 and are closed.
 
@@ -122,6 +124,18 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ---
 
 ## Now
+
+### Small fixes wave 2 — scoped 2026-09-01 (Cowork pass with Andrew). **Build 1–4 in order; 5 waits for its spec.**
+
+**1. Schedule backward paging.** `/schedule` is locked to the current Monday — `weekZero = useMemo(() => getMonday(new Date()), [])` (`app/(app)/schedule/page.tsx` ~976) with no paging at all; horizontal scroll only reveals future weeks. Build: week-offset state + ◀/▶ paging and a "Today" jump (the /capacity rolling-window feel). `dateToWeekIndex` (~1074) is already relative to `weekZero`, and allocations load upfront (not range-limited), so past rows should render once the window can reach them — verify, and confirm drag/edit in a past week behaves. No schema change.
+
+**2. Mark schedule cards complete (visual aid).** The allocation row **already carries `completed: boolean`** (Allocation interface, schedule page ~41–50) — nothing writes or renders it. Build: a small toggle on the block (check icon), persist to the allocation row, completed style = dimmed + green check. **Visual only — capacity/utilization math unchanged** (Andrew: "more of a visual aid"). No schema change.
+
+**3. Capacity double-count — quick fix (even split; Andrew's call over per-member % or primary-dept).** `deptDailyHoursByTeam` (`lib/shop-rate-setup.ts` 87–102) adds a member's FULL daily hours to EVERY dept in `dept_assignments` — a guy in assembly + install counts 8h/day in BOTH. Fix: divide the member's daily hours by `dept_assignments.length`. Every consumer inherits (`dailyHoursByDept` → /schedule FlowView/SwimlaneView/CapacityRow, /capacity). **The shop rate is already correct** — `sumBillableHoursYear` counts each member once; don't touch it. Known-approximate, accepted: Andrew's real pattern is time-varying ("a month on install, 2 days in the shop, a week on install") — the truthful fix is the `[unscoped]` week-by-week crew assignment now listed under "Next." Verify: a 2-dept member moves both depts' capacity down, shop-wide total = headcount × hours, shop rate unchanged.
+
+**4. Approval card opens on whole-card click.** `SlotCard` (`components/approval-slots.tsx` ~204–229) expands only via the corner chevron `<button>`. Build: `onClick={onToggleExpanded}` + `cursor-pointer` on the outer card div (chevron stays); `e.stopPropagation()` on the expanded body's action buttons and inner controls so acting on a slot doesn't collapse the card. Apply the same treatment to the drawings card if it shares the chevron-only pattern (check). Watch the tour hooks on this page — approvals steps ring these cards.
+
+**5. Pre-production redesign — PLAN + PROTOTYPE FIRST. ⛔ Not buildable from this entry.** Andrew: "I want it to look more like the project page. Let's plan and prototype this." Cowork is producing `mockups/preprod-redesign-mockup.html` borrowing the project page's language (sticky subbar + StagePill, header box with big monospace $, rounded-xl hover cards, status badges, two-column grid w/ the approval workflow). After Andrew's markup pass on the mockup, the build spec lands here. Audit notes for whoever specs it: pre-prod today has no StagePill/StageStrip, no hover transitions, tighter type (15px headers vs 22px), buttons-in-a-list instead of clickable cards, no financial sidebar.
 
 ### Client portal — ✅ BUILT, MIGRATED AND DEPLOYED 2026-08-31. **Nothing blocking; only Andrew's live pass (list at the end).**
 
@@ -911,6 +925,8 @@ Needs discussion + prototype first (Cowork planning pass, do not build from this
 These are **intents, not specs.** Each is `[unscoped]` until defined with Andrew in a Cowork
 planning pass. **Code: do not build an `[unscoped]` item — bring it back to be scoped first.**
 We define one item at a time, just before building it; the spec lands in "Now" while it's active.
+
+- `[unscoped]` **Week-by-week crew assignment** (added 2026-09-01) — the REAL fix for cross-dept capacity, superseding wave-2 item 3's even split. Andrew's pattern: "a guy is on install for a month, then 2 days in the shop, then a week on install." Shape to explore: per-week member→dept assignment on /schedule ("Marcus counts as install this week"), capacity reads it, static `dept_assignments` becomes the default. Needs a Cowork design pass — data model + where the assignment UI lives.
 
 **Phase 1 — shell / structure** _(one coherent wave; settle structure before skinning it)_
 
