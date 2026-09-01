@@ -58,6 +58,12 @@ interface Block {
   dept: string
   week: number
   hours: number
+  /** Operator's "this is done" mark, persisted on the allocation row — the
+   *  column has existed all along with nothing reading or writing it.
+   *  DELIBERATELY inert in the math: capacity, utilization, the over-capacity
+   *  shading and the AI context all still count a completed block's hours.
+   *  It's a visual aid, not a state machine (Andrew's call). */
+  completed: boolean
 }
 
 interface DiffInfo {
@@ -266,6 +272,32 @@ const simBtnS: React.CSSProperties = { fontSize: 9, fontWeight: 600, padding: '2
 // =====================================================
 // BLOCK ACTION MENU (⋮ kebab on each schedule block)
 // =====================================================
+/** Done-mark toggle that sits on a schedule block. Hover-revealed via the
+ *  same class the ⋮ button uses, but pinned visible once the block is marked
+ *  so the state is readable without hovering every card. */
+function CompleteToggle({ block, onToggle, right }: {
+  block: Block
+  onToggle: (blockId: string) => void
+  right: number
+}) {
+  return (
+    <button
+      className={block.completed ? undefined : 'sched-divide-btn'}
+      onClick={(e) => { e.stopPropagation(); onToggle(block.id) }}
+      onPointerDown={(e) => e.stopPropagation()}
+      title={block.completed ? 'Mark not complete' : 'Mark complete'}
+      style={{
+        position: 'absolute', right, top: '50%', transform: 'translateY(-50%)',
+        width: 12, height: 14, padding: 0, border: 'none', borderRadius: 2,
+        background: block.completed ? 'transparent' : 'rgba(255,255,255,0.85)',
+        color: block.completed ? '#059669' : '#9CA3AF',
+        fontSize: 10, fontWeight: 700, lineHeight: 1, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >{'✓'}</button>
+  )
+}
+
 function BlockActionMenu({ block, hasSiblings, onDivide, onMerge, btnStyle }: {
   block: Block
   hasSiblings: boolean
@@ -457,11 +489,12 @@ function CapacityRow({ numWeeks, departments, capacityMap, effectiveCapacity, de
 // =====================================================
 // FLOW VIEW (departments as rows)
 // =====================================================
-function FlowView({ blocks, numWeeks, weekZero, weekOffset, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
+function FlowView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
   weekOffset: number
+  onToggleComplete: (blockId: string) => void
   departments: Department[]
   deptColors: Record<string, { bg: string; light: string; text: string }>
   projectColors: Record<string, { bg: string; light: string; text: string; border: string }>
@@ -558,13 +591,17 @@ function FlowView({ blocks, numWeeks, weekZero, weekOffset, departments, deptCol
                             : `1.5px solid ${oc && !hl ? '#FCA5A5' : hl ? c.bg : `${c.border}80`}`,
                           cursor: whatIfActive ? 'default' : drag ? 'grabbing' : 'grab',
                           display: 'flex', alignItems: 'center', padding: '0 6px',
-                          opacity: dim ? 0.15 : 1, transition: drag ? 'none' : 'all 0.12s',
+                          // Completed reads as "receded, not gone" \u2014 still
+                          // occupies its slot and still counts toward capacity.
+                          opacity: dim ? 0.15 : block.completed ? 0.5 : 1,
+                          transition: drag ? 'none' : 'all 0.12s',
                           transform: drag ? 'scale(1.04)' : 'scale(1)', zIndex: drag ? 50 : hl ? 10 : 1,
                           boxShadow: isNew ? `0 0 8px ${diffBorder}40` : drag ? `0 4px 12px ${c.bg}40` : hl ? `0 1px 4px ${c.bg}30` : 'none', flexShrink: 0,
                         }}>
-                        <span style={{ fontSize: n > 6 ? 8 : n > 4 ? 9 : 10, fontWeight: 600, lineHeight: 1, color: hl ? '#FFF' : oc ? '#991B1B' : c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>{block.sub}</span>
+                        <span style={{ fontSize: n > 6 ? 8 : n > 4 ? 9 : 10, fontWeight: 600, lineHeight: 1, color: hl ? '#FFF' : oc ? '#991B1B' : c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0, textDecoration: block.completed ? 'line-through' : undefined }}>{block.sub}</span>
                         <span style={{ fontSize: n > 4 ? 7 : 8, fontWeight: 600, marginLeft: 'auto', paddingLeft: 3, fontFamily: "'SF Mono', monospace", flexShrink: 0, color: hl ? 'rgba(255,255,255,0.7)' : oc ? '#DC2626' : '#B0B0B0' }}>{block.hours}h</span>
                         {isNew && <span style={{ fontSize: 7, marginLeft: 3, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
+                        <CompleteToggle block={block} onToggle={onToggleComplete} right={16} />
                         <BlockActionMenu
                           block={block}
                           hasSiblings={(siblingCounts[`${block.subId}::${block.dept}`] || 0) > 1}
@@ -589,11 +626,12 @@ function FlowView({ blocks, numWeeks, weekZero, weekOffset, departments, deptCol
 // =====================================================
 // SWIMLANE VIEW (projects as rows, expand to subprojects)
 // =====================================================
-function SwimlaneView({ blocks, numWeeks, weekZero, weekOffset, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, priorities, onWeekClick }: {
+function SwimlaneView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, priorities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
   weekOffset: number
+  onToggleComplete: (blockId: string) => void
   departments: Department[]
   deptColors: Record<string, { bg: string; light: string; text: string }>
   projectColors: Record<string, { bg: string; light: string; text: string; border: string }>
@@ -759,10 +797,12 @@ function SwimlaneView({ blocks, numWeeks, weekZero, weekOffset, departments, dep
                                 transition: isDragging ? 'none' : 'all 0.12s',
                                 transform: isDragging ? 'scale(1.06)' : 'scale(1)',
                                 zIndex: isDragging ? 50 : 1,
+                                opacity: block.completed ? 0.5 : 1,
                               }}>
-                              <span style={{ fontSize: 8, fontWeight: 700, color: hl ? '#FFF' : dc.text, letterSpacing: '0.02em' }}>{deptShortMap[block.dept] || 'DEPT'}</span>
+                              <span style={{ fontSize: 8, fontWeight: 700, color: hl ? '#FFF' : dc.text, letterSpacing: '0.02em', textDecoration: block.completed ? 'line-through' : undefined }}>{deptShortMap[block.dept] || 'DEPT'}</span>
                               <span style={{ fontSize: 8, fontWeight: 600, color: hl ? 'rgba(255,255,255,0.7)' : `${dc.text}90`, fontFamily: "'SF Mono', monospace" }}>{block.hours}h</span>
                               {isNew && <span style={{ fontSize: 6, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
+                              <CompleteToggle block={block} onToggle={onToggleComplete} right={15} />
                               <BlockActionMenu
                                 block={block}
                                 hasSiblings={(siblingCounts[`${block.subId}::${block.dept}`] || 0) > 1}
@@ -1310,6 +1350,7 @@ export default function SchedulePage() {
         dept: a.department_id,
         week: weekIdx,
         hours: a.estimated_hours,
+        completed: !!a.completed,
       }
     })
 
@@ -1325,6 +1366,30 @@ export default function SchedulePage() {
       .update({ scheduled_date: dateStr })
       .eq('id', blockId)
   }, [weekIndexToDate])
+
+  /** Flip a block's done mark. Optimistic — a failed write rolls the block
+   *  back rather than leaving the grid claiming something is finished when
+   *  the database disagrees. No `updated_at` in the payload: that column
+   *  doesn't exist on department_allocations (verified against the live
+   *  schema), and naming it would fail the whole update. */
+  const toggleBlockComplete = useCallback(async (blockId: string) => {
+    let next = false
+    setBlocks(prev =>
+      prev.map(b => {
+        if (b.id !== blockId) return b
+        next = !b.completed
+        return { ...b, completed: next }
+      }),
+    )
+    const { error } = await supabase
+      .from('department_allocations')
+      .update({ completed: next })
+      .eq('id', blockId)
+    if (error) {
+      console.error('toggleBlockComplete', error)
+      setBlocks(prev => prev.map(b => (b.id === blockId ? { ...b, completed: !next } : b)))
+    }
+  }, [])
 
   // Divide-block save: wipe the source allocation, insert N new rows with
   // explicit scheduled_date + estimated_hours (operator picked the
@@ -2041,7 +2106,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
             <div ref={gridRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', userSelect: 'none' }}>
               {viewMode === 'flow' ? (
                 <FlowView
-                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero} weekOffset={weekOffset}
+                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero} weekOffset={weekOffset} onToggleComplete={toggleBlockComplete}
                   departments={departments} deptColors={deptColors} projectColors={projectColors}
                   capacityMap={capacityMap} effectiveCapacity={effectiveCapacity}
                   filter={filter} highlightKey={highlightKey} dragState={dragState}
@@ -2056,7 +2121,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                 />
               ) : (
                 <SwimlaneView
-                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero} weekOffset={weekOffset}
+                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero} weekOffset={weekOffset} onToggleComplete={toggleBlockComplete}
                   departments={departments} deptColors={deptColors} projectColors={projectColors}
                   projectNames={projectNames} projectSubs={projectSubs}
                   subIdByKey={subIdByKey} subStatusMap={subStatusMap}
