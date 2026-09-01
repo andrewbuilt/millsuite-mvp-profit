@@ -20,25 +20,38 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
- * Absolute base for the link the shop is about to paste into an email.
+ * Absolute base for the link the shop is about to paste into an email. This
+ * one function has now produced two different broken links, so both traps are
+ * written down rather than summarised.
  *
- * ⛔ DERIVED FROM THE REQUEST, NEVER FROM A CONFIGURED URL — and that is not a
- * style preference, it's a bug fix. This first read `NEXT_PUBLIC_APP_URL ||
+ * ⛔ TRAP 1 — a hand-set constant rots. This first read `NEXT_PUBLIC_APP_URL ||
  * NEXT_PUBLIC_SITE_URL`, one of which is set on prod to `app.millsuite.com`, a
- * host with NO DNS RECORD. The first link Andrew ever copied was dead on
- * arrival (DNS_PROBE_FINISHED_NXDOMAIN), and nothing in the app could have
- * caught it: this route was the only consumer of those variables, so the stale
- * value had no other symptom.
+ * host with NO DNS RECORD. The first link Andrew copied was dead on arrival
+ * (DNS_PROBE_FINISHED_NXDOMAIN), and this route was the only consumer of those
+ * variables, so the stale value had no other symptom to catch it. **Do not
+ * reintroduce a manually configured URL here.**
  *
- * The request origin is self-verifying. Whoever is clicking "Copy portal link"
- * is looking at this app, right now, on a host that demonstrably resolves and
- * serves it — so a link built on that same host resolves too. A configured
- * constant is a guess that can rot; the request cannot.
+ * ⛔ TRAP 2 — the request host is whatever the SHOP happens to be browsing,
+ * which on Vercel is often a per-deployment URL like
+ * `millsuite-mvp-profit-3yvwt9k3q-andrew-watsons-projects-4a21bd73.vercel.app`.
+ * Deriving purely from the request replaced a dead 22-character host with a
+ * live 74-character one, in a link that gets texted to clients. Correct, and
+ * still unusable.
  *
- * Prefers the forwarded headers because behind Vercel's proxy those carry the
- * PUBLIC host, while nextUrl.origin can reflect the internal one.
+ * So: on production, use `VERCEL_PROJECT_PRODUCTION_URL` — the project's real
+ * production domain, injected by the platform, so unlike a hand-set variable it
+ * cannot drift from reality. Anywhere else (preview deploys, localhost) fall
+ * back to the request host, because on a preview the whole point is to test
+ * THAT deployment and a production link would defeat it.
+ *
+ * The request fallback prefers forwarded headers: behind Vercel's proxy those
+ * carry the public host, while nextUrl.origin can reflect the internal one.
  */
 function baseUrl(req: NextRequest): string {
+  const prodHost = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  if (process.env.VERCEL_ENV === 'production' && prodHost) {
+    return `https://${prodHost.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`
+  }
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host')
   if (host) {
     const proto = req.headers.get('x-forwarded-proto') || (host.startsWith('localhost') ? 'http' : 'https')
