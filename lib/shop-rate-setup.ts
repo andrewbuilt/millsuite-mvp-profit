@@ -80,10 +80,25 @@ export function memberDailyHours(m: TeamMember, defaultHrsPerWeek = 40): number 
   return hpw / WORK_DAYS_PER_WEEK
 }
 
-/** Per-dept daily capacity hours from the team roster: the sum, over active
- *  billable members assigned to each dept, of their per-day hours. This is
- *  the single source both /capacity and /schedule use in place of the old
- *  `headcount × dept.hours_per_day`. */
+/** Per-dept daily capacity hours from the team roster: for each active
+ *  billable member, their per-day hours SPLIT EVENLY across the departments
+ *  they're assigned to. This is the single source both /capacity and
+ *  /schedule use in place of the old `headcount × dept.hours_per_day`.
+ *
+ *  The split is the point. This used to add a member's FULL day to EVERY
+ *  dept they belonged to, so one person in assembly + install advertised 8h
+ *  in each — 16h of capacity from an 8h human. Shop-wide capacity read as
+ *  headcount × hours × (departments per head), which quietly said there was
+ *  room for work nobody could do.
+ *
+ *  Even thirds is an APPROXIMATION and known to be one: Andrew's real pattern
+ *  is time-varying ("a month on install, two days in the shop"). It's right
+ *  in aggregate — the shop-wide total is now exactly headcount × hours — and
+ *  wrong for any given week. The truthful version is week-by-week crew
+ *  assignment, listed unscoped under "Next"; don't mistake this for it.
+ *
+ *  NOT the shop rate. `sumBillableHoursYear` counts each member once and was
+ *  always correct — leave it alone. */
 export function deptDailyHoursByTeam(
   team: TeamMember[],
   defaultHrsPerWeek = 40,
@@ -94,8 +109,11 @@ export function deptDailyHoursByTeam(
     if (m.active === false) continue
     const daily = memberDailyHours(m, defaultHrsPerWeek)
     if (daily <= 0) continue
-    for (const deptId of m.dept_assignments || []) {
-      out[deptId] = (out[deptId] || 0) + daily
+    const depts = m.dept_assignments || []
+    if (depts.length === 0) continue
+    const share = daily / depts.length
+    for (const deptId of depts) {
+      out[deptId] = (out[deptId] || 0) + share
     }
   }
   return out
