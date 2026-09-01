@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pre-production — redesign mockup</title>
+<!--
+  MOCKUP · Pre-production page redesign (Small fixes wave 2, item 5)
+  Direction: make pre-production feel like the project page.
+  Borrowed patterns: sticky subbar + stage pill · white header block with
+  big monospace $ · rounded-xl cards with hover borders · status badges ·
+  whole-card-clickable approval rows (wave-2 item 4 baked in) · sticky
+  "what's left" sidebar (the project page's financial-panel pattern,
+  repurposed as the approval punch list).
+  Static except: approval rows expand on click (anywhere on the row).
+-->
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:#F9FAFB; color:#111; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+
+  /* ── sticky subbar ─────────────────────────────────────────── */
+  .subbar { position:sticky; top:0; z-index:30; background:#fff; border-bottom:1px solid #E5E7EB;
+            padding:12px 24px; display:flex; align-items:center; justify-content:space-between; }
+  .back { display:flex; align-items:center; gap:8px; font-size:14px; color:#6B7280; cursor:pointer; }
+  .back:hover { color:#111; }
+  .stagepill { display:flex; align-items:center; gap:6px; font-size:12px; }
+  .stagepill .node { display:flex; align-items:center; gap:5px; color:#9CA3AF; }
+  .stagepill .dot { width:7px; height:7px; border-radius:99px; background:#D1D5DB; }
+  .stagepill .node.done .dot { background:#059669; }
+  .stagepill .node.active { color:#1E40AF; font-weight:600; }
+  .stagepill .node.active .dot { background:#2563EB; box-shadow:0 0 0 3px #DBEAFE; }
+  .stagepill .sep { width:14px; height:1px; background:#E5E7EB; }
+
+  /* ── project header ────────────────────────────────────────── */
+  .header { background:#fff; border-bottom:1px solid #E5E7EB; padding:24px 32px; }
+  .header-in { max-width:1240px; margin:0 auto; display:grid; grid-template-columns:1fr auto; gap:16px; align-items:start; }
+  h1 { font-size:22px; font-weight:600; letter-spacing:-0.02em; margin-bottom:8px; }
+  h1 .phase { font-size:12px; font-weight:600; color:#1E40AF; background:#EFF6FF; border:1px solid #BFDBFE;
+              padding:3px 10px; border-radius:99px; vertical-align:3px; margin-left:10px; letter-spacing:0; }
+  .pills { display:flex; gap:10px; flex-wrap:wrap; align-items:center; font-size:12px; color:#6B7280; }
+  .pill { padding:4px 10px; background:#F3F4F6; border-radius:99px; color:#374151; }
+  .price { text-align:right; }
+  .price .big { font-size:28px; font-weight:600; letter-spacing:-0.02em; }
+  .price .sub { font-size:12px; font-weight:600; color:#059669; margin-top:4px; }
+
+  /* ── gate strip ────────────────────────────────────────────── */
+  .gate { background:linear-gradient(90deg,#FFFBEB,#FEF3C7); border-bottom:1px solid #FDE68A; padding:16px 32px; }
+  .gate-in { max-width:1240px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; }
+  .gate-msg { display:flex; align-items:center; gap:12px; }
+  .gate-icon { width:34px; height:34px; border-radius:10px; background:#F59E0B; color:#fff; display:flex;
+               align-items:center; justify-content:center; font-size:16px; font-weight:700; }
+  .gate-title { font-size:14px; font-weight:600; color:#92400E; }
+  .gate-sub { font-size:12px; color:#B45309; margin-top:2px; }
+  .gate-stats { display:flex; gap:10px; }
+  .gstat { background:rgba(255,255,255,.75); border:1px solid #FDE68A; border-radius:10px; padding:8px 14px; text-align:center; min-width:92px; }
+  .gstat .n { font-size:15px; font-weight:600; }
+  .gstat .l { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#92400E; margin-top:2px; }
+  .gstat.ok .n { color:#059669; }
+  .gate-bar { height:4px; background:#FDE68A; border-radius:99px; max-width:1240px; margin:12px auto 0; overflow:hidden; }
+  .gate-bar i { display:block; height:100%; width:64%; background:#F59E0B; border-radius:99px; }
+
+  /* ── layout ────────────────────────────────────────────────── */
+  .main { max-width:1240px; margin:0 auto; padding:24px 32px 64px; display:grid; grid-template-columns:1fr 340px; gap:20px; align-items:start; }
+
+  /* subproject cards */
+  .subcard { background:#fff; border:1px solid #E5E7EB; border-radius:14px; margin-bottom:16px; transition:border-color .15s; overflow:hidden; }
+  .subcard:hover { border-color:#93C5FD; }
+  .subhead { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid #F3F4F6; }
+  .subhead .l { display:flex; align-items:center; gap:10px; }
+  .subicon { width:30px; height:30px; border-radius:8px; background:#EFF6FF; color:#1E40AF; display:flex;
+             align-items:center; justify-content:center; font-size:13px; font-weight:700; }
+  .subname { font-size:15px; font-weight:600; }
+  .submeta { font-size:12px; color:#9CA3AF; margin-top:1px; }
+  .badge { font-size:11px; font-weight:600; padding:4px 10px; border-radius:99px; border:1px solid; }
+  .badge.amber { color:#92400E; background:#FFFBEB; border-color:#FDE68A; }
+  .badge.green { color:#065F46; background:#ECFDF5; border-color:#A7F3D0; }
+  .subbody { display:grid; grid-template-columns:1fr 260px; gap:0; }
+  .colhead { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#9CA3AF; font-weight:600; padding:12px 18px 6px; }
+
+  /* approval rows — WHOLE ROW clickable */
+  .slots { border-right:1px solid #F3F4F6; padding-bottom:10px; }
+  .slot { margin:0 12px 8px; border:1px solid #E5E7EB; border-radius:10px; cursor:pointer; transition:border-color .15s, background .15s; }
+  .slot:hover { border-color:#93C5FD; background:#FAFCFF; }
+  .slot-row { display:flex; align-items:center; gap:10px; padding:10px 12px; }
+  .sdot { width:8px; height:8px; border-radius:99px; flex-shrink:0; }
+  .sdot.pending { background:#D1D5DB; }
+  .sdot.review { background:#F59E0B; }
+  .sdot.approved { background:#059669; }
+  .slot-label { font-size:13px; font-weight:500; flex:1; }
+  .slot-label small { display:block; font-weight:400; font-size:12px; color:#6B7280; margin-top:1px; }
+  .court { font-size:11px; color:#B45309; background:#FFFBEB; border:1px solid #FDE68A; padding:2px 8px; border-radius:99px; }
+  .sbadge { font-size:11px; padding:3px 8px; border-radius:6px; border:1px solid; }
+  .sbadge.pending { color:#6B7280; background:#F9FAFB; border-color:#E5E7EB; }
+  .sbadge.review { color:#92400E; background:#FFFBEB; border-color:#FDE68A; }
+  .sbadge.approved { color:#065F46; background:#ECFDF5; border-color:#A7F3D0; }
+  .chev { color:#9CA3AF; font-size:11px; transition:transform .15s; }
+  .slot.open .chev { transform:rotate(180deg); }
+  .slot-detail { display:none; border-top:1px solid #F3F4F6; padding:12px; }
+  .slot.open .slot-detail { display:block; }
+  .kv { display:flex; gap:24px; margin-bottom:10px; }
+  .kv div span { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#9CA3AF; }
+  .kv div b { font-size:13px; font-weight:500; }
+  .timeline { font-size:12px; color:#6B7280; border-left:2px solid #E5E7EB; padding-left:10px; margin:0 0 12px 3px; }
+  .timeline li { list-style:none; margin-bottom:4px; }
+  .timeline .t { color:#9CA3AF; font-size:11px; margin-right:6px; }
+  .actions { display:flex; gap:8px; }
+  .btn { font-size:12px; font-weight:600; padding:7px 12px; border-radius:8px; border:1px solid #E5E7EB; background:#fff; cursor:pointer; }
+  .btn:hover { border-color:#93C5FD; }
+  .btn.primary { background:#2563EB; border-color:#2563EB; color:#fff; }
+  .btn.primary:hover { background:#1E40AF; }
+
+  /* drawings column */
+  .drawings { padding-bottom:10px; }
+  .drawcard { margin:0 12px 8px; border:1px solid #E5E7EB; border-radius:10px; padding:10px 12px; }
+  .drawcard .r1 { display:flex; align-items:center; justify-content:space-between; font-size:13px; font-weight:500; }
+  .drawcard .r2 { font-size:12px; color:#6B7280; margin-top:2px; }
+  .drawcard .acts { margin-top:8px; display:flex; gap:8px; }
+
+  /* sticky sidebar — the punch list */
+  .side { position:sticky; top:64px; }
+  .sidecard { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px 18px; margin-bottom:14px; }
+  .sidecard h3 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#9CA3AF; margin-bottom:12px; }
+  .todo { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px; border-bottom:1px solid #F9FAFB; cursor:pointer; }
+  .todo:hover { color:#1E40AF; }
+  .todo:last-child { border:none; }
+  .todo .who { margin-left:auto; font-size:11px; color:#9CA3AF; }
+  .done-line { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px; color:#9CA3AF; text-decoration:line-through; }
+  .startbtn { width:100%; margin-top:6px; padding:11px; border-radius:10px; border:none; background:#E5E7EB; color:#9CA3AF;
+              font-size:13px; font-weight:600; cursor:not-allowed; }
+  .startbtn.ready { background:#059669; color:#fff; cursor:pointer; }
+  .sidenote { font-size:11px; color:#9CA3AF; text-align:center; margin-top:8px; }
+
+  .cos { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:14px 18px; font-size:13px; color:#6B7280;
+         display:flex; justify-content:space-between; align-items:center; }
+  .explain { font-size:12px; color:#9CA3AF; margin-top:18px; line-height:1.6; max-width:640px; }
+</style>
+</head>
+<body>
+
+<div class="subbar">
+  <div class="back">← Back to project</div>
+  <div class="stagepill">
+    <div class="node done"><div class="dot"></div>Bidding</div><div class="sep"></div>
+    <div class="node active"><div class="dot"></div>Sold · Pre-production</div><div class="sep"></div>
+    <div class="node"><div class="dot"></div>Production</div><div class="sep"></div>
+    <div class="node"><div class="dot"></div>Installed</div><div class="sep"></div>
+    <div class="node"><div class="dot"></div>Complete</div>
+  </div>
+</div>
+
+<div class="header">
+  <div class="header-in">
+    <div>
+      <h1>Williams Residential Millwork Package<span class="phase">Pre-production</span></h1>
+      <div class="pills">
+        <span class="pill">Williams Construction</span>
+        <span class="pill">1247 Bayshore Blvd, Tampa</span>
+        <span style="color:#9CA3AF">·</span>
+        <span style="color:#9CA3AF">Sold Aug 28 · Install target Oct 12</span>
+      </div>
+    </div>
+    <div class="price">
+      <div class="big mono">$438,507</div>
+      <div class="sub mono">Deposit received · $131,552</div>
+    </div>
+  </div>
+</div>
+
+<div class="gate">
+  <div class="gate-in">
+    <div class="gate-msg">
+      <div class="gate-icon">!</div>
+      <div>
+        <div class="gate-title">3 approvals to go before production</div>
+        <div class="gate-sub">Everything green-lights the Start production button on the project page.</div>
+      </div>
+    </div>
+    <div class="gate-stats">
+      <div class="gstat"><div class="n mono">6 / 9</div><div class="l">Materials</div></div>
+      <div class="gstat"><div class="n mono">2 / 3</div><div class="l">Drawings</div></div>
+      <div class="gstat ok"><div class="n">✓</div><div class="l">Deposit</div></div>
+    </div>
+  </div>
+  <div class="gate-bar"><i></i></div>
+</div>
+
+<div class="main">
+  <div>
+    <!-- Kitchen: in progress, one slot expanded -->
+    <div class="subcard">
+      <div class="subhead">
+        <div class="l">
+          <div class="subicon">K</div>
+          <div>
+            <div class="subname">Kitchen Cabinets &amp; Island</div>
+            <div class="submeta">42 LF · Millwork — Cabinets</div>
+          </div>
+        </div>
+        <span class="badge amber">4 / 6 approved</span>
+      </div>
+      <div class="subbody">
+        <div class="slots">
+          <div class="colhead">Approvals</div>
+
+          <div class="slot open" onclick="this.classList.toggle('open')">
+            <div class="slot-row">
+              <div class="sdot review"></div>
+              <div class="slot-label">Carcass material<small>¾" HDF · quoted from catalog</small></div>
+              <span class="court">with client · 3d</span>
+              <span class="sbadge review">In review</span>
+              <span class="chev">▼</span>
+            </div>
+            <div class="slot-detail" onclick="event.stopPropagation()">
+              <div class="kv">
+                <div><span>Material</span><b>¾" HDF</b></div>
+                <div><span>Finish</span><b>Stain + Matte Clear</b></div>
+              </div>
+              <ul class="timeline">
+                <li><span class="t">Aug 29</span>Sample submitted</li>
+                <li><span class="t">Aug 30</span>Client requested change — "warmer stain"</li>
+                <li><span class="t">Aug 31</span>Sample submitted (rev 2)</li>
+              </ul>
+              <div class="actions">
+                <button class="btn primary">Client approved</button>
+                <button class="btn">Client requested change</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="slot" onclick="this.classList.toggle('open')">
+            <div class="slot-row">
+              <div class="sdot approved"></div>
+              <div class="slot-label">Door/drawer material<small>Rift white oak</small></div>
+              <span class="sbadge approved">Approved · locked</span>
+              <span class="chev">▼</span>
+            </div>
+            <div class="slot-detail" onclick="event.stopPropagation()">
+              <div class="kv">
+                <div><span>Material</span><b>Rift white oak</b></div>
+                <div><span>Approved</span><b>Aug 29 · sample</b></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="slot" onclick="this.classList.toggle('open')">
+            <div class="slot-row">
+              <div class="sdot pending"></div>
+              <div class="slot-label">Exterior finish<small>Stain to match sample</small></div>
+              <span class="sbadge pending">Pending</span>
+              <span class="chev">▼</span>
+            </div>
+            <div class="slot-detail" onclick="event.stopPropagation()">
+              <div class="actions"><button class="btn primary">Sample submitted</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawings">
+          <div class="colhead">Drawings</div>
+          <div class="drawcard">
+            <div class="r1">Rev B <span class="court">with client · 2d</span></div>
+            <div class="r2">Sent Aug 30 · island section updated</div>
+            <div class="acts">
+              <button class="btn primary">Mark approved</button>
+              <button class="btn">New rev</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Breakfast Nook: ready -->
+    <div class="subcard">
+      <div class="subhead">
+        <div class="l">
+          <div class="subicon" style="background:#ECFDF5;color:#065F46">B</div>
+          <div>
+            <div class="subname">Breakfast Nook</div>
+            <div class="submeta">14 LF · Millwork — Seating</div>
+          </div>
+        </div>
+        <span class="badge green">Ready ✓</span>
+      </div>
+      <div class="subbody">
+        <div class="slots">
+          <div class="colhead">Approvals</div>
+          <div class="slot" onclick="this.classList.toggle('open')">
+            <div class="slot-row">
+              <div class="sdot approved"></div>
+              <div class="slot-label">Carcass material<small>Rift white oak veneer</small></div>
+              <span class="sbadge approved">Approved · locked</span>
+              <span class="chev">▼</span>
+            </div>
+            <div class="slot-detail" onclick="event.stopPropagation()"><div class="kv"><div><span>Approved</span><b>Aug 29</b></div></div></div>
+          </div>
+          <div class="slot" onclick="this.classList.toggle('open')">
+            <div class="slot-row">
+              <div class="sdot approved"></div>
+              <div class="slot-label">Exterior finish<small>Stain + matte clear</small></div>
+              <span class="sbadge approved">Approved · locked</span>
+              <span class="chev">▼</span>
+            </div>
+            <div class="slot-detail" onclick="event.stopPropagation()"><div class="kv"><div><span>Approved</span><b>Aug 30</b></div></div></div>
+          </div>
+        </div>
+        <div class="drawings">
+          <div class="colhead">Drawings</div>
+          <div class="drawcard">
+            <div class="r1">Rev A <span class="sbadge approved" style="border-radius:99px">Approved</span></div>
+            <div class="r2">Approved Aug 30</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cos">
+      <span><b style="color:#111">Change orders</b> · none on this project</span>
+      <span style="cursor:pointer;color:#2563EB;font-weight:600">+ Change order</span>
+    </div>
+
+    <p class="explain">
+      Materials and drawings get approved here, per subproject. When every slot is green and the
+      deposit is in, the project page shows <b>Start production</b>. Approved slots lock — changes
+      after approval go through a change order.
+    </p>
+  </div>
+
+  <!-- sticky punch list -->
+  <div class="side">
+    <div class="sidecard">
+      <h3>What's left</h3>
+      <div class="todo"><div class="sdot review"></div>Kitchen · Carcass material<span class="who">client</span></div>
+      <div class="todo"><div class="sdot pending"></div>Kitchen · Exterior finish<span class="who">shop</span></div>
+      <div class="todo"><div class="sdot review"></div>Kitchen · Drawings Rev B<span class="who">client</span></div>
+      <div class="done-line"><div class="sdot approved"></div>Deposit received</div>
+      <div class="done-line"><div class="sdot approved"></div>Breakfast Nook · all approvals</div>
+      <button class="startbtn">Start production — 3 to go</button>
+      <div class="sidenote">Turns green when the last approval lands.</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
