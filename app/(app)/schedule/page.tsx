@@ -360,9 +360,12 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
 // =====================================================
 // WEEK COLUMN HEADERS
 // =====================================================
-function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCapacity, onWeekClick }: {
+function WeekHeaders({ numWeeks, weekZero, weekOffset = 0, departments, capacityMap, effectiveCapacity, onWeekClick }: {
   numWeeks: number
   weekZero: Date
+  /** View→absolute bridge, so a column can say what it actually is. Without
+   *  it, paging back three weeks still labelled the leftmost column "WK 1". */
+  weekOffset?: number
   departments: Department[]
   capacityMap: Record<string, number>
   effectiveCapacity: (deptId: string) => number
@@ -372,6 +375,14 @@ function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCa
     const d = new Date(weekZero)
     d.setDate(d.getDate() + i * 7)
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+  /** Forward numbering is unchanged (absolute 0 = "WK 1"); past weeks read as
+   *  an age instead of a negative index. */
+  const getWeekOrdinal = (i: number): string => {
+    const abs = weekOffset + i
+    if (abs === 0) return 'THIS WEEK'
+    if (abs < 0) return `${-abs} WK${abs === -1 ? '' : 'S'} AGO`
+    return `WK ${abs + 1}`
   }
 
   return (
@@ -383,7 +394,7 @@ function WeekHeaders({ numWeeks, weekZero, departments, capacityMap, effectiveCa
         const dotC = capColor(wp)
         return (
           <div key={i} onClick={() => onWeekClick?.(i)} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #F3F4F6', padding: '6px 0 6px', textAlign: 'center', background: i % 2 === 0 ? '#FFF' : '#FAFBFC', cursor: 'pointer' }}>
-            <div style={{ fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>WK {i + 1}</div>
+            <div style={{ fontSize: 9, fontWeight: 600, color: weekOffset + i === 0 ? '#1E40AF' : '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{getWeekOrdinal(i)}</div>
             <div style={{ fontSize: 11, fontWeight: 500, color: '#6B7280', marginTop: 1 }}>{getWeekLabel(i)}</div>
             <div style={{ height: 6, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {dotC && <div title={`${wp}% utilized`} style={{ width: 4, height: 4, borderRadius: 999, background: dotC }} />}
@@ -446,10 +457,11 @@ function CapacityRow({ numWeeks, departments, capacityMap, effectiveCapacity, de
 // =====================================================
 // FLOW VIEW (departments as rows)
 // =====================================================
-function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
+function FlowView({ blocks, numWeeks, weekZero, weekOffset, departments, deptColors, projectColors, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, simMode, adjustCapacity, capacityOverrides, deptCapacities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
+  weekOffset: number
   departments: Department[]
   deptColors: Record<string, { bg: string; light: string; text: string }>
   projectColors: Record<string, { bg: string; light: string; text: string; border: string }>
@@ -489,7 +501,7 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
       {/* Column headers */}
       <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF', minHeight: 50 }}>
         <div style={{ width: DEPT_LABEL_WIDTH, minWidth: DEPT_LABEL_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'sticky', left: 0, background: '#FFF', zIndex: 25 }}>Dept</div>
-        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} onWeekClick={onWeekClick} />
+        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} weekOffset={weekOffset} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} onWeekClick={onWeekClick} />
       </div>
       {/* Sticky capacity row — pinned below header so weekly utilization
           stays visible while scrolling the dept rows. */}
@@ -577,10 +589,11 @@ function FlowView({ blocks, numWeeks, weekZero, departments, deptColors, project
 // =====================================================
 // SWIMLANE VIEW (projects as rows, expand to subprojects)
 // =====================================================
-function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, priorities, onWeekClick }: {
+function SwimlaneView({ blocks, numWeeks, weekZero, weekOffset, departments, deptColors, projectColors, projectNames, projectSubs, subIdByKey, subStatusMap, deptIndex, deptShortMap, capacityMap, effectiveCapacity, filter, highlightKey, dragState, whatIfDiff, whatIfActive, onPointerDown, onHover, onLeave, onSelect, onDivide, onMerge, siblingCounts, priorities, onWeekClick }: {
   blocks: Block[]
   numWeeks: number
   weekZero: Date
+  weekOffset: number
   departments: Department[]
   deptColors: Record<string, { bg: string; light: string; text: string }>
   projectColors: Record<string, { bg: string; light: string; text: string; border: string }>
@@ -628,7 +641,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, departments, deptColors, pro
       {/* Column headers */}
       <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#FFF', minHeight: 50 }}>
         <div style={{ width: SWIM_LABEL_WIDTH, minWidth: SWIM_LABEL_WIDTH, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'sticky', left: 0, background: '#FFF', zIndex: 25 }}>Project</div>
-        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} onWeekClick={onWeekClick} />
+        <WeekHeaders numWeeks={numWeeks} weekZero={weekZero} weekOffset={weekOffset} departments={departments} capacityMap={capacityMap} effectiveCapacity={effectiveCapacity} onWeekClick={onWeekClick} />
       </div>
       {/* Sticky capacity row — pinned below header so weekly utilization
           stays visible while scrolling the project rows. */}
@@ -973,7 +986,26 @@ export default function SchedulePage() {
   useEffect(() => { blocksRef.current = blocks }, [blocks])
 
   // --- Derived data ---
-  const weekZero = useMemo(() => getMonday(new Date()), [])
+  // TWO WEEK COORDINATE SYSTEMS — keep them straight before touching anything
+  // here.
+  //
+  //   ABSOLUTE  week 0 = the Monday of the CURRENT week. `blocks`, the AI
+  //             what-if path, undo history and `weekIndexToDate` all live
+  //             here. It never moves, so paging can't invalidate a snapshot.
+  //   VIEW      column 0 = the leftmost visible week. Everything rendered
+  //             (`displayBlocks`, `capacityMap`, `selectedWeek`) lives here.
+  //
+  // The only bridge is `weekOffset`: view = absolute − weekOffset. Paging
+  // moves the window, not the data, which is why undo and an in-flight
+  // what-if survive it.
+  const originMonday = useMemo(() => getMonday(new Date()), [])
+  const [weekOffset, setWeekOffset] = useState(0)
+  /** Display origin — labels the leftmost column. Shifts with paging. */
+  const weekZero = useMemo(() => {
+    const d = new Date(originMonday)
+    d.setDate(d.getDate() + weekOffset * 7)
+    return d
+  }, [originMonday, weekOffset])
 
   const projectColors = useMemo(() => {
     const colors: Record<string, { bg: string; light: string; text: string; border: string }> = {}
@@ -1049,13 +1081,22 @@ export default function SchedulePage() {
     return m
   }, [departments, dailyHoursByDept])
 
+  // Window length, in view columns. Grows so the furthest-out block stays
+  // reachable; paging backward (negative offset) pushes that block further
+  // right, so the offset has to be part of the sum.
   const numWeeks = useMemo(() => {
-    if (blocks.length === 0) return 18
+    if (blocks.length === 0) return Math.max(18, 18 - weekOffset)
     const maxWeek = Math.max(...blocks.map(b => b.week))
-    return Math.max(18, maxWeek + 4)
-  }, [blocks])
+    return Math.max(18, maxWeek - weekOffset + 4)
+  }, [blocks, weekOffset])
 
-  const displayBlocks = whatIfBlocks || blocks
+  // THE bridge from absolute to view space. Every consumer below this line —
+  // capacityMap, both views, the week detail panel — is in view space because
+  // of this one map.
+  const displayBlocks = useMemo(
+    () => (whatIfBlocks || blocks).map(b => ({ ...b, week: b.week - weekOffset })),
+    [whatIfBlocks, blocks, weekOffset],
+  )
 
   const effectiveCapacity = useCallback((deptId: string) => {
     if (capacityOverrides[deptId] != null) return capacityOverrides[deptId]
@@ -1071,18 +1112,24 @@ export default function SchedulePage() {
   const highlightKey = useMemo(() => selectedSub || (hoveredBlock ? getSubKey(hoveredBlock) : null), [selectedSub, hoveredBlock])
 
   // --- Week <-> Date helpers ---
+  /** date → ABSOLUTE week. Same origin as `weekIndexToDate`, for the same
+   *  reason. (Currently unused; kept as the inverse so the pair stays honest.) */
   const dateToWeekIndex = useCallback((dateStr: string | null): number => {
     if (!dateStr) return 0
     const d = new Date(dateStr + 'T00:00:00')
-    const diffMs = d.getTime() - weekZero.getTime()
+    const diffMs = d.getTime() - originMonday.getTime()
     return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000))
-  }, [weekZero])
+  }, [originMonday])
 
+  /** ABSOLUTE week → date. Pinned to `originMonday`, NOT the shifted
+   *  `weekZero` — this feeds persistence, and `blocks` are absolute. Wiring it
+   *  to the display origin would silently rewrite every dragged allocation by
+   *  however many weeks the operator happened to be paged. */
   const weekIndexToDate = useCallback((week: number): string => {
-    const d = new Date(weekZero)
+    const d = new Date(originMonday)
     d.setDate(d.getDate() + week * 7)
     return d.toISOString().split('T')[0]
-  }, [weekZero])
+  }, [originMonday])
 
   // --- Install sequencing ---
   const enforceInstallSequencing = useCallback((blks: Block[]): Block[] => {
@@ -1398,8 +1445,16 @@ export default function SchedulePage() {
     e.preventDefault(); e.stopPropagation()
     // Snapshot blocks before drag so undo works
     preDragBlocks.current = [...blocks]
-    setDragState({ blockId: block.id, subKey: getSubKey(block), startX: e.clientX, startWeek: block.week, independent: e.altKey })
-  }, [whatIfBlocks, blocks])
+    // `block` came from displayBlocks, so its week is VIEW space — convert
+    // back to absolute, because the move below edits `blocks`.
+    setDragState({
+      blockId: block.id,
+      subKey: getSubKey(block),
+      startX: e.clientX,
+      startWeek: block.week + weekOffset,
+      independent: e.altKey,
+    })
+  }, [whatIfBlocks, blocks, weekOffset])
 
   const handlePointerMove = useCallback((e: PointerEvent) => {
     if (!dragState) return
@@ -1408,8 +1463,10 @@ export default function SchedulePage() {
     setBlocks(prev => {
       const db = prev.find(b => b.id === dragState.blockId)
       if (!db) return prev
+      // Absolute target week; the clamp is the VISIBLE window, so a drag can't
+      // leave the columns the operator can actually see.
       const nw = dragState.startWeek + wd
-      if (nw < 0 || nw >= numWeeks) return prev
+      if (nw < weekOffset || nw >= weekOffset + numWeeks) return prev
       const shift = nw - db.week
       if (!shift) return prev
       const di = deptIndex[db.dept] ?? 0
@@ -1563,8 +1620,12 @@ export default function SchedulePage() {
 
   // --- SYSTEM PROMPT ---
   const buildSystemPrompt = useCallback((currentBlocks: Block[], currentPriorities: Record<string, number>, currentOverrides: Record<string, number>) => {
+    // Labels off `originMonday`, not the shifted `weekZero`: this is handed
+    // `blocks` (ABSOLUTE), and the week indices the model returns are applied
+    // straight back to them. Labelling in view space would make the model's
+    // answers wrong by exactly however far the operator had paged.
     const getWeekLabel = (i: number): string => {
-      const d = new Date(weekZero)
+      const d = new Date(originMonday)
       d.setDate(d.getDate() + i * 7)
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     }
@@ -1658,7 +1719,7 @@ WHEN TO SET needsConfirmation:
 PERSONALITY: Sharp production manager. Short sentences. Numbers and dates. No filler. Flag consequences. Keep "message" SHORT. Keep "thinking" under 100 words.
 
 CRITICAL: Start with { end with }. No markdown. No backticks.`
-  }, [weekZero, projects, projectSubs, deptIndex, deptShortMap, deptCapacities, departments, numWeeks, projectNames])
+  }, [originMonday, projects, projectSubs, deptIndex, deptShortMap, deptCapacities, departments, numWeeks, projectNames])
 
   // --- JSON PARSER ---
   const parseAIResponse = useCallback((raw: string) => {
@@ -1855,6 +1916,35 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                         transition: 'all 0.15s',
                       }}>Swimlane</button>
                     </div>
+                    {/* Week paging. The grid was pinned to the current Monday,
+                        so anything already built was simply unreachable. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        onClick={() => setWeekOffset(o => o - 4)}
+                        title="Back 4 weeks"
+                        style={{ ...btnS('#FFF', '#374151'), padding: '4px 9px', fontSize: 12, lineHeight: 1 }}
+                      >&#9664;</button>
+                      <button
+                        onClick={() => setWeekOffset(0)}
+                        disabled={weekOffset === 0}
+                        title="Jump back to this week"
+                        style={{
+                          ...btnS(weekOffset === 0 ? '#F9FAFB' : '#FFF', weekOffset === 0 ? '#9CA3AF' : '#374151'),
+                          padding: '4px 10px', fontSize: 11,
+                          cursor: weekOffset === 0 ? 'default' : 'pointer',
+                        }}
+                      >Today</button>
+                      <button
+                        onClick={() => setWeekOffset(o => o + 4)}
+                        title="Forward 4 weeks"
+                        style={{ ...btnS('#FFF', '#374151'), padding: '4px 9px', fontSize: 12, lineHeight: 1 }}
+                      >&#9654;</button>
+                    </div>
+                    {weekOffset !== 0 && (
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' }}>
+                        {weekOffset < 0 ? `${-weekOffset}w BACK` : `${weekOffset}w AHEAD`}
+                      </span>
+                    )}
                     {whatIfBlocks && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D' }}>WHAT-IF</span>}
                     {simMode && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: '#EDE9FE', color: '#5B21B6', border: '1px solid #C4B5FD' }}>SIM</span>}
                   </div>
@@ -1951,7 +2041,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
             <div ref={gridRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', userSelect: 'none' }}>
               {viewMode === 'flow' ? (
                 <FlowView
-                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero}
+                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero} weekOffset={weekOffset}
                   departments={departments} deptColors={deptColors} projectColors={projectColors}
                   capacityMap={capacityMap} effectiveCapacity={effectiveCapacity}
                   filter={filter} highlightKey={highlightKey} dragState={dragState}
@@ -1966,7 +2056,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                 />
               ) : (
                 <SwimlaneView
-                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero}
+                  blocks={displayBlocks} numWeeks={numWeeks} weekZero={weekZero} weekOffset={weekOffset}
                   departments={departments} deptColors={deptColors} projectColors={projectColors}
                   projectNames={projectNames} projectSubs={projectSubs}
                   subIdByKey={subIdByKey} subStatusMap={subStatusMap}
