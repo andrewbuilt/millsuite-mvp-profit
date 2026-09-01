@@ -134,6 +134,12 @@ import { isReadyForProduction, startProduction, forceStartProduction, isDepositR
 // ── Types ──
 
 import { isPresold, type ProjectStage } from '@/lib/types'
+import StagePill, {
+  coverStageOf,
+  COVER_STAGE_LABEL,
+  COVER_STAGE_ORDER,
+  type CoverStage,
+} from '@/components/project/StagePill'
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
@@ -288,20 +294,8 @@ function hoursFmt(n: number): string {
 // Cover stage collapses the three pre-sold stages (new_lead / fifty_fifty /
 // ninety_percent) into the single 'bidding' node on the 5-node strip. 'lost'
 // is shown as a pill instead of occupying a strip node.
-type CoverStage = 'bidding' | 'sold' | 'production' | 'installed' | 'complete'
-const COVER_STAGE_ORDER: CoverStage[] = ['bidding', 'sold', 'production', 'installed', 'complete']
-const COVER_STAGE_LABEL: Record<CoverStage, string> = {
-  bidding: 'Bidding',
-  sold: 'Pre-Production',
-  production: 'In Production',
-  installed: 'Installed',
-  complete: 'Complete',
-}
-function coverStageOf(stage: ProjectStage): CoverStage | 'lost' {
-  if (stage === 'lost') return 'lost'
-  if (stage === 'new_lead' || stage === 'fifty_fifty' || stage === 'ninety_percent') return 'bidding'
-  return stage
-}
+// Cover-stage mapping + the pill now live in components/project/StagePill so
+// the pre-production page shows the identical pill (wave-2 item 5).
 
 // ── Page ──
 
@@ -3581,28 +3575,6 @@ function ShopRateNotConfiguredBanner() {
 }
 
 // ── Stage-aware layer components ──
-
-function StagePill({ stage }: { stage: ProjectStage }) {
-  const cover = coverStageOf(stage)
-  const palette: Record<CoverStage | 'lost', { bg: string; fg: string; border: string }> = {
-    bidding:    { bg: '#FEF3C7', fg: '#92400E', border: '#FDE68A' },
-    sold:       { bg: '#DBEAFE', fg: '#1E40AF', border: '#BFDBFE' },
-    production: { bg: '#EDE9FE', fg: '#5B21B6', border: '#DDD6FE' },
-    installed:  { bg: '#D1FAE5', fg: '#065F46', border: '#A7F3D0' },
-    complete:   { bg: '#E5E7EB', fg: '#374151', border: '#D1D5DB' },
-    lost:       { bg: '#FEE2E2', fg: '#991B1B', border: '#FECACA' },
-  }
-  const c = palette[cover]
-  const label = cover === 'lost' ? 'Lost' : COVER_STAGE_LABEL[cover]
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wide border"
-      style={{ backgroundColor: c.bg, color: c.fg, borderColor: c.border }}
-    >
-      {label}
-    </span>
-  )
-}
 
 function StageStrip({
   stage,

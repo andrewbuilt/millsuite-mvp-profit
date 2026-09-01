@@ -3,22 +3,25 @@
 // ============================================================================
 // /projects/[id]/pre-production — sold-project approvals + drawings + COs
 // ============================================================================
-// Layout mirrors preprod-approval-mockup.html:
+// Built to mockups/preprod-redesign-mockup.html (approved 2026-09-01). The
+// point of the reskin was to make this feel like the project page rather than
+// a separate tool:
 //
-//   Project strip     — name, sold date, install target, total, stage
-//   Gate banner       — one banner across the top with approved / in-review /
-//                       pending counts on the right, and "blocked" vs "ready"
-//                       tone on the left
-//   Per subproject    — header (icon + name + LF + status pill) + two-column
-//                       tracks: approval items on the left, drawings on the
-//                       right. Click any slot to expand — sample history +
-//                       material/finish cells + action buttons live inside.
-//   Change orders     — one panel per project at the bottom, drafted when a
-//                       material change triggers a CO on a slot
-//   Explainer         — matches the "what stays manual for V1" block
+//   Sticky subbar     — Back to project + StagePill (same as the project page)
+//   Project header    — white block, name + Pre-production chip, client /
+//                       address pills, big mono bid total + deposit line
+//   Gate strip        — "N approvals to go" + count boxes + progress bar
+//   Main grid         — subproject cards (Approvals | Drawings) beside a
+//                       sticky "What's left" punch list
+//   Change orders     — single-row card
+//   Explainer         — muted paragraph
 //
-// The slot cards + drawing cards themselves come from ApprovalSlots and
-// DrawingsTrack; those components already render the mockup's row layout.
+// The slot + drawing cards still come from ApprovalSlots / DrawingsTrack; the
+// approval WORKFLOW is untouched, this is presentation plus one derived panel.
+//
+// ⚠️ The sell-it guide rings this page. `approvals-page`, `back-to-project`,
+// `spec-list` and `drawings-approve` must each keep resolving to exactly ONE
+// element — run `node scripts/check-tour-targets.mjs` after touching it.
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -34,6 +37,8 @@ import ChangeOrders, {
   type CreateCoModalSeed,
 } from '@/components/change-orders'
 import { loadSubprojectStatusMap, type SubprojectStatus } from '@/lib/subproject-status'
+import StagePill from '@/components/project/StagePill'
+import { isDepositReceived, isReadyForProduction, startProduction } from '@/lib/project-stage'
 import {
   loadApprovalItemsForSubproject,
   seedApprovalItemsFromEstimate,
@@ -54,6 +59,7 @@ interface Project {
   id: string
   name: string
   client_name: string | null
+  delivery_address: string | null
   stage: ProjectStage
   bid_total: number
   sold_at: string | null
@@ -61,6 +67,21 @@ interface Project {
   labor_margin_pct: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
+}
+
+/** One open thing standing between this project and production. Derived
+ *  entirely from data the page already loads — no new queries. */
+interface PunchItem {
+  key: string
+  /** Where clicking scrolls to. Slot rows carry `id="slot-<itemId>"`;
+   *  subproject cards carry `id="sub-<subId>"`. */
+  anchorId: string
+  /** Set for approval slots so the card can be expanded, not just scrolled. */
+  approvalItemId?: string
+  label: string
+  who: string
+  tone: 'pending' | 'review'
+  done?: boolean
 }
 
 interface Subproject {
@@ -114,6 +135,14 @@ export default function PreProductionPage() {
   const [composerRateBook, setComposerRateBook] = useState<ComposerRateBook | null>(null)
   const [coSeed, setCoSeed] = useState<CreateCoModalSeed | null>(null)
   const [coDefaults, setCoDefaults] = useState<ComposerDefaults | null>(null)
+  // Deposit + readiness feed the header line and the sidebar's Start button.
+  // Both are async gates, so they land after the first paint.
+  const [depositIn, setDepositIn] = useState(false)
+  const [readyForProduction, setReadyForProduction] = useState(false)
+  const [startingProduction, setStartingProduction] = useState(false)
+  /** Slot the punch list asked to open, handed to ApprovalSlots so clicking a
+   *  sidebar row expands the card rather than just scrolling near it. */
+  const [focusItemId, setFocusItemId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     if (!projectId || !org?.id) return
@@ -132,7 +161,7 @@ export default function PreProductionPage() {
     const [projRes, subsRes] = await Promise.all([
       supabase
         .from('projects')
-        .select('id, name, client_name, stage, bid_total, sold_at, target_start_date, labor_margin_pct, material_margin_pct, consumable_margin_pct')
+        .select('id, name, client_name, delivery_address, stage, bid_total, sold_at, target_start_date, labor_margin_pct, material_margin_pct, consumable_margin_pct')
         .eq('id', projectId)
         .single(),
       supabase
@@ -153,6 +182,19 @@ export default function PreProductionPage() {
     setStatusMap(statuses)
     setAllItems(flatItems)
     setLoading(false)
+
+    // Gates last — they're independent reads, and the page is useful without
+    // them. Errors here must not blank a page full of approvals.
+    try {
+      const [dep, ready] = await Promise.all([
+        isDepositReceived(projectId),
+        isReadyForProduction(projectId),
+      ])
+      setDepositIn(dep)
+      setReadyForProduction(ready)
+    } catch (err) {
+      console.error('pre-production gates', err)
+    }
   }, [projectId, org?.id])
 
   useEffect(() => {
@@ -260,6 +302,102 @@ export default function PreProductionPage() {
     return { approved, inReview, pending, total: allItems.length }
   }, [allItems])
 
+  const subNameById = useMemo(
+    () => Object.fromEntries(subs.map((s) => [s.id, s.name])),
+    [subs],
+  )
+
+  /** The "What's left" list. Every row is derived from data already on the
+   *  page — unapproved slots, unapproved drawings, and the deposit — so the
+   *  sidebar can never disagree with the cards beside it. */
+  const punchList = useMemo<PunchItem[]>(() => {
+    const open: PunchItem[] = []
+    const done: PunchItem[] = []
+
+    for (const it of allItems) {
+      const subName = subNameById[it.subproject_id] || 'Subproject'
+      if (it.state === 'approved') continue
+      open.push({
+        key: `slot-${it.id}`,
+        anchorId: `slot-${it.id}`,
+        approvalItemId: it.id,
+        label: `${subName} · ${it.label}`,
+        who: it.ball_in_court === 'client' ? 'client' : 'shop',
+        tone: it.state === 'in_review' ? 'review' : 'pending',
+      })
+    }
+
+    // Drawings come from the status view's counts rather than loading every
+    // revision — the card beside it already shows the detail.
+    for (const s of subs) {
+      const st = statusMap[s.id]
+      if (!st) continue
+      const openRevs = st.latest_drawing_revisions - st.latest_drawings_approved
+      if (openRevs > 0) {
+        open.push({
+          key: `draw-${s.id}`,
+          anchorId: `sub-${s.id}`,
+          label: `${s.name} · drawings`,
+          who: 'shop',
+          tone: 'review',
+        })
+      }
+    }
+
+    if (depositIn) {
+      done.push({ key: 'deposit', anchorId: '', label: 'Deposit received', who: '', tone: 'pending', done: true })
+    } else {
+      open.push({ key: 'deposit', anchorId: '', label: 'Deposit', who: 'client', tone: 'pending' })
+    }
+
+    // Fully-cleared subprojects get one struck-through line each, so the list
+    // shows progress rather than only what's wrong.
+    for (const s of subs) {
+      const st = statusMap[s.id]
+      if (st?.ready_for_scheduling) {
+        done.push({
+          key: `done-${s.id}`,
+          anchorId: `sub-${s.id}`,
+          label: `${s.name} · all approvals`,
+          who: '',
+          tone: 'pending',
+          done: true,
+        })
+      }
+    }
+
+    return [...open, ...done]
+  }, [allItems, subs, statusMap, subNameById, depositIn])
+
+  const openCount = punchList.filter((p) => !p.done).length
+
+  /** Sidebar row → the card it refers to. Expands the slot as well as
+   *  scrolling, so the operator lands on the thing itself, open. */
+  function focusPunchItem(p: PunchItem) {
+    if (p.approvalItemId) setFocusItemId(p.approvalItemId)
+    if (!p.anchorId) return
+    // Let the expand render before measuring the scroll target.
+    requestAnimationFrame(() => {
+      document.getElementById(p.anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }
+
+  async function handleStartProduction() {
+    if (!readyForProduction || startingProduction) return
+    setStartingProduction(true)
+    try {
+      // Same readiness-gated writer the project page uses — lib/project-stage
+      // stays the only thing that flips the stage and seeds allocations.
+      const ok = await startProduction(projectId)
+      if (ok) router.push(`/projects/${projectId}`)
+      else showToast('Not ready for production yet.')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not start production.')
+    } finally {
+      setStartingProduction(false)
+    }
+  }
+
   if (loading || !project) {
     return (
       <div className="min-h-screen flex items-center justify-center text-sm text-[#9CA3AF]">
@@ -291,6 +429,11 @@ export default function PreProductionPage() {
   const readySubs = subs.filter((s) => statusMap[s.id]?.ready_for_scheduling).length
   const allReady = readySubs === subs.length && subs.length > 0
 
+  // Drawing totals for the gate strip, summed off the same status view the
+  // punch list uses so the two can't disagree.
+  const drawingsTotal = subs.reduce((n, s) => n + (statusMap[s.id]?.latest_drawing_revisions || 0), 0)
+  const drawingsApproved = subs.reduce((n, s) => n + (statusMap[s.id]?.latest_drawings_approved || 0), 0)
+
   const pricing: PricingInputs = {
     shopRate: org?.shop_rate ?? 0,
     consumableMarkupPct: org?.consumable_markup_pct ?? 10,
@@ -307,8 +450,9 @@ export default function PreProductionPage() {
        target renders the card centered, which is right for a look-around. It
        also doubles as the appears-signal for "Click Pre-production". */
     <div data-tour="approvals-page" className="min-h-screen bg-[#F9FAFB]">
-      {/* Top bar */}
-      <div className="sticky top-0 z-10 bg-white border-b border-[#E5E7EB] px-6 py-3 flex items-center justify-between">
+      {/* Sticky subbar — same pattern as the project page, now with the stage
+          pill this page never had. */}
+      <div className="sticky top-0 z-30 bg-white border-b border-[#E5E7EB] px-6 py-3 flex items-center justify-between">
         <button
           onClick={() => router.push(`/projects/${projectId}`)}
           data-tour="back-to-project"
@@ -317,188 +461,271 @@ export default function PreProductionPage() {
           <ArrowLeft className="w-4 h-4" />
           Back to project
         </button>
-        <div className="text-xs text-[#9CA3AF]">
-          <span className="font-medium text-[#6B7280]">Pre-production</span>
-        </div>
+        <StagePill stage={project.stage} />
       </div>
 
-      <div className="max-w-[1180px] mx-auto px-8 py-6 space-y-5">
-        {/* Project strip */}
-        <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-4 flex items-center justify-between flex-wrap gap-4">
+      {/* Project header */}
+      <div className="px-8 py-6 bg-white border-b border-[#E5E7EB]">
+        <div className="max-w-[1240px] mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-start">
           <div>
-            <div className="text-[15px] font-semibold text-[#111]">{project.name}</div>
-            <div className="text-xs text-[#6B7280] mt-0.5">
-              {[
-                soldDate ? `Sold ${soldDate}` : null,
-                installTarget ? `Install ${installTarget}` : null,
-                `${subs.length} subproject${subs.length === 1 ? '' : 's'}`,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+            <h1 className="text-[22px] font-semibold text-[#111] tracking-tight mb-2 flex items-center gap-2.5 flex-wrap">
+              {project.name}
+              <span className="text-[12px] font-semibold text-[#1E40AF] bg-[#EFF6FF] border border-[#BFDBFE] px-2.5 py-[3px] rounded-full tracking-normal">
+                Pre-production
+              </span>
+            </h1>
+            <div className="flex gap-2.5 flex-wrap items-center text-xs text-[#6B7280]">
+              {project.client_name && (
+                <span className="px-2.5 py-1 bg-[#F3F4F6] rounded-full text-[#374151]">
+                  {project.client_name}
+                </span>
+              )}
+              {project.delivery_address && (
+                <span className="px-2.5 py-1 bg-[#F3F4F6] rounded-full text-[#374151]">
+                  {project.delivery_address}
+                </span>
+              )}
+              {(soldDate || installTarget) && (
+                <>
+                  <span className="text-[#9CA3AF]">·</span>
+                  <span className="text-[#9CA3AF]">
+                    {[soldDate ? `Sold ${soldDate}` : null, installTarget ? `Install target ${installTarget}` : null]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <div className="text-right">
-            <div className="text-[18px] font-bold text-[#111] font-mono tabular-nums">
+            <div className="text-[28px] font-semibold text-[#111] font-mono tabular-nums tracking-tight">
               {fmtMoney(project.bid_total)}
             </div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mt-0.5">
-              {project.stage === 'sold' ? 'Pre-production' : project.stage}
-            </div>
-          </div>
-        </div>
-
-        {/* Gate banner */}
-        {/* data-tour: the sell-it guide's "Get approved" step. */}
-        <div
-          data-tour="approval-gate"
-          className={
-            'rounded-xl px-5 py-4 flex items-center gap-5 flex-wrap border ' +
-            (allReady
-              ? 'bg-gradient-to-b from-[#F0FDF4] to-[#ECFDF5] border-[#BBF7D0]'
-              : 'bg-gradient-to-b from-[#FFFBEB] to-[#FEF3C7] border-[#FDE68A]')
-          }
-        >
-          <div
-            className={
-              'w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ' +
-              (allReady ? 'bg-[#D1FAE5] text-[#059669]' : 'bg-[#FEF3C7] text-[#D97706]')
-            }
-          >
-            {allReady ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-          </div>
-          <div className="flex-1 min-w-[220px]">
             <div
               className={
-                'text-[10px] font-semibold uppercase tracking-[0.12em] ' +
-                (allReady ? 'text-[#15803D]' : 'text-[#92400E]')
+                'text-[12px] font-semibold font-mono mt-1 ' +
+                (depositIn ? 'text-[#059669]' : 'text-[#B45309]')
               }
             >
-              Production gate · {allReady ? 'Ready' : 'Blocked'}
+              {depositIn ? 'Deposit received' : 'Deposit pending'}
             </div>
-            <div className="text-[14px] font-semibold text-[#111] mt-0.5">
-              {subs.length === 0
-                ? 'No subprojects on this project.'
-                : allReady
-                ? `All ${subs.length} subproject${subs.length === 1 ? '' : 's'} ready to schedule.`
-                : `${readySubs} of ${subs.length} subproject${subs.length === 1 ? '' : 's'} ready for scheduling.`}
-            </div>
-            <div className="text-[12px] text-[#6B7280] mt-1">
-              Nothing moves to scheduling until every approval item AND drawings on a subproject read <b>approved</b>.
-            </div>
-          </div>
-          <div className="flex gap-6 pl-5 border-l border-[#E5E7EB]">
-            <CountBox label="Approved" n={counts.approved} tone="green" />
-            <CountBox label="In review" n={counts.inReview} tone="amber" />
-            <CountBox label="Pending" n={counts.pending} tone="gray" />
           </div>
         </div>
+      </div>
 
-        {/* Subproject sections */}
-        {subs.length === 0 && (
-          <div className="p-6 bg-white border border-[#E5E7EB] rounded-xl text-center text-sm text-[#9CA3AF]">
-            This project has no subprojects yet.
-          </div>
-        )}
-
-        {subs.map((sub, subIndex) => {
-          const status = statusMap[sub.id]
-          const subReady = status?.ready_for_scheduling
-          return (
-            <section
-              key={sub.id}
-              className="bg-white border border-[#E5E7EB] rounded-xl p-5"
+      {/* Gate strip */}
+      {/* data-tour: the sell-it guide's "Get approved" step. */}
+      <div
+        data-tour="approval-gate"
+        className={
+          'px-8 py-4 border-b ' +
+          (allReady
+            ? 'bg-gradient-to-r from-[#F0FDF4] to-[#ECFDF5] border-[#BBF7D0]'
+            : 'bg-gradient-to-r from-[#FFFBEB] to-[#FEF3C7] border-[#FDE68A]')
+        }
+      >
+        <div className="max-w-[1240px] mx-auto flex items-center justify-between gap-6 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div
+              className={
+                'w-[34px] h-[34px] rounded-[10px] flex items-center justify-center shrink-0 text-white ' +
+                (allReady ? 'bg-[#059669]' : 'bg-[#F59E0B]')
+              }
             >
-              {/* Subproject header */}
-              <div className="flex items-center justify-between border-b border-[#F3F4F6] pb-3 mb-4 gap-4 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-[#F3F4F6] flex items-center justify-center text-[#6B7280] text-sm font-bold">
-                    {sub.name.charAt(0).toUpperCase()}
+              {allReady ? <CheckCircle2 className="w-[18px] h-[18px]" /> : <AlertCircle className="w-[18px] h-[18px]" />}
+            </div>
+            <div>
+              <div className={'text-[14px] font-semibold ' + (allReady ? 'text-[#065F46]' : 'text-[#92400E]')}>
+                {subs.length === 0
+                  ? 'No subprojects on this project.'
+                  : allReady
+                    ? 'Everything approved — ready for production'
+                    : `${openCount} approval${openCount === 1 ? '' : 's'} to go before production`}
+              </div>
+              <div className={'text-[12px] mt-0.5 ' + (allReady ? 'text-[#047857]' : 'text-[#B45309]')}>
+                Everything green-lights the Start production button.
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2.5">
+            <GateStat label="Materials" value={`${counts.approved} / ${counts.total}`} ok={counts.total > 0 && counts.approved === counts.total} />
+            <GateStat label="Drawings" value={`${drawingsApproved} / ${drawingsTotal}`} ok={drawingsTotal > 0 && drawingsApproved === drawingsTotal} />
+            <GateStat label="Deposit" value={depositIn ? '✓' : '—'} ok={depositIn} />
+          </div>
+        </div>
+        {/* Progress bar — approved slots ÷ total. */}
+        <div className={'h-1 rounded-full max-w-[1240px] mx-auto mt-3 overflow-hidden ' + (allReady ? 'bg-[#A7F3D0]' : 'bg-[#FDE68A]')}>
+          <div
+            className={'h-full rounded-full transition-[width] duration-300 ' + (allReady ? 'bg-[#059669]' : 'bg-[#F59E0B]')}
+            style={{ width: `${counts.total === 0 ? 0 : Math.round((counts.approved / counts.total) * 100)}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Main grid — cards beside the sticky punch list */}
+      <div className="max-w-[1240px] mx-auto px-8 pt-6 pb-16 grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5 items-start">
+        <div>
+          {subs.length === 0 && (
+            <div className="p-6 bg-white border border-[#E5E7EB] rounded-xl text-center text-sm text-[#9CA3AF]">
+              This project has no subprojects yet.
+            </div>
+          )}
+
+          {subs.map((sub, subIndex) => {
+            const status = statusMap[sub.id]
+            const ready = status?.ready_for_scheduling
+            const approvedHere = allItems.filter((i) => i.subproject_id === sub.id && i.state === 'approved').length
+            const totalHere = allItems.filter((i) => i.subproject_id === sub.id).length
+            return (
+              <section
+                key={sub.id}
+                id={`sub-${sub.id}`}
+                className="bg-white border border-[#E5E7EB] rounded-2xl mb-4 overflow-hidden transition-colors hover:border-[#93C5FD] scroll-mt-24"
+              >
+                {/* Card header */}
+                <div className="flex items-center justify-between gap-4 flex-wrap px-[18px] py-3.5 border-b border-[#F3F4F6]">
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={
+                        'w-[30px] h-[30px] rounded-lg flex items-center justify-center text-[13px] font-bold ' +
+                        (ready ? 'bg-[#ECFDF5] text-[#065F46]' : 'bg-[#EFF6FF] text-[#1E40AF]')
+                      }
+                    >
+                      {sub.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="text-[15px] font-semibold text-[#111]">{sub.name}</div>
+                      <div className="text-[12px] text-[#9CA3AF] mt-px">
+                        {[sub.linear_feet ? `${sub.linear_feet} LF` : null, sub.activity_type]
+                          .filter(Boolean)
+                          .join(' · ') || 'no LF set'}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-[14px] font-semibold text-[#111]">{sub.name}</div>
-                    <div className="text-[11px] text-[#6B7280] mt-0.5">
-                      {[
-                        sub.linear_feet ? `${sub.linear_feet} LF` : null,
-                        sub.activity_type,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ') || 'no LF set'}
+                  <span
+                    className={
+                      'text-[11px] font-semibold px-2.5 py-1 rounded-full border ' +
+                      (ready
+                        ? 'text-[#065F46] bg-[#ECFDF5] border-[#A7F3D0]'
+                        : 'text-[#92400E] bg-[#FFFBEB] border-[#FDE68A]')
+                    }
+                  >
+                    {ready ? 'Ready ✓' : `${approvedHere} / ${totalHere} approved`}
+                  </span>
+                </div>
+
+                {/* Two columns: approvals | drawings */}
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px]">
+                  <div className="lg:border-r border-[#F3F4F6] pb-2.5">
+                    <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.08em] px-[18px] pt-3 pb-1.5">
+                      Approvals
+                    </div>
+                    <div className="px-3">
+                      <ApprovalSlots
+                        subprojectId={sub.id}
+                        actorUserId={user?.id}
+                        onChange={reload}
+                        onCreateSpecCo={(approvalItemId) =>
+                          void openSpecCo(approvalItemId, sub.id, sub.name)
+                        }
+                        focusItemId={focusItemId}
+                        // First subproject only — a data-tour value must resolve
+                        // to exactly one element (the guide rings the spec LIST).
+                        tourTag={subIndex === 0 ? 'spec-list' : undefined}
+                      />
+                    </div>
+                  </div>
+                  <div className="pb-2.5">
+                    <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.08em] px-[18px] pt-3 pb-1.5">
+                      Drawings
+                    </div>
+                    <div className="px-3">
+                      <DrawingsTrack
+                        subprojectId={sub.id}
+                        actorUserId={user?.id}
+                        onChange={reload}
+                        tourTag={subIndex === 0 ? 'drawings-approve' : undefined}
+                      />
                     </div>
                   </div>
                 </div>
-                <SubStatusPill status={status} />
-              </div>
+              </section>
+            )
+          })}
 
-              {/* Two-track layout */}
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
-                <div>
-                  <ApprovalSlots
-                    subprojectId={sub.id}
-                    actorUserId={user?.id}
-                    onChange={reload}
-                    onCreateSpecCo={(approvalItemId) =>
-                      void openSpecCo(approvalItemId, sub.id, sub.name)
-                    }
-                    // First subproject only — a data-tour value must resolve
-                    // to exactly one element (the guide rings the spec LIST).
-                    tourTag={subIndex === 0 ? 'spec-list' : undefined}
-                  />
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.1em] mb-2">
-                    Drawings
-                  </div>
-                  <DrawingsTrack
-                    subprojectId={sub.id}
-                    actorUserId={user?.id}
-                    onChange={reload}
-                    tourTag={subIndex === 0 ? 'drawings-approve' : undefined}
-                  />
-                </div>
+          {/* Change orders */}
+          {subs.length > 0 && (
+            <div className="bg-white border border-[#E5E7EB] rounded-2xl px-[18px] py-3.5">
+              <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.08em] mb-3">
+                Change orders
               </div>
-            </section>
-          )
-        })}
-
-        {/* Change orders */}
-        {subs.length > 0 && (
-          <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
-            <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.1em] mb-3">
-              Change orders
+              <ChangeOrders
+                projectId={projectId}
+                projectName={project.name}
+                pricing={pricing}
+                subprojects={subs.map((s) => ({ id: s.id, name: s.name }))}
+                onChange={reload}
+              />
             </div>
-            <ChangeOrders
-              projectId={projectId}
-              projectName={project.name}
-              pricing={pricing}
-              subprojects={subs.map((s) => ({ id: s.id, name: s.name }))}
-              onChange={reload}
-            />
-          </div>
-        )}
+          )}
 
-        {/* Explainer footer */}
-        <div className="bg-[#F0F9FF] border border-[#BAE6FD] rounded-xl p-5">
-          <h4 className="text-[13px] font-semibold text-[#0369A1] mb-2 flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-[#E0F2FE] text-[#0369A1] flex items-center justify-center text-[11px] font-bold font-serif italic">
-              i
-            </span>
-            What this page is — and what stays manual for V1
-          </h4>
-          <p className="text-[12.5px] text-[#075985] leading-relaxed mb-2">
-            <b>Specs come from estimate-line finish specs.</b> Each one is a single decision — what
-            material + what finish. Construction details (door style, edge profile, drawer joinery,
-            dimensions, hardware quantities) live on the production drawing, not here.
+          {/* Explainer — muted paragraph rather than the old blue panel. */}
+          <p className="text-[12px] text-[#9CA3AF] leading-relaxed max-w-[640px] mt-[18px]">
+            Materials and drawings get approved here, per subproject. When every slot is green and
+            the deposit is in, production can start. Approved slots lock — changes after approval go
+            through a change order. Client approval is a status you mark by hand after talking to
+            them; nothing here emails or pushes to QuickBooks on its own.
           </p>
-          <p className="text-[12.5px] text-[#075985] leading-relaxed mb-2">
-            A subproject can't move to scheduling until every item AND its drawings are marked approved.
-            When a client picks a different material, a change order is drafted as an estimate-line diff
-            — original on the left, proposed on the right, edit the spec to reprice.
-          </p>
-          <p className="text-[12.5px] text-[#075985] leading-relaxed">
-            <b>Everything else stays manual.</b> No portal signing. No email automation. No auto-push to
-            QuickBooks — client approval is a status field you mark by hand after talking to them, and QB
-            reconciliation is a manual step in QB.
-          </p>
+        </div>
+
+        {/* Sticky punch list. Stacks below the cards under lg. */}
+        <div className="lg:sticky lg:top-[64px]">
+          <div className="bg-white border border-[#E5E7EB] rounded-2xl px-[18px] py-4">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9CA3AF] mb-3">
+              What's left
+            </h3>
+            {punchList.length === 0 ? (
+              <div className="text-[13px] text-[#9CA3AF] italic py-2">Nothing outstanding.</div>
+            ) : (
+              punchList.map((p) =>
+                p.done ? (
+                  <div key={p.key} className="flex items-center gap-2.5 py-[7px] text-[13px] text-[#9CA3AF] line-through">
+                    <PunchDot tone="approved" />
+                    {p.label}
+                  </div>
+                ) : (
+                  <button
+                    key={p.key}
+                    onClick={() => focusPunchItem(p)}
+                    className="w-full flex items-center gap-2.5 py-[7px] text-[13px] text-left border-b border-[#F9FAFB] last:border-0 hover:text-[#1E40AF] transition-colors"
+                  >
+                    <PunchDot tone={p.tone} />
+                    <span className="flex-1 min-w-0 truncate">{p.label}</span>
+                    {p.who && <span className="text-[11px] text-[#9CA3AF] shrink-0">{p.who}</span>}
+                  </button>
+                ),
+              )
+            )}
+            <button
+              onClick={handleStartProduction}
+              disabled={!readyForProduction || startingProduction}
+              className={
+                'w-full mt-2.5 py-2.5 rounded-[10px] text-[13px] font-semibold transition-colors ' +
+                (readyForProduction
+                  ? 'bg-[#059669] text-white hover:bg-[#047857] cursor-pointer'
+                  : 'bg-[#E5E7EB] text-[#9CA3AF] cursor-not-allowed')
+              }
+            >
+              {startingProduction
+                ? 'Starting…'
+                : readyForProduction
+                  ? 'Start production'
+                  : `Start production — ${openCount} to go`}
+            </button>
+            <div className="text-[11px] text-[#9CA3AF] text-center mt-2">
+              {readyForProduction ? 'Everything is approved.' : 'Turns green when the last approval lands.'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -531,24 +758,22 @@ export default function PreProductionPage() {
 
 // ── Small building blocks ──
 
-function CountBox({
-  label,
-  n,
-  tone,
-}: {
-  label: string
-  n: number
-  tone: 'green' | 'amber' | 'gray'
-}) {
-  const fg = tone === 'green' ? 'text-[#059669]' : tone === 'amber' ? 'text-[#D97706]' : 'text-[#6B7280]'
+/** One count box in the gate strip. */
+function GateStat({ label, value, ok }: { label: string; value: string; ok: boolean }) {
   return (
-    <div className="text-center">
-      <div className={`text-[22px] font-bold font-mono tabular-nums ${fg}`}>{n}</div>
-      <div className="text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#6B7280] mt-0.5">
-        {label}
+    <div className="bg-white/75 border border-[#FDE68A] rounded-[10px] px-3.5 py-2 text-center min-w-[92px]">
+      <div className={'text-[15px] font-semibold font-mono tabular-nums ' + (ok ? 'text-[#059669]' : 'text-[#111]')}>
+        {value}
       </div>
+      <div className="text-[10px] uppercase tracking-[0.06em] text-[#92400E] mt-0.5">{label}</div>
     </div>
   )
+}
+
+/** State dot in the punch list — mirrors the slot-card dot colours. */
+function PunchDot({ tone }: { tone: 'pending' | 'review' | 'approved' }) {
+  const bg = tone === 'approved' ? '#059669' : tone === 'review' ? '#F59E0B' : '#D1D5DB'
+  return <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: bg }} />
 }
 
 function SubStatusPill({ status }: { status: SubprojectStatus | undefined }) {

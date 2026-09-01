@@ -53,6 +53,11 @@ interface Props {
    *  card: cards change position and expand/collapse as states move, so a
    *  ring on one card ends up pointing at the wrong thing mid-flow. */
   tourTag?: string
+  /** Approval-item id the parent wants opened — set when the pre-production
+   *  punch list is clicked, so the operator lands on the slot already
+   *  expanded instead of scrolled near a collapsed row. Additive: it expands
+   *  the card, it never collapses anything the operator opened themselves. */
+  focusItemId?: string | null
 }
 
 /** Map an approval_items.label to the composer slot key the spec drives.
@@ -66,12 +71,21 @@ function slotKeyForApprovalLabel(label: string): string | null {
   return null
 }
 
-export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onCreateSpecCo, tourTag }: Props) {
+export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onCreateSpecCo, tourTag, focusItemId }: Props) {
   const { alert } = useConfirm()
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
   const [busyItemId, setBusyItemId] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  // Open a slot the parent pointed at. Only acts when the item is in THIS
+  // subproject's list, so the other cards on the page ignore it. Additive —
+  // it never closes anything the operator opened.
+  useEffect(() => {
+    if (!focusItemId) return
+    if (!items.some((i) => i.id === focusItemId)) return
+    setExpanded((prev) => (prev.has(focusItemId) ? prev : new Set(prev).add(focusItemId)))
+  }, [focusItemId, items])
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -201,9 +215,26 @@ function SlotCard(p: SlotCardProps) {
   const tone = ballChipTone(item)
 
   return (
-    <div className={`rounded border ${stateBorderClass(item.state)} bg-white overflow-hidden`}>
-      {/* Row 1 */}
-      <div className="p-3 flex items-start gap-3">
+    <div
+      id={`slot-${item.id}`}
+      className={`rounded-[10px] border ${stateBorderClass(item.state)} bg-white overflow-hidden transition-colors hover:border-[#93C5FD]`}
+    >
+      {/* Row 1 — the WHOLE row toggles (wave-2 item 4). The chevron stays as
+          the affordance; it's now a visual cue rather than the only target,
+          which on a dense list was a 16px hit area per spec. Keyboard users
+          get the same thing because the row is a real button. */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={p.onToggleExpanded}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            p.onToggleExpanded()
+          }
+        }}
+        className="p-3 flex items-start gap-3 cursor-pointer text-left w-full hover:bg-[#FAFCFF] transition-colors"
+      >
         <StateDot state={item.state} />
         <div className="flex-1 min-w-0">
           <div className="font-medium text-neutral-900 text-sm">{item.label}</div>
@@ -224,15 +255,20 @@ function SlotCard(p: SlotCardProps) {
           )}
           {/* The per-spec "+ CO" button was retired — change orders are
               created from the "Change order" button in the subproject header. */}
-          <button onClick={p.onToggleExpanded} className="text-neutral-500 hover:text-neutral-800 p-1">
+          <span aria-hidden className="text-neutral-500 p-1">
             {p.isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
+          </span>
         </div>
       </div>
 
-      {/* Expanded */}
+      {/* Expanded. stopPropagation because the body sits INSIDE the clickable
+          row's sibling — without it, using any action button in here would
+          also collapse the card out from under the click. */}
       {p.isExpanded && (
-        <div className="px-3 pb-3 border-t border-neutral-100">
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="px-3 pb-3 border-t border-neutral-100"
+        >
           <div className="grid grid-cols-2 gap-3 pt-3">
             <KV label="Material" value={item.material || '—'} />
             <KV label="Finish" value={item.finish || '—'} />

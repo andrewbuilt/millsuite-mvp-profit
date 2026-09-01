@@ -509,7 +509,9 @@ const SOLD_TO_PRODUCTION: Tour = {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
       target: 'approval-gate',
       title: 'Get approved',
-      body: 'Every project needs its drawings and samples approved. This banner is the quick view: how many are approved, in review, and still pending.',
+      // Copy follows the wave-2 redesign: the strip counts materials, drawings
+      // and the deposit now, not approved / in review / pending.
+      body: 'Every project needs its drawings and samples approved. This strip is the quick view: materials, drawings, and whether the deposit has landed.',
       placement: 'bottom',
     },
     {
@@ -522,7 +524,9 @@ const SOLD_TO_PRODUCTION: Tour = {
       target: 'spec-list',
       title: 'Approve the materials',
       bullets: [
-        'Press the down arrow on a spec.',
+        // Whole-row click landed with the wave-2 redesign; the chevron is
+        // still there, but it's no longer the only target.
+        'Click a spec row to open it.',
         'Press Sample submitted. It gets a timestamp.',
         'Try a revision: press Client requested change.',
         'Now submit it again.',
