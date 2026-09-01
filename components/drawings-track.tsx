@@ -51,9 +51,13 @@ interface Props {
   /** data-tour hook for the manual-approve button. Passed by the pre-prod
    *  page for its first subproject only, so the value stays unique. */
   tourTag?: string
+  /** Drop the component's own "Drawings · R2" line — the pre-production card
+   *  already prints a DRAWINGS column head above it. The ACTION BUTTONS stay:
+   *  they live on that same row, which is why this hides the label only. */
+  hideHeader?: boolean
 }
 
-export default function DrawingsTrack({ subprojectId, actorUserId, onChange, tourTag }: Props) {
+export default function DrawingsTrack({ subprojectId, actorUserId, onChange, tourTag, hideHeader }: Props) {
   const { confirm, alert } = useConfirm()
   const [revs, setRevs] = useState<DrawingRevision[]>([])
   const [loading, setLoading] = useState(true)
@@ -112,8 +116,11 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange, tou
   return (
     <div className="space-y-3">
       {/* Section header */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium text-neutral-700">
+      {/* Header + actions. `flex-wrap` matters: in the pre-production card's
+          narrow Drawings column these two groups can't sit side by side, and
+          without wrapping the buttons got clipped off the right edge. */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className={'text-sm font-medium text-neutral-700' + (hideHeader ? ' sr-only' : '')}>
           Drawings
           {latest ? (
             <span className="ml-2 text-neutral-500 font-normal">
@@ -163,7 +170,7 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange, tou
             }}
             data-tour={tourTag}
             disabled={markingManual || alreadyApproved}
-            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-xs whitespace-nowrap inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed"
             title={
               alreadyApproved
                 ? 'Latest revision is already approved. Upload a new revision to supersede it.'
@@ -175,7 +182,7 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange, tou
           </button>
           <button
             onClick={() => setShowUpload(true)}
-            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
+            className="text-xs whitespace-nowrap inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
           >
             <Upload className="w-3 h-3" />
             Upload revision

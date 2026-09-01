@@ -524,8 +524,8 @@ export default function PreProductionPage() {
             : 'bg-gradient-to-r from-[#FFFBEB] to-[#FEF3C7] border-[#FDE68A]')
         }
       >
-        <div className="max-w-[1240px] mx-auto flex items-center justify-between gap-6 flex-wrap">
-          <div className="flex items-center gap-3">
+        <div className="max-w-[1240px] mx-auto flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0">
             <div
               className={
                 'w-[34px] h-[34px] rounded-[10px] flex items-center justify-center shrink-0 text-white ' +
@@ -536,18 +536,24 @@ export default function PreProductionPage() {
             </div>
             <div>
               <div className={'text-[14px] font-semibold ' + (allReady ? 'text-[#065F46]' : 'text-[#92400E]')}>
+                {/* "item", not "approval" — the punch list also counts the
+                    deposit and open drawings, and on a project with no specs
+                    yet this read "1 approval to go" about a payment. */}
                 {subs.length === 0
                   ? 'No subprojects on this project.'
                   : allReady
                     ? 'Everything approved — ready for production'
-                    : `${openCount} approval${openCount === 1 ? '' : 's'} to go before production`}
+                    : `${openCount} item${openCount === 1 ? '' : 's'} to go before production`}
               </div>
               <div className={'text-[12px] mt-0.5 ' + (allReady ? 'text-[#047857]' : 'text-[#B45309]')}>
                 Everything green-lights the Start production button.
               </div>
             </div>
           </div>
-          <div className="flex gap-2.5">
+          {/* Wraps — three fixed-width boxes and a headline can't share one
+              row on a laptop, and without this the Deposit box ran off the
+              right edge. */}
+          <div className="flex gap-2.5 flex-wrap shrink-0">
             <GateStat label="Materials" value={`${counts.approved} / ${counts.total}`} ok={counts.total > 0 && counts.approved === counts.total} />
             <GateStat label="Drawings" value={`${drawingsApproved} / ${drawingsTotal}`} ok={drawingsTotal > 0 && drawingsApproved === drawingsTotal} />
             <GateStat label="Deposit" value={depositIn ? '✓' : '—'} ok={depositIn} />
@@ -584,22 +590,14 @@ export default function PreProductionPage() {
               >
                 {/* Card header */}
                 <div className="flex items-center justify-between gap-4 flex-wrap px-[18px] py-3.5 border-b border-[#F3F4F6]">
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className={
-                        'w-[30px] h-[30px] rounded-lg flex items-center justify-center text-[13px] font-bold ' +
-                        (ready ? 'bg-[#ECFDF5] text-[#065F46]' : 'bg-[#EFF6FF] text-[#1E40AF]')
-                      }
-                    >
-                      {sub.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="text-[15px] font-semibold text-[#111]">{sub.name}</div>
-                      <div className="text-[12px] text-[#9CA3AF] mt-px">
-                        {[sub.linear_feet ? `${sub.linear_feet} LF` : null, sub.activity_type]
-                          .filter(Boolean)
-                          .join(' · ') || 'no LF set'}
-                      </div>
+                  {/* No letter avatar — the mockup had one, Andrew didn't want
+                      it once it was on real subproject names. */}
+                  <div className="min-w-0">
+                    <div className="text-[15px] font-semibold text-[#111]">{sub.name}</div>
+                    <div className="text-[12px] text-[#9CA3AF] mt-px">
+                      {[sub.linear_feet ? `${sub.linear_feet} LF` : null, sub.activity_type]
+                        .filter(Boolean)
+                        .join(' · ') || 'no LF set'}
                     </div>
                   </div>
                   <span
@@ -614,9 +612,13 @@ export default function PreProductionPage() {
                   </span>
                 </div>
 
-                {/* Two columns: approvals | drawings */}
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px]">
-                  <div className="lg:border-r border-[#F3F4F6] pb-2.5">
+                {/* Two columns: approvals | drawings.
+                    Drawings gets 320px and only splits at xl — its header row
+                    carries two action buttons ("Mark approved manually" /
+                    "Upload revision"), and at the mockup's 260px on lg they
+                    were clipped. Below xl the two tracks stack full-width. */}
+                <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px]">
+                  <div className="xl:border-r border-[#F3F4F6] border-b xl:border-b-0 pb-3">
                     <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.08em] px-[18px] pt-3 pb-1.5">
                       Approvals
                     </div>
@@ -629,13 +631,14 @@ export default function PreProductionPage() {
                           void openSpecCo(approvalItemId, sub.id, sub.name)
                         }
                         focusItemId={focusItemId}
+                        hideHeader
                         // First subproject only — a data-tour value must resolve
                         // to exactly one element (the guide rings the spec LIST).
                         tourTag={subIndex === 0 ? 'spec-list' : undefined}
                       />
                     </div>
                   </div>
-                  <div className="pb-2.5">
+                  <div className="pb-3">
                     <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.08em] px-[18px] pt-3 pb-1.5">
                       Drawings
                     </div>
@@ -644,6 +647,7 @@ export default function PreProductionPage() {
                         subprojectId={sub.id}
                         actorUserId={user?.id}
                         onChange={reload}
+                        hideHeader
                         tourTag={subIndex === 0 ? 'drawings-approve' : undefined}
                       />
                     </div>
@@ -721,6 +725,7 @@ export default function PreProductionPage() {
                 : readyForProduction
                   ? 'Start production'
                   : `Start production — ${openCount} to go`}
+
             </button>
             <div className="text-[11px] text-[#9CA3AF] text-center mt-2">
               {readyForProduction ? 'Everything is approved.' : 'Turns green when the last approval lands.'}

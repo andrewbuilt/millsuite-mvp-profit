@@ -58,6 +58,11 @@ interface Props {
    *  expanded instead of scrolled near a collapsed row. Additive: it expands
    *  the card, it never collapses anything the operator opened themselves. */
   focusItemId?: string | null
+  /** Drop the component's own "Specs · N of M approved" line. The
+   *  pre-production card already prints an APPROVALS column head and a
+   *  "4 / 6 approved" badge, so rendering it here too stacked two headings
+   *  on top of each other. */
+  hideHeader?: boolean
 }
 
 /** Map an approval_items.label to the composer slot key the spec drives.
@@ -71,7 +76,7 @@ function slotKeyForApprovalLabel(label: string): string | null {
   return null
 }
 
-export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onCreateSpecCo, tourTag, focusItemId }: Props) {
+export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onCreateSpecCo, tourTag, focusItemId, hideHeader }: Props) {
   const { alert } = useConfirm()
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -142,15 +147,17 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
       {/* Section header — specs are derived from the locked estimate.
           Per-spec CO entry lives on each card now; the page-level
           "+ New change order" link was redundant. */}
-      <div className="text-sm font-medium text-neutral-700">
-        Specs
-        <span className="ml-2 text-neutral-500 font-normal">
-          {approvedCount} of {items.length} approved
-        </span>
-        {items.length > 0 && (
-          <span className="ml-2 text-neutral-400 font-normal">· pulled from estimate lines</span>
-        )}
-      </div>
+      {!hideHeader && (
+        <div className="text-sm font-medium text-neutral-700">
+          Specs
+          <span className="ml-2 text-neutral-500 font-normal">
+            {approvedCount} of {items.length} approved
+          </span>
+          {items.length > 0 && (
+            <span className="ml-2 text-neutral-400 font-normal">· pulled from estimate lines</span>
+          )}
+        </div>
+      )}
 
       {/* Empty state */}
       {items.length === 0 && (
