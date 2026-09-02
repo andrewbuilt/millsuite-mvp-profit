@@ -162,6 +162,7 @@ export async function recomputeProjectBidTotal(
       consumablesCost: 0,
       installCost: 0,
       optionsCost: 0,
+      customCost: 0,
     }
     for (const sub of subs) {
       const lines = await loadEstimateLines(sub.id)
@@ -192,6 +193,7 @@ export async function recomputeProjectBidTotal(
       buckets.consumablesCost += rollup.consumablesCost
       buckets.installCost += rollup.installCost + installPrefillCost
       buckets.optionsCost += rollup.optionsCost
+      buckets.customCost += rollup.customCost
     }
 
     const priceTotal = Math.round(computeBucketedPrice(buckets, margins).priceTotal)

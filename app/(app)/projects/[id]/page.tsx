@@ -257,6 +257,7 @@ interface ProjectRollup {
   installCost: number
   consumablesCost: number
   optionsCost: number
+  customCost: number
   installSubprojectTotal: number
   finishSpecCount: number
   // Phase 8: actuals summed across every subproject's time_entries.
@@ -624,6 +625,7 @@ export default function ProjectCoverPage() {
               consumablesCost: rollup.consumablesCost,
               installCost: rollup.installCost + installPrefillCost,
               optionsCost: rollup.optionsCost,
+              customCost: rollup.customCost,
             },
             qbMargins,
           ).priceTotal,
@@ -839,6 +841,7 @@ export default function ProjectCoverPage() {
       installCost: 0,
       consumablesCost: 0,
       optionsCost: 0,
+      customCost: 0,
       installSubprojectTotal: 0,
       finishSpecCount: 0,
       actualMinutes: 0,
@@ -859,6 +862,7 @@ export default function ProjectCoverPage() {
       acc.installCost += rollup.installCost + installPrefillCost
       acc.consumablesCost += rollup.consumablesCost
       acc.optionsCost += rollup.optionsCost
+      acc.customCost += rollup.customCost
 
       // Hours — install prefill hours land ONLY on hoursByDept.install,
       // not in totalHours (dogfood3 invariant 17b). Install hours
@@ -898,6 +902,7 @@ export default function ProjectCoverPage() {
       consumablesCost: acc.consumablesCost,
       installCost: acc.installCost,
       optionsCost: acc.optionsCost,
+      customCost: acc.customCost,
     }
     const priced = computeBucketedPrice(buckets, margins)
     acc.costTotal = priced.costTotal
@@ -2020,6 +2025,11 @@ export default function ProjectCoverPage() {
                 />
                 <FinRow label="Specialty hardware" value={money(proj.hardwareCost)} />
                 <FinRow label="Options" value={money(proj.optionsCost)} />
+                {/* Freeform / vendor lines priced by "Cost each" — hidden when
+                    zero, which is most projects. */}
+                {proj.customCost > 0 && (
+                  <FinRow label="Custom & vendor" value={money(proj.customCost)} />
+                )}
                 <FinRow
                   label="Install"
                   hours={proj.hoursByDept.install}

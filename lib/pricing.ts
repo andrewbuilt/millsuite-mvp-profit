@@ -27,6 +27,14 @@ export interface CostBuckets {
   consumablesCost: number
   installCost: number
   optionsCost: number
+  /** Freeform / vendor lines priced by `unit_price_override` — the modal's
+   *  "Cost each" × qty. These carry no hours and no component breakdown (the
+   *  price IS the cost), so they can't land in any other bucket, and before
+   *  this existed they were dropped from every rollup and priced at $0.
+   *
+   *  REQUIRED, not optional, on purpose: a money bucket that can be silently
+   *  omitted is how the original bug survived. Make the compiler ask. */
+  customCost: number
 }
 
 export interface BucketMargins {
@@ -104,8 +112,12 @@ export function computeBucketedPrice(
   margins: BucketMargins,
 ): BucketedPrice {
   const laborGroupCost = buckets.laborCost + buckets.installCost
+  // Custom/vendor lines group with material: they're overwhelmingly bought
+  // goods (a vendor product, a one-off slab), and it's where optionsCost —
+  // the other "flat dollars, no hours" bucket — already sits. Grouping them
+  // with labor would mark bought goods up at the labor margin.
   const materialGroupCost =
-    buckets.materialCost + buckets.hardwareCost + buckets.optionsCost
+    buckets.materialCost + buckets.hardwareCost + buckets.optionsCost + buckets.customCost
   const consumableGroupCost = buckets.consumablesCost
 
   const laborPrice = priceFromMargin(laborGroupCost, margins.laborMarginPct)

@@ -239,6 +239,9 @@ function priceSnapshot(
       hardwareCost: 0,
       installCost: 0,
       optionsCost: 0,
+      // A CO prices from its own labor/material/consumables shape — it has no
+      // freeform-override lines of its own, so there is nothing to put here.
+      customCost: 0,
     }
     return computeBucketedPrice(buckets, inputs.margins).priceTotal
   }

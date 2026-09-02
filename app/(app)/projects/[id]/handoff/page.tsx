@@ -385,6 +385,7 @@ function HandoffPageInner() {
       consumablesCost: 0,
       installCost: 0,
       optionsCost: 0,
+      customCost: 0,
     }
     for (const sub of subs) {
       const r = rollupBySub[sub.id]
@@ -398,6 +399,7 @@ function HandoffPageInner() {
       buckets.consumablesCost += r.consumablesCost
       buckets.installCost += r.installCost + installCost
       buckets.optionsCost += r.optionsCost
+      buckets.customCost += r.customCost
       acc.hoursByDept.eng += r.hoursByDept.eng
       acc.hoursByDept.cnc += r.hoursByDept.cnc
       acc.hoursByDept.assembly += r.hoursByDept.assembly

@@ -1283,6 +1283,12 @@ export default function SubprojectEditorPage() {
                   value={fmtMoney(rollup.hardwareCost)}
                 />
                 <SubFinRow label="Options" value={fmtMoney(rollup.optionsCost)} />
+                {/* Freeform / vendor lines priced by "Cost each". Only shown
+                    when there are any — most subprojects have none, and a
+                    permanent $0 row is noise. */}
+                {rollup.customCost > 0 && (
+                  <SubFinRow label="Custom & vendor" value={fmtMoney(rollup.customCost)} />
+                )}
                 <SubFinRow
                   label="Install"
                   hours={rollup.hoursByDept.install}

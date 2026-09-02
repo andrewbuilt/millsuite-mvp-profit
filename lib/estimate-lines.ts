@@ -122,6 +122,12 @@ export interface SubprojectRollup {
   consumablesCost: number
   installCost: number
   optionsCost: number // sum of flat_add + per_unit_add option effects
+  /** Σ lineTotal for lines priced by `unit_price_override` (freeform /
+   *  vendor). computeLineBuildup short-circuits those with every component
+   *  bucket zeroed — correct, the price IS the price — so this is the ONLY
+   *  place their money appears. Omit it from a subtotal and they price at $0,
+   *  which is exactly what used to happen. */
+  customCost: number
   subtotal: number
   total: number
   marginPct: number
@@ -570,6 +576,7 @@ export function computeSubprojectRollup(
     consumablesCost: 0,
     installCost: 0,
     optionsCost: 0,
+    customCost: 0,
     subtotal: 0,
     total: 0,
     marginPct: 0,
@@ -588,11 +595,15 @@ export function computeSubprojectRollup(
     acc.consumablesCost += b.consumablesCost
     acc.installCost += b.installCost
     acc.optionsCost += b.optionsFlatAdd
+    // Override-priced lines have every component bucket at zero, so their
+    // money only exists on lineTotal. Keyed off the override rather than
+    // "lineTotal > 0" so a normal line can never be counted twice.
+    if (line.unit_price_override != null) acc.customCost += b.lineTotal
   }
 
   acc.subtotal =
     acc.laborCost + acc.materialCost + acc.hardwareCost +
-    acc.consumablesCost + acc.installCost + acc.optionsCost
+    acc.consumablesCost + acc.installCost + acc.optionsCost + acc.customCost
 
   const marginFraction = Math.min(Math.max(ctx.profitMarginPct / 100, 0), 0.95)
   acc.total = marginFraction > 0 ? acc.subtotal / (1 - marginFraction) : acc.subtotal

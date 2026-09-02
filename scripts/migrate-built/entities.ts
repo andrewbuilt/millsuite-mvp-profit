@@ -862,6 +862,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       consumablesCost: 0,
       installCost: 0,
       optionsCost: 0,
+      customCost: 0,
     }
     let projHours = 0
     let lineIdx = 0
@@ -879,6 +880,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       buckets.consumablesCost += rollup.consumablesCost
       buckets.installCost += rollup.installCost
       buckets.optionsCost += rollup.optionsCost
+      buckets.customCost += rollup.customCost
       projHours += rollup.totalHours
     }
     // Install blocks priced off the prefill (not lines) — fold them in once.
