@@ -10,6 +10,8 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-01)
 
+**NEW 2026-09-01 (latest Cowork pass): WAVE-2 ITEM 9 — move the Solid Wood Top calibrator from Settings into the rate book (Materials → Solid wood section). Scoped, NOT built, build next.** Spec = wave-2 item 9 in Now.
+
 **⚠️ SOLID WOOD TOP PRICES CHANGED 2026-09-01 (`e3efbc4`) — they go UP, and that's the fix.** Two bugs Andrew caught: BdFt was measured on the TYPED finished thickness instead of the rough stock it's milled from (a 1.5" top out of 8/4 eats 2" — his 40×24 read 10 BdFt against a real 13.33, under-counting material AND the labor that scales off it), and waste was charged twice (the component's % and then the per-line knob on the inflated subtotal). **A staleness refresh will reprice saved Solid Wood Top lines upward — expected, not a regression.** ⛔ **An existing Solid Wood Top calibration entered as a FINISHED thickness must be re-entered as ROUGH**, or labor now scales high: lines and the calibration must share the rough basis.
 
 **✅ 2026-09-01: WAVE-2 ITEM 7 BUILT (`1d455fd`) — solid wood now lives in the Materials tab.** Nothing about the MODEL changed; it always priced correctly. It was buried in a collapsed group at the bottom of the Line items sidebar, which is why Andrew concluded it didn't exist — worth remembering the next time a "we need to build X" turns out to be "X is unfindable".
@@ -133,7 +135,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Small fixes wave 2 — ✅ ALL EIGHT BUILT 2026-09-01. **No migrations. Nothing left to build; Andrew's live pass on 2, 3, 5, 6, 7, 8 is at the end.**
+### Small fixes wave 2 — items 1–8 ✅ BUILT 2026-09-01. **Item 9 (Solid Wood Top calibrator: Settings → rate book) scoped 2026-09-01 — BUILD NEXT.** No migrations so far. Andrew's live pass on 2, 3, 5, 6, 7, 8 is at the end.
 
 **8. ✅ PRICING BUG FIXED — Solid Wood Top was under-billed twice over. `e3efbc4`.** No schema change. Two independent defects on the same product.
    - **Root A — BdFt came off the TYPED thickness.** A 1.5" finished top milled from 8/4 consumes **2" of rough stock** — that's what gets bought, jointed and planed. Andrew's 40×24 read 10 BdFt against a real 13.33. Because `scale` rides the same figure it under-counted **labor** too. BdFt now measures on the component's `quartersToInches(thickness_quarters)`; the typed field is **"Finished thickness"** — spec only, prices nothing. Falls back to the typed value only until a material is picked (the save gate requires one).
@@ -177,6 +179,13 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
    - **⛔ `customCost` is REQUIRED on `CostBuckets`, not optional — leave it that way.** A money bucket that can be silently omitted is exactly how this bug survived. Making it required forced the compiler to surface all six construction sites (project page ×2, handoff, `project-totals`, `change-orders`, the Built migration script); an optional field would have let any of them keep quietly dropping it. Same reasoning applies to the next bucket anyone adds.
    - **Display:** "Custom & vendor" row on the subproject and project cost panels, hidden at zero.
    - **Verified with the real functions**, not by eye: two override lines add exactly **$360** to the subtotal and nothing when absent (so no double-count), and that $360 reaches `priceTotal` as **$553.85** — 360 / (1 − 0.35) — i.e. marked up like every other cost.
+
+**9. Move the Solid Wood Top calibrator from Settings to the rate book — scoped 2026-09-01 (Andrew), NOT built, BUILD NEXT.** The calibrator card lives on Settings (`app/(app)/settings/page.tsx` ~1345 + the section at ~1840–1900 mounting `SolidWoodTopWalkthrough`) — wrong home; every other calibration (drawers, doors, features, finishes) lives in the rate book. Build (no schema change):
+   - A **"Solid Wood Top labor" card at the top of the Materials tab's Solid wood section** (item 7's new home): calibration summary (cal piece dims, per-dept hours, edge multipliers, default cut method) or an uncalibrated empty state; "Calibrate"/"Recalibrate" opens the same `SolidWoodTopWalkthrough`.
+   - **Remove the Settings card** (both blocks) and any Settings copy pointing at it. The composer's own entry point (`AddLineComposer` ~855) stays.
+   - Item 8 changed the thickness basis to ROUGH — make sure the walkthrough copy shown from this new home matches (it should already, post-8).
+   - Check no tour/guide step targets the Settings card; run `check-tour-targets`.
+   - Verify: calibrate end-to-end from the rate book; Settings shows no trace; a Solid Wood Top line prices with the new numbers.
 
 **Left for Andrew (live, logged in — the preview can't auth):**
 - **Item 1:** ✅ **Confirmed working live by Andrew 2026-09-01** ("the schedule seems to work perfectly").
