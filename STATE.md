@@ -10,6 +10,8 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-01)
 
+**⛔ NEW 2026-09-01 (latest Cowork pass): WAVE-2 ITEM 8 — Solid Wood Top PRICING BUG, BUILD NEXT.** Two defects Andrew caught live: (A) BdFt prices off the TYPED finished thickness instead of the selected wood's rough thickness (1.5" typed on 8/4 stock = 25% material under-count, and the same figure scales labor); (B) waste charged twice (component waste % AND the per-line waste knob). Fix spec = wave-2 item 8 in Now.
+
 **✅ 2026-09-01: WAVE-2 ITEM 7 BUILT (`1d455fd`) — solid wood now lives in the Materials tab.** Nothing about the MODEL changed; it always priced correctly. It was buried in a collapsed group at the bottom of the Line items sidebar, which is why Andrew concluded it didn't exist — worth remembering the next time a "we need to build X" turns out to be "X is unfindable".
 
 **✅ 2026-09-01: "Small fixes wave 2" — ALL SEVEN BUILT** (`c9a645b` schedule backward paging · `f3488b6` mark blocks complete · `66d69fd` capacity double-count · `bb2f3e2` pre-production redesign with item 4's whole-row click folded in, `fbd0c81` its layout fixes · `40d67c9` the custom-line pricing bug · `1d455fd` solid wood into Materials). No migrations — every item was code-only. tsc clean, every touched route compiles 200, `check-tour-targets` passes at 44. **Item 1 confirmed live by Andrew; the rest are on his live-pass list at the end of the wave section.**
@@ -131,7 +133,15 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Small fixes wave 2 — ✅ ALL SEVEN BUILT 2026-09-01. **No migrations. Nothing left to build; Andrew's live pass on 2, 3, 5, 6, 7 is at the end.**
+### Small fixes wave 2 — items 1–7 ✅ BUILT 2026-09-01. **Item 8 (⛔ Solid Wood Top pricing: rough-thickness BdFt + waste double-dip) scoped 2026-09-01 — BUILD NEXT.** Andrew's live pass on 2, 3, 5, 6, 7 is at the end.
+
+**8. ⛔ PRICING BUG — Solid Wood Top: BdFt from typed thickness + waste charged twice. Scoped 2026-09-01 (Andrew's catch), NOT built.** His example: 40×24×**1.5"** typed with **8/4 Walnut** selected → 10 BdFt/piece priced, but a 1.5" finished top milled from 8/4 consumes **2" rough** = 13.33 BdFt/piece. Under-counts material AND labor.
+   - **Root A — thickness basis.** `computeBreakdownSolidWoodTop` (`lib/composer.ts` ~1285–1294): `bdftPerPiece = L × W × pieceThicknessIn / 144`, and `scale = bdftPerPiece / calBdft` drives every dept's hours. Fix: when a component is selected, **BdFt = L × W × `quartersToInches(mat.thickness_quarters)` / 144** (rough stock is what's bought and milled); labor `scale` rides the same rough BdFt. The typed field stays but becomes **"Finished thickness"** (Andrew's call) — spec only, flows to the line description, prices nothing. No material selected → fall back to typed T for the preview (the save gate already requires a material).
+   - **Calibration basis must match:** interpret `calib_thickness_in` (046) as the cal piece's ROUGH thickness; check `SolidWoodTopWalkthrough` copy asks for it that way and fix the wording if it says finished. Consistent basis or the scale silently skews.
+   - **Root B — waste double-dip.** `materialPerPiece` already carries the component's `waste_pct` (~1359–1362: `× 1.15`), then ~1370–1373 applies the generic per-line `defaults.wastePct` AGAIN on the inflated subtotal (his panel: "× 1.15 waste" then "Waste 5% · $15"). Fix: the solid-wood branch drops the per-line waste (waste = 0, hide the Waste knob in this product's breakdown pane) — **the component's waste % is the one source**. Consumables knob stays.
+   - **Display:** the "N BdFt per piece" line under Dimensions shows the priced (rough) figure, e.g. "13.33 BdFt per piece (8/4 rough) · 26.67 total"; the breakdown detail string already prints the math.
+   - **⚠️ Side effect, correct but visible:** staleness refresh on pre-sold subprojects will reprice saved Solid Wood Top lines upward. That's the bug being fixed, not a regression — but tell Andrew which projects moved if any exist.
+   - **Verify (his exact case):** 2 pieces 40×24×1.5" finished, 8/4 Walnut $12.97 + 15% waste → 26.67 BdFt total, material ≈ $398, ONE waste application, labor hours scaled up by the same ratio, finished thickness on the line description.
 
 **7. ✅ Solid wood into the Materials tab — `1d455fd`.** No schema change — **the model was always complete and always priced correctly** (migration 039, `lib/solid-wood.ts`). The whole bug was findability: the only UI was a collapsed synthetic group at the bottom of the Line items sidebar with a read-only detail pane, so Andrew reasonably concluded the feature didn't exist.
    - **New `components/rate-book/SolidWoodSection.tsx`**, mounted at the bottom of the Materials tab: grouped by species, one row per thickness, inline edit + add row (species datalist, 4/4 · 5/4 · 6/4 · 8/4 quick picks + custom quarters). **Its own section, not extra catalog rows** — it's priced per BOARD FOOT with a waste factor and shares no columns with a $/sheet material.
