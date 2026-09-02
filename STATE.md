@@ -137,7 +137,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Small fixes wave 2 — ✅ ALL TEN BUILT (2026-09-01 → 09-02). **No migrations in the whole wave. Nothing left to build; Andrew's live pass on 2, 3, 5, 6, 7, 8, 9, 10 is at the end.**
+### Small fixes wave 2 — items 1–10 ✅ BUILT (2026-09-01 → 09-02). **Item 11 (kanban chip on its own row) scoped 2026-09-02 — BUILD NEXT.** No migrations in the whole wave. Andrew's live pass on 2, 3, 5, 6, 7, 8, 9, 10 is at the end.
 
 **8. ✅ PRICING BUG FIXED — Solid Wood Top was under-billed twice over. `e3efbc4`.** No schema change. Two independent defects on the same product.
    - **Root A — BdFt came off the TYPED thickness.** A 1.5" finished top milled from 8/4 consumes **2" of rough stock** — that's what gets bought, jointed and planed. Andrew's 40×24 read 10 BdFt against a real 13.33. Because `scale` rides the same figure it under-counted **labor** too. BdFt now measures on the component's `quartersToInches(thickness_quarters)`; the typed field is **"Finished thickness"** — spec only, prices nothing. Falls back to the typed value only until a material is picked (the save gate requires one).
