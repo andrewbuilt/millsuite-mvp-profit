@@ -30,6 +30,7 @@ import {
   type MaterialCostUnit,
 } from '@/lib/materials'
 import { announce } from '@/lib/tour-events'
+import SolidWoodSection from '@/components/rate-book/SolidWoodSection'
 
 const COST_UNITS: { value: MaterialCostUnit; label: string; per: string }[] = [
   { value: 'sheet', label: 'Sheet', per: '/ sheet' },
@@ -440,6 +441,12 @@ export default function MaterialsCatalog({ orgId }: { orgId: string }) {
             </table>
           </div>
         )}
+
+        {/* Solid wood lives here rather than in the catalog table above: it's
+            priced per BOARD FOOT with a waste factor, so it shares no columns
+            with a $/sheet material. It used to be a collapsed group at the
+            bottom of the Line items sidebar, which is why nobody found it. */}
+        <SolidWoodSection orgId={orgId} />
       </div>
     </div>
   )

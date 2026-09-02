@@ -246,6 +246,10 @@ export default function AddLineComposer({
   // the walkthrough writes). Interior only since door pricing v2 — exterior
   // finishing is priced per door on the door type.
   const [finishWtApp, setFinishWtApp] = useState<'interior' | null>(null)
+  // Solid-wood STOCK walkthrough, opened from the Solid Wood Top body's empty
+  // dropdown. Distinct from solidWoodTopWtPendingKey, which is the LABOR
+  // calibration for the product itself.
+  const [solidWoodStockWtOpen, setSolidWoodStockWtOpen] = useState(false)
   // Solid Wood Top walkthrough auto-open — when the operator clicks the
   // tile and the org has no solid_wood_top_calibrations row, we open the
   // walkthrough first; on complete we resume the original tile pick so
@@ -720,6 +724,7 @@ export default function AddLineComposer({
                 onDrawerUncalibratedPick={openDrawerWalkthroughForPick}
                 onAddNewDrawerStyle={openDrawerWalkthroughForNew}
                 onOpenFinishWalkthrough={openFinishWalkthrough}
+                onOpenSolidWoodWalkthrough={() => setSolidWoodStockWtOpen(true)}
               />
             ) : null}
           </div>
@@ -822,6 +827,21 @@ export default function AddLineComposer({
           application={finishWtApp}
           onCancel={() => setFinishWtApp(null)}
           onComplete={handleFinishWalkthroughComplete}
+        />
+      )}
+
+      {/* Solid-wood STOCK walkthrough — opened from the Solid Wood Top body
+          when there's nothing to pick. Refreshing the rate book on complete
+          is what fills the dropdown without leaving the composer. */}
+      {solidWoodStockWtOpen && (
+        <SolidWoodWalkthrough
+          orgId={orgId}
+          existingId={null}
+          onCancel={() => setSolidWoodStockWtOpen(false)}
+          onComplete={async () => {
+            setSolidWoodStockWtOpen(false)
+            await refreshRateBook()
+          }}
         />
       )}
 
@@ -1112,6 +1132,7 @@ function Composer(p: {
   onDrawerUncalibratedPick: (styleId: string) => void
   onAddNewDrawerStyle: () => void
   onOpenFinishWalkthrough: (app: 'interior') => void
+  onOpenSolidWoodWalkthrough: () => void
 }) {
   const { draft, rateBook, breakdown, defaults } = p
 
@@ -1142,6 +1163,7 @@ function Composer(p: {
           <SolidWoodTopFormBody
             draft={draft}
             rateBook={rateBook}
+            onOpenSolidWoodWalkthrough={p.onOpenSolidWoodWalkthrough}
             setDraftPatch={p.setDraftPatch}
             setSlot={p.setSlot}
           />
@@ -2928,11 +2950,15 @@ function AddDoorFinishModal(p: {
 function SolidWoodTopFormBody({
   draft,
   rateBook,
+  onOpenSolidWoodWalkthrough,
   setDraftPatch,
   setSlot,
 }: {
   draft: ComposerDraft
   rateBook: ComposerRateBook
+  /** Bubbles up — the PARENT owns the walkthrough mount and the rate-book
+   *  refresh, same as onOpenFinishWalkthrough. Keeps this body presentational. */
+  onOpenSolidWoodWalkthrough: () => void
   setDraftPatch: (patch: Partial<ComposerDraft>) => void
   setSlot: (key: string, value: any) => void
 }) {
@@ -3021,8 +3047,19 @@ function SolidWoodTopFormBody({
         <SectionHeader>Material</SectionHeader>
         <Field label="Solid-wood component">
           {noComponents ? (
-            <div className="px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-md text-[12px] text-[#78350F]">
-              No solid-wood components yet. Add them in the rate book first.
+            /* Was a dead end — it told you to go to the rate book and left you
+               to find your way back. Same pattern as the finish dropdown:
+               calibrate right here, then the dropdown fills in. */
+            <div className="px-3 py-2.5 bg-[#FFFBEB] border border-[#FDE68A] rounded-md text-[12px] text-[#78350F]">
+              No solid-wood stock yet.{' '}
+              <button
+                type="button"
+                onClick={onOpenSolidWoodWalkthrough}
+                className="font-semibold underline underline-offset-2 hover:text-[#92400E]"
+              >
+                Add some now
+              </button>{' '}
+              — or set it up under Rate book → Materials.
             </div>
           ) : (
             <select

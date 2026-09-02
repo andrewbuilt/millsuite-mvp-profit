@@ -43,18 +43,8 @@ import {
   LABOR_DEPTS, LABOR_DEPT_LABEL, type LaborDept,
 } from '@/lib/rate-book-seed'
 import { PRODUCTS, type ProductKey } from '@/lib/products'
-import {
-  deleteSolidWoodComponent,
-  formatThickness,
-  loadSolidWoodComponents,
-  quartersToInches,
-  type SolidWoodComponent,
-} from '@/lib/solid-wood'
-import {
-  listDoorTypeMaterialsForSolidWood,
-  recalculateMaterialsForSolidWood,
-} from '@/lib/door-types'
-import SolidWoodWalkthrough from '@/components/walkthroughs/SolidWoodWalkthrough'
+// Solid-wood CRUD + the Recalculate-all affordance moved to
+// components/rate-book/SolidWoodSection, mounted in the Materials tab.
 import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 import { useConfirm } from '@/components/confirm-dialog'
 import MaterialsCatalog from '@/components/rate-book/MaterialsCatalog'
@@ -204,15 +194,10 @@ export default function RateBookPage() {
   const [view, setView] = useState<RateBookView>('cabinets')
   const isItemView = ITEM_VIEWS.includes(view)
 
-  // Solid-wood components live in their own table outside
-  // rate_book_categories. Surfaced as a synthetic sidebar group below
-  // the category tree. selectedSolidWoodId steers the middle pane: when
-  // set, it overrides selectedId's detail render.
-  const [solidWoodRows, setSolidWoodRows] = useState<SolidWoodComponent[]>([])
-  const [solidWoodExpanded, setSolidWoodExpanded] = useState(true)
-  const [selectedSolidWoodId, setSelectedSolidWoodId] = useState<string | null>(null)
-  // Walkthrough overlay: 'new' for create, an id string for edit, null closed.
-  const [solidWoodWt, setSolidWoodWt] = useState<'new' | string | null>(null)
+  // Solid wood is edited in the Materials tab now (SolidWoodSection). The
+  // guided SolidWoodWalkthrough still exists and is opened from the COMPOSER,
+  // where an empty dropdown is a dead end — this page had the only other
+  // opener and it went with the retired sidebar group.
 
   // Finish walkthrough overlay — only mounted when the empty-state card
   // for application='interior' kicks the operator into calibration. Other
@@ -233,9 +218,7 @@ export default function RateBookPage() {
   }, [orgId])
 
   async function refreshAll(id: string) {
-    const [c, o, sw] = await Promise.all([
-      listCategories(id), listOptions(id), loadSolidWoodComponents(id),
-    ])
+    const [c, o] = await Promise.all([listCategories(id), listOptions(id)])
     let i = await listItems(id)
 
     // Fold legacy door-style finish names ("Paint on shaker" → "Paint") onto
@@ -252,7 +235,6 @@ export default function RateBookPage() {
     setCategories(c)
     setItems(i)
     setOptions(o)
-    setSolidWoodRows(sw)
     // Finish calibration lives in rate_book_finish_breakdown, not on the item
     // row, so the roster's "ø" pill needs it looked up separately — one query
     // for every finish item on the page.
@@ -394,10 +376,10 @@ export default function RateBookPage() {
   // Auto-select the first item when in an item view with nothing picked
   // (cold boot + after a view switch clears the selection).
   useEffect(() => {
-    if (isItemView && !selectedId && !selectedSolidWoodId && firstViewItemId) {
+    if (isItemView && !selectedId && firstViewItemId) {
       setSelectedId(firstViewItemId)
     }
-  }, [isItemView, selectedId, selectedSolidWoodId, firstViewItemId])
+  }, [isItemView, selectedId, firstViewItemId])
 
   const filteredOptions = useMemo(() => {
     const s = optionSearch.trim().toLowerCase()
@@ -507,7 +489,6 @@ export default function RateBookPage() {
               onClick={() => {
                 setView(v)
                 setSelectedId(null)
-                setSelectedSolidWoodId(null)
               }}
               className={`px-2.5 py-1 text-[11px] font-medium whitespace-nowrap shrink-0 transition-colors ${
                 view === v
@@ -649,67 +630,9 @@ export default function RateBookPage() {
               })
             )}
           </div>
-          {/* Solid wood — synthetic sidebar group (own table). Lives under the
-              Line items view since it's a freeform stock component. */}
-          {view === 'lineitems' && (
-          <div className="px-2 pb-2">
-            <div className="flex items-center gap-1 px-1.5 py-1 text-[13px] text-[#374151]">
-              <button
-                onClick={() => setSolidWoodExpanded((v) => !v)}
-                className="inline-flex items-center gap-1 flex-1 text-left rounded hover:bg-[#F3F4F6] px-1 py-0.5"
-              >
-                {solidWoodExpanded ? (
-                  <ChevronDown className="w-3 h-3 text-[#9CA3AF]" />
-                ) : (
-                  <ChevronRight className="w-3 h-3 text-[#9CA3AF]" />
-                )}
-                <span className="font-medium">Solid wood</span>
-                <span className="ml-auto text-[10px] text-[#9CA3AF]">
-                  {solidWoodRows.length}
-                </span>
-              </button>
-              <button
-                onClick={() => setSolidWoodWt('new')}
-                title="Add solid wood"
-                className="text-[11px] text-[#2563EB] hover:text-[#1D4ED8] px-1.5"
-              >
-                + Add
-              </button>
-            </div>
-            {solidWoodExpanded && (
-              <div className="space-y-0.5 mt-0.5">
-                {solidWoodRows.length === 0 ? (
-                  <div className="pl-7 pr-2 py-1 text-[11.5px] text-[#9CA3AF] italic">
-                    No solid wood yet.
-                  </div>
-                ) : (
-                  solidWoodRows.map((sw) => {
-                    const isSel = sw.id === selectedSolidWoodId
-                    return (
-                      <button
-                        key={sw.id}
-                        onClick={() => {
-                          setSelectedSolidWoodId(sw.id)
-                          setSelectedId(null)
-                        }}
-                        className={`w-full flex items-center gap-2 pl-7 pr-2 py-1 rounded text-[12.5px] text-left transition-colors ${
-                          isSel
-                            ? 'bg-[#DBEAFE] text-[#1E40AF]'
-                            : 'text-[#4B5563] hover:bg-[#F3F4F6]'
-                        }`}
-                      >
-                        <span className="flex-1 truncate">{sw.name}</span>
-                        <span className="text-[10px] text-[#9CA3AF] font-mono tabular-nums">
-                          ${sw.cost_per_bdft}
-                        </span>
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-            )}
-          </div>
-          )}
+          {/* Solid wood used to be a collapsed synthetic group here. It moved
+              to the Materials tab (SolidWoodSection) — nobody found it buried
+              at the bottom of Line items. */}
 
           <div className="p-3 border-t border-[#E5E7EB] text-[11px] text-[#6B7280] leading-relaxed">
             <div className="font-semibold text-[#374151] mb-1">Trust badges</div>
@@ -730,24 +653,7 @@ export default function RateBookPage() {
 
         {/* MIDDLE — Detail */}
         <main className="overflow-y-auto">
-          {selectedSolidWoodId ? (
-            <SolidWoodDetail
-              row={solidWoodRows.find((r) => r.id === selectedSolidWoodId) ?? null}
-              onEdit={(id) => setSolidWoodWt(id)}
-              onDelete={async (row) => {
-                const ok = await confirm({
-                  title: 'Delete solid wood component?',
-                  message: `Delete "${row.name}"? Removes the rate-book entry. Lines that already reference it stay priced from their saved snapshot.`,
-                  confirmLabel: 'Delete',
-                  variant: 'danger',
-                })
-                if (!ok) return
-                await deleteSolidWoodComponent(row.id)
-                setSelectedSolidWoodId(null)
-                if (orgId) await refreshAll(orgId)
-              }}
-            />
-          ) : !selectedItem ? (
+          {!selectedItem ? (
             <div className="p-12 text-sm text-[#6B7280]">
               {items.length === 0
                 ? 'Seeding starter library…'
@@ -937,21 +843,6 @@ export default function RateBookPage() {
             setHistory(h)
           }}
           changedBy={user?.id || null}
-        />
-      )}
-
-      {/* Solid wood walkthrough — single overlay drives both new and edit. */}
-      {solidWoodWt && orgId && (
-        <SolidWoodWalkthrough
-          orgId={orgId}
-          existingId={solidWoodWt === 'new' ? null : solidWoodWt}
-          onCancel={() => setSolidWoodWt(null)}
-          onComplete={async (id) => {
-            setSolidWoodWt(null)
-            await refreshAll(orgId)
-            setSelectedSolidWoodId(id)
-            setSelectedId(null)
-          }}
         />
       )}
 
@@ -1811,147 +1702,6 @@ function describeEffect(o: RateBookOptionRow): string {
 }
 
 // ── Solid wood detail panel ───────────────────────────────────────────────
-
-function SolidWoodDetail({
-  row,
-  onEdit,
-  onDelete,
-}: {
-  row: SolidWoodComponent | null
-  onEdit: (id: string) => void
-  onDelete: (row: SolidWoodComponent) => void | Promise<void>
-}) {
-  const [linkedCount, setLinkedCount] = useState<number | null>(null)
-  const [recalcing, setRecalcing] = useState(false)
-  const [recalcMsg, setRecalcMsg] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!row) {
-      setLinkedCount(null)
-      setRecalcMsg(null)
-      return
-    }
-    let cancelled = false
-    setRecalcMsg(null)
-    ;(async () => {
-      const mats = await listDoorTypeMaterialsForSolidWood(row.id)
-      if (!cancelled) setLinkedCount(mats.length)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [row?.id])
-
-  if (!row) {
-    return (
-      <div className="p-12 text-sm text-[#6B7280]">
-        Solid wood component not found.
-      </div>
-    )
-  }
-  const inches = quartersToInches(row.thickness_quarters)
-
-  async function handleRecalc() {
-    if (!row || recalcing) return
-    setRecalcing(true)
-    setRecalcMsg(null)
-    try {
-      const touched = await recalculateMaterialsForSolidWood(row.id)
-      setRecalcMsg(
-        touched === 1
-          ? '1 door material recalculated.'
-          : `${touched} door materials recalculated.`,
-      )
-    } catch (e) {
-      setRecalcMsg(
-        e instanceof Error ? e.message : 'Recalculation failed.',
-      )
-    } finally {
-      setRecalcing(false)
-    }
-  }
-
-  return (
-    <div className="p-8 max-w-3xl">
-      <div className="text-[11px] text-[#9CA3AF] tracking-wide mb-1">Solid wood</div>
-      <div className="flex items-center justify-between mb-3">
-        <h1 className="text-[22px] font-semibold text-[#111]">{row.name}</h1>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => onEdit(row.id)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] text-[#374151] hover:bg-[#F3F4F6] rounded-md transition-colors"
-          >
-            <Pencil className="w-3.5 h-3.5" /> Edit
-          </button>
-          <button
-            disabled
-            title="Clone — coming soon"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] text-[#9CA3AF] rounded-md cursor-not-allowed"
-          >
-            <Copy className="w-3.5 h-3.5" /> Clone
-          </button>
-          <button
-            onClick={() => onDelete(row)}
-            title="Delete"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] text-[#9CA3AF] hover:text-[#DC2626] hover:bg-[#FEF2F2] rounded-md transition-colors"
-          >
-            <X className="w-3.5 h-3.5" /> Delete
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
-        <DetailRow label="Species" value={row.species} />
-        <DetailRow
-          label="Thickness"
-          value={
-            <span title={`${inches.toFixed(2).replace(/\.?0+$/, '')} in`}>
-              {formatThickness(row.thickness_quarters)}
-            </span>
-          }
-          mono
-        />
-        <DetailRow
-          label="Cost per BDFT"
-          value={`$${row.cost_per_bdft.toFixed(2).replace(/\.?0+$/, '')}`}
-          mono
-        />
-        <DetailRow
-          label="Waste %"
-          value={`${row.waste_pct}%`}
-          mono
-        />
-        {row.notes && <DetailRow label="Notes" value={row.notes} />}
-      </div>
-
-      {linkedCount != null && linkedCount > 0 && (
-        <div className="mt-4 flex items-center justify-between gap-3 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg">
-          <div className="text-[12.5px] text-[#374151]">
-            <span className="font-medium">
-              {linkedCount} door material{linkedCount === 1 ? '' : 's'}
-            </span>{' '}
-            <span className="text-[#6B7280]">
-              {linkedCount === 1 ? 'uses' : 'use'} this stock.
-            </span>{' '}
-            <span className="text-[#9CA3AF]">
-              After editing cost or waste, recalculate to push the new $/door.
-            </span>
-          </div>
-          <button
-            onClick={handleRecalc}
-            disabled={recalcing}
-            className="shrink-0 inline-flex items-center px-3 py-1.5 text-[12px] font-medium text-white bg-[#111] hover:bg-[#1F2937] rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {recalcing ? 'Recalculating…' : 'Recalculate all'}
-          </button>
-        </div>
-      )}
-      {recalcMsg && (
-        <div className="mt-2 text-[11.5px] text-[#059669]">{recalcMsg}</div>
-      )}
-    </div>
-  )
-}
 
 function DetailRow({
   label,
