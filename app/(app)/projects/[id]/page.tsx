@@ -1015,6 +1015,26 @@ export default function ProjectCoverPage() {
       return
     }
     setProject((p) => (p ? ({ ...p, estimate_sent_at: now } as typeof p) : p))
+
+    // Sending the estimate IS the move from "new lead" to a real opportunity,
+    // so advance the stage rather than making the operator drag the card.
+    //
+    // ⛔ ONLY from new_lead. Re-sending an estimate on a 90% or sold project
+    // must never walk it backwards — a stage is the shop's own judgement of
+    // where a job stands, and this is the one place it could be silently
+    // overwritten. Drag on the kanban stays free to move it anywhere after.
+    if (project?.stage === 'new_lead') {
+      try {
+        await updateProjectStage(projectId, 'fifty_fifty')
+        setProject((p) => (p ? { ...p, stage: 'fifty_fifty' } : p))
+        showToast('Estimate sent · moved to 50/50.')
+        return
+      } catch (e) {
+        // The send itself already landed; a failed stage bump is not worth
+        // telling the operator the send failed.
+        console.error('auto-advance to fifty_fifty', e)
+      }
+    }
     showToast('Estimate marked as sent.')
   }
 

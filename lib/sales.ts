@@ -68,9 +68,18 @@ export interface SalesProject {
   client_name: string | null
   client_id: string | null
   delivery_address: string | null
+  /** COLLAPSED board stage — every sold-and-beyond stage folds into 'sold'
+   *  so the kanban has one Sold column. */
   stage: SalesStage
+  /** The RAW `projects.stage`. The board needs both: `stage` decides which
+   *  column a card sits in, this decides what a sold card's badge says
+   *  (Pre-production / In production / Installed / Complete). */
+  project_stage: ProjectStage
   bid_total: number
   estimated_price: number | null
+  /** Stamped only by the project page's explicit "Mark as sent" — drives the
+   *  card's Estimate-sent chip. Null = never sent. */
+  estimate_sent_at: string | null
   created_at: string
   updated_at: string
 }
@@ -94,7 +103,7 @@ export async function loadSalesProjects(
     .from('projects')
     .select(
       `id, name, client_name, client_id, delivery_address, stage,
-       bid_total, estimated_price, created_at, updated_at, imported_at,
+       bid_total, estimated_price, estimate_sent_at, created_at, updated_at, imported_at,
        subprojects(id, linear_feet)`
     )
     .eq('org_id', orgId)
@@ -125,8 +134,10 @@ export async function loadSalesProjects(
       client_id: (row as any).client_id ?? null,
       delivery_address: (row as any).delivery_address ?? null,
       stage: projectToSalesStage((row.stage as ProjectStage) || 'new_lead'),
+      project_stage: ((row.stage as ProjectStage) || 'new_lead'),
       bid_total: Number(row.bid_total) || 0,
       estimated_price: row.estimated_price != null ? Number(row.estimated_price) : null,
+      estimate_sent_at: (row as any).estimate_sent_at ?? null,
       created_at: row.created_at,
       updated_at: row.updated_at,
     })
@@ -217,9 +228,12 @@ export async function createBlankLeadProject(input: {
     client_id: data.client_id ?? null,
     delivery_address: data.delivery_address ?? null,
     stage: projectToSalesStage((data.stage as ProjectStage) || 'new_lead'),
+    project_stage: ((data.stage as ProjectStage) || 'new_lead'),
     bid_total: Number(data.bid_total) || 0,
     estimated_price:
       data.estimated_price != null ? Number(data.estimated_price) : null,
+    // Freshly created — nothing has been sent yet by definition.
+    estimate_sent_at: null,
     created_at: data.created_at,
     updated_at: data.updated_at,
   }
@@ -279,9 +293,12 @@ export async function createParsedLeadProject(input: {
     client_id: data.client_id ?? null,
     delivery_address: data.delivery_address ?? null,
     stage: projectToSalesStage((data.stage as ProjectStage) || 'new_lead'),
+    project_stage: ((data.stage as ProjectStage) || 'new_lead'),
     bid_total: Number(data.bid_total) || 0,
     estimated_price:
       data.estimated_price != null ? Number(data.estimated_price) : null,
+    // Freshly created — nothing has been sent yet by definition.
+    estimate_sent_at: null,
     created_at: data.created_at,
     updated_at: data.updated_at,
   }

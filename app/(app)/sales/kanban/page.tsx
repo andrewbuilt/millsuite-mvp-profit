@@ -30,9 +30,19 @@ import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
 import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus } from 'lucide-react'
 import ImportedBadge from '@/components/imported-badge'
+import { coverStageOf, COVER_STAGE_LABEL } from '@/components/project/StagePill'
+import type { ProjectStage } from '@/lib/types'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
 import { useTours } from '@/components/walkthroughs/TourProvider'
+
+/** What a SOLD card's badge says. Reuses the project page's cover-stage
+ *  mapping, so "Pre-Production / In Production / Installed / Complete" stay
+ *  worded identically in both places. */
+function soldStageLabel(stage: ProjectStage): string {
+  const cover = coverStageOf(stage)
+  return cover === 'lost' ? 'Lost' : COVER_STAGE_LABEL[cover]
+}
 
 function fmtMoney(n: number | null | undefined) {
   if (n == null || n === 0) return '—'
@@ -113,8 +123,17 @@ function KanbanInner() {
       if (!ok) return
     }
 
+    // Both stages move together. `stage` picks the column; `project_stage`
+    // is what a sold card's badge reads — leave it stale and a card dragged
+    // to Sold would announce itself as "Bidding" until the next reload.
+    // targetStage is a SalesStage, which is a subset of ProjectStage, so
+    // this is the correct raw value for every column the board offers.
     setProjects((prev) =>
-      prev.map((p) => (p.id === project.id ? { ...p, stage: targetStage } : p))
+      prev.map((p) =>
+        p.id === project.id
+          ? { ...p, stage: targetStage, project_stage: targetStage as ProjectStage }
+          : p,
+      ),
     )
     try {
       await updateProjectStage(project.id, targetStage)
@@ -358,13 +377,26 @@ function KanbanCard({
           <MoreHorizontal className="w-3.5 h-3.5" />
         </button>
       </div>
-      <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2 flex items-center justify-between">
+      <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2 flex items-center justify-between gap-2">
         <span>{fmtMoney(project.bid_total || project.estimated_price)}</span>
-        {project.stage === 'sold' && (
-          <span className="text-[9px] px-1.5 py-0.5 bg-[#ECFDF5] text-[#059669] rounded font-semibold uppercase tracking-wider">
-            Live
+        {/* Sold cards show where the JOB actually is — "Live" said nothing
+            and never changed. Derived from the shared cover-stage mapping in
+            components/project/StagePill so the board and the project page
+            can't drift apart; don't re-map it here.
+            On a sold card this replaces the estimate-sent chip: once it's
+            won, the estimate's history isn't the headline any more. */}
+        {project.stage === 'sold' ? (
+          <span className="text-[9px] px-1.5 py-0.5 bg-[#ECFDF5] text-[#059669] rounded font-semibold uppercase tracking-wider whitespace-nowrap">
+            {soldStageLabel(project.project_stage)}
           </span>
-        )}
+        ) : project.estimate_sent_at ? (
+          <span
+            title={`Estimate sent ${new Date(project.estimate_sent_at).toLocaleDateString()}`}
+            className="text-[9px] px-1.5 py-0.5 bg-[#EFF6FF] text-[#1E40AF] rounded font-semibold uppercase tracking-wider whitespace-nowrap"
+          >
+            Estimate sent
+          </span>
+        ) : null}
       </div>
 
       {menuOpen && (
