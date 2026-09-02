@@ -377,27 +377,37 @@ function KanbanCard({
           <MoreHorizontal className="w-3.5 h-3.5" />
         </button>
       </div>
-      <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2 flex items-center justify-between gap-2">
-        <span>{fmtMoney(project.bid_total || project.estimated_price)}</span>
-        {/* Sold cards show where the JOB actually is — "Live" said nothing
-            and never changed. Derived from the shared cover-stage mapping in
-            components/project/StagePill so the board and the project page
-            can't drift apart; don't re-map it here.
-            On a sold card this replaces the estimate-sent chip: once it's
-            won, the estimate's history isn't the headline any more. */}
-        {project.stage === 'sold' ? (
-          <span className="text-[9px] px-1.5 py-0.5 bg-[#ECFDF5] text-[#059669] rounded font-semibold uppercase tracking-wider whitespace-nowrap">
+      <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2">
+        {fmtMoney(project.bid_total || project.estimated_price)}
+      </div>
+      {/* Chip gets its OWN row. Sharing a line with the price meant a big
+          number and a long label ($438,506 + ESTIMATE SENT) couldn't both fit
+          in a five-column board, and the chip clipped mid-word. A card ~20px
+          taller is the cheaper trade — nothing truncates at any width.
+          (The projects-page cards are a different layout and stay as they are.)
+
+          Sold cards show where the JOB actually is — "Live" said nothing and
+          never changed. Derived from the shared cover-stage mapping in
+          components/project/StagePill so the board and the project page can't
+          drift apart; don't re-map it here. On a sold card this replaces the
+          estimate-sent chip: once it's won, the estimate's history isn't the
+          headline any more. */}
+      {project.stage === 'sold' ? (
+        <div className="mt-1.5">
+          <span className="inline-block text-[9px] px-1.5 py-0.5 bg-[#ECFDF5] text-[#059669] rounded font-semibold uppercase tracking-wider">
             {soldStageLabel(project.project_stage)}
           </span>
-        ) : project.estimate_sent_at ? (
+        </div>
+      ) : project.estimate_sent_at ? (
+        <div className="mt-1.5">
           <span
             title={`Estimate sent ${new Date(project.estimate_sent_at).toLocaleDateString()}`}
-            className="text-[9px] px-1.5 py-0.5 bg-[#EFF6FF] text-[#1E40AF] rounded font-semibold uppercase tracking-wider whitespace-nowrap"
+            className="inline-block text-[9px] px-1.5 py-0.5 bg-[#EFF6FF] text-[#1E40AF] rounded font-semibold uppercase tracking-wider"
           >
             Estimate sent
           </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {menuOpen && (
         <>
