@@ -10,7 +10,7 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-02)
 
-**NEW 2026-09-02 (Cowork pass): WAVE-2 ITEM 10 — kanban estimate-sent chip + auto-advance to 50/50 + stage badge replaces LIVE on sold cards. Scoped, NOT built, build next.** `estimate_sent_at` already exists (060, stamped by the project page's "Mark as sent"); this surfaces it, auto-moves new_lead → fifty_fifty on mark-sent (guarded, never demotes), and makes sold cards show the real stage from the shared `StagePill` mapping. Spec = wave-2 item 10 in Now.
+**✅ 2026-09-02: WAVE-2 ITEM 10 BUILT (`757be89`).** Kanban cards now show an **Estimate sent** chip, **"Mark as sent" auto-advances a new lead to 50/50** (guarded — it can never walk a 90%/sold project backwards), and **sold cards read their real stage** instead of a permanent "Live". ⚠️ **Behaviour change worth knowing: marking an estimate sent on a NEW LEAD now moves the card without a drag.**
 
 **✅ 2026-09-01: WAVE-2 ITEM 9 BUILT (`7bb1266`) — the Solid Wood Top calibrator moved from Settings to Rate book → Materials → Solid wood.** It's the last calibration that wasn't in the rate book. **If you're looking for it on Settings, it isn't there any more.**
 
@@ -137,7 +137,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Small fixes wave 2 — items 1–9 ✅ BUILT 2026-09-01. **Item 10 (kanban: estimate-sent chip, auto-50/50, stage badge replaces LIVE) scoped 2026-09-02 — BUILD NEXT.** No migrations so far. Andrew's live pass on 2, 3, 5, 6, 7, 8, 9 is at the end.
+### Small fixes wave 2 — ✅ ALL TEN BUILT (2026-09-01 → 09-02). **No migrations in the whole wave. Nothing left to build; Andrew's live pass on 2, 3, 5, 6, 7, 8, 9, 10 is at the end.**
 
 **8. ✅ PRICING BUG FIXED — Solid Wood Top was under-billed twice over. `e3efbc4`.** No schema change. Two independent defects on the same product.
    - **Root A — BdFt came off the TYPED thickness.** A 1.5" finished top milled from 8/4 consumes **2" of rough stock** — that's what gets bought, jointed and planed. Andrew's 40×24 read 10 BdFt against a real 13.33. Because `scale` rides the same figure it under-counted **labor** too. BdFt now measures on the component's `quartersToInches(thickness_quarters)`; the typed field is **"Finished thickness"** — spec only, prices nothing. Falls back to the typed value only until a material is picked (the save gate requires one).
@@ -188,11 +188,12 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
    - **Settings card + section removed outright.** Two user-facing strings still pointed there and were fixed: the save-gate refusal now names Rate book → Materials → Solid wood, and the composer's uncalibrated empty state — **another dead end that named a page and left you to navigate** — opens the calibrator in place via the existing pending-key mount, so finishing it resumes the pick you were making.
    - Verified all three card states rendered at 1280px; `check-tour-targets` passes and nothing targeted the Settings card.
 
-**10. Kanban cards: estimate-sent flag, auto-advance to 50/50, stage badge instead of LIVE — scoped 2026-09-02 (Andrew), NOT built.** No schema change; `projects.estimate_sent_at` (060) already exists and is stamped only by the project page's explicit "Mark as sent" action. Three pieces:
-   - **"Estimate sent" chip on the sales kanban card** when `estimate_sent_at` is set (pipeline columns only — see next bullet for sold). Add `estimate_sent_at` to the sales-board select (`SalesProject` in `lib/sales.ts` ~65–76 doesn't carry it today). Maybe with the sent date in the tooltip.
-   - **Auto-advance on "Mark as sent":** in the same handler that stamps `estimate_sent_at`, if the project's stage is **`new_lead`**, also `updateProjectStage → fifty_fifty`. **Guard: only from new_lead** — marking sent on a 90% or sold project must never demote it. Kanban drag stays free to move it anywhere afterward.
-   - **Sold-column cards: the LIVE badge becomes the project's real stage label** — "Sold"/Pre-production at first, then it tracks every stage change exactly like the project page: derive from the SHARED mapping in `components/project/StagePill` (the pre-prod redesign moved it there specifically so a second copy can't drift — reuse, don't re-map). On sold cards the stage badge replaces the estimate-sent chip (a sold project's estimate history is no longer the headline).
-   - Verify: mark an estimate sent on a new lead → chip appears AND the card is in 50/50 without a drag; mark sent on a 90% project → stage unchanged; a sold card reads its actual stage (Murtagh Bar should say In production, not LIVE) and updates when production starts/completes.
+**10. ✅ Kanban card signals — `757be89`.** No schema change; `estimate_sent_at` (060) already existed, stamped only by the project page's explicit "Mark as sent".
+   - **⚠️ `SalesProject` now carries TWO stages and they are not interchangeable.** `stage` is the COLLAPSED board stage that picks a column (everything sold-and-beyond folds into one Sold column); **`project_stage` is the raw `projects.stage`** that decides what a sold card's badge says. **The drag handler updates both** — leaving `project_stage` stale made a card dragged to Sold announce itself as "Bidding" until the next reload.
+   - **Sold cards show the real stage** (Pre-Production / In Production / Installed / Complete) instead of a "Live" badge that never changed. Label comes from the **shared** cover-stage mapping in `components/project/StagePill` — the pre-prod redesign extracted it precisely so a second copy couldn't drift, so reuse it, don't re-map.
+   - **Estimate-sent chip** on pipeline cards, date in the tooltip. On a sold card the stage badge **replaces** it — a won job's estimate history isn't the headline.
+   - **Auto-advance:** "Mark as sent" moves `new_lead` → `fifty_fifty` in the same handler. ⛔ **Guarded to `new_lead` only** — re-sending on a 90%/sold project must never demote it; the stage is the shop's judgement and this is the one place it could be silently overwritten. A failed stage bump logs rather than claiming the send failed, since the send already landed. Kanban drag stays free afterwards.
+   - Verified the badge matrix rendered across all seven states (no chip on an untouched lead, chip on 50/50 and 90%, and each of the four sold stages).
 
 **Left for Andrew (live, logged in — the preview can't auth):**
 - **Item 1:** ✅ **Confirmed working live by Andrew 2026-09-01** ("the schedule seems to work perfectly").
@@ -203,6 +204,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 - **Item 7:** Rate book → Materials, scroll down — your solid wood should be there grouped by species (it was already in the database, just unfindable). Add 4/4 Walnut with a $/BdFt and waste %, then check it appears in the Solid Wood Top dropdown in the composer and prices with waste applied. Edit a $/BdFt inline → **Recalculate all** should move linked door-material prices. Also worth confirming Line items no longer shows a Solid wood group.
 - **Item 8 (money):** re-price his case — 2 pieces 40×24×1.5" in 8/4 Walnut should read **26.67 BdFt total ≈ $398 material**, with waste shown **once** and no Waste knob on that product's panel. **Then open the Solid Wood Top calibration and check the thickness there is the ROUGH figure** (2″ for 8/4, not 1.5″) — if it was entered as finished, labor now scales high until it's corrected. Any saved Solid Wood Top line will reprice upward on refresh; that's the fix landing, but worth knowing which quotes moved.
 - **Item 9:** the Solid Wood Top calibrator is now at **Rate book → Materials → Solid wood**, top of the section — it's gone from Settings. Open it and confirm the summary (piece size, per-dept hours, edge multipliers) matches what you actually entered. _This is also the fastest way to do item 8's calibration check._
+- **Item 10:** on a NEW LEAD, hit "Mark as sent" — the card should gain an **Estimate sent** chip AND jump to 50/50 without a drag. Do the same on a 90% project and confirm its stage does **not** move. Then check the Sold column: **Murtagh Bar should read "In Production", not "Live"**, and the badge should follow the job as production starts and completes.
 
 ### Client portal — ✅ BUILT, MIGRATED AND DEPLOYED 2026-08-31. **Nothing blocking; only Andrew's live pass (list at the end).**
 
