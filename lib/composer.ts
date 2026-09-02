@@ -1538,7 +1538,7 @@ export function checkSaveGate(
       return {
         ok: false,
         reason:
-          'Run the Solid Wood Top calibration from Settings before saving — per-piece labor is uncalibrated.',
+          'Run the Solid Wood Top calibration in Rate book → Materials → Solid wood before saving — per-piece labor is uncalibrated.',
       }
     }
     if (!draft.qty || draft.qty <= 0) {

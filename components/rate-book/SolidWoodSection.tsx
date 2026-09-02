@@ -32,9 +32,50 @@ import {
 } from '@/lib/solid-wood'
 import { recalculateMaterialsForSolidWood } from '@/lib/door-types'
 import { useConfirm } from '@/components/confirm-dialog'
+import { supabase } from '@/lib/supabase'
+import SolidWoodTopWalkthrough from '@/components/walkthroughs/SolidWoodTopWalkthrough'
+import type { SolidWoodTopOpKey } from '@/lib/composer'
 
 /** The sawmill thicknesses nearly every order uses; anything else is typed in. */
 const THICKNESS_PRESETS = [4, 5, 6, 8]
+
+/** Which dept each calibration op bills to. MUST match the buckets in
+ *  computeBreakdownSolidWoodTop — this card only summarises what that
+ *  function prices, and a mismatch here would misreport real hours.
+ *  The two cut ops are exclusive; the card shows whichever the default
+ *  cut method selects. */
+const OP_DEPT: Record<SolidWoodTopOpKey, 'eng' | 'cnc' | 'assembly' | 'finish'> = {
+  eng_drawing: 'eng',
+  cnc_cut_to_size: 'cnc',
+  asy_wood_selection: 'assembly',
+  asy_jointing: 'assembly',
+  asy_planing: 'assembly',
+  asy_ripping: 'assembly',
+  asy_chopping: 'assembly',
+  asy_glueup: 'assembly',
+  asy_calib_sanding: 'assembly',
+  asy_saw_cut_to_size: 'assembly',
+  fin_sanding: 'finish',
+  fin_apply: 'finish',
+}
+
+const DEPT_LABEL: Record<'eng' | 'cnc' | 'assembly' | 'finish', string> = {
+  eng: 'Eng',
+  cnc: 'CNC',
+  assembly: 'Assembly',
+  finish: 'Finish',
+}
+
+interface TopCalibration {
+  calib_length_in: number
+  calib_width_in: number
+  calib_thickness_in: number
+  hours_by_op: Partial<Record<SolidWoodTopOpKey, number>>
+  edge_mult_hand: number
+  edge_mult_cnc: number
+  default_cut_method: 'saw' | 'cnc'
+  updated_at: string | null
+}
 
 interface Draft {
   species: string
@@ -262,6 +303,11 @@ export default function SolidWoodSection({ orgId }: { orgId: string }) {
         anything bought by the piece live in the catalog above.
       </p>
 
+      {/* Labor calibration sits above the stock table: it's the other half of
+          what a solid-wood line costs, and it used to be on Settings where
+          nobody would look for it. */}
+      <TopCalibrationCard orgId={orgId} />
+
       {error && (
         <div className="mb-3 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
           {error}
@@ -348,6 +394,162 @@ export default function SolidWoodSection({ orgId }: { orgId: string }) {
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Solid Wood Top LABOR calibration — per-op hours for one typical top, which
+ * the composer scales by BdFt on every line.
+ *
+ * Moved here from Settings (wave-2 item 9). Every other calibration — drawers,
+ * doors, features, finishes — lives in the rate book, and this one being on
+ * Settings meant nobody found it next to the stock it prices against.
+ *
+ * Distinct from the stock table below: that's what lumber COSTS, this is what
+ * milling it takes.
+ */
+function TopCalibrationCard({ orgId }: { orgId: string }) {
+  const [cal, setCal] = useState<TopCalibration | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  const refresh = useCallback(async () => {
+    const { data } = await supabase
+      .from('solid_wood_top_calibrations')
+      .select(
+        'calib_length_in, calib_width_in, calib_thickness_in, hours_by_op, edge_mult_hand, edge_mult_cnc, default_cut_method, updated_at',
+      )
+      .eq('org_id', orgId)
+      .maybeSingle()
+    setCal((data as TopCalibration | null) ?? null)
+    setLoaded(true)
+  }, [orgId])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  /** Per-dept hours for the calibration piece, honouring the exclusive
+   *  saw/CNC cut op the same way the pricer does. */
+  const byDept = useMemo(() => {
+    const out = { eng: 0, cnc: 0, assembly: 0, finish: 0 }
+    if (!cal) return out
+    const ops = cal.hours_by_op || {}
+    for (const [k, v] of Object.entries(ops) as [SolidWoodTopOpKey, number][]) {
+      // Only one cut op counts, whichever the default method picks.
+      if (k === 'cnc_cut_to_size' && cal.default_cut_method !== 'cnc') continue
+      if (k === 'asy_saw_cut_to_size' && cal.default_cut_method !== 'saw') continue
+      const dept = OP_DEPT[k]
+      if (dept) out[dept] += Number(v) || 0
+    }
+    return out
+  }, [cal])
+
+  const totalHours = byDept.eng + byDept.cnc + byDept.assembly + byDept.finish
+  const calBdft = cal
+    ? (cal.calib_length_in * cal.calib_width_in * cal.calib_thickness_in) / 144
+    : 0
+
+  return (
+    <div className="mb-5 border border-[#E5E7EB] rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-[#E5E7EB] bg-[#FAFAFA] flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <div className="text-[13px] font-semibold text-[#111]">Solid Wood Top labor</div>
+          <div className="text-[11.5px] text-[#6B7280] mt-0.5">
+            Hours for one typical top. Every line scales from it by board foot.
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {loaded && (
+            <span className={`text-[11px] font-mono ${cal ? 'text-[#059669]' : 'text-[#9CA3AF]'}`}>
+              {cal ? 'Calibrated' : 'Not yet'}
+            </span>
+          )}
+          <button
+            onClick={() => setOpen(true)}
+            className="px-3 py-1.5 text-[12px] font-medium text-white bg-[#2563EB] rounded-md hover:bg-[#1D4ED8]"
+          >
+            {cal ? 'Recalibrate' : 'Calibrate'}
+          </button>
+        </div>
+      </div>
+
+      {!loaded ? (
+        <div className="px-4 py-3 text-[12px] text-[#9CA3AF] italic">Loading calibration…</div>
+      ) : !cal ? (
+        <div className="px-4 py-3 text-[12px] text-[#6B7280]">
+          Not calibrated yet — Solid Wood Top lines can't price their labor until this is set.
+          It's one pass: the size of a typical top and how long each operation takes on it.
+        </div>
+      ) : (
+        <div className="px-4 py-3 flex flex-wrap gap-x-8 gap-y-3 text-[12px]">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              Calibration piece
+            </div>
+            <div className="text-[#111] font-mono tabular-nums mt-0.5">
+              {cal.calib_length_in}″ × {cal.calib_width_in}″ × {cal.calib_thickness_in}″ rough
+            </div>
+            <div className="text-[11px] text-[#9CA3AF] font-mono">
+              {calBdft.toFixed(2)} BdFt
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              Hours on that piece
+            </div>
+            <div className="text-[#111] mt-0.5 flex flex-wrap gap-x-3 font-mono tabular-nums">
+              {(['eng', 'cnc', 'assembly', 'finish'] as const)
+                .filter((d) => byDept[d] > 0)
+                .map((d) => (
+                  <span key={d}>
+                    <span className="text-[#6B7280]">{DEPT_LABEL[d]}</span> {byDept[d].toFixed(2)}
+                  </span>
+                ))}
+              {totalHours === 0 && <span className="text-[#9CA3AF]">none set</span>}
+            </div>
+            {totalHours > 0 && (
+              <div className="text-[11px] text-[#9CA3AF] font-mono">
+                {totalHours.toFixed(2)} hr total
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              Defaults
+            </div>
+            <div className="text-[#111] mt-0.5">
+              Cut: {cal.default_cut_method === 'cnc' ? 'CNC' : 'Saw'}
+            </div>
+            <div className="text-[11px] text-[#9CA3AF] font-mono">
+              Edge ×{Number(cal.edge_mult_hand).toFixed(2)} hand · ×
+              {Number(cal.edge_mult_cnc).toFixed(2)} CNC
+            </div>
+          </div>
+          {cal.updated_at && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                Updated
+              </div>
+              <div className="text-[#6B7280] mt-0.5">
+                {new Date(cal.updated_at).toLocaleDateString()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {open && (
+        <SolidWoodTopWalkthrough
+          orgId={orgId}
+          onCancel={() => setOpen(false)}
+          onComplete={async () => {
+            setOpen(false)
+            await refresh()
+          }}
+        />
       )}
     </div>
   )

@@ -726,6 +726,7 @@ export default function AddLineComposer({
                 onAddNewDrawerStyle={openDrawerWalkthroughForNew}
                 onOpenFinishWalkthrough={openFinishWalkthrough}
                 onOpenSolidWoodWalkthrough={() => setSolidWoodStockWtOpen(true)}
+                onOpenSolidWoodTopWalkthrough={() => setSolidWoodTopWtPendingKey('countertop')}
               />
             ) : null}
           </div>
@@ -1134,6 +1135,7 @@ function Composer(p: {
   onAddNewDrawerStyle: () => void
   onOpenFinishWalkthrough: (app: 'interior') => void
   onOpenSolidWoodWalkthrough: () => void
+  onOpenSolidWoodTopWalkthrough: () => void
 }) {
   const { draft, rateBook, breakdown, defaults } = p
 
@@ -1165,6 +1167,7 @@ function Composer(p: {
             draft={draft}
             rateBook={rateBook}
             onOpenSolidWoodWalkthrough={p.onOpenSolidWoodWalkthrough}
+            onOpenSolidWoodTopWalkthrough={p.onOpenSolidWoodTopWalkthrough}
             setDraftPatch={p.setDraftPatch}
             setSlot={p.setSlot}
           />
@@ -2951,6 +2954,7 @@ function SolidWoodTopFormBody({
   draft,
   rateBook,
   onOpenSolidWoodWalkthrough,
+  onOpenSolidWoodTopWalkthrough,
   setDraftPatch,
   setSlot,
 }: {
@@ -2959,6 +2963,8 @@ function SolidWoodTopFormBody({
   /** Bubbles up — the PARENT owns the walkthrough mount and the rate-book
    *  refresh, same as onOpenFinishWalkthrough. Keeps this body presentational. */
   onOpenSolidWoodWalkthrough: () => void
+  /** The LABOR calibration, as opposed to the stock above. */
+  onOpenSolidWoodTopWalkthrough: () => void
   setDraftPatch: (patch: Partial<ComposerDraft>) => void
   setSlot: (key: string, value: any) => void
 }) {
@@ -2968,11 +2974,19 @@ function SolidWoodTopFormBody({
     return (
       <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
         <SectionHeader>Solid wood top</SectionHeader>
+        {/* Another dead end, same shape as the material dropdown's: it named
+            a page and left you to navigate. Opens the calibrator in place. */}
         <div className="mt-4 px-4 py-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-sm text-[#78350F]">
-          You haven't calibrated your solid wood top labor yet. Open
-          Settings → Solid Wood Top calibration to walk through the
-          per-op timings; we'll scale every line by BdFt against that
-          calibration.
+          You haven't calibrated your solid wood top labor yet.{' '}
+          <button
+            type="button"
+            onClick={onOpenSolidWoodTopWalkthrough}
+            className="font-semibold underline underline-offset-2 hover:text-[#92400E]"
+          >
+            Calibrate it now
+          </button>{' '}
+          — a few per-op timings on one typical top, and every line scales from
+          it by BdFt. It also lives in Rate book → Materials → Solid wood.
         </div>
       </div>
     )

@@ -38,7 +38,6 @@ import {
   type Period,
   type TeamMember,
 } from '@/lib/shop-rate-setup'
-import SolidWoodTopWalkthrough from '@/components/walkthroughs/SolidWoodTopWalkthrough'
 import BillingSection from '@/components/billing-section'
 
 const inputClass =
@@ -1342,9 +1341,9 @@ export default function SettingsPage() {
         <DepartmentsSection orgId={org?.id} />
 
 
-        {/* Solid Wood Top calibration — opens SolidWoodTopWalkthrough; the
-            composer uses this row to scale per-piece labor by BdFt. */}
-        <SolidWoodTopCalibrationSection orgId={org?.id} />
+        {/* Solid Wood Top calibration moved to Rate book → Materials → Solid
+            wood (wave-2 item 9). Every other calibration lives in the rate
+            book, and this one belongs next to the stock it prices against. */}
 
         {/* Drawing parser limits */}
         <ParserLimitsSection orgId={org?.id} />
@@ -1831,81 +1830,6 @@ function DepartmentsSection({ orgId }: { orgId: string | undefined }) {
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-
-// ── Solid Wood Top calibration section ──────────────────────────────
-// Surfaces the SolidWoodTopWalkthrough alongside the other settings.
-// Shows whether the org has run the walkthrough yet (so the operator
-// knows the composer's solid-wood-top product is ready to price).
-
-function SolidWoodTopCalibrationSection({ orgId }: { orgId: string | undefined }) {
-  const [calibrated, setCalibrated] = useState<boolean | null>(null)
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
-
-  const refresh = useCallback(async () => {
-    if (!orgId) return
-    const { data } = await supabase
-      .from('solid_wood_top_calibrations')
-      .select('updated_at')
-      .eq('org_id', orgId)
-      .maybeSingle()
-    if (data) {
-      setCalibrated(true)
-      setUpdatedAt((data as any).updated_at ?? null)
-    } else {
-      setCalibrated(false)
-      setUpdatedAt(null)
-    }
-  }, [orgId])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  return (
-    <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden mb-6">
-      <div className="px-6 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-semibold">Solid Wood Top calibration</h2>
-          <p className="text-xs text-[#9CA3AF] mt-0.5">
-            Per-op labor for one typical top — composer scales by BdFt on
-            every line.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {calibrated === true && (
-            <span className="text-[11px] text-[#059669] font-mono">Calibrated</span>
-          )}
-          {calibrated === false && (
-            <span className="text-[11px] text-[#9CA3AF] font-mono">Not yet</span>
-          )}
-          <button
-            onClick={() => setOpen(true)}
-            className="px-3 py-1.5 text-[12px] font-medium text-white bg-[#2563EB] rounded-md hover:bg-[#1D4ED8]"
-          >
-            {calibrated ? 'Recalibrate' : 'Calibrate'}
-          </button>
-        </div>
-      </div>
-      {updatedAt && (
-        <div className="px-6 py-2 text-[11px] text-[#9CA3AF] font-mono">
-          Last updated {new Date(updatedAt).toLocaleString()}
-        </div>
-      )}
-      {open && orgId && (
-        <SolidWoodTopWalkthrough
-          orgId={orgId}
-          onCancel={() => setOpen(false)}
-          onComplete={async () => {
-            setOpen(false)
-            await refresh()
-          }}
-        />
-      )}
     </div>
   )
 }
