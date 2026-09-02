@@ -444,6 +444,11 @@ function SpeciesGroup({
 
 /** Shared add / edit fields. */
 function SolidWoodFields({ draft, setDraft }: { draft: Draft; setDraft: (d: Draft) => void }) {
+  const q = Number(draft.thickness_quarters)
+  /** True when the value isn't one of the quick picks — drives both the
+   *  highlight on the custom box and whether it shows a number at all. */
+  const isCustomThickness =
+    draft.thickness_quarters.trim() !== '' && !THICKNESS_PRESETS.includes(q)
   return (
     <div className="space-y-2.5">
       <div className="grid grid-cols-[1fr_236px_110px_100px] gap-2">
@@ -479,14 +484,38 @@ function SolidWoodFields({ draft, setDraft }: { draft: Draft; setDraft: (d: Draf
                 {formatThickness(q)}
               </button>
             ))}
-            <input
-              type="number"
-              min={1}
-              title="Quarters"
-              className="w-[52px] px-1.5 py-1.5 text-[12px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB] shrink-0"
-              value={draft.thickness_quarters}
-              onChange={(e) => setDraft({ ...draft, thickness_quarters: e.target.value })}
-            />
+            {/* Anything the presets don't cover — 10/4, 12/4 on a thick slab.
+                Shows EMPTY while a preset is selected: mirroring the preset's
+                value in here made it read as a stray "4" with no label, which
+                is exactly how it got questioned. The "/4" suffix is what says
+                "this is quarters". */}
+            <div
+              className={`flex items-center gap-0.5 pl-1.5 pr-1 rounded-md border shrink-0 transition-colors ${
+                isCustomThickness
+                  ? 'bg-[#2563EB] border-[#2563EB]'
+                  : 'bg-white border-[#E5E7EB]'
+              }`}
+              title="Other thickness, in quarters — 10 for 10/4"
+            >
+              <input
+                type="number"
+                min={1}
+                placeholder="10"
+                aria-label="Other thickness in quarters"
+                className={`w-[28px] py-1.5 text-[12px] bg-transparent outline-none ${
+                  isCustomThickness
+                    ? 'text-white placeholder:text-white/60'
+                    : 'text-[#4B5563] placeholder:text-[#9CA3AF]'
+                }`}
+                value={isCustomThickness ? draft.thickness_quarters : ''}
+                onChange={(e) => setDraft({ ...draft, thickness_quarters: e.target.value })}
+              />
+              <span
+                className={`text-[12px] ${isCustomThickness ? 'text-white/70' : 'text-[#9CA3AF]'}`}
+              >
+                /4
+              </span>
+            </div>
           </div>
         </label>
         <label className="block">
