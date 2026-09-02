@@ -165,7 +165,7 @@ async function loadSolidWoodComponentsForComposer(
 ): Promise<ComposerSolidWoodComponent[]> {
   const { data, error } = await supabase
     .from('solid_wood_components')
-    .select('id, name, cost_per_bdft, waste_pct')
+    .select('id, name, cost_per_bdft, waste_pct, thickness_quarters')
     .eq('org_id', orgId)
     .eq('active', true)
     .order('name')
@@ -175,6 +175,8 @@ async function loadSolidWoodComponentsForComposer(
     name: r.name,
     cost_per_bdft: Number(r.cost_per_bdft) || 0,
     waste_pct: Number(r.waste_pct) || 0,
+    // Needed by the BdFt math — a line is priced on the rough stock.
+    thickness_quarters: Number(r.thickness_quarters) || 0,
   }))
 }
 

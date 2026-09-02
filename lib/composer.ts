@@ -23,6 +23,7 @@ import type {
 } from './door-types'
 import type { CustomProduct } from './custom-products'
 import type { CabinetFeature } from './features'
+import { formatThickness, quartersToInches } from './solid-wood'
 
 /** Per-LF carcass labor hours from a cabinet rate_book_item's
  *  base_labor_hours_*. Base cabinet is the anchor; Upper / Full can carry
@@ -285,6 +286,10 @@ export interface ComposerSolidWoodComponent {
   name: string
   cost_per_bdft: number
   waste_pct: number
+  /** ROUGH stock thickness in quarters (8 = 8/4 = 2"). BdFt is measured on
+   *  this, not on the typed finished thickness — see
+   *  computeBreakdownSolidWoodTop. */
+  thickness_quarters: number
 }
 
 /** Per-subproject markup inputs — editable inline on the breakdown panel,
@@ -595,8 +600,15 @@ export interface ComposerBreakdown {
    *  interface that breakdownToStorageValues + checkLineStaleness
    *  consume — keep both in lockstep. */
   solidWoodTop: {
+    /** Measured on the ROUGH stock (the component's thickness), not the
+     *  typed finished dimension — that's what gets bought and milled. */
     bdftPerPiece: number
     bdftTotal: number
+    /** Rough thickness the BdFt was computed at, in inches. */
+    roughThicknessIn: number
+    /** "8/4" when a component is selected, else null — lets the form say
+     *  which stock the figure is measured on. */
+    roughLabel: string | null
     materialDetail: string | null
     hoursByDept: {
       eng: number
@@ -1284,10 +1296,32 @@ function computeBreakdownSolidWoodTop(
 
   const L = Number(s.pieceLengthIn) || 0
   const W = Number(s.pieceWidthIn) || 0
-  const T = Number(s.pieceThicknessIn) || 0
-  const bdftPerPiece = (L * W * T) / 144
+  // The typed thickness is the FINISHED dimension — what the client gets.
+  const finishedT = Number(s.pieceThicknessIn) || 0
+
+  // Material has to resolve before BdFt now, because the stock's thickness is
+  // what BdFt is measured in.
+  const mat = s.solidWoodMaterialId
+    ? rb.solidWoodComponents.find((c) => c.id === s.solidWoodMaterialId) || null
+    : null
+
+  // ⛔ BdFt IS MEASURED ON THE ROUGH STOCK, NOT THE FINISHED PIECE.
+  // A 1.5" finished top is milled out of 8/4 (2") lumber — you buy, joint,
+  // plane and pay for the full 2". Pricing the typed 1.5" under-counted both
+  // the material AND, because `scale` rides the same number, every dept's
+  // labor. Andrew's case: 40×24 read 10 BdFt when the shop actually consumes
+  // 13.33.
+  //
+  // No material picked yet → fall back to the typed thickness so the preview
+  // shows something sane; the save gate already requires a material, so this
+  // can't reach a stored line.
+  const roughThicknessIn = mat ? quartersToInches(mat.thickness_quarters) : finishedT
+  const bdftPerPiece = (L * W * roughThicknessIn) / 144
 
   const cal = rb.solidWoodTopCalibration
+  // calib_thickness_in is the calibration piece's ROUGH thickness — same
+  // basis as bdftPerPiece above. If the two ever diverge the labor scale
+  // skews silently, so they're deliberately computed the same way.
   const calBdft = cal
     ? (cal.calib_length_in * cal.calib_width_in * cal.calib_thickness_in) / 144
     : 0
@@ -1352,10 +1386,7 @@ function computeBreakdownSolidWoodTop(
     hoursByDept.finish + hoursByDept.install
   const totalLabor = totalHours * rate
 
-  // Material — solid wood component, BdFt × $/bdft × (1 + waste/100).
-  const mat = s.solidWoodMaterialId
-    ? rb.solidWoodComponents.find((c) => c.id === s.solidWoodMaterialId) || null
-    : null
+  // Material — rough BdFt × $/bdft × (1 + the COMPONENT's waste/100).
   const wasteMult = mat ? 1 + (Number(mat.waste_pct) || 0) / 100 : 1
   const materialPerPiece = mat
     ? bdftPerPiece * (Number(mat.cost_per_bdft) || 0) * wasteMult
@@ -1367,9 +1398,16 @@ function computeBreakdownSolidWoodTop(
     : null
 
   const consumablesPct = Number(defaults.consumablesPct) || 0
-  const wastePct = Number(defaults.wastePct) || 0
   const consumables = materialSubtotal * (consumablesPct / 100)
-  const waste = materialSubtotal * (wastePct / 100)
+  // ⛔ NO PER-LINE WASTE ON THIS PRODUCT — it would be the second helping.
+  // Solid-wood waste is a property of the STOCK (walnut yields differently
+  // from maple) and is already inside materialSubtotal via wasteMult above.
+  // Applying the generic per-line waste on top charged it twice, on an
+  // already-inflated subtotal — Andrew's panel read "× 1.15 waste" and then
+  // "Waste 5% · $15". The component's % is the single source; the composer
+  // panel hides the Waste knob for this product to match.
+  const wastePct = 0
+  const waste = 0
   const totalMaterial = materialSubtotal + consumables + waste
 
   return {
@@ -1441,6 +1479,8 @@ function computeBreakdownSolidWoodTop(
     solidWoodTop: {
       bdftPerPiece,
       bdftTotal: bdftPerPiece * qty,
+      roughThicknessIn,
+      roughLabel: mat ? formatThickness(mat.thickness_quarters) : null,
       materialDetail,
       // Mirror of the flat hoursByDept above. Both shapes carry the
       // same dept totals so the panel and storage paths can each read

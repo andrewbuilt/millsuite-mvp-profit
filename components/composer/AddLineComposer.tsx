@@ -80,6 +80,7 @@ import {
   computeSolidWoodCost,
   formatThickness,
   loadSolidWoodComponents,
+  quartersToInches,
   type SolidWoodComponent,
 } from '@/lib/solid-wood'
 import SolidWoodWalkthrough from '@/components/walkthroughs/SolidWoodWalkthrough'
@@ -2257,14 +2258,13 @@ function BreakdownPanel({
           onChange={onDefaultsPct}
           onBlur={onPersistDefaults}
         />
-        <PctRow
-          label="Waste"
-          pctKey="wastePct"
-          value={defaults.wastePct}
-          amount={breakdown.waste}
-          onChange={onDefaultsPct}
-          onBlur={onPersistDefaults}
-        />
+        {/* NO per-line Waste knob here on purpose. Solid-wood waste is a
+            property of the STOCK and is already inside the material figure
+            above (walnut yields differently from maple). Showing the generic
+            knob here charged it a second time on the inflated subtotal —
+            "× 1.15 waste" and then "Waste 5%". computeBreakdownSolidWoodTop
+            forces wastePct to 0 to match; don't re-add this row without
+            removing it there. */}
 
         <div className="mt-3 pt-3 border-t border-[#E5E7EB]">
           <Row label="Total" value={breakdown.totals.total} bold />
@@ -2979,8 +2979,15 @@ function SolidWoodTopFormBody({
   }
 
   const noComponents = rateBook.solidWoodComponents.length === 0
-  const bdft = (Number(s.pieceLengthIn) || 0) * (Number(s.pieceWidthIn) || 0) *
-    (Number(s.pieceThicknessIn) || 0) / 144
+  // Same basis as computeBreakdownSolidWoodTop: BdFt is measured on the ROUGH
+  // stock, because that's what gets bought and milled. A 1.5" finished top out
+  // of 8/4 consumes 2". Falls back to the typed thickness only until a
+  // component is picked (the save gate requires one).
+  const swMat = s.solidWoodMaterialId
+    ? rateBook.solidWoodComponents.find((c) => c.id === s.solidWoodMaterialId) || null
+    : null
+  const roughIn = swMat ? quartersToInches(swMat.thickness_quarters) : Number(s.pieceThicknessIn) || 0
+  const bdft = (Number(s.pieceLengthIn) || 0) * (Number(s.pieceWidthIn) || 0) * roughIn / 144
 
   return (
     <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 space-y-6">
@@ -3022,7 +3029,10 @@ function SolidWoodTopFormBody({
               className="w-full bg-white border border-[#E5E7EB] rounded-md px-3 py-2 text-sm font-mono tabular-nums text-[#111] outline-none focus:border-[#2563EB]"
             />
           </Field>
-          <Field label="Thickness (in)">
+          <Field
+            label="Finished thickness (in)"
+            hint="Spec only — BdFt prices off the rough stock."
+          >
             <input
               type="number"
               inputMode="decimal"
@@ -3038,7 +3048,9 @@ function SolidWoodTopFormBody({
         </div>
         <div className="text-[11px] text-[#6B7280] font-mono tabular-nums">
           {bdft > 0
-            ? `${bdft.toFixed(2)} BdFt per piece · ${(bdft * draft.qty).toFixed(2)} BdFt total`
+            ? `${bdft.toFixed(2)} BdFt per piece` +
+              (swMat ? ` (${formatThickness(swMat.thickness_quarters)} rough)` : '') +
+              ` · ${(bdft * draft.qty).toFixed(2)} BdFt total`
             : 'Enter dimensions to see BdFt.'}
         </div>
       </section>

@@ -464,11 +464,19 @@ function SizeScreen({
         We'll calibrate your time against one top of this size. We'll scale
         up or down on every line based on its actual dimensions.
       </p>
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-3 gap-3 mb-2">
         <NumberCell label="Length (in)" value={length} onChange={onLength} step={1} />
         <NumberCell label="Width (in)" value={width} onChange={onWidth} step={1} />
-        <NumberCell label="Thickness (in)" value={thickness} onChange={onThickness} step={0.25} />
+        <NumberCell label="Rough thickness (in)" value={thickness} onChange={onThickness} step={0.25} />
       </div>
+      {/* Rough, not finished — every line's BdFt is measured on the rough
+          stock it's milled from, and the two have to share a basis or the
+          labor scale skews silently. 8/4 stock = 2". */}
+      <p className="text-[11px] text-[#6B7280] leading-relaxed mb-6">
+        Thickness is the <strong>rough stock</strong> you'd buy for it, not the finished
+        top — 2&quot; if you'd mill it out of 8/4. Board feet are measured the same way on
+        every line.
+      </p>
       <div className="text-[11px] text-[#6B7280] font-mono tabular-nums mb-6">
         That's {bdft.toFixed(2)} BdFt for one top.
       </div>
