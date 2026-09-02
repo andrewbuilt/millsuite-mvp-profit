@@ -10,7 +10,7 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-02)
 
-**✅ 2026-09-02: WAVE-2 ITEM 10 BUILT (`757be89`).** Kanban cards now show an **Estimate sent** chip, **"Mark as sent" auto-advances a new lead to 50/50** (guarded — it can never walk a 90%/sold project backwards), and **sold cards read their real stage** instead of a permanent "Live". ⚠️ **Behaviour change worth knowing: marking an estimate sent on a NEW LEAD now moves the card without a drag.**
+**✅ 2026-09-02: WAVE-2 ITEMS 10 + 11 BUILT (`757be89`, `654a917`) — the wave is DONE, all eleven, no migrations anywhere in it.** Item 11 gave the kanban chip its own row after item 10's chip clipped at narrow widths. Item 10: Kanban cards now show an **Estimate sent** chip, **"Mark as sent" auto-advances a new lead to 50/50** (guarded — it can never walk a 90%/sold project backwards), and **sold cards read their real stage** instead of a permanent "Live". ⚠️ **Behaviour change worth knowing: marking an estimate sent on a NEW LEAD now moves the card without a drag.**
 
 **✅ 2026-09-01: WAVE-2 ITEM 9 BUILT (`7bb1266`) — the Solid Wood Top calibrator moved from Settings to Rate book → Materials → Solid wood.** It's the last calibration that wasn't in the rate book. **If you're looking for it on Settings, it isn't there any more.**
 
@@ -137,7 +137,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Small fixes wave 2 — items 1–10 ✅ BUILT (2026-09-01 → 09-02). **Item 11 (kanban chip on its own row) scoped 2026-09-02 — BUILD NEXT.** No migrations in the whole wave. Andrew's live pass on 2, 3, 5, 6, 7, 8, 9, 10 is at the end.
+### Small fixes wave 2 — ✅ ALL ELEVEN BUILT (2026-09-01 → 09-02). **No migrations in the whole wave. Nothing left to build; Andrew's live pass on 2, 3, 5, 6, 7, 8, 9, 10 is at the end.**
 
 **8. ✅ PRICING BUG FIXED — Solid Wood Top was under-billed twice over. `e3efbc4`.** No schema change. Two independent defects on the same product.
    - **Root A — BdFt came off the TYPED thickness.** A 1.5" finished top milled from 8/4 consumes **2" of rough stock** — that's what gets bought, jointed and planed. Andrew's 40×24 read 10 BdFt against a real 13.33. Because `scale` rides the same figure it under-counted **labor** too. BdFt now measures on the component's `quartersToInches(thickness_quarters)`; the typed field is **"Finished thickness"** — spec only, prices nothing. Falls back to the typed value only until a material is picked (the save gate requires one).
@@ -195,7 +195,8 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
    - **Auto-advance:** "Mark as sent" moves `new_lead` → `fifty_fifty` in the same handler. ⛔ **Guarded to `new_lead` only** — re-sending on a 90%/sold project must never demote it; the stage is the shop's judgement and this is the one place it could be silently overwritten. A failed stage bump logs rather than claiming the send failed, since the send already landed. Kanban drag stays free afterwards.
    - Verified the badge matrix rendered across all seven states (no chip on an untouched lead, chip on 50/50 and 90%, and each of the four sold stages).
 
-**11. Kanban card: status chip gets its own row — scoped 2026-09-02 (Andrew's screenshot: "ESTIMATE SEN…" clipped), NOT built.** The chip shares a flex row with the price (`app/(app)/sales/kanban/page.tsx` ~380–400, `whitespace-nowrap`) — five narrow columns can't fit `$438,506` + `ESTIMATE SENT` on one line. Fix: the chip (both variants — stage label on sold, estimate-sent otherwise) moves to **its own row below the price**, left-aligned, small top margin; card grows ~20px and nothing can truncate at any column width. Andrew's call: taller cards on the kanban; the **projects page cards are fine — don't touch them**. Verify at a 5-column width with the Williams card ($438,506 + chip).
+**11. ✅ Kanban chip on its own row — `654a917`.** The chip shared a flex row with the price; five columns can't fit a big number and a long label on one line, so under roughly 1200px the chip spilled past the card edge ("ESTIMATE SEN…"). Both variants — stage label on sold, estimate-sent otherwise — now sit on their own left-aligned row under the price. Costs ~20px of card height, which is the cheaper trade. **The projects-page cards are a different layout and were deliberately left alone** (Andrew's call).
+   - _Reproduced before fixing:_ a harness at the real board geometry (max-w-1400 page, px-6, `grid-cols-5 gap-3`, real card padding) is clean at 1440 but visibly overflows at **1120** and badly at **940** — the old layout only looked fine on a wide monitor, which is why it wasn't caught when item 10 shipped. The new one holds at all three.
 
 **Left for Andrew (live, logged in — the preview can't auth):**
 - **Item 1:** ✅ **Confirmed working live by Andrew 2026-09-01** ("the schedule seems to work perfectly").
@@ -207,6 +208,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 - **Item 8 (money):** re-price his case — 2 pieces 40×24×1.5" in 8/4 Walnut should read **26.67 BdFt total ≈ $398 material**, with waste shown **once** and no Waste knob on that product's panel. **Then open the Solid Wood Top calibration and check the thickness there is the ROUGH figure** (2″ for 8/4, not 1.5″) — if it was entered as finished, labor now scales high until it's corrected. Any saved Solid Wood Top line will reprice upward on refresh; that's the fix landing, but worth knowing which quotes moved.
 - **Item 9:** the Solid Wood Top calibrator is now at **Rate book → Materials → Solid wood**, top of the section — it's gone from Settings. Open it and confirm the summary (piece size, per-dept hours, edge multipliers) matches what you actually entered. _This is also the fastest way to do item 8's calibration check._
 - **Item 10:** on a NEW LEAD, hit "Mark as sent" — the card should gain an **Estimate sent** chip AND jump to 50/50 without a drag. Do the same on a 90% project and confirm its stage does **not** move. Then check the Sold column: **Murtagh Bar should read "In Production", not "Live"**, and the badge should follow the job as production starts and completes.
+- **Item 11:** on the same pass, confirm no chip is clipped at your normal window size — the chip now sits on its own line under the price.
 
 ### Client portal — ✅ BUILT, MIGRATED AND DEPLOYED 2026-08-31. **Nothing blocking; only Andrew's live pass (list at the end).**
 
