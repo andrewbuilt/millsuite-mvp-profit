@@ -995,6 +995,7 @@ These are **intents, not specs.** Each is `[unscoped]` until defined with Andrew
 planning pass. **Code: do not build an `[unscoped]` item — bring it back to be scoped first.**
 We define one item at a time, just before building it; the spec lands in "Now" while it's active.
 
+- `[unscoped]` **Built-branded estimate template** (added 2026-09-02) — a per-org PDF template (Built gets the client-portal-language estimate; other orgs keep the current clean layout; small `orgs` field picks the template, same data feeds both). Design in flight: Cowork riff mockup at `mockups/estimate-built-mockup.html` (payment schedule as the portal's progress rail, dark hero + thank-you cards, Archivo/Courier/brass) + a separate claude-design pass Andrew commissioned. Scope AFTER Andrew picks a direction — do not build from the mockup alone.
 - `[unscoped]` **Week-by-week crew assignment** (added 2026-09-01) — the REAL fix for cross-dept capacity, superseding wave-2 item 3's even split. Andrew's pattern: "a guy is on install for a month, then 2 days in the shop, then a week on install." Shape to explore: per-week member→dept assignment on /schedule ("Marcus counts as install this week"), capacity reads it, static `dept_assignments` becomes the default. Needs a Cowork design pass — data model + where the assignment UI lives.
 
 **Phase 1 — shell / structure** _(one coherent wave; settle structure before skinning it)_
