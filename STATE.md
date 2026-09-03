@@ -8,7 +8,9 @@
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-09-02)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-09-03)
+
+**NEW 2026-09-03 (Cowork planning pass): "PRESENTATION ESTIMATE" — Built's premium template, scoped. ⛔ DESIGN CHECKPOINT FIRST: a Cowork mockup pass + Andrew's markup gate the build — Code, do not start the react-pdf work yet.** Timeline-aesthetic 3-part estimate (cover w/ editorial headline + org-configurable story stats + aggregated materials palette · priced scope pages · numbers page), Newsreader + Instrument Sans (free stand-ins for Tool Serif/Suisse Intl, Andrew's call), per-estimate Standard/Presentation toggle, migration `095`. Design refs committed at `prototypes/design/estimate-presentation/`. Full spec at the top of Now.
 
 **✅ 2026-09-03: SMALL FIXES WAVE 3 — ALL SIX ITEMS DONE. Migration `094` ✅ ON PROD AND VERIFIED. Nothing blocking — deploy, then Andrew's live pass.** `f2bcc58` minute-precision time · `52aa234` /me mobile pass · `1ae267b` production fill bar · `c95acdf` sold_at + timeline · **item 1 imported live 2026-09-03 (Bonzer, Schiller Wal Opt, Brabson, + Hunt re-imported) — `refreeze-bid-totals` reports 12 × ok.**
 
@@ -138,6 +140,23 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ---
 
 ## Now
+
+### Presentation estimate — Built's premium template. Scoped 2026-09-03 (Cowork planning pass with Andrew). **⛔ DESIGN CHECKPOINT FIRST: evolve the reference into a full 3-part mockup for Andrew's markup BEFORE building the PDF. Build AFTER wave 3.**
+
+**Why:** "We're sending out $600k estimates, it needs to look way better." Direction = the Timeline (timeline.com) editorial aesthetic Andrew likes; claude-design reference files committed at **`prototypes/design/estimate-presentation/`** (`Estimate.dc.html` is the closest starting point; `Proposal Editorial.dc.html` the richer variant; Built marks included). This is a SECOND template — the standard estimate stays exactly as-is (it's Bam's and B2B's).
+
+**Fonts (Andrew's call: free stand-ins, $0):** **Newsreader** (light serif display — the Tool Serif role) + **Instrument Sans** (everything else — the Suisse Intl role). The site's exact faces are Tool Serif 340 + Suisse Intl 400/450/500 (verified from the live site's loaded FontFaces), both commercial; the layout must survive a straight font-file swap if Andrew ever buys them. react-pdf: vendor STATIC TTF instances (no variable fonts) under `assets/fonts/`, `Font.register` in the PDF route; the `pdfText` glyph-sanitizer rule (`e771ddc`) applies.
+
+**Document structure (still an estimate, three parts):**
+1. **Cover** — Built mark · editorial headline in Newsreader: **"A custom millwork package for the Williams Residence."** (auto-generated from client/project, EDITABLE at send time in SendEstimateModal — Andrew wants to tune the sentence per client) · **Built story stat blocks** (Andrew's call — the Timeline "18 years of research" move): 2013 family owned · 15 craftspeople · 8 families · 12 kids & 16 pets. **Org-configurable, not hardcoded** (up to 4 stat rows: value + label + sub-line, edited on Settings → Estimates; empty = section omitted, so other orgs aren't wearing Built's numbers) · **materials palette**: ONE aggregated list of distinct material names across the whole estimate (resolve each line's `product_slots` material ids through the catalog + door materials; include freeform vendor lines' names; sorted, two-column) — this is where 20-material projects put them, so scope pages don't · meta line EST no · date · valid 30 days.
+2. **Scope pages** — one section per subproject: name + amount, details, dimensions, exclusions (the structured fields from the standard PDF), **no per-line materials row** (cover owns them). Every section priced — it must read as an estimate, not a brochure.
+3. **The numbers** — estimate total, payment schedule, terms, the org closing note ("thank you" voice), acceptance/signature lines.
+
+**Template mechanics — per-estimate toggle (Andrew: B2B keeps the standard):** migration **`095`**: `orgs.estimate_template_default` text ('standard'|'presentation', default 'standard') · `projects.estimate_template` (nullable — stamped by the send-time choice so regenerate keeps it) · `orgs.estimate_cover_stats` jsonb. SendEstimateModal gets the picker (default = project's stamp, else org default) + the editable headline sentence. Settings → Estimates card grows the default picker + stat rows. ⛔ `orgs` writes through the `updateOrgChecked` guard, and keep the isolated-select pattern from item 9 of wave 1 (a pre-095 database must not blank the card).
+
+**Build shape:** new `EstimatePresentationPdf.tsx` beside the existing `EstimatePdf.tsx`, same data payload + two derived inputs (materials palette, stats); the PDF route branches on template. No changes to the standard template's output.
+
+**Order: (1) Cowork mockup pass → Andrew marks it up → (2) migration 095 → (3) build.** Code: do not start the react-pdf work before the mockup is approved — that's the wave-2-item-5 lesson applied in advance.
 
 ### Small fixes wave 3 — scoped 2026-09-02 (Cowork pass with Andrew). **BUILD IN ORDER. Migration `094` (items 5+6) must run on prod before deploying those items.**
 
@@ -1089,7 +1108,7 @@ These are **intents, not specs.** Each is `[unscoped]` until defined with Andrew
 planning pass. **Code: do not build an `[unscoped]` item — bring it back to be scoped first.**
 We define one item at a time, just before building it; the spec lands in "Now" while it's active.
 
-- `[unscoped]` **Built-branded estimate template** (added 2026-09-02, **PARKED 2026-09-02** — Andrew passed on both Cowork riff versions: "not feeling those, let's move on"). Still the plan when it resumes: a per-org PDF template (Built custom, other orgs keep the clean layout; small `orgs` field picks it, same data feeds both). Riff mockup kept at `mockups/estimate-built-mockup.html` (v2: printable/minimal); a separate claude-design pass was also commissioned. Wait for Andrew to bring a direction back — do not build.
+- ~~`[unscoped]` Built-branded estimate template~~ **SUPERSEDED 2026-09-03** — Andrew brought back a direction (claude design's Timeline-aesthetic take) and it's now scoped as **"Presentation estimate"** at the top of Now. The earlier portal-language riff (`mockups/estimate-built-mockup.html`) is dead; the design refs live in `prototypes/design/estimate-presentation/`.
 - `[unscoped]` **Week-by-week crew assignment** (added 2026-09-01) — the REAL fix for cross-dept capacity, superseding wave-2 item 3's even split. Andrew's pattern: "a guy is on install for a month, then 2 days in the shop, then a week on install." Shape to explore: per-week member→dept assignment on /schedule ("Marcus counts as install this week"), capacity reads it, static `dept_assignments` becomes the default. Needs a Cowork design pass — data model + where the assignment UI lives.
 
 **Phase 1 — shell / structure** _(one coherent wave; settle structure before skinning it)_
