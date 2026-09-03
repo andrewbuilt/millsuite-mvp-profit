@@ -131,7 +131,7 @@
       "decision": "import",
       "expected_price": 49075,
       "expected_hours": 379,
-      "milestones": 0,
+      "milestones": 3,
       "_note": "Chosen over the Euc Opt (1bc5ffc9, skipped). Added 2026-09-03, wave-3 item 1."
     },
     {
@@ -141,7 +141,7 @@
       "decision": "import",
       "expected_price": 16099,
       "expected_hours": 126,
-      "milestones": 0,
+      "milestones": 3,
       "_note": "Added 2026-09-03, wave-3 item 1. NOT the same job as the manual MillSuite card 'Brabson countertops' ($2,259, 50/50) \u2014 different scope, Andrew's call to keep both."
     }
   ]
