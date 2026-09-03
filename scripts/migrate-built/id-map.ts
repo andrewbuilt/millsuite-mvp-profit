@@ -78,3 +78,59 @@ export async function recordId(
   )
   if (error) throw new Error(`id-map record failed (${entity} ${builtId}): ${error.message}`)
 }
+
+/**
+ * Like `lookupMillsuiteId`, but proves the mapped row STILL EXISTS.
+ *
+ * ⛔ THE BUG THIS EXISTS FOR. The map outlives the rows it points at. Delete a
+ * project in the app to force a clean re-import — the obvious thing to try —
+ * and the map still holds Built-id → the dead uuid. Every caller then takes
+ * its `if (existing)` branch and runs
+ *
+ *     .update(payload).eq('id', <deleted uuid>)
+ *
+ * which matches zero rows. PostgREST reports that as SUCCESS, so the script
+ * throws nothing and prints "updated 1" while writing nothing at all. The job
+ * stays deleted and the run looks clean.
+ *
+ * It cascades, too: deleting a project takes its subprojects, lines and
+ * milestones with it, so their mappings go stale in the same instant.
+ *
+ * So: confirm the row is really there. If it isn't, drop the dead mapping and
+ * return null, which sends the caller down its insert path and re-creates the
+ * row properly. That makes "delete it and re-import" behave the way anyone
+ * would expect it to.
+ */
+export async function lookupLiveMillsuiteId(
+  ms: SupabaseClient,
+  orgId: string,
+  entity: Entity,
+  builtId: string,
+  table: string,
+): Promise<string | null> {
+  const mapped = await lookupMillsuiteId(ms, orgId, entity, builtId)
+  if (!mapped) return null
+
+  const { data, error } = await ms.from(table).select('id').eq('id', mapped).maybeSingle()
+  if (error) {
+    throw new Error(`id-map liveness check failed (${entity} ${builtId}): ${error.message}`)
+  }
+  if (data) return mapped
+
+  // Mapped but gone. Clear it so the re-insert can record a fresh mapping —
+  // leaving it would make the next run take the same dead branch again.
+  console.log(
+    `    · ${entity} ${builtId} was mapped to a row that no longer exists — ` +
+      're-importing it from scratch',
+  )
+  const { error: delErr } = await ms
+    .from('migration_id_map')
+    .delete()
+    .eq('org_id', orgId)
+    .eq('entity', entity)
+    .eq('built_id', builtId)
+  if (delErr) {
+    throw new Error(`could not clear stale mapping (${entity} ${builtId}): ${delErr.message}`)
+  }
+  return null
+}

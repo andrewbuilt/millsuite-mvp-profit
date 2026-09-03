@@ -19,7 +19,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // Must precede the lib imports.
 import './env'
 import type { CliOptions } from './cli'
-import { lookupMillsuiteId, recordId, loadEntityMap } from './id-map'
+import {
+  lookupMillsuiteId,
+  lookupLiveMillsuiteId,
+  recordId,
+  loadEntityMap,
+} from './id-map'
 import { importIds, type Manifest, type ManifestJob } from './manifest'
 // The verifier (chunk 6a) reconstructs each project's price with the SAME pure
 // functions the app uses to compute projects.bid_total (see lib/project-totals.ts),
@@ -254,7 +259,7 @@ export async function migrateClients(ctx: Ctx): Promise<void> {
       address: c.address ?? null,
       notes: c.notes ?? null,
     }
-    const existing = await lookupMillsuiteId(ms, orgId, 'client', c.id)
+    const existing = await lookupLiveMillsuiteId(ms, orgId, 'client', c.id, 'clients')
     if (existing) {
       const { error: e } = await ms.from('clients').update(payload).eq('id', existing)
       if (e) throw new Error(`update client ${c.id}: ${e.message}`)
@@ -356,7 +361,7 @@ export async function migrateProjects(ctx: Ctx): Promise<void> {
     // 6c: stamp every migrated project so the UI can badge it "IMPORTED".
     // Set on insert and preserved on re-run (idempotent — keeps the original
     // import timestamp rather than bumping it each pass).
-    const existing = await lookupMillsuiteId(ms, orgId, 'project', builtId)
+    const existing = await lookupLiveMillsuiteId(ms, orgId, 'project', builtId, 'projects')
     if (existing) {
       // Keep the ORIGINAL import timestamp on re-run; only backfill if unset
       // (e.g. a project migrated before 080 added the column).
@@ -475,7 +480,7 @@ export async function migrateSubprojects(ctx: Ctx): Promise<void> {
   let updated = 0
 
   async function upsertSub(builtSubId: string, payload: Record<string, unknown>) {
-    const existing = await lookupMillsuiteId(ms, orgId, 'subproject', builtSubId)
+    const existing = await lookupLiveMillsuiteId(ms, orgId, 'subproject', builtSubId, 'subprojects')
     if (existing) {
       const { error } = await ms.from('subprojects').update(payload).eq('id', existing)
       if (error) throw new Error(`update subproject ${builtSubId}: ${error.message}`)
