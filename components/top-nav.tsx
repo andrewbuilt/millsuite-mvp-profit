@@ -68,6 +68,7 @@ const NAV: GroupSpec[] = [
     label: 'Manage', // no href → not clickable; the label opens the dropdown
     tour: 'nav-manage',
     children: [
+      { href: '/tasks', label: 'Tasks' },
       { href: '/reports', label: 'Reports', feature: 'outcomes' },
       { href: '/suggestions', label: 'Suggestions', feature: 'rate-book' },
       { href: '/rate-book', label: 'Rate book', feature: 'rate-book' },

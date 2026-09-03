@@ -57,12 +57,22 @@ export interface TaskComment {
   created_at: string
 }
 
-/** A login that can be assigned work. Managers and owners have logins; the
- *  panel renders names from this rather than storing them on the task. */
+/** Someone on the team who can be given a task.
+ *
+ *  ⛔ This is the ROSTER (`orgs.team_members`), not the login table. The sheet
+ *  assigned work to PEOPLE — most of the shop floor has no MillSuite login,
+ *  and the first version of this read `users` and additionally dropped
+ *  workers, so Andrew opened the panel and found he couldn't give Hunter a
+ *  task at all. `assignee_ids` therefore holds team_member ids.
+ *
+ *  `userId` is carried so "Mine" can resolve the signed-in user to their
+ *  roster entry; it's null for anyone without a login, which is fine — they
+ *  can be assigned, they just can't open the app to see it yet. */
 export interface TaskAssignee {
   id: string
   name: string
-  email: string | null
+  /** users.id when this person has a login, else null. */
+  userId: string | null
 }
 
 const TASK_COLUMNS =
@@ -140,26 +150,33 @@ export async function listOpenCountByProject(orgId: string): Promise<Record<stri
   return out
 }
 
-/** The org's assignable logins. `users` is SELECT-able within your own org
- *  (083), so this is a plain client read. */
+/** Everyone on the team roster, whether or not they have a login. Reads
+ *  `orgs.team_members` directly rather than via loadShopRateSetup — that
+ *  helper also pulls salaries out of the owner-only compensation table, which
+ *  a task picker has no business touching. */
 export async function listAssignees(orgId: string): Promise<TaskAssignee[]> {
   const { data, error } = await supabase
-    .from('users')
-    .select('id, name, email, role')
-    .eq('org_id', orgId)
-    .order('name')
+    .from('orgs')
+    .select('team_members')
+    .eq('id', orgId)
+    .maybeSingle()
   if (error) {
     console.error('listAssignees', error)
     return []
   }
-  return ((data || []) as Array<{ id: string; name: string | null; email: string | null; role: string | null }>)
-    // Workers live in /me and aren't part of this list in v1.
-    .filter((u) => u.role !== 'member')
-    .map((u) => ({
-      id: u.id,
-      name: (u.name || '').trim() || (u.email || 'Unknown'),
-      email: u.email ?? null,
+  const raw = (data as { team_members?: unknown } | null)?.team_members
+  const rows = Array.isArray(raw) ? raw : []
+  return rows
+    .map((m: any) => ({
+      id: String(m?.id ?? ''),
+      name: String(m?.name ?? '').trim(),
+      userId: m?.user_id ? String(m.user_id) : null,
+      active: m?.active !== false,
     }))
+    // A member with no id can't be referenced; an inactive one has left.
+    .filter((m) => m.id && m.name && m.active)
+    .map(({ id, name, userId }) => ({ id, name, userId }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export async function listComments(taskId: string): Promise<TaskComment[]> {
