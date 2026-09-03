@@ -89,6 +89,11 @@ export default function TasksPanel() {
     return m
   }, [projects])
 
+  /** Who a picker offers. Distinct from `assignees`, which also carries
+   *  people switched off on /team so their name still resolves on a task
+   *  they were given earlier. */
+  const pickable = useMemo(() => assignees.filter((a) => a.tasksEnabled), [assignees])
+
   const nameById = useMemo(() => {
     const m = new Map<string, string>()
     for (const a of assignees) m.set(a.id, a.name)
@@ -233,7 +238,7 @@ export default function TasksPanel() {
         <div className="px-4 py-2 border-b border-[#F3F4F6] flex items-center gap-1.5 flex-wrap">
           <FilterChip label="All" active={filter === 'all'} onClick={() => setFilter('all')} />
           <FilterChip label="Mine" active={filter === 'mine'} onClick={() => setFilter('mine')} />
-          {assignees
+          {pickable
             .filter((a) => a.id !== myAssigneeId)
             .map((a) => (
               <FilterChip
@@ -287,13 +292,13 @@ export default function TasksPanel() {
               {/* Who it's for, AT CREATE TIME. This was the whole gap in the
                   first cut: assignment only existed inside an expanded row, so
                   from the drawer there was no way to hand a task to anyone. */}
-              {assignees.length > 0 && (
+              {pickable.length > 0 && (
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1">
                     Who's doing it
                   </div>
                   <div className="flex items-center gap-1 flex-wrap">
-                    {assignees.map((a) => {
+                    {pickable.map((a) => {
                       const on = newAssignees.includes(a.id)
                       return (
                         <button
@@ -381,7 +386,7 @@ export default function TasksPanel() {
                         task={t}
                         project={t.project_id ? projectById.get(t.project_id) ?? null : null}
                         projects={projects}
-                        assignees={assignees}
+                        assignees={pickable}
                         nameById={nameById}
                         expanded={expandedId === t.id}
                         onToggleExpand={() =>

@@ -73,6 +73,11 @@ export interface TaskAssignee {
   name: string
   /** users.id when this person has a login, else null. */
   userId: string | null
+  /** Whether to OFFER this person in a picker ("Gets tasks" on /team).
+   *  The list still includes people who are off, because a task assigned
+   *  before they were switched off must still render their NAME rather than
+   *  "Unknown" — filter on this for pickers, not for name lookup. */
+  tasksEnabled: boolean
 }
 
 const TASK_COLUMNS =
@@ -150,7 +155,8 @@ export async function listOpenCountByProject(orgId: string): Promise<Record<stri
   return out
 }
 
-/** Everyone on the team roster, whether or not they have a login. Reads
+/** Everyone active on the team roster, whether or not they have a login and
+ *  whether or not they're task-enabled — see `tasksEnabled`. Reads
  *  `orgs.team_members` directly rather than via loadShopRateSetup — that
  *  helper also pulls salaries out of the owner-only compensation table, which
  *  a task picker has no business touching. */
@@ -172,10 +178,14 @@ export async function listAssignees(orgId: string): Promise<TaskAssignee[]> {
       name: String(m?.name ?? '').trim(),
       userId: m?.user_id ? String(m.user_id) : null,
       active: m?.active !== false,
+      // Opt-out, matching normalizeTeamMembers: rows that predate the flag
+      // are enabled, so the picker is never mysteriously empty. Trimmed per
+      // person on /team ("Gets tasks").
+      tasksEnabled: m?.tasks_enabled !== false,
     }))
-    // A member with no id can't be referenced; an inactive one has left.
+    // No id → can't be referenced. Inactive → they've left the shop.
     .filter((m) => m.id && m.name && m.active)
-    .map(({ id, name, userId }) => ({ id, name, userId }))
+    .map(({ id, name, userId, tasksEnabled }) => ({ id, name, userId, tasksEnabled }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 

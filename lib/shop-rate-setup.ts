@@ -46,6 +46,14 @@ export interface TeamMember {
    *  those rows for capacity. The walkthrough doesn't populate this —
    *  defaults to []. */
   dept_assignments: string[]
+  /** Whether this person appears in the task assignee picker. Most of a
+   *  shop doesn't run off the action list — managers plus the odd lead — and
+   *  an assignee list with everyone in it is noise.
+   *
+   *  Defaults TRUE on rows that predate the flag: an empty picker reads as
+   *  "assignment is broken", which is exactly the bug this followed. Trim it
+   *  on /team rather than starting from nobody. */
+  tasks_enabled: boolean
   /** Optional FK to users.id, kept for time-tracking surfaces that
    *  reference users (clock-in, time_entries.user_id). Set when /team
    *  creates a login for this person (the account is the one explicit
@@ -160,7 +168,7 @@ export function makeTeamMember(
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `tm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  return { id, name, annual_comp, billable, dept_assignments: [], active: true }
+  return { id, name, annual_comp, billable, dept_assignments: [], tasks_enabled: true, active: true }
 }
 
 /** Floor of 1 so an empty-team state doesn't divide by zero in the
@@ -299,6 +307,7 @@ export function normalizeTeamMembers(
     name: String(m.name ?? ''),
     annual_comp: Number(m.annual_comp) || 0,
     billable: m.billable === false ? false : true,
+    tasks_enabled: (m as { tasks_enabled?: unknown }).tasks_enabled === false ? false : true,
     dept_assignments: Array.isArray((m as { dept_assignments?: unknown }).dept_assignments)
       ? ((m as { dept_assignments: unknown[] }).dept_assignments).map(String)
       : [],

@@ -55,6 +55,11 @@ export default function TasksPage() {
     return m
   }, [projects])
 
+  /** Who a picker offers. Distinct from `assignees`, which also carries
+   *  people switched off on /team so their name still resolves on a task
+   *  they were given earlier. */
+  const pickable = useMemo(() => assignees.filter((a) => a.tasksEnabled), [assignees])
+
   const nameById = useMemo(() => {
     const m = new Map<string, string>()
     for (const a of assignees) m.set(a.id, a.name)
@@ -152,7 +157,7 @@ export default function TasksPage() {
             <div className="flex items-center gap-1.5 flex-wrap mt-3">
               <Chip label="All" active={filter === 'all'} onClick={() => setFilter('all')} />
               <Chip label="Mine" active={filter === 'mine'} onClick={() => setFilter('mine')} />
-              {assignees
+              {pickable
                 .filter((a) => a.id !== myAssigneeId)
                 .map((a) => (
                   <Chip
@@ -203,7 +208,7 @@ export default function TasksPage() {
                       task={t}
                       project={t.project_id ? projectById.get(t.project_id) ?? null : null}
                       projects={projects}
-                      assignees={assignees}
+                      assignees={pickable}
                       nameById={nameById}
                       expanded={expandedId === t.id}
                       onToggleExpand={() =>
@@ -239,7 +244,7 @@ export default function TasksPage() {
                         className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
                       />
                       <div className="flex items-center gap-1 flex-wrap">
-                        {assignees.map((a) => {
+                        {pickable.map((a) => {
                           const on = newAssignees.includes(a.id)
                           return (
                             <button

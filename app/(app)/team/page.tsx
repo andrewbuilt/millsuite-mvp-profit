@@ -870,6 +870,39 @@ function TeamContent() {
                     </button>
                     <span className="text-xs text-[#9CA3AF]">Billable</span>
                   </div>
+                  {/* Who shows up in the task assignee picker. Most of the
+                      shop doesn't work off the action list, and offering
+                      everybody just makes the picker noise. */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() =>
+                        patchMember(member.id, { tasks_enabled: !member.tasks_enabled })
+                      }
+                      title="Show this person in the task assignee list"
+                      className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
+                        member.tasks_enabled
+                          ? 'bg-[#2563EB] border-[#2563EB]'
+                          : 'border-[#D1D5DB] hover:border-[#9CA3AF]'
+                      }`}
+                    >
+                      {member.tasks_enabled && (
+                        <svg
+                          className="w-2.5 h-2.5 text-white"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={4}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                    <span className="text-xs text-[#9CA3AF]">Gets tasks</span>
+                  </div>
                 </div>
 
                 {/* Depth fields (chunk A1). Per-person hours/week feeds both

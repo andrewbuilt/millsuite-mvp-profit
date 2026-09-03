@@ -39,6 +39,8 @@ export default function ProjectTaskButton({ projectId }: { projectId: string }) 
 
   if (!ctx || !ctx.enabled) return null
   const openCount = ctx.openCountByProject[projectId] || 0
+  // Only people marked "Gets tasks" on /team are offered.
+  const pickable = ctx.assignees.filter((a) => a.tasksEnabled)
 
   async function save() {
     const t = title.trim()
@@ -120,9 +122,9 @@ export default function ProjectTaskButton({ projectId }: { projectId: string }) 
               </button>
             ))}
           </div>
-          {ctx.assignees.length > 0 && (
+          {pickable.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap mt-2">
-              {ctx.assignees.map((a) => {
+              {pickable.map((a) => {
                 const on = assignees.includes(a.id)
                 return (
                   <button
