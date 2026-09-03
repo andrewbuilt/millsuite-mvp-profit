@@ -30,6 +30,7 @@ import { Search, X } from 'lucide-react'
 import { type ProjectStage } from '@/lib/types'
 import { loadSubprojectStatusMap } from '@/lib/subproject-status'
 import { isDepositReceived } from '@/lib/project-stage'
+import { soldAgoLabel } from '@/lib/project-events'
 import { loadProjectDeptHours } from '@/lib/project-hours'
 import { loadProjectActuals } from '@/lib/actual-hours'
 import ImportedBadge from '@/components/imported-badge'
@@ -46,6 +47,9 @@ interface ProjectRow {
   updated_at: string
   /** Non-null when the job came from Built OS (6c) — drives the badge. */
   imported_at?: string | null
+  /** Stamped on the transition into 'sold' (094). Null on anything sold
+   *  before that migration — no backfill, so those cards say nothing. */
+  sold_at?: string | null
 }
 
 // Derived lifecycle bucket. 'pre' / 'ready' both map to the 'sold' stage.
@@ -121,13 +125,27 @@ export default function ProjectsPage() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const { data } = await supabase
-        .from('projects')
-        .select('id, name, client_name, stage, bid_total, due_date, updated_at, imported_at')
-        .eq('org_id', orgId)
-        .in('stage', POSTSOLD)
-        .order('updated_at', { ascending: false })
-      const rows = (data || []) as ProjectRow[]
+      const BASE_COLS =
+        'id, name, client_name, stage, bid_total, due_date, updated_at, imported_at'
+      const load = (cols: string) =>
+        supabase
+          .from('projects')
+          .select(cols)
+          .eq('org_id', orgId)
+          .in('stage', POSTSOLD)
+          .order('updated_at', { ascending: false })
+
+      // ⛔ Retry without sold_at rather than assuming migration 094 has run.
+      // PostgREST fails the WHOLE select on one unknown column (42703), so
+      // asking for it unconditionally would leave /projects EMPTY if this
+      // deploys first — turning a missing "Sold 12d ago" line into a blank
+      // page. Same class of trap as subprojects.updated_at.
+      let { data, error } = await load(`${BASE_COLS}, sold_at`)
+      if (error && String((error as { code?: string } | null)?.code) === '42703') {
+        console.warn('/projects: sold_at missing — run migration 094')
+        ;({ data, error } = await load(BASE_COLS))
+      }
+      const rows = (data || []) as unknown as ProjectRow[]
       if (cancelled) return
       setProjects(rows)
 
@@ -421,6 +439,12 @@ function ProjectCard({
 
       {/* Line 4: stage-specific context */}
       <CardContext project={p} enriched={e} />
+      {/* Quiet, and only when we actually know. Projects sold before 094
+          have no sold_at and deliberately show nothing rather than a
+          guessed date. */}
+      {soldAgoLabel(p.sold_at) && (
+        <div className="text-[11px] text-[#9CA3AF] mt-0.5">{soldAgoLabel(p.sold_at)}</div>
+      )}
     </button>
   )
 }

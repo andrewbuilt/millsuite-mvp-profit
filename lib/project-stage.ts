@@ -21,6 +21,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { recordProjectEvent } from './project-events'
 import { loadSubprojectStatusMap } from './subproject-status'
 import { seedAllocationsForProduction } from './schedule-seed'
 import {
@@ -156,6 +157,22 @@ async function commitProductionStart(projectId: string): Promise<boolean> {
   if (error) {
     console.error('startProduction update', error)
     return false
+  }
+  // Timeline (094). Both the gated path and the approval override funnel
+  // through here, so one call covers "started production" however it began.
+  const { data: row } = await supabase
+    .from('projects')
+    .select('org_id')
+    .eq('id', projectId)
+    .maybeSingle()
+  const orgId = (row as { org_id?: string } | null)?.org_id
+  if (orgId) {
+    void recordProjectEvent({
+      orgId,
+      projectId,
+      eventType: 'production_started',
+      label: 'Production started',
+    })
   }
   await seedAllocationsForProduction(projectId)
   return true

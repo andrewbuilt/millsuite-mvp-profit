@@ -120,6 +120,7 @@ import SendEstimateModal from '@/components/estimates/SendEstimateModal'
 import ReparseModal from '@/components/reparse/ReparseModal'
 import { Trash2, AlertCircle } from 'lucide-react'
 import { updateProjectName, updateProjectStage } from '@/lib/sales'
+import { recordProjectEvent } from '@/lib/project-events'
 import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
 import { countFinishSpecsFromSlots } from '@/lib/composer'
 import {
@@ -142,6 +143,7 @@ import StagePill, {
   type CoverStage,
 } from '@/components/project/StagePill'
 import ProjectTaskButton from '@/components/tasks/ProjectTaskButton'
+import TimelineDrawer from '@/components/project/TimelineDrawer'
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
@@ -1017,6 +1019,15 @@ export default function ProjectCoverPage() {
       return
     }
     setProject((p) => (p ? ({ ...p, estimate_sent_at: now } as typeof p) : p))
+    if (org?.id) {
+      void recordProjectEvent({
+        orgId: org.id,
+        projectId,
+        eventType: 'estimate_sent',
+        label: 'Estimate marked sent',
+        actorUserId: user?.id ?? null,
+      })
+    }
 
     // Sending the estimate IS the move from "new lead" to a real opportunity,
     // so advance the stage rather than making the operator drag the card.
@@ -1399,6 +1410,19 @@ export default function ProjectCoverPage() {
                 opens the panel filtered to it. Renders nothing for workers. */}
             <div className="flex items-center justify-end gap-2 mt-3">
               <ProjectTaskButton projectId={projectId} />
+              {/* Hidden until asked for (wave-3 item 6) — a history log is
+                  something you go looking for, not something to keep on
+                  screen. */}
+              <TimelineDrawer
+                project={{
+                  id: projectId,
+                  created_at: project.created_at,
+                  imported_at: (project as { imported_at?: string | null }).imported_at ?? null,
+                  estimate_sent_at:
+                    (project as { estimate_sent_at?: string | null }).estimate_sent_at ?? null,
+                  sold_at: (project as { sold_at?: string | null }).sold_at ?? null,
+                }}
+              />
             </div>
           </div>
         </div>

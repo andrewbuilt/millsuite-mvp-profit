@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { recordProjectEvent } from './project-events'
 import {
   syncInvoiceFromMilestoneReceived,
   findInvoiceForMilestone,
@@ -182,6 +183,26 @@ export async function markMilestoneReceived(
   if (error) {
     console.error('markMilestoneReceived', error)
     throw error
+  }
+  // Timeline (094). Placed HERE, before the invoicing branch below, because
+  // that branch returns early in QuickBooks mode — logging further down would
+  // silently skip every QB org, and Built is one.
+  if (data?.project_id) {
+    const { data: projRow } = await supabase
+      .from('projects')
+      .select('org_id')
+      .eq('id', data.project_id as string)
+      .maybeSingle()
+    const orgId = (projRow as { org_id?: string } | null)?.org_id
+    if (orgId) {
+      void recordProjectEvent({
+        orgId,
+        projectId: data.project_id as string,
+        eventType: 'milestone_received',
+        label: `Payment received — ${(data as Raw).milestone_label || 'milestone'}`,
+        meta: { amount: Number((data as Raw).amount) || 0, milestoneId },
+      })
+    }
   }
   // Move real money on the invoice — otherwise this is a dead toggle that
   // sets a status but never raises amount_received (the bug that stranded

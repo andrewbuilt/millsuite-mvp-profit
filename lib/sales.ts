@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { recordProjectEvent } from './project-events'
 import type { ProjectStage } from './types'
 import type { ParsedScopeItem } from './pdf-parser'
 import { recomputeProjectBidTotal } from './project-totals'
@@ -702,13 +703,21 @@ export async function updateProjectStage(
   // job (labor cost shifts → the margin math follows → the price the client
   // signed drifts). Stamped only on the sold transition, and only when not
   // already pinned, so re-marking or a later stage change never overwrites it.
+  // Read once up front: the sold branch needs locked_shop_rate/sold_at, and
+  // EVERY stage change needs org_id to log an event against.
+  const { data } = await supabase
+    .from('projects')
+    .select('org_id, locked_shop_rate, sold_at')
+    .eq('id', projectId)
+    .maybeSingle()
+  const row = data as {
+    org_id: string | null
+    locked_shop_rate: number | null
+    sold_at?: string | null
+  } | null
+  const orgId = row?.org_id ?? null
+
   if (stage === 'sold') {
-    const { data } = await supabase
-      .from('projects')
-      .select('org_id, locked_shop_rate')
-      .eq('id', projectId)
-      .maybeSingle()
-    const row = data as { org_id: string | null; locked_shop_rate: number | null } | null
     if (row && !row.locked_shop_rate && row.org_id) {
       const { data: orgRow } = await supabase
         .from('orgs')
@@ -718,12 +727,41 @@ export async function updateProjectStage(
       const rate = Number((orgRow as { shop_rate: number | null } | null)?.shop_rate) || 0
       if (rate > 0) patch.locked_shop_rate = rate
     }
+    // Stamp the sale date (wave-3 item 5) on the FIRST transition into sold,
+    // matching locked_shop_rate's semantics: re-marking an already-sold job
+    // must not move the date, or "Sold 12d ago" resets every time somebody
+    // re-drags the card.
+    if (row && !row.sold_at) patch.sold_at = new Date().toISOString()
   }
 
-  const { error } = await supabase.from('projects').update(patch).eq('id', projectId)
+  let { error } = await supabase.from('projects').update(patch).eq('id', projectId)
+
+  // ⛔ Pre-094 fallback. PostgREST answers 42703 for an unknown column and
+  // fails the WHOLE update — so if this deploys before the migration runs,
+  // naively including sold_at would break every sale, not just the date.
+  // Retry once without it. Same trap as subprojects.updated_at; tsc can't see
+  // either, because the column doesn't exist in the database, not the types.
+  if (error && 'sold_at' in patch && String((error as { code?: string }).code) === '42703') {
+    console.warn('updateProjectStage: sold_at missing — run migration 094')
+    delete patch.sold_at
+    ;({ error } = await supabase.from('projects').update(patch).eq('id', projectId))
+  }
+
   if (error) {
     console.error('updateProjectStage', error)
     throw error
+  }
+
+  // Best-effort, after the write has succeeded — never before, or a logged
+  // event could outlive a failed change.
+  if (orgId) {
+    void recordProjectEvent({
+      orgId,
+      projectId,
+      eventType: stage === 'sold' ? 'sold' : 'stage_change',
+      label: stage === 'sold' ? 'Marked sold' : `Stage changed to ${stage}`,
+      meta: { stage },
+    })
   }
 }
 
@@ -759,6 +797,17 @@ export async function updateProjectName(
     throw error
   }
   if (!data || data.length === 0) throw new Error('Could not rename this project')
+  // Timeline (094). Only after the rename provably landed — this is the one
+  // write here that already guards against PostgREST's zero-row "success".
+  if (orgId) {
+    void recordProjectEvent({
+      orgId,
+      projectId,
+      eventType: 'renamed',
+      label: `Renamed to "${clean}"`,
+      meta: { name: clean },
+    })
+  }
   return clean
 }
 
