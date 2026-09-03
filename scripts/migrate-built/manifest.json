@@ -81,18 +81,20 @@
       "built_id": "c7dad022-1257-418f-bf37-cfb15aa2501f",
       "name": "Bonzer - 400 Central PH44C - Ceiling and Wall Paneling",
       "decision": "import",
-      "expected_price": 133918,
-      "expected_hours": 678,
-      "milestones": 4
+      "expected_price": 168090,
+      "expected_hours": 899,
+      "milestones": 4,
+      "_note": "Re-quoted since the 2026-07-24 manifest: was $133,918/678h, Built now holds $168,090/899h (verified via lookup.ts 2026-09-03). Checksums re-synced to Built."
     },
     {
       "entity": "lead",
       "built_id": "1bc5ffc9-e2e6-49e9-9d37-39528361352a",
       "name": "Schiller - Anderson & Kiran - Euc Opt",
-      "decision": "import",
+      "decision": "skip",
       "expected_price": 59150,
       "expected_hours": 407,
-      "milestones": 3
+      "milestones": 3,
+      "_note": "COMPETING OPTION, not a separate job. Anderson & Kiran was quoted two ways; Andrew chose the Millwork Wal Opt (2e85ca5e) 2026-09-03. Kept as skip rather than deleted so this entry cannot be mistaken for an oversight later. Built now holds $62,759 for it, not the $59,150 recorded here."
     },
     {
       "entity": "lead",
@@ -121,6 +123,26 @@
       "expected_hours": 210,
       "milestones": 3,
       "_note": "Added 2026-08-07. Built status 'scheduling'. The converted sold LEAD (bacbd35f-...) for the same job must NOT also import - project row only."
+    },
+    {
+      "entity": "lead",
+      "built_id": "2e85ca5e-70cf-401d-be07-8c6aed78a9df",
+      "name": "Schiller - Anderson & Kiran - Millwork Wal Opt",
+      "decision": "import",
+      "expected_price": 49075,
+      "expected_hours": 379,
+      "milestones": 0,
+      "_note": "Chosen over the Euc Opt (1bc5ffc9, skipped). Added 2026-09-03, wave-3 item 1."
+    },
+    {
+      "entity": "lead",
+      "built_id": "c80ebadc-ff0f-430d-8bbd-e194d8a45419",
+      "name": "Schiller - Brabson Dining Table",
+      "decision": "import",
+      "expected_price": 16099,
+      "expected_hours": 126,
+      "milestones": 0,
+      "_note": "Added 2026-09-03, wave-3 item 1. NOT the same job as the manual MillSuite card 'Brabson countertops' ($2,259, 50/50) \u2014 different scope, Andrew's call to keep both."
     }
   ]
 }
