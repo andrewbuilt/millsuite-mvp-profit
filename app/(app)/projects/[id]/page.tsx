@@ -2437,6 +2437,8 @@ export default function ProjectCoverPage() {
           projectName={project.name}
           total={qbTotal}
           orgName={org?.name ?? 'Your Company'}
+          orgId={org?.id ?? null}
+          defaultTemplate={(project as { estimate_template?: string | null }).estimate_template ?? null}
           onClose={() => setSendEstimateOpen(false)}
         />
       )}

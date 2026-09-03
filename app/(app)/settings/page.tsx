@@ -178,6 +178,14 @@ export default function SettingsPage() {
   // Estimate closing note (091) — the shop's own sign-off, rendered as the
   // final "Thank you" section of every estimate PDF.
   const [estimateClosingNote, setEstimateClosingNote] = useState('')
+  const [estimateTemplateDefault, setEstimateTemplateDefault] =
+    useState<'standard' | 'presentation'>('standard')
+  const [estimateStats, setEstimateStats] = useState<Array<{ value: string; label: string }>>([])
+  /** False until the 095 columns have been read. ⛔ Gates the autosave: on a
+   *  pre-095 database the select fails, the fields keep their defaults, and
+   *  persisting those would write 'standard' + [] over real settings the
+   *  moment the migration ran. */
+  const [estimateSettingsLoaded, setEstimateSettingsLoaded] = useState(false)
 
   // Invoicing backend — 'internal' | 'quickbooks' (migration 057). A discrete
   // toggle, so it saves immediately on change (not debounced) and calls
@@ -303,6 +311,32 @@ export default function SettingsPage() {
           setEstimateClosingNote(
             (estSettings as { estimate_closing_note?: string | null }).estimate_closing_note || '',
           )
+        }
+        // 095 columns in their OWN select for the same reason 091's are — a
+        // pre-095 database must leave the closing note above intact rather
+        // than blanking the whole card, which autosave would then persist.
+        const { data: tmplSettings } = await supabase
+          .from('orgs')
+          .select('estimate_template_default, estimate_cover_stats')
+          .eq('id', org.id)
+          .single()
+        if (tmplSettings && !cancelled) {
+          const row = tmplSettings as {
+            estimate_template_default?: string | null
+            estimate_cover_stats?: unknown
+          }
+          setEstimateTemplateDefault(
+            row.estimate_template_default === 'presentation' ? 'presentation' : 'standard',
+          )
+          setEstimateStats(
+            Array.isArray(row.estimate_cover_stats)
+              ? (row.estimate_cover_stats as Array<Record<string, unknown>>).map((x) => ({
+                  value: String(x?.value ?? ''),
+                  label: String(x?.label ?? ''),
+                }))
+              : [],
+          )
+          setEstimateSettingsLoaded(true)
         }
         setLoaded(true)
       }
@@ -437,18 +471,29 @@ export default function SettingsPage() {
     label: 'invoicing save',
   })
 
-  // Estimate copy (091). Its own autosave so typing a long sign-off doesn't
-  // keep re-writing the invoicing columns alongside it.
+  // Estimate copy (091) + presentation-template settings (095). One autosave,
+  // separate from invoicing, so typing a long sign-off doesn't keep rewriting
+  // the invoicing columns alongside it.
   const estimateDefaults = useMemo(
-    () => ({ estimate_closing_note: estimateClosingNote.trim() || null }),
-    [estimateClosingNote],
+    () => ({
+      estimate_closing_note: estimateClosingNote.trim() || null,
+      estimate_template_default: estimateTemplateDefault,
+      estimate_cover_stats: estimateStats
+        .filter((s) => s.value.trim() && s.label.trim())
+        .map((s) => ({ value: s.value.trim(), label: s.label.trim() })),
+    }),
+    [estimateClosingNote, estimateTemplateDefault, estimateStats],
   )
   const persistEstimate = useCallback(
     (v: typeof estimateDefaults) => updateOrgChecked(orgId!, v),
     [orgId],
   )
   const estimateSave = useAutosave(estimateDefaults, persistEstimate, {
-    enabled: canPersist,
+    // ⛔ Also gated on the 095 read succeeding. Without that, a pre-095
+    // database (where the select fails and the fields keep their defaults)
+    // would autosave 'standard' + [] over whatever the org actually had the
+    // instant the migration landed.
+    enabled: canPersist && estimateSettingsLoaded,
     delayMs: 800,
     label: 'estimate save',
   })
@@ -1193,6 +1238,86 @@ export default function SettingsPage() {
               placeholder="Thank you for trusting us with your project…"
               className="w-full px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] resize-none"
             />
+
+            {/* ── Presentation template (095) ── */}
+            <div className="mt-6 pt-5 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280] block mb-1.5">
+                Default template
+                <span className="block text-[11px] text-[#9CA3AF] font-normal">
+                  Which layout new estimates start on. You can still switch it per estimate
+                  when you send.
+                </span>
+              </label>
+              <div className="flex items-center gap-1.5">
+                {([
+                  { key: 'standard' as const, label: 'Standard' },
+                  { key: 'presentation' as const, label: 'Presentation' },
+                ]).map((opt) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setEstimateTemplateDefault(opt.key)}
+                    className={`px-3 py-1.5 rounded-full border text-[12.5px] transition-colors ${
+                      estimateTemplateDefault === opt.key
+                        ? 'bg-[#111] text-white border-[#111]'
+                        : 'bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6 pt-5 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280] block mb-1.5">
+                Shop facts
+                <span className="block text-[11px] text-[#9CA3AF] font-normal">
+                  A small row at the end of the presentation estimate — "2013 / Family owned
+                  since". Leave it empty and the row doesn't appear.
+                </span>
+              </label>
+              <div className="space-y-2">
+                {estimateStats.map((st, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      value={st.value}
+                      onChange={(e) =>
+                        setEstimateStats((prev) =>
+                          prev.map((x, xi) => (xi === i ? { ...x, value: e.target.value } : x)),
+                        )
+                      }
+                      placeholder="2013"
+                      className="w-24 px-2.5 py-1.5 text-sm border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+                    />
+                    <input
+                      value={st.label}
+                      onChange={(e) =>
+                        setEstimateStats((prev) =>
+                          prev.map((x, xi) => (xi === i ? { ...x, label: e.target.value } : x)),
+                        )
+                      }
+                      placeholder="Family owned since"
+                      className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+                    />
+                    <button
+                      onClick={() => setEstimateStats((prev) => prev.filter((_, xi) => xi !== i))}
+                      aria-label="Remove"
+                      className="px-2 py-1.5 text-[#D1D5DB] hover:text-[#DC2626]"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {estimateStats.length < 5 && (
+                  <button
+                    onClick={() => setEstimateStats((prev) => [...prev, { value: '', label: '' }])}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-dashed border-[#E5E7EB] text-[#9CA3AF] text-[12px] hover:border-[#2563EB] hover:text-[#2563EB] transition-colors"
+                  >
+                    + Add a fact
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 

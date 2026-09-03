@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Copy, Download, X } from 'lucide-react'
 import { downloadEstimatePdf, type EstimatePdfPayload } from '@/lib/estimate-pdf'
+import { supabase } from '@/lib/supabase'
 
 const DEFAULT_TEMPLATE =
   `Hi \${client_name},\n\n` +
@@ -35,6 +36,8 @@ export default function SendEstimateModal({
   total,
   orgName,
   emailTemplateOverride,
+  defaultTemplate,
+  orgId,
   onClose,
 }: {
   projectId: string
@@ -45,6 +48,11 @@ export default function SendEstimateModal({
   orgName: string
   /** orgs.estimate_email_template; falls back to DEFAULT_TEMPLATE when null. */
   emailTemplateOverride?: string | null
+  /** The project's STAMPED template, if it was sent before. Wins over the org
+   *  default — a resend should reproduce what the client already has. */
+  defaultTemplate?: string | null
+  /** Used to look up the org default when the project has no stamp yet. */
+  orgId?: string | null
   onClose: () => void
 }) {
   const baseTemplate =
@@ -63,6 +71,37 @@ export default function SendEstimateModal({
     [baseTemplate, clientName, projectName, total, orgName],
   )
 
+  const [template, setTemplate] = useState<'standard' | 'presentation'>(
+    defaultTemplate === 'presentation' ? 'presentation' : 'standard',
+  )
+  // Auto-generated, then editable. Only the presentation template prints it.
+  const [headline, setHeadline] = useState(
+    `A custom millwork package for ${clientName || projectName}.`,
+  )
+  // The org default is read HERE, in its own tiny select, rather than being
+  // threaded through the pages' shared org object. Adding the column to that
+  // shared read would take the whole app down on a pre-095 database, since
+  // PostgREST fails the entire select on one unknown column. Any error just
+  // leaves the picker on Standard.
+  useEffect(() => {
+    if (defaultTemplate || !orgId) return
+    let cancelled = false
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('orgs')
+        .select('estimate_template_default')
+        .eq('id', orgId)
+        .maybeSingle()
+      if (cancelled || error || !data) return
+      if ((data as { estimate_template_default?: string }).estimate_template_default === 'presentation') {
+        setTemplate('presentation')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [defaultTemplate, orgId])
+
   const [subject, setSubject] = useState(`Estimate — ${projectName}`)
   const [body, setBody] = useState(seedBody)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
@@ -79,7 +118,13 @@ export default function SendEstimateModal({
     setError(null)
     setDownloading(true)
     try {
-      await downloadEstimatePdf(projectId, payload)
+      await downloadEstimatePdf(projectId, {
+        ...payload,
+        template,
+        // Sent only with the template that uses it, so a standard estimate
+        // can't quietly stamp a headline it never printed.
+        headline: template === 'presentation' ? headline.trim() || null : null,
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to generate the estimate PDF')
     } finally {
@@ -118,6 +163,50 @@ export default function SendEstimateModal({
         </div>
 
         <div className="px-5 py-4 overflow-y-auto flex-1 space-y-4">
+          {/* Template picker. Per-estimate, because Built sends premium
+              documents to homeowners and plain ones to builders — the choice
+              belongs to the estimate, not the shop. The route STAMPS it so a
+              regenerate months later reproduces this document. */}
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1.5">
+              Template
+            </div>
+            <div className="flex items-center gap-1.5">
+              {([
+                { key: 'standard' as const, label: 'Standard' },
+                { key: 'presentation' as const, label: 'Presentation' },
+              ]).map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setTemplate(t.key)}
+                  className={`px-2.5 py-1 rounded-full border text-[12px] transition-colors ${
+                    template === t.key
+                      ? 'bg-[#111] text-white border-[#111]'
+                      : 'bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {template === 'presentation' && (
+            <div>
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                Cover line
+              </label>
+              <input
+                value={headline}
+                onChange={(e) => setHeadline(e.target.value)}
+                className="mt-1.5 w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
+              />
+              <p className="text-[11px] text-[#9CA3AF] mt-1">
+                Prints large on the cover. Saved with the estimate.
+              </p>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <button
               onClick={handleDownload}

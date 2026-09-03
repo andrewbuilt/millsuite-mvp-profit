@@ -19,6 +19,12 @@ export interface EstimatePdfPayload {
   totals: { subtotal: number; taxPct: number; taxAmount: number; total: number }
   terms?: string | null
   validUntil?: string | null
+  /** 'standard' | 'presentation'. Omitted ⇒ the route resolves it from the
+   *  project's stamp, then the org default. */
+  template?: string | null
+  /** The presentation cover's editorial sentence. Ignored by the standard
+   *  template. Persisted by the route so a regenerate reproduces it. */
+  headline?: string | null
 }
 
 async function authHeader(): Promise<string> {
