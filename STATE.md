@@ -10,8 +10,8 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-02)
 
-**⛔ 2026-09-03: SMALL FIXES WAVE 3 — ITEMS 2–6 BUILT. MIGRATION `094` NOT RUN YET — that's the only thing blocking a deploy of items 5+6.** `f2bcc58` minute-precision time · `52aa234` /me mobile pass · `1ae267b` production fill bar · `c95acdf` sold_at + timeline. **Item 1 (import 3 more Built OS jobs) NOT started — it's an ops task I can't do; see below.** tsc clean throughout, `check-tour-targets` PASS at 44, every touched route 200.
-- **`094_sold_at_project_events.sql` MUST RUN ON PROD.** It degrades rather than breaking if it doesn't (both call sites retry on 42703), but `sold_at` won't stamp and the timeline shows derived rows only. **Verify it landed before trusting it — 093 reported "ran" and had silently rolled back.**
+**✅ 2026-09-03: SMALL FIXES WAVE 3 — ITEMS 2–6 BUILT, MIGRATION `094` ✅ RUN ON PROD AND VERIFIED. Nothing blocking — deploy, then Andrew's live pass.** `f2bcc58` minute-precision time · `52aa234` /me mobile pass · `1ae267b` production fill bar · `c95acdf` sold_at + timeline. **Item 1 (import 3 more Built OS jobs) NOT started — it's an ops task I can't do; see below.** tsc clean throughout, `check-tour-targets` PASS at 44, every touched route 200.
+- **`094_sold_at_project_events.sql` ✅ RUN ON PROD 2026-09-03 by Andrew, verified through PostgREST with the public key:** `projects?select=id,sold_at&limit=0` → 200 (column in the schema cache) and `project_events` answers for every column. RLS needs no separate probe — the `ENABLE ROW LEVEL SECURITY` + policy were in the SAME transaction as the `CREATE TABLE`, so if they'd failed the table wouldn't exist (that's 093's all-or-nothing rollback working for us).
 - **⛔ ITEM 1 IS BLOCKED ON ANDREW, NOT BUILT-YET.** It needs the three Built-side `built_id`s for the manifest, Brabson's contract $ (the spec says "from Built OS" — the number isn't written down anywhere I can read), and prod writes from a terminal session. Reading `../built-os/.env.local` is denied to me. **After import, three near-duplicate kanban cards need Andrew's per-card call (Lost or delete) or the pipeline double-counts.**
 
 **✅ 2026-09-02: TASK SYSTEM V1 BUILT — replaces the "BUILT Master Action List" sheet. Migration `093` ✅ ON PROD.** Nothing blocking: deploy, then Andrew's live pass. `33dc2db` the system (nav trigger + slide-out panel · "+ Task" on project pages · Mine as a filter) · `7da3804` **fixed the fact that the first cut couldn't assign anyone** + added the full `/tasks` page · `e64398a` a per-person **"Gets tasks"** flag on `/team`. ⛔ **`assignee_ids` holds ROSTER ids (`orgs.team_members`), not user ids** — the shop floor has no logins. **Andrew owes one pass on `/team` to untick everyone but the managers and Hunter**; the flag defaults ON so the picker is never mysteriously empty. Detail under "Task system v1" in Now.
@@ -143,7 +143,9 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ### Small fixes wave 3 — scoped 2026-09-02 (Cowork pass with Andrew). **BUILD IN ORDER. Migration `094` (items 5+6) must run on prod before deploying those items.**
 
-**BUILD STATUS 2026-09-03: items 2–6 done, item 1 not started (blocked, see the focus block). Migration `094` still to run.**
+**BUILD STATUS 2026-09-03: items 2–6 done + `094` on prod. Item 1 not started (blocked on Andrew — see the focus block).**
+
+**Andrew's live pass, once deployed:** tracked time reads "Xh Ym" on /me, /time and the project actuals (estimates stay decimal — that's correct, not a miss) · the Start button in /me → Other work is fully on screen on his phone · a job in production shows the fill bar, and one that's over shows red · **sell something and confirm "Sold today" appears on its card and "Marked sold" in the history drawer** (this is the only way to prove the new column is being written, since nothing was backfilled) · the clock icon in the project header opens the drawer and old jobs show their derived rows rather than nothing.
 
 **Item 2 ✅ (`f2bcc58`) — tracked time reads "2h 34m".** There were **FOUR** formatters for the same thing (`fmtActualHours` 2.6h · `hoursLabel` 2h 34m · `formatHours` 2.6 hrs · `hrsFromMin` 2.6h), so the same minutes rendered three ways depending where you stood. Now one, in `lib/actual-hours.ts`. **⛔ ESTIMATED hours stay decimal and must NOT be routed through it** — an estimate of 2.5h is a judgement, "2h 30m" claims a precision nobody has. `/suggestions` shows both together (est 4.5h → act 5h 12m), which is where the distinction is most legible.
 
@@ -153,7 +155,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 **Item 4 ✅ (`1ae267b`) — production node draws tracked vs estimated,** widening to `flex-[2.5]`, red past 100%. Two guards: **no estimate ⇒ no bar at all** (dividing by zero paints a full bar, which reads as "finished" instead of "nobody estimated this"), and an overrun **caps the fill at 100% width** so it can't paint outside its track.
 
-**Items 5+6 ✅ (`c95acdf`) — `sold_at` + the hidden timeline. ⚠️ MIGRATION `094` NOT RUN.**
+**Items 5+6 ✅ (`c95acdf`) — `sold_at` + the hidden timeline. Migration `094` ✅ ON PROD.**
 - `sold_at` stamps on the **first** transition into sold only — re-dragging a card must not reset "Sold 12d ago". **No backfill on purpose**; pre-094 projects show nothing rather than a guessed date.
 - **⛔ `recordProjectEvent` swallows every error by contract.** A missing timeline line is cosmetic; a stage change that throws because logging broke is an outage. **Never make a caller depend on its result.**
 - **Wired:** stage changes, sold, production started (both paths — they share `commitProductionStart`), estimate marked sent, milestone payment received, rename. **NOT wired yet:** CO created/approved/signed, invoice pushed to QB. ⚠️ The milestone call sits **above** the invoicing branch because that branch **returns early in QuickBooks mode** — below it, every QB org (including Built) would log nothing.
