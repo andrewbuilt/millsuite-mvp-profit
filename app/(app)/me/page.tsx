@@ -38,15 +38,13 @@ import {
   type PtoReason,
 } from '@/lib/pto'
 import { supabase } from '@/lib/supabase'
+import { fmtActualHours } from '@/lib/actual-hours'
 
 type Tab = 'today' | 'week' | 'pto' | 'history'
 
-function hoursLabel(minutes: number): string {
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  if (h === 0) return `${m}m`
-  return m === 0 ? `${h}h` : `${h}h ${m}m`
-}
+// Tracked time renders through the shared fmtActualHours. This page had the
+// right format already ("2h 34m") in a local hoursLabel — it's now the one the
+// whole app uses, so /time and the project pages match instead of drifting.
 
 export default function MePage() {
   const { user, org, loading, authUser } = useAuth()
@@ -352,14 +350,14 @@ function TodayTab({
         <div>
           <div className="flex items-center justify-between text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
             <span>Today</span>
-            <span className="font-mono">{hoursLabel(todayTotal)}</span>
+            <span className="font-mono">{fmtActualHours(todayTotal)}</span>
           </div>
           <div className="space-y-1">
             {todayEntries.map((e) => (
               <div key={e.id} className="flex items-center justify-between text-sm px-1 py-1">
                 <span className="text-[#111] truncate">{projName(e.project_id)}</span>
                 <span className="font-mono tabular-nums text-[#6B7280]">
-                  {hoursLabel(e.duration_minutes || 0)}
+                  {fmtActualHours(e.duration_minutes || 0)}
                 </span>
               </div>
             ))}
@@ -412,7 +410,7 @@ function WeekTab({
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-[#111]">{label(d)}</span>
               <span className="text-[11px] font-mono text-[#6B7280]">
-                {logged > 0 ? hoursLabel(logged) : '—'}
+                {logged > 0 ? fmtActualHours(logged) : '—'}
               </span>
             </div>
             {pto ? (
@@ -680,7 +678,7 @@ function HistoryRow({
         ) : (
           <>
             <span className="font-mono tabular-nums text-[#6B7280]">
-              {hoursLabel(entry.duration_minutes || 0)}
+              {fmtActualHours(entry.duration_minutes || 0)}
             </span>
             <button onClick={() => setEditing(true)} className="text-xs text-[#2563EB]">
               Edit

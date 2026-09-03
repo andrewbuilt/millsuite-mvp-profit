@@ -134,10 +134,31 @@ export async function loadProjectActuals(
 }
 
 /**
- * Format helper shared by UI consumers. Input is minutes, output is hours
- * with one decimal place (e.g. "42.5h") or "0h" when empty.
+ * THE formatter for TRACKED time. Input is minutes, output is "2h 34m".
+ *
+ * Tracked time is a measurement, so it now reads as one: `2h 34m`, not `2.6h`.
+ * The arithmetic was always minute-level (`duration_minutes`; `clockOut`
+ * rounds to the minute) — only the DISPLAY rounded, which is what made a
+ * recorded shift look approximate. Wave-3 item 2.
+ *
+ * ⛔ TRACKED time only. ESTIMATED hours stay decimal (`hoursFmt` / `fmtHours`)
+ * and must not be routed through here: an estimate of 2.5h is a judgement, and
+ * "2h 30m" claims a precision nobody has. The two reading as visibly different
+ * formats is useful — you can tell measured from guessed at a glance.
+ *
+ * Minutes are rounded before splitting: rollups divide and re-accumulate, so a
+ * fractional total is reachable and "2h 34.6m" would be nonsense.
+ *
+ * This is now the ONLY tracked-time formatter. `/me` (hoursLabel) and `/time`
+ * (formatHours) each had their own, which is how they drifted to three
+ * different renderings of the same minutes.
  */
 export function fmtActualHours(minutes: number): string {
-  if (!minutes) return '0h'
-  return `${(minutes / 60).toFixed(1)}h`
+  const total = Math.round(Number(minutes) || 0)
+  // Zero means "nothing tracked" — "0h" says that better than "0m".
+  if (total <= 0) return '0h'
+  const h = Math.floor(total / 60)
+  const m = total % 60
+  if (h === 0) return `${m}m`
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
 }

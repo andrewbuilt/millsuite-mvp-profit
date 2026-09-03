@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import { fmtActualHours } from '@/lib/actual-hours'
 import {
   listActiveSuggestions,
   listSuggestionsByStatus,
@@ -55,6 +56,11 @@ const TYPE_META: Record<SuggestionType, { label: string; tone: string; Icon: typ
   quiet: { label: 'Quiet', tone: 'bg-slate-50 text-slate-600 ring-slate-200', Icon: Moon },
 }
 
+/** ESTIMATED minutes → decimal hours. Tracked time deliberately does NOT come
+ *  through here — it uses fmtActualHours ("2h 34m"). This page shows the two
+ *  next to each other ("est 4.5h → act 5h 12m"), which is the clearest place
+ *  in the app to see why they're formatted differently: one is a judgement,
+ *  the other a measurement. */
 function hrsFromMin(m: number): string {
   if (!m) return '0h'
   return `${(m / 60).toFixed(1)}h`
@@ -266,12 +272,12 @@ export default function SuggestionsPage() {
                                   ? 'bg-slate-100 text-slate-400 ring-slate-200 line-through'
                                   : 'bg-white text-slate-700 ring-slate-300 hover:ring-slate-500'
                               }`}
-                              title={`est ${hrsFromMin(j.estimatedMinutesTotal)} / act ${hrsFromMin(j.actualMinutesTotal)}`}
+                              title={`est ${hrsFromMin(j.estimatedMinutesTotal)} / act ${fmtActualHours(j.actualMinutesTotal)}`}
                             >
                               {j.projectName || j.projectId.slice(0, 8)}
                               {' · '}
                               <span className="text-slate-500">
-                                {hrsFromMin(j.estimatedMinutesTotal)}→{hrsFromMin(j.actualMinutesTotal)}
+                                {hrsFromMin(j.estimatedMinutesTotal)}→{fmtActualHours(j.actualMinutesTotal)}
                               </span>
                             </button>
                           )

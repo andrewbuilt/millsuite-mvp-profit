@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { triggerPhaseAdvance, triggerProjectRollup } from '@/lib/phase-client'
 import { useAuth } from '@/lib/auth-context'
 import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen, Download } from 'lucide-react'
+import { fmtActualHours } from '@/lib/actual-hours'
 
 // ─── Types ────────────────────────────────────────────────────────────
 interface Project {
@@ -52,10 +53,9 @@ interface TimerState {
 const TIMER_KEY = 'millsuite_timer'
 
 // ─── Helpers ──────────────────────────────────────────────────────────
-function formatHours(minutes: number): string {
-  const h = (minutes / 60).toFixed(1)
-  return `${h} hrs`
-}
+// Tracked time renders through the shared fmtActualHours ("2h 34m"). The local
+// formatHours ("2.6 hrs") is gone — three pages each had their own, which is
+// how the same minutes came out three different ways.
 
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -462,7 +462,7 @@ export default function TimePage() {
                     )}
                   </div>
                   <span className="text-sm font-mono text-[#6B7280] ml-3 flex-shrink-0">
-                    {formatHours(entry.duration_minutes)}
+                    {fmtActualHours(entry.duration_minutes)}
                   </span>
                 </div>
               ))}
@@ -741,7 +741,7 @@ export default function TimePage() {
                         {dateLabel(date + 'T12:00:00')}
                       </span>
                       <span className="text-xs font-medium text-[#6B7280] font-mono">
-                        {formatHours(dayTotal)}
+                        {fmtActualHours(dayTotal)}
                       </span>
                     </div>
 
@@ -802,7 +802,7 @@ export default function TimePage() {
                             ) : (
                               <>
                                 <span className="text-sm font-mono font-medium text-[#111] min-w-[60px] text-right">
-                                  {formatHours(entry.duration_minutes)}
+                                  {fmtActualHours(entry.duration_minutes)}
                                 </span>
                                 <button
                                   onClick={() => {
