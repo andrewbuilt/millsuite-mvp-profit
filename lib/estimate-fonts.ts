@@ -18,6 +18,19 @@
 // value here rather than every style rule.
 //
 // Static TTFs only — react-pdf supports neither variable fonts nor woff2.
+//
+// ⛔ THE FILES ARE COMMITTED, and they have to be: the PDF route reads them
+// from disk at request time on Vercel, so a build that doesn't carry them
+// renders every presentation estimate in Helvetica. Both families are OFL,
+// which permits redistribution and requires the licence to travel with them —
+// hence assets/fonts/OFL-*.txt. Don't delete those.
+//
+// NEWSREADER IS AN OPTICAL-SIZE FAMILY (9/14/24/36/60pt) and we vendor the
+// 14pt cut for all three faces. The serif runs 11.5–23pt here (italic note →
+// scope names → headline), and 14pt covers that band: the 9pt cut looks clunky
+// at headline size, the 24pt too fragile in the italic paragraph. If the
+// headline ever wants more contrast, swap in Newsreader_24pt-Light for that
+// role specifically rather than moving everything.
 // ============================================================================
 
 import { Font } from '@react-pdf/renderer'
