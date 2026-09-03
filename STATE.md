@@ -10,7 +10,7 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-03)
 
-**✅ 2026-09-03: PRESENTATION ESTIMATE — BUILT (`2954268` template, `f1fa2e8` picker + settings). ⚠️ TWO THINGS BEFORE IT LOOKS RIGHT: run migration `095`, and run `node scripts/fetch-presentation-fonts.mjs`.** Both degrade rather than break — pre-095 it falls back to the standard template, and with no fonts it renders in Helvetica and logs why. Detail under "Presentation estimate" in Now.
+**✅ 2026-09-03: PRESENTATION ESTIMATE — BUILT (`2954268` template, `f1fa2e8` picker + settings). Migration `095` ✅ RUN ON PROD AND VERIFIED. ⚠️ ONE STEP LEFT: `node scripts/fetch-presentation-fonts.mjs` — until then it renders in Helvetica, which is NOT the design.** Both degrade rather than break — pre-095 it falls back to the standard template, and with no fonts it renders in Helvetica and logs why. Detail under "Presentation estimate" in Now.
 
 **✅ 2026-09-03: SMALL FIXES WAVE 3 — ALL SIX ITEMS DONE. Migration `094` ✅ ON PROD AND VERIFIED. Nothing blocking — deploy, then Andrew's live pass.** `f2bcc58` minute-precision time · `52aa234` /me mobile pass · `1ae267b` production fill bar · `c95acdf` sold_at + timeline · **item 1 imported live 2026-09-03 (Bonzer, Schiller Wal Opt, Brabson, + Hunt re-imported) — `refreeze-bid-totals` reports 12 × ok.**
 
@@ -144,7 +144,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ### Presentation estimate — Built's premium template. **✅ DESIGN APPROVED by Andrew 2026-09-03 ("i think this is great"). BUILD TO `mockups/estimate-presentation-mockup.html` (v3, `db5961f`) — it is the visual spec. Migration `095` before deploy.**
 
 **✅ BUILT 2026-09-03. Two setup steps outstanding, both Andrew's:**
-1. **Run migration `095` on prod.** Then verify — 093 reported "ran" and had silently rolled back.
+1. ~~Run migration `095`~~ **✅ RUN + VERIFIED 2026-09-03** — all four columns answer through PostgREST. **`scripts/verify-migration.mjs` is the tool for this now**: `node --env-file=.env.local scripts/verify-migration.mjs orgs:estimate_template_default,estimate_cover_stats projects:estimate_template,estimate_headline`. It takes `table:col,col` pairs, works for any migration, and was sanity-checked against a column that does NOT exist to confirm it really fails. ⛔ **A "Success" message in the SQL editor is not evidence — 093 said success and had rolled back.**
 2. **`node scripts/fetch-presentation-fonts.mjs`** — the faces are vendored files, not dependencies. **I could not download them (sandbox blocks network + npm install), so the template has only ever been rendered in Helvetica.** ⚠️ **The typography is the entire point of this template, so it has NOT been seen as designed** — expect to re-check spacing once the real faces land, since Newsreader and Instrument Sans have different metrics to the built-ins.
 
 **⛔ THE MOCKUP'S SPACING DOES NOT FIT A LETTER PAGE — know this before touching the layout.** The mockup is `min-height:1080px`; it GREW when content didn't fit and a page can't. Rendering it surfaced four bugs a type-check cannot see, all fixed:
