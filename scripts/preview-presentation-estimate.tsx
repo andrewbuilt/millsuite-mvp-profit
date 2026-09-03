@@ -76,6 +76,47 @@ const WILLIAMS = [
   line('Dog Area Cabinet', 4918, 'Engineered sheet goods', ['Feeding station with pull-out'], 'bowls'),
 ]
 
+// ⛔ SHAPED FROM REAL DATA (Kennedy EST-0017), not invented. Three things in
+// here broke the first implementation and must stay:
+//   · the material is NESTED — "Description - Material - …" — so there is no
+//     Material section to find
+//   · everything after "Details - …" is a bare continuation line
+//   · one detail is enormous (the Blum paragraph)
+// and 20 subprojects, which is what pushed the cover's total onto a second
+// sheet. My original fixtures topped out at 12 and missed all of it.
+const kennedyLine = (name: string, amount: number, detail: string) => ({
+  description:
+    `${name}\n` +
+    `Description - Material - Paint Grade Sheet Goods, Engineered Sheet Goods\n` +
+    `Dimensions - Approx: Based on plans\n` +
+    `Details - ${detail}\n` +
+    `Prefin maple, black or white laminate cabinet interiors\n` +
+    `Slow close european hinged doors\n` +
+    `QTY 16 @ Blum legra drawer boxes (a premium, minimalist drawer system ` +
+    `characterized by, straight, slim-walled sides and a sleek, modern aesthetic. ` +
+    `Designed for high-end kitchens and bathrooms, it features superior, quiet, ` +
+    `full-extension runners (40 kg or 70 kg capacity), BLUMOTION soft-close.)\n` +
+    `Adjustable shelves\n` +
+    `\nIncludes Installation\n\nExclusions:\n- Stone\n- Power\n- LEDS\n- Handles`,
+  quantity: 1,
+  unit: 'ea',
+  unit_price: amount,
+  amount,
+})
+
+const KENNEDY = [
+  ['Kitchen Cabinets (Sheets:  1-11)', 32307], ['Breakfast Nook Cabinets & Wall Panel', 34651],
+  ['Pantry Cabinets', 43471], ['Downstairs Laundry Cabinets', 35394],
+  ["Emily's Office Cabinets", 15624], ['Powder Room Vanity Cabinet', 4488],
+  ['Summer Kitchen Cabinets', 13132], ['Martini Bar Cabinets and Shelves', 28925],
+  ['Wine Room Cabinets & Shelving', 48507], ['Primary Guest Bath Cabinets', 14738],
+  ['Upper Living Room Cabinets & Wall Panels', 113999], ['Upper Laundry Cabinets', 31003],
+  ['Primary Bath Cabinets', 12058], ["Emily's Bath Cabinet", 7821],
+  ["Patrick's Office Cabinets & Wall Panels", 47885], ['Bath 3 Cabinet', 5814],
+  ['Bath 2 Cabinet', 8274], ["Emily's Closet Cabinets and Shelving", 79517],
+  ["Patrick's Closet", 43325], ['Yoga Room and Bath Cabinet & Shelves', 11158],
+].map(([n, a]) => kennedyLine(n as string, a as number, 'Satin lacquer finish to match paint spec. TBD'))
+
 const DOVER = [
   line('Painted Vanity (Sheets: 3)', 6029, 'Poplar · engineered sheet goods',
     ['Shaker doors and drawer fronts, painted to match sample', 'Two soft-close drawers'],
@@ -138,6 +179,9 @@ async function main() {
   await render('williams', WILLIAMS, 'EST-0010',
     'A custom millwork package for the Williams residence.',
     'Williams Residential Millwork Package', 'The Williams Residence')
+  await render('kennedy', KENNEDY, 'EST-0017',
+    'A custom millwork package for Patrick Kennedy.',
+    'Kennedy - Millwork Package', 'Patrick Kennedy')
   await render('dover', DOVER, 'EST-0011',
     'A painted vanity for the Dover residence.',
     'Dover - Painted Vanity', 'The Dover Residence')

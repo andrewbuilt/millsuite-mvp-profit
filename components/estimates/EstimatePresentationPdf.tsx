@@ -27,11 +27,11 @@
 // ============================================================================
 
 import React from 'react'
-import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer'
+import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 import { parseRichDescription } from '@/lib/subproject-description'
 import { pdfText } from '@/lib/pdf-text'
 import { estimateFonts } from '@/lib/estimate-fonts'
-import { pdfLogoOk, type EstimatePdfLine, type EstimateScheduleRow } from './EstimatePdf'
+import type { EstimatePdfLine, EstimateScheduleRow } from './EstimatePdf'
 
 /** Mockup pixels → PDF points. The mockup is 850px wide for a 612pt page. */
 const SCALE = 612 / 850
@@ -98,7 +98,13 @@ function fmtDate(iso: string | null | undefined): string {
 export function splitPlanRef(title: string): { name: string; planRef: string | null } {
   const m = /^(.*?)\s*\(\s*((?:sheets?|plans?|dwg|drawing)s?\b[^)]*)\)\s*$/i.exec(title.trim())
   if (!m) return { name: title.trim(), planRef: null }
-  return { name: m[1].trim() || title.trim(), planRef: m[2].trim() }
+  return { name: m[1].trim() || title.trim(), planRef: m[2].trim().replace(/\s+/g, ' ') }
+}
+
+interface ScopeDetail {
+  text: string
+  /** Spans both columns. See the note in toScopeBlock. */
+  wide: boolean
 }
 
 interface ScopeBlock {
@@ -106,18 +112,44 @@ interface ScopeBlock {
   planRef: string | null
   amount: number
   material: string | null
-  details: string[]
+  details: ScopeDetail[]
   excludes: string | null
   installIncluded: boolean
 }
+
+/** Generic containers — their label says nothing a reader needs. Real shop
+ *  data puts a dozen lines under one "Details -", and prefixing every one of
+ *  them printed "Details —" thirteen times down a page. */
+const NOISE_LABELS = new Set(['details', 'description'])
+
+/** A long line in a 50%-wide column leaves its neighbour stranded beside a
+ *  wall of text. Anything past this spans the full width instead. */
+const WIDE_DETAIL_CHARS = 110
 
 /**
  * One estimate line → one presentation scope block.
  *
  * Parsed from the flattened description rather than passed structured, for the
  * same reason the standard template does it: estimates already sent re-render
- * from a stored flat snapshot, so anything that only works on freshly computed
- * data would render those as one grey blob.
+ * from a stored flat snapshot, so anything that only worked on freshly
+ * computed data would render those as one grey blob.
+ *
+ * ⛔ WHAT REAL DATA ACTUALLY LOOKS LIKE (checked against Kennedy EST-0017, not
+ * assumed) — two things break the obvious implementation:
+ *
+ *   "Description - Material - Paint Grade Sheet Goods, Engineered Sheet Goods"
+ *
+ * The material is NESTED INSIDE the Description section, so there is no
+ * section labelled "Material" to find. Reading `label === 'material'` finds
+ * nothing and the material silently leaks into the detail grid carrying its
+ * own "Material - " prefix. So we look for the prefix on the LINE, wherever it
+ * sits.
+ *
+ *   "Details - Satin lacquer finish…"  followed by a dozen bare lines
+ *
+ * Everything after a "Details -" line is a CONTINUATION of that section, so a
+ * kitchen arrives as one section holding thirteen lines. Prefixing each with
+ * its label printed "Details —" thirteen times.
  */
 export function toScopeBlock(li: EstimatePdfLine): ScopeBlock {
   const nl = li.description.indexOf('\n')
@@ -129,26 +161,51 @@ export function toScopeBlock(li: EstimatePdfLine): ScopeBlock {
   let material: string | null = null
   let excludes: string | null = null
   let installIncluded = false
-  const details: string[] = []
+  const details: ScopeDetail[] = []
+
+  const MATERIAL_LINE = /^material\s*[-–—:]\s*(.+)$/i
 
   for (const s of sections) {
     const label = (s.label || '').toLowerCase()
-    if (label === 'material') {
-      material = s.lines.join(' · ') || null
-    } else if (label === 'exclusions') {
+    if (label === 'exclusions') {
       excludes = s.lines.join(' · ') || null
-    } else if (!s.label && s.lines.some((l) => /includes installation/i.test(l))) {
+      continue
+    }
+    if (!s.label && s.lines.some((l) => /includes installation/i.test(l))) {
       installIncluded = true
-    } else {
-      // Everything else becomes a detail row. Labelled sections keep their
-      // label inline ("Dimensions — 96in x 24in") so the two-column grid
-      // doesn't lose the distinction the standard template shows as headings.
-      for (const l of s.lines) {
-        if (!l.trim()) continue
-        details.push(s.label && s.label.toLowerCase() !== 'description' ? `${s.label} — ${l}` : l)
+      continue
+    }
+    for (const raw of s.lines) {
+      const line = raw.trim()
+      if (!line) continue
+
+      // The material can arrive as its own section OR nested in Description.
+      const m = MATERIAL_LINE.exec(line)
+      if ((label === 'material' || m) && !material) {
+        material = (m ? m[1] : line).trim()
+        continue
       }
+      if (label === 'material') continue
+
+      const showLabel = s.label && !NOISE_LABELS.has(label)
+      const text = showLabel ? `${s.label} — ${line}` : line
+      details.push({ text, wide: text.length > WIDE_DETAIL_CHARS })
     }
   }
+  // Walk the two-column flow and widen a final item that would land alone in
+  // the left column — otherwise its dotted rule stops halfway across the page
+  // with nothing beside it, which reads as a rendering fault rather than a
+  // grid. Wide items occupy a whole row, so they reset the column.
+  let col = 0
+  for (let i = 0; i < details.length; i++) {
+    if (details[i].wide) {
+      col = 0
+      continue
+    }
+    if (i === details.length - 1 && col === 0) details[i].wide = true
+    col = col === 0 ? 1 : 0
+  }
+
   return { name, planRef, amount: Number(li.amount) || 0, material, details, excludes, installIncluded }
 }
 
@@ -173,7 +230,7 @@ const s = StyleSheet.create({
     // content didn't fit. A letter page can't grow: at the mockup's spacing a
     // 12-subproject cover overflowed and left "Prepared for" alone on a second
     // sheet. Tightened until Williams (the largest real package) fits one page.
-    marginBottom: mm(48),
+    marginBottom: mm(40),
   },
   runheadBrand: {
     fontFamily: f.sans,
@@ -217,10 +274,10 @@ const s = StyleSheet.create({
     fontWeight: 300,
     fontSize: mm(32),
     lineHeight: 1.22,
-    marginTop: mm(26),
+    marginTop: mm(18),
     maxWidth: mm(560),
   },
-  totalline: { flexDirection: 'row', alignItems: 'baseline', marginTop: mm(36) },
+  totalline: { flexDirection: 'row', alignItems: 'baseline', marginTop: mm(26) },
   totallineLabel: {
     fontSize: mm(11),
     fontWeight: 600,
@@ -228,7 +285,7 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
   },
   totallineAmt: { fontFamily: f.mono, fontSize: mm(17), marginLeft: mm(14) },
-  index: { marginTop: mm(40) },
+  index: { marginTop: mm(26) },
   idxrow: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -256,7 +313,7 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
   },
   idxSumAmt: { width: '22%', fontFamily: f.mono, fontSize: mm(14.5), textAlign: 'right' },
-  prepared: { paddingTop: mm(40) },
+  prepared: { paddingTop: mm(24) },
   preparedGrid: { flexDirection: 'row', marginTop: mm(18) },
   preparedCell: { width: '33.33%', paddingRight: mm(40) },
   preparedName: { fontSize: mm(14) },
@@ -357,7 +414,6 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
     color: FAINT,
   },
-  logo: { height: mm(26), objectFit: 'contain', marginBottom: mm(10) },
   spacer: { flexGrow: 1 },
 })
 
@@ -424,7 +480,10 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
   // breaks it, so density steps down rather than the page overflowing. Past
   // ~18 the index legitimately continues onto a second sheet, which reads far
   // better than a squeezed one.
-  const idxPad = blocks.length > 16 ? mm(5) : blocks.length > 11 ? mm(8) : mm(12)
+  // Measured against real packages, not guessed: Kennedy has 20 subprojects
+  // and at the previous values the sum row and "Prepared for" were pushed onto
+  // a second, near-empty sheet.
+  const idxPad = blocks.length > 16 ? mm(3) : blocks.length > 11 ? mm(7) : mm(12)
 
   // How many scope blocks fit before a page break is react-pdf's problem, not
   // ours — each block is wrap={false} so a subproject never splits across a
@@ -435,7 +494,11 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
       <Page size="LETTER" style={s.page}>
         <RunHead brand={org.name} num={estimateNumber} right={projectName} />
 
-        {pdfLogoOk(org.logo_url) && <Image src={org.logo_url} style={s.logo} />}
+        {/* ⛔ No logo image on the cover. The mockup deliberately doesn't have
+            one — the run header's wordmark IS the branding — and dropping an
+            org logo in above the kicker rendered as a stray centred mark that
+            fought the headline. It also cost ~26pt of the vertical budget the
+            package index needs at 20 subprojects. */}
 
         <Text style={s.kicker}>
           {pdfText(
@@ -476,7 +539,10 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
 
         <View style={s.spacer} />
 
-        <View style={s.prepared}>
+        {/* wrap={false}: at 20 subprojects the third cell's address split
+            across the page break, leaving two lines alone on a blank sheet.
+            If it ever can't fit it now moves whole rather than tearing. */}
+        <View style={s.prepared} wrap={false}>
           <Text style={s.kicker}>Prepared for</Text>
           <View style={s.preparedGrid}>
             <View style={s.preparedCell}>
@@ -523,13 +589,16 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
                     key={di}
                     style={[
                       s.detailCell,
-                      // One detail alone in a two-column grid leaves a
-                      // half-width dotted rule hanging in white space, which
-                      // reads as broken. Let it span.
-                      b.details.length === 1 ? { width: '100%', paddingRight: 0 } : {},
+                      // Full width for a lone detail (a half-width dotted rule
+                      // hanging in white space reads as broken) and for a very
+                      // long one (which would otherwise strand its neighbour
+                      // beside a wall of text).
+                      b.details.length === 1 || d.wide
+                        ? { width: '100%', paddingRight: 0 }
+                        : {},
                     ]}
                   >
-                    <Text style={s.detailText}>{pdfText(d)}</Text>
+                    <Text style={s.detailText}>{pdfText(d.text)}</Text>
                   </View>
                 ))}
               </View>
