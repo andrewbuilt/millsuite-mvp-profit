@@ -10,7 +10,7 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-02)
 
-**✅ 2026-09-02: TASK SYSTEM V1 BUILT (`33dc2db`) — replaces the "BUILT Master Action List" sheet.** ⛔ **`093_tasks.sql` MUST RUN ON PROD BEFORE DEPLOYING** — nothing else gates it, but without it every task surface errors. Three doors as scoped: nav trigger + slide-out panel · "+ Task" on project pages · Mine as a filter. Detail under "Task system v1" in Now.
+**✅ 2026-09-02: TASK SYSTEM V1 BUILT (`33dc2db`) — replaces the "BUILT Master Action List" sheet. Migration `093` ✅ ON PROD.** Nothing blocking: deploy, then Andrew's live pass. Three doors as scoped: nav trigger + slide-out panel · "+ Task" on project pages · Mine as a filter. Detail under "Task system v1" in Now.
 
 **✅ 2026-09-02: WAVE-2 ITEMS 10 + 11 BUILT (`757be89`, `654a917`) — the wave is DONE, all eleven, no migrations anywhere in it.** Item 11 gave the kanban chip its own row after item 10's chip clipped at narrow widths. Item 10: Kanban cards now show an **Estimate sent** chip, **"Mark as sent" auto-advances a new lead to 50/50** (guarded — it can never walk a 90%/sold project backwards), and **sold cards read their real stage** instead of a permanent "Live". ⚠️ **Behaviour change worth knowing: marking an estimate sent on a NEW LEAD now moves the card without a drag.**
 
@@ -139,9 +139,10 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Task system v1 — ✅ BUILT 2026-09-02 (`33dc2db`). **⛔ Migration `093` NOT YET RUN — run it on prod before deploy.**
+### Task system v1 — ✅ BUILT 2026-09-02 (`33dc2db`); migration `093` ✅ ON PROD. **Nothing blocking — only Andrew's live pass (list at the end).**
 
-**`093_tasks.sql`** — `tasks` + `task_comments`, org RLS on the `projects` FOR-ALL pattern (083), idempotent, ends with `NOTIFY pgrst`. Additive; nothing else in the app touches these tables.
+**`093_tasks.sql` ✅ RUN ON PROD 2026-09-02 by Andrew.** `tasks` + `task_comments`, org RLS on the `projects` FOR-ALL pattern (083), idempotent, ends with `NOTIFY pgrst`. Verified through PostgREST with the public key — both tables answer and every column is in the schema cache.
+   - _Worth knowing: the first run silently produced nothing._ The file is wrapped in `BEGIN…COMMIT`, so a failure anywhere rolls back everything and you're left with no tables and no obvious sign — the check caught it because it asks for the tables by name rather than trusting "it ran". **Verify a migration landed before building on it**; the usual cause is the Supabase SQL editor running only the selected text.
 
 **The shape follows the SHEET, not a generic todo app. Two things that look like omissions are the design — don't "fix" them:**
 - **Buckets are a curated list, not a calendar.** Nothing auto-rolls. A stale Today item stays in Today until a human drags it, because Kaylin's daily pass IS the process — ageing rows for her would quietly remove the judgement that makes the list worth reading. There is deliberately no `due_date` and no scheduled job.
@@ -158,7 +159,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 **Verified by rendering the real panel against fixture context:** all four buckets, project chips, a no-project "Task" chip, a three-assignee row, collapsed Done, and the expanded detail. `check-tour-targets` passes at 44 — the nav trigger deliberately carries **no** `data-tour` hook, since tour scripts point at nav items by stable identifier and a new one risks a collision.
 
-**Left for Andrew (after running `093` + deploying), with the sheet open beside it:** rebuild ~10 real rows across all four buckets including a no-project row and a 3-assignee row · drag between buckets (that's the daily pass) · leave a comment like "Ordered ETA 9/3" and confirm another manager sees it · "+ Task" from a project page lands pre-linked · Mine shows only yours · completing a task drops it into Done and unchecking restores it.
+**Left for Andrew (deploy first), with the sheet open beside it:** rebuild ~10 real rows across all four buckets including a no-project row and a 3-assignee row · drag between buckets (that's the daily pass) · leave a comment like "Ordered ETA 9/3" and confirm another manager sees it · "+ Task" from a project page lands pre-linked · Mine shows only yours · completing a task drops it into Done and unchecking restores it.
 
 _Not in v1 (say no until asked again): worker assignees on `/me`, notifications/mentions, recurring tasks, importing the sheet programmatically, a dedicated `/tasks` page._
 
