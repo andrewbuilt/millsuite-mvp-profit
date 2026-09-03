@@ -15,6 +15,7 @@ const M = (id, over = {}) => ({
   start_date: null,
   hours_per_week: undefined,
   active: true,
+  tasks_enabled: true,
   ...over,
 })
 
@@ -114,6 +115,51 @@ check(
   titles(mergeTeam([M('a', { title: 'x' })], [M('a', { title: null })], [M('a', { title: 'x' })])),
   ['a:null'],
 )
+
+// 7. THE REGRESSION. `tasks_enabled` was added to TeamMember but not to the
+// merge's field list, so toggling "Gets tasks" on /team appeared to save and
+// then reverted: the merge copied the SERVER's value back over it. An unlisted
+// field isn't rejected loudly, it's silently un-edited.
+check(
+  'toggling tasks_enabled survives the merge',
+  mergeTeam(
+    [M('a', { tasks_enabled: true })],
+    [M('a', { tasks_enabled: false })],
+    [M('a', { tasks_enabled: true })],
+  )[0].tasks_enabled,
+  false,
+)
+
+// 8. The generic net for that whole bug class. Change each field in turn and
+// assert the edit survives. This derives the field list from a FIXTURE, so it
+// stays independent of the allowlist in the source — a field present on a
+// member but missing from MERGEABLE_FIELDS fails here even though both are
+// "self-consistent". The compile-time Record check is the first net; this is
+// the second, and they fail for different reasons.
+const CHANGED = {
+  name: 'changed',
+  annual_comp: 12345,
+  billable: false,
+  dept_assignments: ['dX'],
+  tasks_enabled: false,
+  user_id: 'u-changed',
+  email: 'changed@example.com',
+  phone: '555',
+  title: 'changed',
+  start_date: '2020-01-01',
+  hours_per_week: 7,
+  active: false,
+}
+for (const field of Object.keys(M('a'))) {
+  if (field === 'id') continue
+  if (!(field in CHANGED)) {
+    failures++
+    console.log(`FAIL every field survives a merge — no CHANGED value for '${field}'`)
+    continue
+  }
+  const merged = mergeTeam([M('a')], [M('a', { [field]: CHANGED[field] })], [M('a')])[0]
+  check(`  ${field} survives a merge`, JSON.stringify(merged[field]), JSON.stringify(CHANGED[field]))
+}
 
 console.log(failures === 0 ? '\nall merge cases pass' : `\n${failures} FAILING`)
 process.exit(failures ? 1 : 0)

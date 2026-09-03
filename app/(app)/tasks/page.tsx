@@ -31,9 +31,11 @@ import { Check, Plus } from 'lucide-react'
 
 export default function TasksPage() {
   const { user } = useAuth()
-  const { enabled, tasks, assignees, projects, loading, refresh } = useTasks()
+  const { enabled, tasks, assignees, projects, loading, refresh, myAssigneeId } = useTasks()
 
-  const [filter, setFilter] = useState<string>('all')
+  // Lands on Mine, matching the drawer. Falls back to showing everything when
+  // the login has no roster row — see the panel's `visible` for why.
+  const [filter, setFilter] = useState<string>('mine')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [addingIn, setAddingIn] = useState<TaskBucket | null>(null)
   const [newTitle, setNewTitle] = useState('')
@@ -43,11 +45,6 @@ export default function TasksPage() {
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<TaskBucket | null>(null)
   const [doneOpen, setDoneOpen] = useState(false)
-
-  const myAssigneeId = useMemo(
-    () => assignees.find((a) => a.userId && a.userId === user?.id)?.id ?? null,
-    [assignees, user?.id],
-  )
 
   const projectById = useMemo(() => {
     const m = new Map<string, { id: string; name: string }>()
@@ -70,6 +67,7 @@ export default function TasksPage() {
     () =>
       tasks.filter((t) => {
         if (filter === 'all') return true
+        if (filter === 'mine' && !myAssigneeId) return true
         const target = filter === 'mine' ? myAssigneeId : filter
         if (!target) return false
         return t.assignee_ids.includes(target)

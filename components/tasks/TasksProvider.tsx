@@ -48,7 +48,13 @@ interface TasksContextValue {
   refresh: () => Promise<void>
   /** Open tasks per project id — the project page's "Tasks · N". */
   openCountByProject: Record<string, number>
+  /** MY open tasks — the nav badge. See the note where it's computed: this is
+   *  deliberately not the org-wide count. */
   openCount: number
+  /** The signed-in user's ROSTER id (`orgs.team_members[].id`), or null if
+   *  their login isn't linked to a roster row. Computed once here because the
+   *  badge, the panel and /tasks all need it and three copies would drift. */
+  myAssigneeId: string | null
 
   panelOpen: boolean
   /** Opening with a projectId pre-filters the panel to that project. */
@@ -129,7 +135,33 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     return out
   }, [tasks])
 
-  const openCount = useMemo(() => tasks.filter((t) => !t.done_at).length, [tasks])
+  /** Signed-in login → their roster entry. Null when nobody on the roster
+   *  carries this user_id, which is normal: the bridge is only written when
+   *  someone links a team member to a login on /team. */
+  const myAssigneeId = useMemo(
+    () => assignees.find((a) => a.userId && a.userId === user?.id)?.id ?? null,
+    [assignees, user?.id],
+  )
+
+  /**
+   * The nav badge: MY open tasks, not the org's.
+   *
+   * It counted every open task in the org, so the blue dot was permanently lit
+   * for everyone the moment anyone had anything outstanding — which makes it
+   * decoration rather than a signal. A badge should mean "you owe something".
+   *
+   * ⚠️ The fallback matters. If this user's login ISN'T linked to a roster row
+   * (`myAssigneeId === null`) they cannot be assigned anything, so a personal
+   * count would be a permanent, undiagnosable zero. Falling back to the
+   * org-wide count instead makes the misconfiguration VISIBLE — a badge that
+   * counts everything means "link this login on /team", which is a thing
+   * someone can act on. Silence isn't.
+   */
+  const openCount = useMemo(() => {
+    const open = tasks.filter((t) => !t.done_at)
+    if (!myAssigneeId) return open.length
+    return open.filter((t) => t.assignee_ids.includes(myAssigneeId)).length
+  }, [tasks, myAssigneeId])
 
   const openPanel = useCallback((opts?: { projectId?: string | null }) => {
     if (opts && 'projectId' in opts) setProjectFilter(opts.projectId ?? null)
@@ -148,6 +180,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       refresh,
       openCountByProject,
       openCount,
+      myAssigneeId,
       panelOpen,
       openPanel,
       closePanel,
@@ -163,6 +196,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       refresh,
       openCountByProject,
       openCount,
+      myAssigneeId,
       panelOpen,
       openPanel,
       closePanel,

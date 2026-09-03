@@ -11,9 +11,9 @@
 //   · Nothing auto-rolls. A stale Today item stays in Today until a human
 //     drags it. Kaylin's daily pass IS the process; ageing rows for her would
 //     quietly take the judgement away.
-//   · The default filter is ALL, not Mine. It's a master list — you're meant
-//     to see what everyone is carrying. Mine is one click away and the choice
-//     is remembered.
+//   · It opens on MINE, not All (Andrew's call 2026-09-03; it shipped on All).
+//     What you personally owe is the question you open a task pane to answer;
+//     the whole shop's list is one click away and the choice is remembered.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
@@ -47,13 +47,16 @@ export default function TasksPanel() {
     projects,
     loading,
     refresh,
+    myAssigneeId,
     panelOpen,
     closePanel,
     projectFilter,
     setProjectFilter,
   } = useTasks()
 
-  const [filter, setFilter] = useState<Filter>('all')
+  // Opens on Mine. See `visible` for what happens when the signed-in user has
+  // no roster entry — it does NOT show an empty panel.
+  const [filter, setFilter] = useState<Filter>('mine')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [doneOpen, setDoneOpen] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -100,18 +103,19 @@ export default function TasksPanel() {
     return m
   }, [assignees])
 
-  // Tasks are assigned to ROSTER ids, so "Mine" has to hop from the signed-in
-  // login to that person's team_members entry. Null when the owner isn't on
-  // the roster — Mine then shows nothing rather than silently showing all.
-  const myAssigneeId = useMemo(
-    () => assignees.find((a) => a.userId && a.userId === user?.id)?.id ?? null,
-    [assignees, user?.id],
-  )
-
+  // `myAssigneeId` comes from the provider (tasks are assigned to ROSTER ids,
+  // so "Mine" hops signed-in login → team_members entry).
   const visible = useMemo(() => {
     return tasks.filter((t) => {
       if (projectFilter && t.project_id !== projectFilter) return false
       if (filter === 'all') return true
+      // Mine before the roster has loaded, or for a login with no roster row,
+      // shows EVERYTHING rather than nothing. Since Mine is now the landing
+      // filter, the alternative is that the panel opens blank for a fraction
+      // of a second on every load — and permanently blank for an unlinked
+      // login — which reads as "tasks are broken" rather than "you're owed
+      // nothing". Same fallback rule as the nav badge.
+      if (filter === 'mine' && !myAssigneeId) return true
       const target = filter === 'mine' ? myAssigneeId : filter
       if (!target) return false
       return t.assignee_ids.includes(target)
@@ -200,10 +204,20 @@ export default function TasksPanel() {
         <div className="px-4 py-3 border-b border-[#E5E7EB] flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[15px] font-semibold text-[#111]">Tasks</div>
+            {/* Follows the active filter. It was hardcoded to "Everyone's
+                list", which was true when the panel opened on All — landing on
+                Mine made it a lie, and a subtitle that contradicts the list
+                under it is worse than none. */}
             <div className="text-[11px] text-[#9CA3AF]">
               {projectFilter
                 ? projectById.get(projectFilter)?.name ?? 'This project'
-                : 'Everyone’s list'}
+                : filter === 'all'
+                  ? 'Everyone’s list'
+                  : filter === 'mine'
+                    ? myAssigneeId
+                      ? 'Assigned to you'
+                      : 'Everyone’s list'
+                    : `${firstName(nameById.get(filter) ?? '')}’s tasks`}
             </div>
           </div>
           <div className="flex items-center gap-1">

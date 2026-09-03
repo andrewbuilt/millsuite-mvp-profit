@@ -34,20 +34,38 @@
 
 import type { TeamMember } from './shop-rate-setup'
 
-/** Fields a page can own. Anything not listed is copied from the server. */
-const MERGEABLE_FIELDS = [
-  'name',
-  'annual_comp',
-  'billable',
-  'dept_assignments',
-  'user_id',
-  'email',
-  'phone',
-  'title',
-  'start_date',
-  'hours_per_week',
-  'active',
-] as const
+/** Fields a page can own. Anything not listed is copied from the server.
+ *
+ * ⛔ THIS LIST IS TYPE-CHECKED FOR EXHAUSTIVENESS ON PURPOSE — don't loosen it.
+ * It was a plain string array, and `tasks_enabled` was added to `TeamMember`
+ * without being added here. The result was the nastiest possible shape of
+ * failure: the /team checkbox toggled, the autosave ran, the indicator said
+ * saved, the write succeeded — and the merge copied the SERVER's value back
+ * over the field on the way out, so the change evaporated on reload with no
+ * error anywhere. Because the merge reads the field list rather than the
+ * object, an unlisted field isn't rejected, it's silently reverted.
+ *
+ * Typing it as `Record<Exclude<keyof TeamMember, 'id'>, true>` means adding a
+ * field to TeamMember now fails the build here until someone decides whether a
+ * page may own it. `id` is excluded because it's the merge key, not a value. */
+const MERGEABLE_FIELD_SET: Record<Exclude<keyof TeamMember, 'id'>, true> = {
+  name: true,
+  annual_comp: true,
+  billable: true,
+  dept_assignments: true,
+  tasks_enabled: true,
+  user_id: true,
+  email: true,
+  phone: true,
+  title: true,
+  start_date: true,
+  hours_per_week: true,
+  active: true,
+}
+
+const MERGEABLE_FIELDS = Object.keys(MERGEABLE_FIELD_SET) as Array<
+  Exclude<keyof TeamMember, 'id'>
+>
 
 function sameValue(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
