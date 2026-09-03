@@ -140,6 +140,7 @@ import StagePill, {
   COVER_STAGE_ORDER,
   type CoverStage,
 } from '@/components/project/StagePill'
+import ProjectTaskButton from '@/components/tasks/ProjectTaskButton'
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
@@ -1392,6 +1393,11 @@ export default function ProjectCoverPage() {
             </div>
             <div className="text-xs font-semibold mt-1 text-[#059669] font-mono tabular-nums">
               {proj.blendedMarginPct.toFixed(0)}% margin · {money(proj.marginAmount)}
+            </div>
+            {/* Quick-capture pre-linked to this project, plus a count that
+                opens the panel filtered to it. Renders nothing for workers. */}
+            <div className="flex items-center justify-end gap-2 mt-3">
+              <ProjectTaskButton projectId={projectId} />
             </div>
           </div>
         </div>

@@ -6,6 +6,8 @@ import BillingGate from '@/components/billing-gate'
 import WelcomeOverlay from '@/components/onboarding/WelcomeOverlay'
 import UpdateBanner from '@/components/update-banner'
 import TourProvider from '@/components/walkthroughs/TourProvider'
+import { TasksProvider } from '@/components/tasks/TasksProvider'
+import TasksPanel from '@/components/tasks/TasksPanel'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -21,6 +23,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               "Price your first job" tour navigates across four routes while
               running — a provider inside a page would unmount underneath it. */}
           <TourProvider>
+            {/* One task store for the nav badge, the panel and the project
+                page's "+ Task". Self-gates to non-workers. */}
+            <TasksProvider>
             <div className="bg-[#F9FAFB] text-[#111] min-h-screen flex flex-col">
               <TopNav />
               <div className="flex-1">
@@ -36,6 +41,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {/* Gentle "new version available" toast — polls /api/version and
                 nudges (never auto-reloads) when a newer deploy is live. */}
             <UpdateBanner />
+            {/* Right-hand slide-out; renders nothing until opened. */}
+            <TasksPanel />
+            </TasksProvider>
           </TourProvider>
         </BillingGate>
       </RoleGate>
