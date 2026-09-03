@@ -72,17 +72,8 @@ export default function StageStrip({
           const isGateGreen = !!soldGateMet && s === 'sold' && isCurrent
           const isProgressNode = showProgress && s === 'production'
           return (
-            <div
-              key={s}
-              className={
-                'flex items-center gap-3 last:flex-none ' +
-                // The active production node takes more of the strip so the
-                // bar has room to be readable. Everything else keeps flex-1,
-                // so the strip stays balanced and centred.
-                (isProgressNode ? 'flex-[2.5]' : 'flex-1')
-              }
-            >
-              <div className={'flex items-center gap-2.5 ' + (isProgressNode ? 'flex-1 min-w-0' : '')}>
+            <div key={s} className="flex items-center gap-3 flex-1 last:flex-none">
+              <div className="flex items-center gap-2.5">
                 <div
                   className={
                     'w-6 h-6 rounded-full border-[1.5px] flex items-center justify-center text-[10px] font-bold ' +
@@ -100,7 +91,6 @@ export default function StageStrip({
                 <div
                   className={
                     'text-xs ' +
-                    (isProgressNode ? 'flex-1 min-w-0 ' : '') +
                     (isGateGreen
                       ? 'text-[#059669] font-semibold'
                       : isCurrent
@@ -116,40 +106,46 @@ export default function StageStrip({
                       · ready
                     </span>
                   )}
-                  {isProgressNode && (
-                    <span
-                      className={
-                        'ml-1.5 text-[10px] font-normal ' +
-                        (over ? 'text-[#B91C1C]' : 'text-[#6B7280]')
-                      }
-                    >
-                      · {Math.round(pct)}%{over ? ' — over estimate' : ''}
-                    </span>
-                  )}
-                  {isProgressNode && (
-                    <div
-                      className="mt-1 h-[5px] rounded-full bg-[#E5E7EB] overflow-hidden"
-                      title={`${fmtActualHours(production!.actualMinutes)} tracked against ${hoursFmt(estHours)} estimated`}
-                    >
-                      {/* Width caps at 100 so an overrun can't paint outside
-                          the track; the red tone is what says "over", not a
-                          longer bar. */}
-                      <div
-                        className={'h-full rounded-full ' + (over ? 'bg-[#DC2626]' : 'bg-[#2563EB]')}
-                        style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-                      />
-                    </div>
-                  )}
                 </div>
               </div>
-              {i < COVER_STAGE_ORDER.length - 1 && (
-                <div
-                  className={
-                    'flex-1 h-[2px] ' +
-                    (i < currentIdx ? 'bg-[#059669]' : 'bg-[#E5E7EB]')
-                  }
-                />
-              )}
+              {i < COVER_STAGE_ORDER.length - 1 &&
+                (isProgressNode ? (
+                  // The connector leaving Production IS the progress bar —
+                  // no extra element. An earlier version drew its own bar
+                  // under the label and left this line in place, which read
+                  // as two bars stacked. Same 2px height, same flex-1, same
+                  // gap as every other connector, so the strip's rhythm is
+                  // untouched; only the fill is new.
+                  //
+                  // The percentage is a tooltip, not a label: the strip
+                  // answers "where is this job", and a number sitting in it
+                  // permanently competes with that for attention.
+                  <div
+                    className="flex-1 h-[2px] bg-[#E5E7EB] relative"
+                    title={`${Math.round(pct)}% — ${fmtActualHours(
+                      production!.actualMinutes,
+                    )} tracked of ${hoursFmt(estHours)} estimated${
+                      over ? ' (over estimate)' : ''
+                    }`}
+                  >
+                    {/* Capped at 100% width so an overrun can't paint past
+                        the next pip. Red is what says "over", not length. */}
+                    <div
+                      className={
+                        'absolute inset-y-0 left-0 ' +
+                        (over ? 'bg-[#DC2626]' : 'bg-[#059669]')
+                      }
+                      style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className={
+                      'flex-1 h-[2px] ' +
+                      (i < currentIdx ? 'bg-[#059669]' : 'bg-[#E5E7EB]')
+                    }
+                  />
+                ))}
             </div>
           )
         })}
