@@ -4,13 +4,13 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-09-01 · **Branch:** `main`
+**Last updated:** 2026-09-02 · **Branch:** `main`
 
 ---
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-02)
 
-**✅ 2026-09-02: TASK SYSTEM V1 BUILT (`33dc2db`) — replaces the "BUILT Master Action List" sheet. Migration `093` ✅ ON PROD.** Nothing blocking: deploy, then Andrew's live pass. Three doors as scoped: nav trigger + slide-out panel · "+ Task" on project pages · Mine as a filter. Detail under "Task system v1" in Now.
+**✅ 2026-09-02: TASK SYSTEM V1 BUILT — replaces the "BUILT Master Action List" sheet. Migration `093` ✅ ON PROD.** Nothing blocking: deploy, then Andrew's live pass. `33dc2db` the system (nav trigger + slide-out panel · "+ Task" on project pages · Mine as a filter) · `7da3804` **fixed the fact that the first cut couldn't assign anyone** + added the full `/tasks` page · `e64398a` a per-person **"Gets tasks"** flag on `/team`. ⛔ **`assignee_ids` holds ROSTER ids (`orgs.team_members`), not user ids** — the shop floor has no logins. **Andrew owes one pass on `/team` to untick everyone but the managers and Hunter**; the flag defaults ON so the picker is never mysteriously empty. Detail under "Task system v1" in Now.
 
 **✅ 2026-09-02: WAVE-2 ITEMS 10 + 11 BUILT (`757be89`, `654a917`) — the wave is DONE, all eleven, no migrations anywhere in it.** Item 11 gave the kanban chip its own row after item 10's chip clipped at narrow widths. Item 10: Kanban cards now show an **Estimate sent** chip, **"Mark as sent" auto-advances a new lead to 50/50** (guarded — it can never walk a 90%/sold project backwards), and **sold cards read their real stage** instead of a permanent "Live". ⚠️ **Behaviour change worth knowing: marking an estimate sent on a NEW LEAD now moves the card without a drag.**
 
@@ -57,8 +57,6 @@
 **✅ Wave items 4–5 BUILT 2026-08-27** (`fb85606` drawer edit-modal truth-up · `8359a18` finishes-tab truth-up) — both from Andrew's live catch that the rate book edits and displays numbers the composer never reads. **The recurring shape: a rate-book surface reads `base_labor_hours_*` for an item type that prices from somewhere else.** That's now answered in one place per type — `laborHoursFor`/`hardwareCostFor` in `lib/rate-book-v2.ts` for drawers, `lib/finish-breakdown.ts` for finishes. Reach for those before adding another surface that reads item columns directly. Detail + one non-obvious trap under "Small fixes wave" in Now.
 
 **✅ Wave item 6 BUILT 2026-08-27** (`a474c25`) — the Finishes tab is now **"Interior finishes"** and the Doors tab's list is **"Door finishes · per door"**, because the two are genuinely different things (box inside, per LF, by cabinet type · vs doors/fronts, per door, by door type + material) and only shared a name for historical reasons. **`FinishWalkthrough`'s exterior branch is retired** — it defaulted to `'exterior'` and its "Duplicate as Exterior" button created blank rows nothing can price, so it was generating the confusion, not just carrying it. `application` is narrowed to `'interior'` everywhere. **Open, Andrew's call, unscoped: pre-038 `application='exterior'` finish rows may still sit in his data and would list in the Interior finishes tab — hide them or delete by hand.**
-
-**NEW — wave items 9–10 scoped 2026-08-27 (fifth Cowork pass): estimate PDF polish — NOT built, build next.** (9) An org-level **closing note** at the end of the estimate PDF (thank-you / who the shop supports; Andrew's approved copy for Built is in the spec — it's an org setting, NOT hardcoded, because Bam's estimates must not carry Built's blurb). (10) **Line-description readability** — the PDF renders each line as one squashed text blob; split it into labeled sections with spacing. Specs under "Small fixes wave" in Now.
 
 **Deploy state 2026-08-27: the old unpushed-commit warning is RESOLVED** — `fb907f4` + `33253c7` are on origin. `main` now carries the three small-fixes commits on top. (Vercel build times are back to ~1 min — the 30-min warning below is resolved.)
 
@@ -174,7 +172,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 **Left for Andrew (deploy first), with the sheet open beside it:** rebuild ~10 real rows across all four buckets including a no-project row and a 3-assignee row · drag between buckets (that's the daily pass) · leave a comment like "Ordered ETA 9/3" and confirm another manager sees it · "+ Task" from a project page lands pre-linked · Mine shows only yours · completing a task drops it into Done and unchecking restores it.
 
-_Not in v1 (say no until asked again): worker assignees on `/me`, notifications/mentions, recurring tasks, importing the sheet programmatically, a dedicated `/tasks` page._
+_Not in v1 (say no until asked again): notifications/mentions, recurring tasks, importing the sheet programmatically._ **⚠️ Hunter can be ASSIGNED but cannot SEE his tasks** — workers only get `/me`, which has no task surface. Deliberate for v1; it's the obvious next ask once the list is in daily use.
 
 ### Small fixes wave 2 — ✅ ALL ELEVEN BUILT (2026-09-01 → 09-02). **No migrations in the whole wave. Nothing left to build; Andrew's live pass on 2, 3, 5, 6, 7, 8, 9, 10 is at the end.**
 
