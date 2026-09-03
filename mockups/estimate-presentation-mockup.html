@@ -3,16 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presentation estimate — 3-part mockup (Williams)</title>
+<title>Presentation estimate — 3-part mockup v2 (Williams)</title>
 <!--
-  MOCKUP · Presentation estimate (Built's premium template) — the design-checkpoint
-  deliverable from the 2026-09-03 planning pass. Evolves claude design's
-  prototypes/design/estimate-presentation/Estimate.dc.html into the full 3-part
-  structure: COVER (editorial headline · Built story stats · materials palette)
-  → SCOPE PAGES (priced, no per-line materials) → THE NUMBERS.
-  Fonts: Newsreader 300 + Instrument Sans (stand-ins for Tool Serif / Suisse Intl —
-  layout must survive a font-file swap). Content = the real Williams package (EST-0010).
-  Scope pages show 3 of 15 sections for mockup brevity.
+  MOCKUP v2 · Presentation estimate — Andrew's markup applied (2026-09-03):
+  stats OFF the cover (small row on the closing page) · the four big cover
+  blocks replaced with a SCOPE INDEX (works for 1 sub or 20) · palette REMOVED
+  (auto-aggregation needs curation; per-sub Material lines stay as authored) ·
+  smaller type, more white space throughout.
+  Fonts: Andrew wants to BUY. Site truth: Suisse Intl (buyable) + GT America
+  Mono (buyable, the stat digits) + "Tool Serif" (FFF-Tool-SerifVF — custom,
+  NOT retail; pick a retail serif: Editorial New / Reckless Neue / Tiempos, or
+  keep Newsreader). This mockup wears Newsreader + Instrument Sans as stand-ins.
 -->
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&family=Instrument+Sans:wght@400;500;600&display=swap');
@@ -22,72 +23,79 @@
          padding:40px 16px; -webkit-font-smoothing:antialiased; }
   .serif { font-family:'Newsreader',Georgia,serif; font-weight:300; }
 
-  .sheet { max-width:850px; margin:0 auto 36px; background:var(--paper); padding:72px 82px 60px;
-           box-shadow:0 18px 44px rgba(23,21,15,.14); min-height:1050px; display:flex; flex-direction:column; }
+  .sheet { max-width:850px; margin:0 auto 36px; background:var(--paper); padding:88px 96px 64px;
+           box-shadow:0 18px 44px rgba(23,21,15,.14); min-height:1080px; display:flex; flex-direction:column; }
 
-  .runhead { display:flex; align-items:baseline; gap:14px; font-size:11px; font-weight:500;
-             letter-spacing:.16em; text-transform:uppercase; color:var(--faint); margin-bottom:56px; }
+  .runhead { display:flex; align-items:baseline; gap:14px; font-size:10px; font-weight:500;
+             letter-spacing:.16em; text-transform:uppercase; color:var(--faint); margin-bottom:84px; }
   .runhead b { color:var(--ink); font-weight:600; letter-spacing:.24em; }
   .runhead .sep { color:#D6D1C6; }
   .runhead .r { margin-left:auto; }
 
-  .kicker { font-size:11px; font-weight:500; letter-spacing:.22em; text-transform:uppercase; color:var(--faint); }
+  .kicker { font-size:10px; font-weight:500; letter-spacing:.22em; text-transform:uppercase; color:var(--faint); }
 
-  h1 { font-family:'Newsreader',Georgia,serif; font-size:46px; font-weight:300; line-height:1.14;
-       letter-spacing:-.005em; margin-top:28px; max-width:16em; }
+  h1 { font-family:'Newsreader',Georgia,serif; font-size:32px; font-weight:300; line-height:1.22;
+       letter-spacing:-.003em; margin-top:26px; max-width:18em; }
 
-  .totalpill { display:inline-flex; align-items:center; gap:44px; margin-top:40px; padding:15px 26px;
-               border:1px solid var(--ink); border-radius:2px; align-self:flex-start;
-               font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; }
+  .totalline { margin-top:36px; font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; }
+  .totalline .amt { font-family:'Newsreader',Georgia,serif; font-size:22px; font-weight:300; letter-spacing:0;
+                    text-transform:none; margin-left:14px; vertical-align:-2px; }
 
-  .stats { display:grid; grid-template-columns:1fr 1fr; gap:56px 60px; margin-top:72px; }
-  .stat .v { font-family:'Newsreader',Georgia,serif; font-size:50px; font-weight:300; line-height:1; letter-spacing:-.01em; }
-  .stat .rule { border-top:1px dotted var(--hair); margin:20px 0 14px; }
-  .stat .l { font-size:15px; font-weight:600; }
-  .stat p { font-size:14px; line-height:1.55; color:var(--mut); margin-top:8px; }
+  /* scope index */
+  .index { margin-top:84px; }
+  .idxrow { display:flex; align-items:baseline; gap:16px; padding:12px 0; border-bottom:1px dotted var(--hair);
+            font-size:13px; }
+  .idxrow .n { }
+  .idxrow .dots { flex:1; }
+  .idxrow .a { font-family:'Newsreader',Georgia,serif; font-size:14.5px; font-weight:400; white-space:nowrap; }
+  .idxrow.sum { border-bottom:none; padding-top:16px; }
+  .idxrow.sum .n { font-weight:600; font-size:12px; letter-spacing:.16em; text-transform:uppercase; }
+  .idxrow.sum .a { font-size:17px; }
 
-  .palette { margin-top:76px; }
-  .palette .grid { display:grid; grid-template-columns:1fr 1fr; gap:0 60px; margin-top:18px; }
-  .palette .m { font-size:14px; line-height:1.5; padding:11px 0; border-bottom:1px dotted var(--hair); }
+  .prepared { margin-top:auto; padding-top:72px; }
+  .prepared .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:40px; margin-top:18px; }
+  .prepared .n { font-size:14px; }
+  .prepared .s { font-size:12px; color:var(--mut); margin-top:5px; }
 
-  .prepared { margin-top:auto; padding-top:64px; }
-  .prepared .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:40px; margin-top:20px; }
-  .prepared .n { font-size:16px; }
-  .prepared .s { font-size:13px; color:var(--mut); margin-top:5px; }
-
-  .runfoot { display:flex; gap:12px; font-size:11px; letter-spacing:.1em; color:#B4AFA4; margin-top:56px; }
+  .runfoot { display:flex; gap:12px; font-size:10px; letter-spacing:.1em; color:#B4AFA4; margin-top:64px; }
   .runfoot .r { margin-left:auto; }
 
-  /* scope */
-  .scope { margin-top:8px; }
-  .scopehead { display:flex; align-items:baseline; gap:24px; margin-top:30px; }
-  .scopehead h2 { font-family:'Newsreader',Georgia,serif; font-size:32px; font-weight:300; line-height:1.1; }
-  .scopehead .u { margin-left:auto; font-size:13px; color:var(--mut); white-space:nowrap; }
-  .scopehead .amt { font-family:'Newsreader',Georgia,serif; font-size:27px; font-weight:300; white-space:nowrap; }
-  .dim { font-size:13px; color:var(--mut); margin-top:8px; }
-  .details { display:grid; grid-template-columns:1fr 1fr; gap:0 60px; margin-top:20px; }
-  .details .d { font-size:14px; line-height:1.5; padding:12px 0; border-bottom:1px dotted var(--hair); }
-  .subfoot { display:flex; gap:28px; margin-top:16px; font-size:13px; color:var(--mut); }
+  /* scope pages */
+  .scopehead { display:flex; align-items:baseline; gap:24px; margin-top:34px; }
+  .scopehead h2 { font-family:'Newsreader',Georgia,serif; font-size:21px; font-weight:400; line-height:1.2; }
+  .scopehead .u { margin-left:auto; font-size:11.5px; color:var(--mut); white-space:nowrap; }
+  .scopehead .amt { font-family:'Newsreader',Georgia,serif; font-size:19px; font-weight:300; white-space:nowrap; }
+  .matline { font-size:12px; color:var(--mut); margin-top:8px; }
+  .details { display:grid; grid-template-columns:1fr 1fr; gap:0 64px; margin-top:14px; }
+  .details .d { font-size:12.5px; line-height:1.55; padding:10px 0; border-bottom:1px dotted var(--hair); }
+  .subfoot { display:flex; gap:26px; margin-top:14px; font-size:11.5px; color:var(--mut); }
   .subfoot b { color:var(--ink); font-weight:600; }
-  .scope-sec { margin-bottom:58px; }
-  .morenote { font-size:13px; color:var(--faint); font-style:italic; margin-top:8px; }
+  .scope-sec { margin-bottom:64px; }
+  .morenote { font-size:12px; color:var(--faint); font-style:italic; margin-top:4px; }
 
   /* numbers page */
-  .bigtotal { font-family:'Newsreader',Georgia,serif; font-size:64px; font-weight:300; line-height:1; letter-spacing:-.01em; margin-top:26px; }
-  .schedule { margin-top:56px; }
-  .schedrow { display:flex; align-items:baseline; gap:20px; padding:16px 0; border-bottom:1px dotted var(--hair); }
-  .schedrow .pct { font-family:'Newsreader',Georgia,serif; font-size:24px; font-weight:300; width:74px; }
-  .schedrow .l { font-size:15px; font-weight:600; }
-  .schedrow .s { font-size:13px; color:var(--mut); margin-top:2px; }
-  .schedrow .amt { margin-left:auto; font-family:'Newsreader',Georgia,serif; font-size:22px; font-weight:300; }
-  .terms { margin-top:56px; }
-  .terms p { font-size:13px; line-height:1.7; color:var(--mut); margin-top:14px; max-width:60em; }
-  .thanks { margin-top:64px; }
-  .thanks p { font-family:'Newsreader',Georgia,serif; font-size:20px; font-weight:300; font-style:italic;
-              line-height:1.55; max-width:30em; margin-top:18px; }
-  .thanks .sig { font-size:13px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; margin-top:16px; }
-  .accept { display:grid; grid-template-columns:1fr 1fr; gap:60px; margin-top:auto; padding-top:70px; }
-  .accept .box { border-top:1px solid var(--ink); padding-top:10px; font-size:11px; font-weight:500;
+  .bigtotal { font-family:'Newsreader',Georgia,serif; font-size:44px; font-weight:300; line-height:1;
+              letter-spacing:-.008em; margin-top:24px; }
+  .schedule { margin-top:64px; }
+  .schedrow { display:flex; align-items:baseline; gap:20px; padding:14px 0; border-bottom:1px dotted var(--hair); }
+  .schedrow .pct { font-family:'Newsreader',Georgia,serif; font-size:17px; font-weight:300; width:58px; }
+  .schedrow .l { font-size:13px; font-weight:600; }
+  .schedrow .s { font-size:11.5px; color:var(--mut); margin-top:2px; }
+  .schedrow .amt { margin-left:auto; font-family:'Newsreader',Georgia,serif; font-size:16px; font-weight:300; }
+  .terms { margin-top:64px; }
+  .terms p { font-size:11.5px; line-height:1.75; color:var(--mut); margin-top:12px; max-width:62em; }
+
+  .thanks { margin-top:72px; }
+  .thanks p { font-family:'Newsreader',Georgia,serif; font-size:16px; font-weight:300; font-style:italic;
+              line-height:1.6; max-width:34em; margin-top:16px; }
+  .thanks .sig { font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; margin-top:14px; }
+
+  .ministats { display:flex; gap:44px; margin-top:40px; padding-top:22px; border-top:1px dotted var(--hair); }
+  .ministat .v { font-family:'Newsreader',Georgia,serif; font-size:19px; font-weight:400; }
+  .ministat .l { font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); margin-top:4px; }
+
+  .accept { display:grid; grid-template-columns:1fr 1fr; gap:64px; margin-top:auto; padding-top:76px; }
+  .accept .box { border-top:1px solid var(--ink); padding-top:10px; font-size:10px; font-weight:500;
                  letter-spacing:.2em; text-transform:uppercase; color:var(--faint); }
 
   @media print {
@@ -105,55 +113,31 @@
   <div class="kicker">Estimate EST-0010 · August 28, 2026 · Valid 30 days</div>
   <h1>A custom millwork package for the Williams residence.</h1>
 
-  <div class="totalpill"><span>Estimate total · $438,507</span><span style="font-size:17px;letter-spacing:0">&#8594;</span></div>
+  <div class="totalline">Estimate total<span class="amt">$438,507</span></div>
 
-  <div class="stats">
-    <div class="stat">
-      <div class="v">2013</div><div class="rule"></div>
-      <div class="l">Family owned since</div>
-      <p>Built has been a family-owned Tampa shop for over a decade.</p>
-    </div>
-    <div class="stat">
-      <div class="v">15</div><div class="rule"></div>
-      <div class="l">Craftspeople</div>
-      <p>The hands that will cut, assemble, finish and install this work.</p>
-    </div>
-    <div class="stat">
-      <div class="v">8</div><div class="rule"></div>
-      <div class="l">Families supported</div>
-      <p>Working with us keeps eight households going.</p>
-    </div>
-    <div class="stat">
-      <div class="v">12<span style="font-size:30px"> &amp; </span>16</div><div class="rule"></div>
-      <div class="l">Kids and pets</div>
-      <p>Behind those families &#183; twelve kids and sixteen pets.</p>
-    </div>
-  </div>
-
-  <div class="palette">
-    <div class="kicker">The palette &#183; every material in this package</div>
-    <div class="grid">
-      <div class="m">Premium rift white oak</div>
-      <div class="m">Rift white oak veneer</div>
-      <div class="m">Premium walnut veneer</div>
-      <div class="m">Solid walnut</div>
-      <div class="m">Flat cut white oak</div>
-      <div class="m">White oak tambour</div>
-      <div class="m">Wire brushed oak</div>
-      <div class="m">Oak veneer &#183; solid oak</div>
-      <div class="m">Prefinished maple interiors</div>
-      <div class="m">HDF &#183; engineered sheet goods</div>
-      <div class="m">Chemetal</div>
-      <div class="m">King StarBoard HDPE &#183; glass</div>
-    </div>
+  <div class="index">
+    <div class="kicker" style="margin-bottom:10px">The package · 15 spaces</div>
+    <div class="idxrow"><span class="n">Kitchen Cabinets &amp; Island</span><span class="dots"></span><span class="a">$98,447</span></div>
+    <div class="idxrow"><span class="n">Primary Closet Cabinets</span><span class="dots"></span><span class="a">$114,948</span></div>
+    <div class="idxrow"><span class="n">Mudroom Cabinets</span><span class="dots"></span><span class="a">$54,158</span></div>
+    <div class="idxrow"><span class="n">Outdoor Kitchen Cabinets</span><span class="dots"></span><span class="a">$25,369</span></div>
+    <div class="idxrow"><span class="n">Primary Bath Cabinets</span><span class="dots"></span><span class="a">$23,676</span></div>
+    <div class="idxrow"><span class="n">Gym Storage Cabinets</span><span class="dots"></span><span class="a">$19,062</span></div>
+    <div class="idxrow"><span class="n">Theater Cabinets</span><span class="dots"></span><span class="a">$17,497</span></div>
+    <div class="idxrow"><span class="n">Office Cabinets</span><span class="dots"></span><span class="a">$17,237</span></div>
+    <div class="idxrow"><span class="n">Snack Bar Cabinets</span><span class="dots"></span><span class="a">$15,193</span></div>
+    <div class="idxrow"><span class="n">Breakfast Nook</span><span class="dots"></span><span class="a">$13,130</span></div>
+    <div class="idxrow"><span class="n">Powder 1 &amp; 2 · Bunk · Caydon · Dallas · Emery · Finley · Pool Bath vanities</span><span class="dots"></span><span class="a">$34,872</span></div>
+    <div class="idxrow"><span class="n">Dog Area Cabinet</span><span class="dots"></span><span class="a">$4,918</span></div>
+    <div class="idxrow sum"><span class="n">Estimate total</span><span class="dots"></span><span class="a">$438,507</span></div>
   </div>
 
   <div class="prepared">
     <div class="kicker">Prepared for</div>
     <div class="grid">
       <div><div class="n">The Williams Residence</div><div class="s">Client</div></div>
-      <div><div class="n">15 spaces &#183; kitchen to dog area</div><div class="s">Scope</div></div>
-      <div><div class="n">Built, Tampa</div><div class="s">602 N Newport Ave &#183; 813 512 6250</div></div>
+      <div><div class="n">Williams Residential Millwork Package</div><div class="s">Project</div></div>
+      <div><div class="n">Built, Tampa</div><div class="s">602 N Newport Ave · 813 512 6250</div></div>
     </div>
   </div>
 
@@ -164,25 +148,25 @@
 <div class="sheet">
   <div class="runhead"><b>BUILT</b><span class="r">EST-0010</span><span class="sep">/</span><span>The work</span></div>
 
-  <div class="kicker">The work &#183; 15 spaces</div>
+  <div class="kicker">The work</div>
 
-  <div class="scope">
+  <div>
     <div class="scope-sec">
       <div class="scopehead">
         <h2>Kitchen Cabinets &amp; Island</h2>
-        <span class="u">Plans A2&#8211;9</span>
+        <span class="u">Plans A2–9</span>
         <span class="amt">$98,447</span>
       </div>
-      <div class="dim">Approx: based on plans &#183; premium rift white oak on all exterior surfaces</div>
+      <div class="matline">Premium rift white oak · engineered sheet goods · approx. per plans</div>
       <div class="details">
-        <div class="d">Stained to match sample, matte clear top coat</div>
+        <div class="d">Rift white oak on all exterior surfaces, stained to match sample, matte clear top coat</div>
         <div class="d">Slow-close European hinged doors</div>
-        <div class="d">Flat panel doors, panel-ready appliances</div>
-        <div class="d">44 Blum Legra drawer boxes, soft close</div>
+        <div class="d">Flat panel doors with panels for panel-ready appliances</div>
+        <div class="d">44 Blum Legra drawer boxes with soft close</div>
         <div class="d">Double pull-out trash in island and sink wall</div>
         <div class="d">Adjustable shelves throughout</div>
       </div>
-      <div class="subfoot"><span><b>Installation included</b></span><span>Excludes: LEDs &#183; stone &#183; power &#183; fixtures &amp; sinks &#183; handles</span></div>
+      <div class="subfoot"><span><b>Installation included</b></span><span>Excludes: LEDs · stone · power · fixtures &amp; sinks · handles</span></div>
     </div>
 
     <div class="scope-sec">
@@ -191,11 +175,11 @@
         <span class="u">Plan A10</span>
         <span class="amt">$13,130</span>
       </div>
-      <div class="dim">U-shaped seating with back &#183; rift white oak veneer on seat, back and base</div>
+      <div class="matline">Premium rift white oak veneer · engineered sheet goods · per plans</div>
       <div class="details">
+        <div class="d">U-shaped seating with back, veneer on seat, back and base</div>
         <div class="d">Stained to match sample, matte clear top coat</div>
-        <div class="d">Mounted in place with scribe panels</div>
-        <div class="d">Curved ends</div>
+        <div class="d">Mounted in place with scribe panels, curved ends</div>
         <div class="d">GC provides wood blocking at wall locations</div>
       </div>
       <div class="subfoot"><span><b>Installation included</b></span><span>Excludes: cushions &amp; upholstery</span></div>
@@ -204,22 +188,22 @@
     <div class="scope-sec">
       <div class="scopehead">
         <h2>Primary Closet Cabinets</h2>
-        <span class="u">Plans A27&#8211;30</span>
+        <span class="u">Plans A27–30</span>
         <span class="amt">$114,948</span>
       </div>
-      <div class="dim">Oak micro-shaker fronts &#183; walnut island with matte clear finish</div>
+      <div class="matline">Oak veneer · premium walnut · solid oak &amp; walnut · glass · per plans</div>
       <div class="details">
-        <div class="d">Island drawers one side, open cubbies opposite</div>
-        <div class="d">Four full-height mirror-panel doors</div>
+        <div class="d">Oak micro-shaker doors and drawers, satin lacquer</div>
+        <div class="d">Walnut island, matte clear · drawers one side, cubbies opposite</div>
+        <div class="d">Four full-height mirror-panel doors on Wall 11</div>
         <div class="d">Angled shoe shelves between mirror cabinets</div>
         <div class="d">Clear glass door above laundry storage</div>
-        <div class="d">14 Blum Legra drawer boxes, soft close</div>
-        <div class="d">Adjustable shelves throughout</div>
+        <div class="d">14 Blum Legra drawer boxes with soft close</div>
       </div>
-      <div class="subfoot"><span><b>Installation included</b></span><span>Excludes: hanging rods &#183; stone &#183; safe &#183; LEDs</span></div>
+      <div class="subfoot"><span><b>Installation included</b></span><span>Excludes: hanging rods · stone · safe · LEDs</span></div>
     </div>
 
-    <div class="morenote">&#8230; twelve more spaces follow in the full document &#8212; mudroom, powder baths, vanities, snack bar, primary bath, office, gym, theater, pool bath, outdoor kitchen and dog area.</div>
+    <div class="morenote">… twelve more spaces follow in the full document.</div>
   </div>
 
   <div class="runfoot" style="margin-top:auto"><span>602 N Newport Ave, Tampa, FL 33606</span><span class="r">info@builtthings.com</span></div>
@@ -235,22 +219,22 @@
   <div class="schedule">
     <div class="kicker" style="margin-bottom:6px">Payment schedule</div>
     <div class="schedrow">
-      <span class="pct serif">30%</span>
+      <span class="pct">30%</span>
       <span><span class="l">Deposit</span><div class="s">At contract signing</div></span>
       <span class="amt">$131,552</span>
     </div>
     <div class="schedrow">
-      <span class="pct serif">40%</span>
+      <span class="pct">40%</span>
       <span><span class="l">Rough-in</span><div class="s">Enters production</div></span>
       <span class="amt">$175,403</span>
     </div>
     <div class="schedrow">
-      <span class="pct serif">20%</span>
+      <span class="pct">20%</span>
       <span><span class="l">Install start</span><div class="s">Install begins on site</div></span>
       <span class="amt">$87,701</span>
     </div>
     <div class="schedrow" style="border-bottom:none">
-      <span class="pct serif">10%</span>
+      <span class="pct">10%</span>
       <span><span class="l">Final punchout</span><div class="s">On completion</div></span>
       <span class="amt">$43,851</span>
     </div>
@@ -258,21 +242,26 @@
 
   <div class="terms">
     <div class="kicker">Terms</div>
-    <p>Estimate valid for 30 days &#183; 30% deposit due at contract signing &#183; remaining balance billed
-       per production milestones &#183; lead time quoted separately &#183; change orders in writing only.</p>
+    <p>Estimate valid for 30 days · 30% deposit due at contract signing · remaining balance billed
+       per production milestones · lead time quoted separately · change orders in writing only.</p>
   </div>
 
   <div class="thanks">
     <div class="kicker">From the shop</div>
-    <p>Thank you for considering us for your project. Built has been family owned since 2013 &#183;
-       we take pride in what leaves this shop, and we're thankful for the opportunity to make you
-       something great.</p>
-    <div class="sig">&#8212; Andrew</div>
+    <p>Thank you for considering us for your project. We take pride in what leaves this shop,
+       and we're thankful for the opportunity to make you something great.</p>
+    <div class="sig">— Andrew</div>
+    <div class="ministats">
+      <div class="ministat"><div class="v">2013</div><div class="l">Family owned since</div></div>
+      <div class="ministat"><div class="v">15</div><div class="l">Craftspeople</div></div>
+      <div class="ministat"><div class="v">8</div><div class="l">Families supported</div></div>
+      <div class="ministat"><div class="v">12 &amp; 16</div><div class="l">Kids and pets</div></div>
+    </div>
   </div>
 
   <div class="accept">
-    <div class="box">Accepted &#183; Client</div>
-    <div class="box">Authorized &#183; Built</div>
+    <div class="box">Accepted · Client</div>
+    <div class="box">Authorized · Built</div>
   </div>
 
   <div class="runfoot"><span>602 N Newport Ave, Tampa, FL 33606</span><span class="r">info@builtthings.com</span></div>
