@@ -134,6 +134,7 @@ import { isReadyForProduction, startProduction, forceStartProduction, isDepositR
 // ── Types ──
 
 import { isPresold, type ProjectStage } from '@/lib/types'
+import StageStrip from '@/components/project/StageStrip'
 import StagePill, {
   coverStageOf,
   COVER_STAGE_LABEL,
@@ -1404,7 +1405,11 @@ export default function ProjectCoverPage() {
       </div>
 
       {/* Stage-aware layer: 5-node stage strip + attention strip */}
-      <StageStrip stage={project.stage} soldGateMet={readyForProduction} />
+      <StageStrip
+        stage={project.stage}
+        soldGateMet={readyForProduction}
+        production={{ actualMinutes: proj.actualMinutes, estimatedHours: proj.totalHours }}
+      />
       <AttentionStrip
         projectId={projectId}
         stage={project.stage}
@@ -3611,94 +3616,6 @@ function ShopRateNotConfiguredBanner() {
 }
 
 // ── Stage-aware layer components ──
-
-function StageStrip({
-  stage,
-  soldGateMet,
-}: {
-  stage: ProjectStage
-  /** When true AND the current cover stage is 'sold', the Sold pip
-   *  renders with a green check + emerald tone (same treatment as
-   *  completed stages) instead of the active blue. The actual stage
-   *  doesn't change — it stays 'sold' until the operator advances —
-   *  this is a purely visual "you're cleared to move to Production"
-   *  signal. Connector to the next pip is unchanged. */
-  soldGateMet?: boolean
-}) {
-  const cover = coverStageOf(stage)
-  if (cover === 'lost') {
-    return (
-      <div className="px-8 py-4 bg-[#FEF2F2] border-b border-[#FECACA] text-center text-sm text-[#991B1B]">
-        This project was marked lost. It stays on the pipeline for history but no further actions apply.
-      </div>
-    )
-  }
-  const currentIdx = COVER_STAGE_ORDER.indexOf(cover)
-  return (
-    /* data-tour: the sell-it guide's intro and closer both point at this
-       strip — the "where is my job in its life" view. */
-    <div data-tour="project-status" className="px-8 py-4 bg-white border-b border-[#E5E7EB]">
-      <div className="max-w-[1240px] mx-auto flex items-center gap-3">
-        {COVER_STAGE_ORDER.map((s, i) => {
-          const isDone = i < currentIdx
-          const isCurrent = i === currentIdx
-          // Sold pip green-checks when the gate clears, even though the
-          // stage hasn't advanced. Treat it as "done-styled, current"
-          // for the dot; keep the connector logic alone so Production
-          // doesn't look active.
-          const isGateGreen = !!soldGateMet && s === 'sold' && isCurrent
-          return (
-            <div key={s} className="flex items-center gap-3 flex-1 last:flex-none">
-              <div className="flex items-center gap-2.5">
-                <div
-                  className={
-                    'w-6 h-6 rounded-full border-[1.5px] flex items-center justify-center text-[10px] font-bold ' +
-                    (isGateGreen
-                      ? 'border-[#059669] bg-[#D1FAE5] text-[#065F46]'
-                      : isCurrent
-                      ? 'border-[#2563EB] bg-[#DBEAFE] text-[#1E40AF]'
-                      : isDone
-                      ? 'border-[#059669] bg-[#D1FAE5] text-[#065F46]'
-                      : 'border-[#D1D5DB] bg-white text-[#9CA3AF]')
-                  }
-                >
-                  {isDone || isGateGreen ? '✓' : i + 1}
-                </div>
-                <div
-                  className={
-                    'text-xs ' +
-                    (isGateGreen
-                      ? 'text-[#059669] font-semibold'
-                      : isCurrent
-                      ? 'text-[#111] font-semibold'
-                      : isDone
-                      ? 'text-[#059669]'
-                      : 'text-[#9CA3AF]')
-                  }
-                >
-                  {COVER_STAGE_LABEL[s]}
-                  {isGateGreen && (
-                    <span className="ml-1.5 text-[10px] font-normal text-[#059669]">
-                      · ready
-                    </span>
-                  )}
-                </div>
-              </div>
-              {i < COVER_STAGE_ORDER.length - 1 && (
-                <div
-                  className={
-                    'flex-1 h-[2px] ' +
-                    (i < currentIdx ? 'bg-[#059669]' : 'bg-[#E5E7EB]')
-                  }
-                />
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
 interface AttentionItem {
   text: string
