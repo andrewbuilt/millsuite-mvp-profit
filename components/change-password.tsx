@@ -79,9 +79,13 @@ export default function ChangePassword({ email }: { email: string | null | undef
           <div className="text-[13px] text-[#111]">Password</div>
           {done && <div className="text-[11px] text-[#15803D]">Updated</div>}
         </div>
+        {/* 44px tall on phones only. This renders in TWO places — /me (the
+            worker phone app, where it needs a real tap target) and /settings
+            on a desktop, where a 44px-tall bordered button next to 27px rows
+            looks wrong. `sm:` resets it above 640px. */}
         <button
           onClick={() => setOpen(true)}
-          className="text-[11px] px-2 py-1 rounded-md border border-[#E5E7EB] text-[#374151] hover:bg-[#F9FAFB]"
+          className="text-[11px] px-2 py-1 min-h-[44px] sm:min-h-0 rounded-md border border-[#E5E7EB] text-[#374151] hover:bg-[#F9FAFB]"
         >
           Change password
         </button>
