@@ -18,8 +18,10 @@
 import { builtClient, millsuiteClient, resolveTargetOrgId } from './env'
 import { loadManifest } from './manifest'
 
-const terms = process.argv.slice(2).filter((a) => !a.startsWith('-'))
-if (terms.length === 0) {
+const args = process.argv.slice(2)
+const LIST_ALL = args.includes('--list')
+const terms = args.filter((a) => !a.startsWith('-'))
+if (terms.length === 0 && !LIST_ALL) {
   console.error('usage: npx tsx scripts/migrate-built/lookup.ts <name> [name...]')
   process.exit(1)
 }
@@ -32,6 +34,27 @@ async function main() {
   const ms = millsuiteClient()
   const orgId = await resolveTargetOrgId(ms)
   const manifest = loadManifest()
+
+  // --list dumps every MillSuite project. A name probe can only find what you
+  // thought to search for; the duplicate that bites is the one titled
+  // differently from anything you guessed.
+  if (LIST_ALL) {
+    const { data } = await ms
+      .from('projects')
+      .select('id, name, stage, bid_total, imported_at')
+      .eq('org_id', orgId)
+      .order('name')
+    const rows = (data || []) as Array<Record<string, unknown>>
+    console.log(`\nMillSuite — ${rows.length} projects\n${'='.repeat(70)}`)
+    for (const p of rows) {
+      console.log(
+        `${(p.imported_at ? 'IMPORTED' : 'manual  ')}  ${String(p.stage).padEnd(14)} ${money(
+          p.bid_total,
+        ).padStart(10)}  ${String(p.name)}`,
+      )
+    }
+    if (terms.length === 0) return
+  }
 
   for (const term of terms) {
     console.log(`\n${'='.repeat(70)}\n${term}\n${'='.repeat(70)}`)
