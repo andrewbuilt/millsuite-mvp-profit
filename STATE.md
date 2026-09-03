@@ -10,7 +10,7 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-02)
 
-**NEW 2026-09-02 (Cowork planning pass): TASK SYSTEM V1 — scoped, NOT built, BUILD NEXT.** Replaces the team's daily-curated Google Sheet ("BUILT Master Action List"). Bucket scheduling (Today/This Week/Next Week/Someday, no due dates), multi-assignee, project-linked or standalone, comments per task; three doors into one system: global slide-out panel + "+ Task" on project pages + a Mine filter as the per-manager view. **Migration `093_tasks.sql` — run on prod before deploy.** Full spec = "Task system v1" at the top of Now.
+**✅ 2026-09-02: TASK SYSTEM V1 BUILT (`33dc2db`) — replaces the "BUILT Master Action List" sheet.** ⛔ **`093_tasks.sql` MUST RUN ON PROD BEFORE DEPLOYING** — nothing else gates it, but without it every task surface errors. Three doors as scoped: nav trigger + slide-out panel · "+ Task" on project pages · Mine as a filter. Detail under "Task system v1" in Now.
 
 **✅ 2026-09-02: WAVE-2 ITEMS 10 + 11 BUILT (`757be89`, `654a917`) — the wave is DONE, all eleven, no migrations anywhere in it.** Item 11 gave the kanban chip its own row after item 10's chip clipped at narrow widths. Item 10: Kanban cards now show an **Estimate sent** chip, **"Mark as sent" auto-advances a new lead to 50/50** (guarded — it can never walk a 90%/sold project backwards), and **sold cards read their real stage** instead of a permanent "Live". ⚠️ **Behaviour change worth knowing: marking an estimate sent on a NEW LEAD now moves the card without a drag.**
 
@@ -139,30 +139,28 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Task system v1 — scoped 2026-09-02 (Cowork planning pass with Andrew). **BUILD NEXT. Migration `093` must run on prod before deploy.**
+### Task system v1 — ✅ BUILT 2026-09-02 (`33dc2db`). **⛔ Migration `093` NOT YET RUN — run it on prod before deploy.**
 
-**Replaces the "BUILT Master Action List" Google Sheet** (updated daily by Kaylin: When bucket · done checkbox · project tag · action item · multi-assignee · notes). Andrew's three UI ideas are three doors into ONE system — build all three (his call): a global slide-out panel, a "+ Task" on project pages, and a Mine/All view per manager. **What must survive from the sheet:** bucket scheduling (not due dates), tasks with or without a project, multiple assignees, one shared list everyone sees, comments as running status updates.
+**`093_tasks.sql`** — `tasks` + `task_comments`, org RLS on the `projects` FOR-ALL pattern (083), idempotent, ends with `NOTIFY pgrst`. Additive; nothing else in the app touches these tables.
 
-**Migration `093_tasks.sql`** (idempotent, org RLS following the `projects` FOR-ALL pattern from 083, end with `NOTIFY pgrst, 'reload schema';`):
-- `tasks`: `id` · `org_id` · `project_id` uuid NULL (FK projects, ON DELETE SET NULL — a task outlives a deleted practice project) · `title` text · `bucket` text CHECK ('today'|'this_week'|'next_week'|'someday') · `assignee_ids` jsonb default '[]' (array of `users.id` — managers/owners have logins; render names via the roster) · `done_at` timestamptz NULL · `created_by` uuid · `sort_order` numeric · timestamps.
-- `task_comments`: `id` · `org_id` · `task_id` (FK tasks ON DELETE CASCADE) · `author_user_id` · `body` text · `created_at`.
+**The shape follows the SHEET, not a generic todo app. Two things that look like omissions are the design — don't "fix" them:**
+- **Buckets are a curated list, not a calendar.** Nothing auto-rolls. A stale Today item stays in Today until a human drags it, because Kaylin's daily pass IS the process — ageing rows for her would quietly remove the judgement that makes the list worth reading. There is deliberately no `due_date` and no scheduled job.
+- **The default filter is All, not Mine.** It's a master list; you're meant to see what everyone is carrying. Mine is one click away and the choice persists in localStorage.
 
-**Semantics (the sheet's, made honest):**
-- Buckets are a CURATED list, not a calendar — nothing auto-rolls; a stale Today item stays in Today until a human moves it (that's Kaylin's daily pass, now drag-and-drop).
-- Done = `done_at` stamped; row drops into a collapsed Done section, hidden after ~7 days (no graveyard). Uncheck restores.
-- Any manager/owner can create, edit, reassign, bucket-move, complete ANY task — it's a shared master list, same trust model as the sheet.
-- Multi-assignee; a task with no project renders a plain "Task" chip (the sheet's TASK rows).
+**Decisions worth keeping:**
+- **`assignee_ids` is jsonb, not a join table.** v1 never asks the database for one person's tasks — it loads the org's few dozen rows once and filters client-side, which is also why toggling Mine/All costs nothing. Promote it to a join table if that stops being true.
+- **`project_id` nullable, `ON DELETE SET NULL`** — the sheet's standalone TASK rows are first-class, and a task outlives a deleted practice project.
+- **Role-gated in the PROVIDER, not just the button.** A worker's session never fetches the org's task list at all; every surface renders nothing rather than an empty list that looks broken.
+- **Every write selects the row back and throws on zero rows.** `tasks` does allow browser writes under its own policy (unlike `orgs`/`users`), but a blocked write would otherwise read as success — same guard as `updateProjectName`.
+- **`TasksContext` is exported** so a dev harness can render the panel against fixtures. The panel needs auth + 093 to be reachable in the app, and a copied-markup mock would drift from what ships. Nothing in the app should consume it directly — use the hooks.
 
-**Surfaces (all v1):**
-1. **Slide-out panel, global:** trigger in the top nav (icon + open-count badge), right drawer over any page, role-gated to non-members (RoleGate pattern — workers' `/me` untouched; extending to workers is a later item if it earns it). Sections Today / This Week / Next Week / Someday + collapsed Done; task row = checkbox · title · project chip (links to the project) · assignee chips. Row click expands detail inline: edit title/bucket/project/assignees + the **comments thread**. "+ New task" at top. **Filter: All | Mine | per-person chips** — default All (it's a master list), remember the choice in localStorage.
-2. **Project page "+ Task"** near the header actions: quick-create pre-linked to that project (title + bucket + assignees, one small popover — not the full drawer). The project page also gets a small "Tasks · N open" affordance opening the panel pre-filtered to that project.
-3. **"Mine" = the per-manager dashboard** — the panel's Mine filter IS the manager view for v1; no separate page. (A dedicated /tasks page is a later nice-to-have if the drawer feels cramped — don't build it v1.)
+**Surfaces:** `components/tasks/` — `TasksProvider` (one store; the nav badge, panel and project button all read it, so a task created on a project page updates the badge without a reload) · `TasksPanel` (buckets + collapsed Done, drag between buckets, row expands to edit title/bucket/project/assignees + the comments thread) · `TasksNavButton` · `ProjectTaskButton` ("+ Task" popover + "Tasks · N" opening the panel pre-filtered).
 
-**Wiring notes:** loads via a small `lib/tasks.ts` (CRUD + comment add + `listOpenCountByProject`); browser writes are fine under the org RLS policy (unlike `orgs`/`users` — but keep the select-back-zero-rows guard pattern from `updateProjectName` on every write). No caching traps expected (all client-side reads), but remember the Next.js fetch-cache rule if any API route gets involved. New nav element — re-run `check-tour-targets` (nav hooks exist for sales/projects/manage/settings; adding an icon must not duplicate any `data-tour`).
+**Verified by rendering the real panel against fixture context:** all four buckets, project chips, a no-project "Task" chip, a three-assignee row, collapsed Done, and the expanded detail. `check-tour-targets` passes at 44 — the nav trigger deliberately carries **no** `data-tour` hook, since tour scripts point at nav items by stable identifier and a new one risks a collision.
 
-**Verify (live, with the sheet open next to it):** rebuild ~10 real rows from the sheet across all four buckets incl. a no-project TASK row and a 3-assignee row · Kaylin's daily pass = dragging between buckets · comment "Ordered ETA 9/3" on a task and see it on another manager's screen · "+ Task" from a project page lands pre-linked · Mine shows only yours · done disappears into Done and comes back on uncheck.
+**Left for Andrew (after running `093` + deploying), with the sheet open beside it:** rebuild ~10 real rows across all four buckets including a no-project row and a 3-assignee row · drag between buckets (that's the daily pass) · leave a comment like "Ordered ETA 9/3" and confirm another manager sees it · "+ Task" from a project page lands pre-linked · Mine shows only yours · completing a task drops it into Done and unchecking restores it.
 
-_Not in v1 (say no until asked again): worker assignees on `/me`, notifications/mentions, recurring tasks, importing the sheet programmatically (re-enter by hand — it's ~40 rows), a dedicated /tasks page._
+_Not in v1 (say no until asked again): worker assignees on `/me`, notifications/mentions, recurring tasks, importing the sheet programmatically, a dedicated `/tasks` page._
 
 ### Small fixes wave 2 — ✅ ALL ELEVEN BUILT (2026-09-01 → 09-02). **No migrations in the whole wave. Nothing left to build; Andrew's live pass on 2, 3, 5, 6, 7, 8, 9, 10 is at the end.**
 
