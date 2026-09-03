@@ -17,6 +17,7 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import React from 'react'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { EstimatePdf } from '@/components/estimates/EstimatePdf'
+import { EstimatePresentationPdf } from '@/components/estimates/EstimatePresentationPdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -61,6 +62,24 @@ export async function POST(
   if ((project as any).org_id !== callerOrgId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+
+  // ⛔ 095 columns are read in SEPARATE selects, never folded into the main
+  // ones. PostgREST fails the WHOLE statement on one unknown column, so a
+  // deploy that lands before the migration would stop every estimate from
+  // generating rather than merely falling back to the standard template.
+  // Same pattern as wave-1 item 9.
+  const [tmplRes, projTmplRes] = await Promise.all([
+    supabaseAdmin
+      .from('orgs')
+      .select('estimate_template_default, estimate_cover_stats')
+      .eq('id', callerOrgId)
+      .single(),
+    supabaseAdmin
+      .from('projects')
+      .select('estimate_template, estimate_headline')
+      .eq('id', projectId)
+      .single(),
+  ])
 
   const [orgRes, cliRes] = await Promise.all([
     supabaseAdmin
@@ -111,19 +130,68 @@ export async function POST(
   const closingNote = (org as { estimate_closing_note?: string | null }).estimate_closing_note ?? null
   const schedule = Array.isArray(body.schedule) ? body.schedule : []
 
-  const element = React.createElement(EstimatePdf, {
-    estimateNumber,
-    estimateDate,
-    validUntil: body.validUntil ?? null,
-    org,
-    project: { name: (project as any).name },
-    client,
-    lines: body.lineItems,
-    schedule,
-    totals,
-    terms,
-    closingNote,
-  })
+  // Template resolution, most specific first:
+  //   1. what the caller explicitly asked for (the send-time picker)
+  //   2. what this project was SENT on before — so a regenerate reproduces the
+  //      document the client already has, even if the org default moved
+  //   3. the org default
+  //   4. 'standard' — the safe answer when 095 hasn't run
+  const orgTmpl = (tmplRes.data as { estimate_template_default?: string } | null)
+    ?.estimate_template_default
+  const projTmpl = (projTmplRes.data as { estimate_template?: string | null } | null)
+    ?.estimate_template
+  const requested = typeof body.template === 'string' ? body.template : null
+  const template =
+    (requested === 'presentation' || requested === 'standard' ? requested : null) ||
+    projTmpl ||
+    orgTmpl ||
+    'standard'
+
+  const storedHeadline = (projTmplRes.data as { estimate_headline?: string | null } | null)
+    ?.estimate_headline
+  const headline =
+    (typeof body.headline === 'string' && body.headline.trim() ? body.headline.trim() : null) ||
+    storedHeadline ||
+    null
+
+  const rawStats = (tmplRes.data as { estimate_cover_stats?: unknown } | null)?.estimate_cover_stats
+  const stats = Array.isArray(rawStats)
+    ? (rawStats as Array<Record<string, unknown>>)
+        .map((x) => ({ value: String(x?.value ?? ''), label: String(x?.label ?? '') }))
+        .filter((x) => x.value.trim() && x.label.trim())
+    : []
+
+  const element =
+    template === 'presentation'
+      ? React.createElement(EstimatePresentationPdf, {
+          estimateNumber,
+          estimateDate,
+          validUntil: body.validUntil ?? null,
+          org,
+          project: { name: (project as any).name },
+          client,
+          lines: body.lineItems,
+          schedule,
+          totals,
+          terms,
+          closingNote,
+          headline,
+          stats,
+          signature: (org as { estimate_signature?: string | null }).estimate_signature ?? null,
+        })
+      : React.createElement(EstimatePdf, {
+          estimateNumber,
+          estimateDate,
+          validUntil: body.validUntil ?? null,
+          org,
+          project: { name: (project as any).name },
+          client,
+          lines: body.lineItems,
+          schedule,
+          totals,
+          terms,
+          closingNote,
+        })
   const buffer: Buffer = await renderToBuffer(element as any)
 
   const path = `${callerOrgId}/estimates/${projectId}.pdf`
@@ -140,17 +208,28 @@ export async function POST(
   } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path)
   const cacheBustedUrl = `${publicUrl}?v=${Date.now()}`
 
-  await supabaseAdmin
-    .from('projects')
-    .update({
-      // NB: estimate_sent_at is NOT set here — rendering/downloading the PDF no
-      // longer marks the estimate "sent". Only the explicit "Mark as sent"
-      // action on the project page stamps it (an estimate is "open" once sent).
-      estimate_pdf_url: cacheBustedUrl,
-      estimate_number: estimateNumber,
-      estimate_snapshot_json: { estimateNumber, estimateDate, lineItems: body.lineItems, schedule, totals, terms },
-    })
-    .eq('id', projectId)
+  const basePatch: Record<string, unknown> = {
+    // NB: estimate_sent_at is NOT set here — rendering/downloading the PDF no
+    // longer marks the estimate "sent". Only the explicit "Mark as sent"
+    // action on the project page stamps it (an estimate is "open" once sent).
+    estimate_pdf_url: cacheBustedUrl,
+    estimate_number: estimateNumber,
+    estimate_snapshot_json: { estimateNumber, estimateDate, lineItems: body.lineItems, schedule, totals, terms },
+  }
+  await supabaseAdmin.from('projects').update(basePatch).eq('id', projectId)
 
-  return NextResponse.json({ url: cacheBustedUrl, estimateNumber })
+  // Stamp the template + headline SEPARATELY so a pre-095 database can't fail
+  // the write above — that one carries the PDF url, and losing it would leave
+  // a rendered estimate the app can't find.
+  const stamp: Record<string, unknown> = { estimate_template: template }
+  if (headline) stamp.estimate_headline = headline
+  const { error: stampErr } = await supabaseAdmin
+    .from('projects')
+    .update(stamp)
+    .eq('id', projectId)
+  if (stampErr) {
+    console.warn('estimate template stamp skipped — run migration 095:', stampErr.message)
+  }
+
+  return NextResponse.json({ url: cacheBustedUrl, estimateNumber, template })
 }
