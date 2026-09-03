@@ -3,26 +3,29 @@
 // ============================================================================
 //   node scripts/fetch-presentation-fonts.mjs [--force]
 //
-// Downloads STATIC TTFs into assets/fonts/. react-pdf cannot use variable
-// fonts or woff2 — it needs plain static TTF/OTF.
+// Downloads STATIC TTFs into assets/fonts/. react-pdf cannot use woff2, and it
+// won't instantiate a variable font's named instances — it needs plain TTFs.
 //
-// ⛔ WHY THE CSS API AND NOT GITHUB RAW. The first version guessed paths under
-// google/fonts `ofl/<family>/static/…`. Space Mono worked (it's a genuinely
-// static family) and Newsreader + Instrument Sans 404'd on every candidate —
-// both are VARIABLE families, and that repo no longer ships static folders for
-// them. There is no static file to link to.
+// ⛔ TWO FAILED APPROACHES ARE BAKED INTO THIS FILE. Don't retry them.
+//   1. Guessing paths under google/fonts `ofl/<family>/static/…`. Space Mono
+//      worked (a genuinely static family); Newsreader and Instrument Sans
+//      404'd everywhere, because they're VARIABLE families and that repo has
+//      no static folder for them.
+//   2. Asking the CSS API with an ancient user-agent, which used to make
+//      Google serve TTF. It now returns woff2 regardless.
 //
-// So: ask the Google Fonts CSS API for the exact weights, with an ancient
-// user-agent. Old UAs can't do woff2, so Google responds with TTF urls — and
-// for a variable family it serves a static INSTANCE at the requested weight,
-// which is precisely what react-pdf needs. This also means we never hand-guess
-// a filename again; the API tells us where each face lives.
+// So this DISCOVERS rather than guesses: it lists the family directory through
+// the GitHub contents API and matches what's really there. If a family only
+// ships a variable file, it takes that — a variable TTF still renders in
+// react-pdf, it just pins to the file's default instance, so weights collapse.
+// That's a real downgrade and it says so out loud rather than silently
+// shipping the wrong weight.
 //
-// Every download is checked for a real TrueType/OpenType magic number before
-// it's written — a 404 page or an LFS pointer saved as Product-Regular.ttf
-// fails deep inside react-pdf with an error that points nowhere near the cause.
+// And when it can't match, it PRINTS THE DIRECTORY LISTING. Two rounds were
+// lost to guessing filenames; the next person gets the actual contents.
 //
-// Re-runnable: existing files are skipped unless --force.
+// Every file is checked for a TrueType/OpenType magic number before writing —
+// a 404 page saved as a .ttf fails deep inside react-pdf, far from the cause.
 // ============================================================================
 
 import { mkdir, writeFile, access } from 'node:fs/promises'
@@ -32,33 +35,61 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = resolve(ROOT, 'assets/fonts')
 const FORCE = process.argv.includes('--force')
+const API = 'https://api.github.com/repos/google/fonts/contents'
 
-// Old enough that Google won't offer woff2. This is the whole trick.
-const LEGACY_UA = 'Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)'
-
-/** file → the face to pull out of the CSS response. */
+/** file → family dir + the static face to look for + variable fallback. */
 const WANTED = [
-  { file: 'Newsreader-Light.ttf', family: 'Newsreader', weight: '300', style: 'normal' },
-  { file: 'Newsreader-LightItalic.ttf', family: 'Newsreader', weight: '300', style: 'italic' },
-  { file: 'Newsreader-Regular.ttf', family: 'Newsreader', weight: '400', style: 'normal' },
-  { file: 'InstrumentSans-Regular.ttf', family: 'Instrument Sans', weight: '400', style: 'normal' },
-  { file: 'InstrumentSans-Medium.ttf', family: 'Instrument Sans', weight: '500', style: 'normal' },
-  { file: 'InstrumentSans-SemiBold.ttf', family: 'Instrument Sans', weight: '600', style: 'normal' },
-  { file: 'SpaceMono-Regular.ttf', family: 'Space Mono', weight: '400', style: 'normal' },
+  {
+    file: 'Newsreader-Light.ttf',
+    dir: 'ofl/newsreader',
+    match: /Newsreader(_\d+pt)?-Light\.ttf$/i,
+    variable: /^Newsreader\[.*\]\.ttf$/i,
+  },
+  {
+    file: 'Newsreader-LightItalic.ttf',
+    dir: 'ofl/newsreader',
+    match: /Newsreader(_\d+pt)?-LightItalic\.ttf$/i,
+    variable: /^Newsreader-Italic\[.*\]\.ttf$/i,
+  },
+  {
+    file: 'Newsreader-Regular.ttf',
+    dir: 'ofl/newsreader',
+    match: /Newsreader(_\d+pt)?-Regular\.ttf$/i,
+    variable: /^Newsreader\[.*\]\.ttf$/i,
+  },
+  {
+    file: 'InstrumentSans-Regular.ttf',
+    dir: 'ofl/instrumentsans',
+    match: /InstrumentSans(_\d+pt)?-Regular\.ttf$/i,
+    variable: /^InstrumentSans\[.*\]\.ttf$/i,
+  },
+  {
+    file: 'InstrumentSans-Medium.ttf',
+    dir: 'ofl/instrumentsans',
+    match: /InstrumentSans(_\d+pt)?-Medium\.ttf$/i,
+    variable: /^InstrumentSans\[.*\]\.ttf$/i,
+  },
+  {
+    file: 'InstrumentSans-SemiBold.ttf',
+    dir: 'ofl/instrumentsans',
+    match: /InstrumentSans(_\d+pt)?-SemiBold\.ttf$/i,
+    variable: /^InstrumentSans\[.*\]\.ttf$/i,
+  },
+  {
+    file: 'SpaceMono-Regular.ttf',
+    dir: 'ofl/spacemono',
+    match: /SpaceMono-Regular\.ttf$/i,
+    variable: null,
+  },
 ]
-
-const CSS_URL =
-  'https://fonts.googleapis.com/css2' +
-  '?family=Newsreader:ital,wght@0,300;0,400;1,300' +
-  '&family=Instrument+Sans:wght@400;500;600' +
-  '&family=Space+Mono:wght@400'
 
 function looksLikeFont(buf) {
   if (buf.length < 4) return false
   const tag = buf.subarray(0, 4)
-  const hex = tag.toString('hex')
-  const ascii = tag.toString('ascii')
-  return hex === '00010000' || ascii === 'true' || ascii === 'ttcf' || ascii === 'OTTO'
+  return (
+    tag.toString('hex') === '00010000' ||
+    ['true', 'ttcf', 'OTTO'].includes(tag.toString('ascii'))
+  )
 }
 
 async function exists(p) {
@@ -70,97 +101,128 @@ async function exists(p) {
   }
 }
 
-/** Parse @font-face blocks into {family, style, weight, url}. */
-function parseFaces(css) {
-  const faces = []
-  for (const m of css.matchAll(/@font-face\s*\{([^}]*)\}/g)) {
-    const block = m[1]
-    const family = /font-family:\s*'([^']+)'/.exec(block)?.[1]
-    const style = /font-style:\s*(\w+)/.exec(block)?.[1] || 'normal'
-    const weight = /font-weight:\s*(\d+)/.exec(block)?.[1] || '400'
-    const url = /url\((https:\/\/[^)]+)\)/.exec(block)?.[1]
-    if (family && url) faces.push({ family, style, weight, url })
+const dirCache = new Map()
+
+/** Every .ttf in a family dir, including its static/ subdir if present. */
+async function listFamily(dir) {
+  if (dirCache.has(dir)) return dirCache.get(dir)
+  const out = []
+  const get = async (path) => {
+    const r = await fetch(`${API}/${path}`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'millsuite-font-vendor' },
+    })
+    if (!r.ok) {
+      if (r.status === 403) {
+        console.error(
+          `  ! GitHub API rate limit hit (60/hr unauthenticated). Wait an hour, or download ` +
+            `the families by hand — see the note at the end.`,
+        )
+      }
+      return []
+    }
+    return await r.json()
   }
-  return faces
+  const top = await get(dir)
+  if (!Array.isArray(top)) {
+    dirCache.set(dir, out)
+    return out
+  }
+  for (const e of top) {
+    if (e.type === 'file' && /\.ttf$/i.test(e.name)) out.push(e)
+    if (e.type === 'dir' && e.name === 'static') {
+      const statics = await get(`${dir}/static`)
+      if (Array.isArray(statics)) {
+        for (const s of statics) if (s.type === 'file' && /\.ttf$/i.test(s.name)) out.push(s)
+      }
+    }
+  }
+  dirCache.set(dir, out)
+  return out
+}
+
+async function download(entry, dest) {
+  const r = await fetch(entry.download_url)
+  if (!r.ok) return { ok: false, why: `${r.status}` }
+  const buf = Buffer.from(await r.arrayBuffer())
+  if (!looksLikeFont(buf)) return { ok: false, why: `200 but not a font (${buf.length}b)` }
+  await writeFile(dest, buf)
+  return { ok: true, kb: (buf.length / 1024).toFixed(0) }
 }
 
 async function main() {
   await mkdir(OUT, { recursive: true })
   console.log('Vendoring presentation-estimate fonts → assets/fonts/\n')
 
-  const todo = []
-  for (const w of WANTED) {
-    if (!FORCE && (await exists(resolve(OUT, w.file)))) {
-      console.log(`  skip    ${w.file} (already vendored — --force to replace)`)
-    } else {
-      todo.push(w)
-    }
-  }
-  if (todo.length === 0) {
-    console.log('\nNothing to do — every font is already vendored.')
-    return
-  }
-
-  const res = await fetch(CSS_URL, { headers: { 'User-Agent': LEGACY_UA } })
-  if (!res.ok) {
-    console.error(`\nGoogle Fonts CSS request failed: ${res.status}`)
-    process.exit(1)
-  }
-  const css = await res.text()
-  const faces = parseFaces(css)
-
-  if (faces.length === 0 || !faces.some((f) => /\.ttf($|\?)/i.test(f.url))) {
-    console.error(
-      '\nThe CSS API returned no TTF faces — Google may have changed what it serves ' +
-        'to legacy user-agents. Fall back to downloading the families by hand from ' +
-        'fonts.google.com (each zip has a static/ folder) and dropping them in ' +
-        'assets/fonts/ under the exact filenames listed above.',
-    )
-    process.exit(1)
-  }
-
   let failed = 0
-  for (const w of todo) {
-    // Prefer an exact family/weight/style match; Google returns one block per
-    // subset, and any of them is the same instance for our purposes.
-    const match = faces.find(
-      (f) =>
-        f.family.toLowerCase() === w.family.toLowerCase() &&
-        f.weight === w.weight &&
-        f.style === w.style,
-    )
-    if (!match) {
-      console.error(`  FAILED  ${w.file} — no ${w.family} ${w.weight} ${w.style} face in the CSS`)
+  let usedVariable = false
+  const unmatchedDirs = new Set()
+
+  for (const w of WANTED) {
+    const dest = resolve(OUT, w.file)
+    if (!FORCE && (await exists(dest))) {
+      console.log(`  skip    ${w.file} (already vendored — --force to replace)`)
+      continue
+    }
+    const files = await listFamily(w.dir)
+    if (files.length === 0) {
+      console.error(`  FAILED  ${w.file} — couldn't list ${w.dir}`)
       failed++
       continue
     }
-    const r = await fetch(match.url, { headers: { 'User-Agent': LEGACY_UA } })
-    if (!r.ok) {
-      console.error(`  FAILED  ${w.file} — ${r.status} from ${match.url}`)
+
+    let entry = files.find((e) => w.match.test(e.name))
+    let viaVariable = false
+    if (!entry && w.variable) {
+      entry = files.find((e) => w.variable.test(e.name))
+      viaVariable = !!entry
+    }
+    if (!entry) {
+      console.error(`  FAILED  ${w.file} — nothing in ${w.dir} matched`)
+      unmatchedDirs.add(w.dir)
       failed++
       continue
     }
-    const buf = Buffer.from(await r.arrayBuffer())
-    if (!looksLikeFont(buf)) {
-      console.error(`  FAILED  ${w.file} — 200 but not a font (${buf.length}b)`)
+
+    const res = await download(entry, dest)
+    if (!res.ok) {
+      console.error(`  FAILED  ${w.file} — ${res.why}`)
       failed++
       continue
     }
-    await writeFile(resolve(OUT, w.file), buf)
-    console.log(`  ok      ${w.file}  ${(buf.length / 1024).toFixed(0)}kb`)
+    if (viaVariable) {
+      usedVariable = true
+      console.log(`  ok*     ${w.file}  ${res.kb}kb  ← VARIABLE ${entry.name} (weight collapses)`)
+    } else {
+      console.log(`  ok      ${w.file}  ${res.kb}kb  (${entry.name})`)
+    }
+  }
+
+  // The listing is the thing that ends the guessing.
+  for (const dir of unmatchedDirs) {
+    const files = await listFamily(dir)
+    console.error(`\n  ${dir} actually contains:`)
+    for (const e of files) console.error(`      ${e.name}`)
   }
 
   console.log('')
+  if (usedVariable) {
+    console.log(
+      '⚠️  One or more faces came from a VARIABLE file. They render, but every weight pins to\n' +
+        '    the file\'s default instance — so Light/Medium/SemiBold will all look Regular and\n' +
+        '    the design will read flatter than the mockup. For the real thing, download the\n' +
+        '    family from fonts.google.com and use the static/ TTFs from the zip.\n',
+    )
+  }
   if (failed) {
     console.error(
-      `${failed} font(s) could not be fetched. The presentation estimate still renders — it ` +
-        `falls back to Helvetica — but it will NOT look like the approved mockup. Download the ` +
-        `families from fonts.google.com and drop the static TTFs into assets/fonts/ using the ` +
-        `exact filenames above.`,
+      `${failed} font(s) missing. The estimate still renders — it falls back to Helvetica — but\n` +
+        `it will NOT look like the approved mockup. Download the families from fonts.google.com\n` +
+        `and drop the static TTFs into assets/fonts/ using exactly these names:\n` +
+        WANTED.map((w) => `    ${w.file}`).join('\n'),
     )
     process.exit(1)
   }
-  console.log('All fonts vendored. Re-render to see the template as designed:')
+  console.log('Fonts vendored. See the template as designed:')
   console.log('  npx tsx scripts/preview-presentation-estimate.tsx')
 }
 
