@@ -21,7 +21,7 @@
 // ============================================================================
 
 import { Font } from '@react-pdf/renderer'
-import { existsSync } from 'node:fs'
+import { existsSync, readSync, openSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
 
 const DIR = join(process.cwd(), 'assets', 'fonts')
@@ -35,6 +35,44 @@ const FILES = {
   instrumentSemiBold: 'InstrumentSans-SemiBold.ttf',
   spaceMono: 'SpaceMono-Regular.ttf',
 } as const
+
+/**
+ * True when a TTF is a VARIABLE font.
+ *
+ * ⛔ Why this check earns its place: react-pdf renders a variable font
+ * perfectly happily, but pins every weight to the file's default instance. So
+ * Light, Medium and SemiBold all come out Regular and the document just looks
+ * FLAT — no error, no warning, nothing to grep for. Verified by rendering the
+ * same string at 300/400/500/600: four identical lines.
+ *
+ * google/fonts ships Newsreader and Instrument Sans as variable-only, so this
+ * is the likely state of any machine where the fonts were fetched rather than
+ * downloaded from fonts.google.com by hand.
+ *
+ * Detection is a scan of the table directory for 'fvar' — the table that makes
+ * a font variable. Header: 4-byte tag, uint16 numTables, then 16 bytes per
+ * record with the tag first.
+ */
+function isVariableFont(path: string): boolean {
+  let fd: number | undefined
+  try {
+    fd = openSync(path, 'r')
+    const head = Buffer.alloc(12)
+    readSync(fd, head, 0, 12, 0)
+    const numTables = head.readUInt16BE(4)
+    if (numTables <= 0 || numTables > 512) return false
+    const dir = Buffer.alloc(numTables * 16)
+    readSync(fd, dir, 0, dir.length, 12)
+    for (let i = 0; i < numTables; i++) {
+      if (dir.subarray(i * 16, i * 16 + 4).toString('ascii') === 'fvar') return true
+    }
+    return false
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
+}
 
 let registered = false
 let available = false
@@ -66,6 +104,19 @@ export function registerEstimateFonts(): boolean {
         `mockup. Run: node scripts/fetch-presentation-fonts.mjs  (missing: ${missing.join(', ')})`,
     )
     return false
+  }
+
+  const variable = Object.entries(paths)
+    .filter(([, p]) => isVariableFont(p))
+    .map(([k]) => FILES[k as keyof typeof FILES])
+  if (variable.length > 0) {
+    console.warn(
+      `[estimate-fonts] ${variable.length} VARIABLE font file(s) in assets/fonts. They render, ` +
+        `but react-pdf pins every weight to the file's default instance — Light/Medium/SemiBold ` +
+        `will all look Regular and the estimate will read flatter than the approved design. ` +
+        `Replace them with the static TTFs from the fonts.google.com download (each zip has a ` +
+        `static/ folder). Affected: ${variable.join(', ')}`,
+    )
   }
 
   try {
