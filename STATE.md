@@ -10,7 +10,7 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-03)
 
-**✅ DESIGN APPROVED 2026-09-03: "PRESENTATION ESTIMATE" — BUILD NEXT, to the approved mockup.** Two Cowork markup rounds landed on **`mockups/estimate-presentation-mockup.html` (v3, `db5961f`) — the visual spec**: package-index cover (no stats, no materials palette — both were tried and cut, don't bring them back), priced scope pages, numbers page with the closing note + small stats row. Fonts locked: Newsreader 300 headlines · Instrument Sans body · **Space Mono for every numeral** (the GT America Mono role — Andrew approved the mono digits specifically). Per-estimate Standard/Presentation toggle; **migration `095` before deploy**. Full spec at the top of Now.
+**✅ 2026-09-03: PRESENTATION ESTIMATE — BUILT (`2954268` template, `f1fa2e8` picker + settings). ⚠️ TWO THINGS BEFORE IT LOOKS RIGHT: run migration `095`, and run `node scripts/fetch-presentation-fonts.mjs`.** Both degrade rather than break — pre-095 it falls back to the standard template, and with no fonts it renders in Helvetica and logs why. Detail under "Presentation estimate" in Now.
 
 **✅ 2026-09-03: SMALL FIXES WAVE 3 — ALL SIX ITEMS DONE. Migration `094` ✅ ON PROD AND VERIFIED. Nothing blocking — deploy, then Andrew's live pass.** `f2bcc58` minute-precision time · `52aa234` /me mobile pass · `1ae267b` production fill bar · `c95acdf` sold_at + timeline · **item 1 imported live 2026-09-03 (Bonzer, Schiller Wal Opt, Brabson, + Hunt re-imported) — `refreeze-bid-totals` reports 12 × ok.**
 
@@ -142,6 +142,20 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ## Now
 
 ### Presentation estimate — Built's premium template. **✅ DESIGN APPROVED by Andrew 2026-09-03 ("i think this is great"). BUILD TO `mockups/estimate-presentation-mockup.html` (v3, `db5961f`) — it is the visual spec. Migration `095` before deploy.**
+
+**✅ BUILT 2026-09-03. Two setup steps outstanding, both Andrew's:**
+1. **Run migration `095` on prod.** Then verify — 093 reported "ran" and had silently rolled back.
+2. **`node scripts/fetch-presentation-fonts.mjs`** — the faces are vendored files, not dependencies. **I could not download them (sandbox blocks network + npm install), so the template has only ever been rendered in Helvetica.** ⚠️ **The typography is the entire point of this template, so it has NOT been seen as designed** — expect to re-check spacing once the real faces land, since Newsreader and Instrument Sans have different metrics to the built-ins.
+
+**⛔ THE MOCKUP'S SPACING DOES NOT FIT A LETTER PAGE — know this before touching the layout.** The mockup is `min-height:1080px`; it GREW when content didn't fit and a page can't. Rendering it surfaced four bugs a type-check cannot see, all fixed:
+- The **cover spilled onto a second sheet**, orphaning "Prepared for". Tightened density + **adaptive index row padding** (12 / 8 / 5 px past 11 and 16 subs) so it reads at 1 sub and at 20.
+- **A long real title printed straight THROUGH its own price.** ⛔ **Neither `flexShrink` on the Text nor on a wrapping View fixed it** — react-pdf measures a Text at full content width and overlaps its sibling. Name/price is now a **fixed 68/32 split**, which cannot collide at any length; the cover index uses 78/22 for the same reason.
+- A sub with **one** detail left a half-width dotted rule hanging in white space; a single detail now spans full width.
+- The **signature block orphaned onto its own page**, and the footer printed only on the last page of a flow. ⛔ **Don't reintroduce a `flexGrow` spacer on the numbers page** — that's what pushed it over. The footer is `position:absolute` + `fixed`.
+
+**`scripts/preview-presentation-estimate.tsx` is KEPT, not throwaway** — the only way to see this template without a live project. It renders both spec fixtures (Williams 12 subs → 7 pages · Dover 1 sub → 3 pages). **Re-run it and LOOK after touching the component**; react-pdf compiles happily while overlapping text.
+
+**Mechanics:** resolution is most-specific-first — caller request → the project's **stamp** → org default → 'standard'. The stamp is what makes a regenerate reproduce the document the client already has. ⛔ **Every 095 column is read in an ISOLATED select** (route, modal, settings): PostgREST fails an entire select on one unknown column, so folding them into a shared read would blank a card or kill estimate generation pre-migration. **The settings autosave is gated on the 095 read having SUCCEEDED** — otherwise a pre-095 database would write 'standard' + `[]` over real settings the moment the migration landed.
 
 **Why:** "We're sending out $600k estimates, it needs to look way better." Direction = the Timeline (timeline.com) editorial aesthetic. The approved mockup went through two markup rounds — the deltas from the first draft are LOAD-BEARING, don't resurrect them: stats OFF the cover (they're a small dotted-rule row under the thank-you now) · NO materials palette (auto-aggregation needs curation; each sub keeps its authored material line) · the cover's centerpiece is the **PACKAGE INDEX** (every subproject with its price, dot-leadered, summing to the total — works at 1 sub and at 20) · smaller type, generous white space. Claude-design references remain at `prototypes/design/estimate-presentation/`. This is a SECOND template — the standard estimate stays exactly as-is (Bam's and B2B's).
 
