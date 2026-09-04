@@ -273,12 +273,14 @@ const s = StyleSheet.create({
   h1: {
     fontFamily: f.serif,
     fontWeight: 300,
-    fontSize: mm(32),
+    // Andrew: make the header smaller so the front page breathes. 32 → 27,
+    // which buys roughly a line and a half of index at 20 subprojects.
+    fontSize: mm(27),
     lineHeight: 1.22,
-    marginTop: mm(18),
-    maxWidth: mm(560),
+    marginTop: mm(14),
+    maxWidth: mm(600),
   },
-  totalline: { flexDirection: 'row', alignItems: 'baseline', marginTop: mm(26) },
+  totalline: { flexDirection: 'row', alignItems: 'baseline', marginTop: mm(22) },
   totallineLabel: {
     fontSize: mm(11),
     fontWeight: 600,
@@ -286,7 +288,7 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
   },
   totallineAmt: { fontFamily: f.mono, fontSize: mm(17), marginLeft: mm(14) },
-  index: { marginTop: mm(26) },
+  index: { marginTop: mm(22) },
   idxrow: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -319,6 +321,9 @@ const s = StyleSheet.create({
   preparedCell: { width: '33.33%', paddingRight: mm(40) },
   preparedName: { fontSize: mm(14) },
   preparedSub: { fontSize: mm(12), color: MUT, marginTop: mm(5) },
+  // Fainter than the address so the column still reads name → detail →
+  // what-this-column-is, rather than three lines of equal weight.
+  preparedCaption: { fontSize: mm(11), color: FAINT, marginTop: mm(4) },
   // ── scope pages ──
   scopeSec: { marginBottom: mm(30) },
   scopeHead: { flexDirection: 'row', alignItems: 'baseline', marginTop: mm(16) },
@@ -544,11 +549,19 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
           <View style={s.preparedGrid}>
             <View style={s.preparedCell}>
               <Text style={s.preparedName}>{pdfText(client?.name || '—')}</Text>
-              <Text style={s.preparedSub}>Client</Text>
+              {/* The shop's cell carries its address on the sub-line, so the
+                  client's does too — otherwise the block reads lopsided, with
+                  a full contact block on one side and a bare name on the
+                  other. Falls back to the caption alone when the client record
+                  has no address, which is common for a new lead. */}
+              {client?.address ? (
+                <Text style={s.preparedSub}>{pdfText(client.address)}</Text>
+              ) : null}
+              <Text style={s.preparedCaption}>Client</Text>
             </View>
             <View style={s.preparedCell}>
               <Text style={s.preparedName}>{pdfText(projectName)}</Text>
-              <Text style={s.preparedSub}>Project</Text>
+              <Text style={s.preparedCaption}>Project</Text>
             </View>
             <View style={s.preparedCell}>
               <Text style={s.preparedName}>{pdfText(org.name)}</Text>

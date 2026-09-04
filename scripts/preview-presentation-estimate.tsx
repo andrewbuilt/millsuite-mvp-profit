@@ -180,7 +180,7 @@ async function render(name: string, lines: typeof WILLIAMS, num: string, headlin
     validUntil: null,
     org: ORG,
     project: { name: project },
-    client: { name: client, address: null, email: null, phone: null },
+    client: { name: client, address: '1147 Bayshore Boulevard, Tampa, FL 33606', email: null, phone: null },
     lines,
     schedule: sched(total),
     totals: { subtotal: total, taxPct: 0, taxAmount: 0, total },
