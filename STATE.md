@@ -10,7 +10,9 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-03)
 
-**✅ 2026-09-04: PRESENTATION ESTIMATE — LIVE AND DEPLOYED.** Migration `095` on prod, fonts vendored, and **survived a real-data pass on Kennedy EST-0017 (20 subprojects, $632k)** which found six things the fixtures never could — see "Presentation estimate" in Now. **NEXT (Andrew asked 2026-09-04, NOT built): move the repeated boilerplate into a "standard construction" note.** Both degrade rather than break — pre-095 it falls back to the standard template, and with no fonts it renders in Helvetica and logs why. Detail under "Presentation estimate" in Now.
+**NEW 2026-09-04 (Cowork pass): PRESENTATION ESTIMATE ROUND 3 — build A + B now, C blocked.** (A) `SendEstimateModal` loses all email fields (none connected) → one modal: template picker; Standard = download only; Presentation = cover line + room for template options. (B) tiny org logo (~cap-height of the footer text) beside the footer address — experimental, show Andrew before shipping. (C) small-vs-large formatting fixes BLOCKED on Andrew's example PDFs (upload failed, re-sending). **The "standard construction note" idea is DROPPED by Andrew — don't build it.** Specs under "Presentation estimate — round 3" in Now.
+
+**✅ 2026-09-04: PRESENTATION ESTIMATE — LIVE AND DEPLOYED.** Migration `095` on prod, fonts vendored, and **survived a real-data pass on Kennedy EST-0017 (20 subprojects, $632k)** which found six things the fixtures never could — see "Presentation estimate" in Now. Both degrade rather than break — pre-095 it falls back to the standard template, and with no fonts it renders in Helvetica and logs why. Detail under "Presentation estimate" in Now.
 
 **✅ 2026-09-03: SMALL FIXES WAVE 3 — ALL SIX ITEMS DONE. Migration `094` ✅ ON PROD AND VERIFIED. Nothing blocking — deploy, then Andrew's live pass.** `f2bcc58` minute-precision time · `52aa234` /me mobile pass · `1ae267b` production fill bar · `c95acdf` sold_at + timeline · **item 1 imported live 2026-09-03 (Bonzer, Schiller Wal Opt, Brabson, + Hunt re-imported) — `refreeze-bid-totals` reports 12 × ok.**
 
@@ -141,14 +143,20 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Standard construction note — `[scoped 2026-09-04, NOT built]` Andrew: "lets move the boilerplate to a standard construction note"
+### ~~Standard construction note~~ — **DROPPED 2026-09-04 by Andrew ("the boilerplate might not work for every project so lets remove that idea"). Do not build; sub scopes and prefills stay as they are.**
 
-**Why:** on Kennedy, the same lines repeat on all 20 subprojects — the 300-character Blum-legra paragraph, "Prefin maple, black or white laminate cabinet interiors", "Slow close european hinged doors", "*GC to provide wood blocking in wall". They're ~3 of the estimate's 14 pages and a client reads them once. Lifting them into a single "Standard construction" block near the terms shortens the presentation estimate **and** the standard one, because it's a content change rather than a template change.
+### Presentation estimate — round 3 (scoped 2026-09-04, Cowork pass with Andrew). **BUILD ITEMS A + B; item C is BLOCKED on Andrew's example PDFs (they failed to upload — he's re-sending).**
 
-**⛔ NOT SCOPED ENOUGH TO BUILD — decide these with Andrew first:**
-- **Where does the boilerplate live?** Detected at render time (fragile — "QTY 16 @ Blum…" differs from "QTY 6 @ Blum…" by a number, so exact-match dedupe misses it), or authored once as an org setting like `estimate_closing_note`, or stripped from the subproject scope text at source? The last is the only one that also fixes the standard template and the shop's own scope sheets.
-- **What counts as boilerplate?** Per-sub quantities are real content ("QTY 19 @ Blum legra") even though the surrounding paragraph is not.
-- **Does it print on the standard template too?** It should, but that template is Bam's and B2B's — changing it is not free.
+**A. Send-estimate modal simplification — one modal, no email fields.** No email is connected, so SUBJECT / EMAIL BODY / "Copy email + subject" are dead weight (Andrew: "the email modal isn't needed"). Rework `SendEstimateModal`:
+   - **One modal, template picker at top (Standard | Presentation)** — keeps the 095 stamping behavior.
+   - **Standard selected:** just the Download PDF button (room to grow editable lines later — don't add any now).
+   - **Presentation selected:** the COVER LINE field (as today) + this is the home for future template options (toggles/sections) — structure the layout so options can stack under the cover line without redesign.
+   - The Documents row's "Email" button: with no email infra it misleads — open the same simplified modal (rename accordingly) or drop it next to Download; small call, make it consistent with the new modal. "Mark as sent" flow unchanged.
+   - Remove the email templating code paths only if nothing else uses them; keep the copy helpers dead-simple to resurrect if email ever connects.
+
+**B. Tiny logo in the presentation footer.** Andrew: org logo next to the address in the run footer, **about the cap-height of the footer text ("around the same size as the 6, so tiny")**. Use `orgs.logo_url` (the standard header already loads it), rendered ~7–8pt tall, auto width, baseline-aligned before the address string, both templates' footers or presentation only — presentation only for now. **Explicitly experimental ("not sure if it will render well but lets try it")** — if it rasterizes muddy at that size, show Andrew before shipping; dropping it is an accepted outcome.
+
+**C. Small-vs-large formatting — ⛔ BLOCKED, examples pending.** Andrew: "the template doesn't work for both small and large projects" — his two example PDFs failed to upload. Do NOT guess fixes; wait for the PDFs (or his description), then scope against the real pages. Known from his screenshot so far: the Prepared-for block's Built column duplicates the address that's already in the run footer directly beneath it — likely part of the complaint.
 
 ### Presentation estimate — Built's premium template. **✅ BUILT, DEPLOYED AND ITERATED ON REAL DATA (2026-09-03 → 09-04).** Visual spec was `mockups/estimate-presentation-mockup.html` (v3) — but see the letter-page note below: the mockup is a SCREEN document and its spacing does not survive contact with a page.
 
