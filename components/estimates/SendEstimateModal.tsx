@@ -13,7 +13,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Copy, Download, X } from 'lucide-react'
 import { downloadEstimatePdf, type EstimatePdfPayload } from '@/lib/estimate-pdf'
 import { supabase } from '@/lib/supabase'
-import { estimateHeadlineFor } from './EstimatePresentationPdf'
+// ⛔ From lib/, NOT from EstimatePresentationPdf. This is a client component;
+// importing it from the PDF module pulls lib/estimate-fonts (node:fs, node:path)
+// into the browser bundle and fails the production build. See the note in
+// lib/estimate-headline.
+import { estimateHeadlineFor } from '@/lib/estimate-headline'
 
 const DEFAULT_TEMPLATE =
   `Hi \${client_name},\n\n` +

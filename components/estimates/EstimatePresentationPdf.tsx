@@ -31,6 +31,7 @@ import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 import { parseRichDescription } from '@/lib/subproject-description'
 import { pdfText } from '@/lib/pdf-text'
 import { estimateFonts } from '@/lib/estimate-fonts'
+import { estimateHeadlineFor } from '@/lib/estimate-headline'
 import type { EstimatePdfLine, EstimateScheduleRow } from './EstimatePdf'
 
 /** Mockup pixels → PDF points. The mockup is 850px wide for a 612pt page. */
@@ -76,23 +77,6 @@ export interface EstimatePresentationProps {
   stats?: EstimateCoverStat[]
   /** Who signs the closing note. */
   signature?: string | null
-}
-
-/**
- * The cover sentence: "A custom millwork package for the Kennedy Residence."
- *
- * ⛔ The article is conditional on purpose. A household reads wrong without it
- * ("for Kennedy Residence") and a person reads wrong WITH it ("for the Patrick
- * Kennedy"), and Built's client records hold both. So it's added only for
- * names that are plainly a place or household, and never when the name already
- * begins with "The".
- */
-export function estimateHeadlineFor(name: string): string {
-  const n = (name || '').trim()
-  if (!n) return 'A custom millwork package.'
-  const needsArticle =
-    !/^the\s/i.test(n) && /\b(residence|household|family|house|estate|home)\s*$/i.test(n)
-  return `A custom millwork package for ${needsArticle ? 'the ' : ''}${n}.`
 }
 
 const money = (n: number) =>
