@@ -31,6 +31,7 @@ import { type ProjectStage } from '@/lib/types'
 import { loadSubprojectStatusMap } from '@/lib/subproject-status'
 import { isDepositReceived } from '@/lib/project-stage'
 import { soldAgoLabel } from '@/lib/project-events'
+import { STAGE_COLORS } from '@/components/project/StagePill'
 import { loadProjectDeptHours } from '@/lib/project-hours'
 import { loadProjectActuals } from '@/lib/actual-hours'
 import ImportedBadge from '@/components/imported-badge'
@@ -75,16 +76,38 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'complete', label: 'Complete' },
 ]
 
+/** Bucket → the shared colour key. `pre` IS the 'sold' cover stage; `ready` is
+ *  this page's own derived state (sold + approvals) and has no cover-stage
+ *  equivalent, which is why the map has an entry for it. */
+const BUCKET_COLOR_KEY: Record<Bucket, keyof typeof STAGE_COLORS> = {
+  pre: 'sold',
+  ready: 'ready',
+  production: 'production',
+  installed: 'installed',
+  complete: 'complete',
+}
+
+/** Labels stay here — this page says "Pre-production" where the cover pill
+ *  says "Pre-Production", and it has a Ready state the cover stages don't.
+ *  ⛔ COLOURS DO NOT: they come from STAGE_COLORS so the kanban, this page and
+ *  the project cover can't drift again. */
+const BUCKET_LABEL: Record<Bucket, string> = {
+  pre: 'Pre-production',
+  ready: 'Ready',
+  production: 'In production',
+  installed: 'Installed',
+  complete: 'Complete',
+}
+
 const BUCKET_PILL: Record<
   Bucket,
   { label: string; bg: string; fg: string; border: string }
-> = {
-  pre:        { label: 'Pre-production', bg: '#FEF3C7', fg: '#92400E', border: '#FDE68A' },
-  ready:      { label: 'Ready',          bg: '#D1FAE5', fg: '#065F46', border: '#A7F3D0' },
-  production: { label: 'In production',   bg: '#EDE9FE', fg: '#5B21B6', border: '#DDD6FE' },
-  installed:  { label: 'Installed',       bg: '#DBEAFE', fg: '#1E40AF', border: '#BFDBFE' },
-  complete:   { label: 'Complete',        bg: '#E5E7EB', fg: '#374151', border: '#D1D5DB' },
-}
+> = Object.fromEntries(
+  (Object.keys(BUCKET_LABEL) as Bucket[]).map((b) => [
+    b,
+    { label: BUCKET_LABEL[b], ...STAGE_COLORS[BUCKET_COLOR_KEY[b]] },
+  ]),
+) as Record<Bucket, { label: string; bg: string; fg: string; border: string }>
 
 function fmtMoney(n: number): string {
   if (!n) return '$0'

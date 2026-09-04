@@ -30,7 +30,7 @@ import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
 import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus } from 'lucide-react'
 import ImportedBadge from '@/components/imported-badge'
-import { coverStageOf, COVER_STAGE_LABEL } from '@/components/project/StagePill'
+import { coverStageOf, COVER_STAGE_LABEL, STAGE_COLORS } from '@/components/project/StagePill'
 import type { ProjectStage } from '@/lib/types'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
@@ -42,6 +42,15 @@ import { useTours } from '@/components/walkthroughs/TourProvider'
 function soldStageLabel(stage: ProjectStage): string {
   const cover = coverStageOf(stage)
   return cover === 'lost' ? 'Lost' : COVER_STAGE_LABEL[cover]
+}
+
+/** Chip colours for a sold card, from the one shared map.
+ *  ⚠️ A sold-and-ready job shows pre-production amber here and green on the
+ *  projects page — the board has no approval data on a card, so it can't tell
+ *  them apart. Data gap, not a colour bug. */
+function soldStageColors(stage: ProjectStage): { backgroundColor: string; color: string } {
+  const c = STAGE_COLORS[coverStageOf(stage)]
+  return { backgroundColor: c.bg, color: c.fg }
 }
 
 function fmtMoney(n: number | null | undefined) {
@@ -394,7 +403,14 @@ function KanbanCard({
           headline any more. */}
       {project.stage === 'sold' ? (
         <div className="mt-1.5">
-          <span className="inline-block text-[9px] px-1.5 py-0.5 bg-[#ECFDF5] text-[#059669] rounded font-semibold uppercase tracking-wider">
+          {/* ⛔ Colour comes from the shared STAGE_COLORS, not a class here.
+              Every sold card used to be the same green, so the chip named the
+              stage but never showed it — amber pre-production and purple
+              in-production now read at a glance, matching the projects page. */}
+          <span
+            className="inline-block text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider"
+            style={soldStageColors(project.project_stage)}
+          >
             {soldStageLabel(project.project_stage)}
           </span>
         </div>
