@@ -439,31 +439,24 @@ const s = StyleSheet.create({
   // the signature block onto its own sheet — don't reintroduce either.)
 })
 
-function RunHead({
-  brand,
-  num,
-  right,
-  date,
-}: {
-  brand: string
-  num: string
-  right: string
-  /** Round-3 C redline: the date lives in the run header now, not in a cover
-   *  kicker — the kicker duplicated the estimate number that was already up
-   *  here. */
-  date?: string | null
-}) {
-  const segs = [num, right, date].filter(Boolean) as string[]
+/**
+ * Round-3 C redlines, both rounds: the meta is ONLY the estimate number and
+ * the date. The project name was struck (it's in the headline one line down),
+ * and so was the numbers page's "The numbers" segment (its kicker already says
+ * it). Don't reintroduce a name/label segment here.
+ */
+function RunHead({ brand, num, date }: { brand: string; num: string; date?: string | null }) {
   return (
     <View style={s.runhead} fixed>
       <Text style={s.runheadBrand}>{pdfText(brand.toUpperCase())}</Text>
       <View style={s.runheadRight}>
-        {segs.map((seg, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <Text style={s.runheadSep}>/</Text>}
-            <Text style={s.runheadMeta}>{pdfText(seg)}</Text>
-          </React.Fragment>
-        ))}
+        <Text style={s.runheadMeta}>{pdfText(num)}</Text>
+        {date ? (
+          <>
+            <Text style={s.runheadSep}>/</Text>
+            <Text style={s.runheadMeta}>{pdfText(date)}</Text>
+          </>
+        ) : null}
       </View>
     </View>
   )
@@ -506,7 +499,10 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
   ]
     .filter(Boolean)
     .join(', ')
-  const footRight = org.business_email || org.business_phone || ''
+  // Email AND phone — round-3 C round two, "our phone number is missing".
+  // The phone used to live in the Prepared-for grid; when the grid was cut the
+  // footer became the shop's only contact line, so it carries both.
+  const footRight = [org.business_email, org.business_phone].filter(Boolean).join('  ·  ')
   const indexSum = blocks.reduce((n, b) => n + b.amount, 0)
   // The index sums the lines; the total is what the estimate says. They agree
   // in every normal case — but tax makes them legitimately differ, so the sum
@@ -525,80 +521,49 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
   // a second, near-empty sheet.
   const idxPad = blocks.length > 16 ? mm(3) : blocks.length > 11 ? mm(7) : mm(12)
 
-  // How many scope blocks fit before a page break is react-pdf's problem, not
-  // ours — each block is wrap={false} so a subproject never splits across a
-  // page mid-detail, and the page flows the rest.
-  return (
-    <Document>
-      {/* ── 1 · COVER ── */}
-      <Page size="LETTER" style={s.page}>
-        <RunHead brand={org.name} num={estimateNumber} right={projectName} date={fmtDate(estimateDate)} />
+  // Round-3 C, second redline pass: a SINGLE-ITEM estimate is one continuous
+  // flow — no pricing block on the cover at all (Andrew X-ed the total line,
+  // the package kicker and the lone index row: the price already sits on the
+  // spec header and again in the numbers), and the specifications + numbers
+  // follow straight under the headline, page-breaking naturally. Multi-item
+  // keeps the three-part structure; the package index is that cover's whole
+  // point.
+  const single = blocks.length === 1
 
-        {/* ⛔ No logo image on the cover. The mockup deliberately doesn't have
-            one — the run header's wordmark IS the branding — and dropping an
-            org logo in above the kicker rendered as a stray centred mark that
-            fought the headline. It also cost ~26pt of the vertical budget the
-            package index needs at 20 subprojects. */}
+  // ⛔ No logo image on the cover. The mockup deliberately doesn't have one —
+  // the run header's wordmark IS the branding — and dropping an org logo in
+  // above the headline rendered as a stray centred mark that fought it.
+  //
+  // ⛔ No kicker line either — round-3 C redline. "Estimate EST-0013"
+  // duplicated the run header two lines up, the date moved INTO that header,
+  // and "Valid 30 days" already lives in the Terms text. (validUntil, if set,
+  // still prints there via terms.)
+  const intro = (
+    <>
+      <Text style={s.h1}>
+        {pdfText(headline || estimateHeadlineFor(client?.name || projectName))}
+      </Text>
 
-        {/* ⛔ No kicker line either — round-3 C redline. "Estimate EST-0013"
-            duplicated the run header two lines up, the date moved INTO that
-            header, and "Valid 30 days" already lives in the Terms text on the
-            numbers page. (validUntil, if set, still prints there via terms.) */}
-
-        <Text style={s.h1}>
-          {pdfText(headline || estimateHeadlineFor(client?.name || projectName))}
+      {/* Round-3 C redline: "delivered to : address" straight under the
+          headline. This replaced the whole Prepared-for grid — the client is
+          named in the headline, the project title in the headline too, the
+          shop in the run footer, so the grid was three cells of duplicates.
+          Omitted when the client record has no address (common for a new
+          lead). */}
+      {client?.address ? (
+        <Text style={s.deliveredTo}>
+          <Text style={s.deliveredToLabel}>{pdfText('Delivered to   ')}</Text>
+          {pdfText(client.address)}
         </Text>
+      ) : null}
+    </>
+  )
 
-        {/* Round-3 C redline: "delivered to : address" straight under the
-            headline. This replaced the whole Prepared-for grid — the client is
-            named in the headline, the project in the run header, the shop in
-            the run footer, so the grid was three cells of duplicates. Omitted
-            when the client record has no address (common for a new lead). */}
-        {client?.address ? (
-          <Text style={s.deliveredTo}>
-            <Text style={s.deliveredToLabel}>{pdfText('Delivered to   ')}</Text>
-            {pdfText(client.address)}
-          </Text>
-        ) : null}
-
-        <View style={s.totalline}>
-          <Text style={s.totallineLabel}>Estimate total</Text>
-          <Text style={s.totallineAmt}>{money(coverTotal)}</Text>
-        </View>
-
-        <View style={s.index}>
-          <Text style={[s.kicker, { marginBottom: mm(10) }]}>
-            {pdfText(`The package · ${blocks.length} ${blocks.length === 1 ? 'space' : 'spaces'}`)}
-          </Text>
-          {blocks.map((b, i) => (
-            <View key={i} style={[s.idxrow, { paddingVertical: idxPad }]} wrap={false}>
-              <Text style={s.idxName}>{pdfText(b.name)}</Text>
-              <Text style={s.idxAmt}>{money(b.amount)}</Text>
-            </View>
-          ))}
-          {/* One row has nothing to sum — at 1 space this printed the same
-              number three times on the cover (total line, the row, this row).
-              Round-3 item 3. */}
-          {blocks.length > 1 && (
-            <View style={s.idxSumRow}>
-              <Text style={s.idxSumName}>Estimate total</Text>
-              <Text style={s.idxSumAmt}>{money(indexSum)}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* ⛔ No Prepared-for grid and no flexGrow spacer down here — both cut
-            by Andrew's round-3 C redlines. The grid was pure duplication (see
-            the delivered-to note above), and the spacer pinned it to the page
-            bottom, which read intentional at 21 index rows and abandoned at
-            one. The cover now simply ends after the index. */}
-
-        <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
-      </Page>
-
-      {/* ── 2 · THE SPECIFICATIONS ── */}
-      <Page size="LETTER" style={s.page}>
-        <RunHead brand={org.name} num={estimateNumber} right={projectName} date={fmtDate(estimateDate)} />
+  // How many scope blocks fit before a page break is react-pdf's problem, not
+  // ours — the page flows the details and only holds each block's header
+  // together.
+  const specsFlow = (
+    <>
 
         {/* "The specifications" — Andrew's round-3 C redline. (Its ancestor
             "The work" was cut in round 1 for saying nothing; this label he
@@ -664,13 +629,11 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
             ) : null}
           </View>
         ))}
+    </>
+  )
 
-        <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
-      </Page>
-
-      {/* ── 3 · THE NUMBERS ── */}
-      <Page size="LETTER" style={s.page}>
-        <RunHead brand={org.name} num={estimateNumber} right="The numbers" date={fmtDate(estimateDate)} />
+  const numbersFlow = (
+    <>
         <Text style={s.kicker}>The numbers</Text>
         <Text style={s.bigtotal}>{money(totals.total || indexSum)}</Text>
 
@@ -762,7 +725,71 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
           <Text style={s.acceptBox}>Accepted · Client</Text>
           <Text style={[s.acceptBox, { marginRight: 0 }]}>{pdfText(`Authorized · ${org.name}`)}</Text>
         </View>
+    </>
+  )
 
+  if (single) {
+    // ── SINGLE ITEM · one continuous flow (round-3 C, second redline pass) ──
+    return (
+      <Document>
+        <Page size="LETTER" style={s.page}>
+          <RunHead brand={org.name} num={estimateNumber} date={fmtDate(estimateDate)} />
+          {intro}
+          <View style={{ marginTop: mm(34) }}>{specsFlow}</View>
+          <View style={{ marginTop: mm(10) }}>{numbersFlow}</View>
+          <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
+        </Page>
+      </Document>
+    )
+  }
+
+  return (
+    <Document>
+      {/* ── 1 · COVER — the package index is this page's whole point ── */}
+      <Page size="LETTER" style={s.page}>
+        <RunHead brand={org.name} num={estimateNumber} date={fmtDate(estimateDate)} />
+        {intro}
+
+        <View style={s.totalline}>
+          <Text style={s.totallineLabel}>Estimate total</Text>
+          <Text style={s.totallineAmt}>{money(coverTotal)}</Text>
+        </View>
+
+        <View style={s.index}>
+          <Text style={[s.kicker, { marginBottom: mm(10) }]}>
+            {pdfText(`The package · ${blocks.length} spaces`)}
+          </Text>
+          {blocks.map((b, i) => (
+            <View key={i} style={[s.idxrow, { paddingVertical: idxPad }]} wrap={false}>
+              <Text style={s.idxName}>{pdfText(b.name)}</Text>
+              <Text style={s.idxAmt}>{money(b.amount)}</Text>
+            </View>
+          ))}
+          <View style={s.idxSumRow}>
+            <Text style={s.idxSumName}>Estimate total</Text>
+            <Text style={s.idxSumAmt}>{money(indexSum)}</Text>
+          </View>
+        </View>
+
+        {/* ⛔ No Prepared-for grid and no flexGrow spacer down here — both cut
+            by Andrew's round-3 C redlines. The grid was pure duplication (see
+            the delivered-to note above), and the spacer pinned it to the page
+            bottom. The cover simply ends after the index. */}
+
+        <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
+      </Page>
+
+      {/* ── 2 · THE SPECIFICATIONS ── */}
+      <Page size="LETTER" style={s.page}>
+        <RunHead brand={org.name} num={estimateNumber} date={fmtDate(estimateDate)} />
+        {specsFlow}
+        <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
+      </Page>
+
+      {/* ── 3 · THE NUMBERS ── */}
+      <Page size="LETTER" style={s.page}>
+        <RunHead brand={org.name} num={estimateNumber} date={fmtDate(estimateDate)} />
+        {numbersFlow}
         <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
       </Page>
     </Document>
