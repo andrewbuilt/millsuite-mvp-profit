@@ -84,20 +84,33 @@ const WILLIAMS = [
 //   · one detail is enormous (the Blum paragraph)
 // and 20 subprojects, which is what pushed the cover's total onto a second
 // sheet. My original fixtures topped out at 12 and missed all of it.
-const kennedyLine = (name: string, amount: number, detail: string) => ({
+const kennedyLine = (name: string, amount: number) => ({
+  // VERBATIM from Kennedy EST-0017's first line item — twelve details, one of
+  // them a 300-character paragraph. My invented fixture had six short ones and
+  // therefore never reproduced the density that drove the page count.
   description:
     `${name}\n` +
     `Description - Material - Paint Grade Sheet Goods, Engineered Sheet Goods\n` +
     `Dimensions - Approx: Based on plans\n` +
-    `Details - ${detail}\n` +
+    `Details - Satin lacquer finish to match paint spec. TBD\n` +
+    `Roll out drawers inside left tall cabinet on stove wall\n` +
+    `Vertical tray storage in upper left cabinet\n` +
+    `Spice cabinet on left cabinet wall\n` +
+    `Island Trash cabinet to have insert with trash cut outs and typical paper towel holder\n` +
+    `Island outside upper cabinets have interior roll out insert drawers\n` +
     `Prefin maple, black or white laminate cabinet interiors\n` +
     `Slow close european hinged doors\n` +
+    `Flat panel doors\n` +
     `QTY 16 @ Blum legra drawer boxes (a premium, minimalist drawer system ` +
     `characterized by, straight, slim-walled sides and a sleek, modern aesthetic. ` +
     `Designed for high-end kitchens and bathrooms, it features superior, quiet, ` +
-    `full-extension runners (40 kg or 70 kg capacity), BLUMOTION soft-close.)\n` +
+    `full-extension runners (40 kg or 70 kg capacity), BLUMOTION soft-close, and ` +
+    `customizable, matte-finished metal surfaces.) Finish in orion grey, white, ` +
+    `brushed stainless steel\n` +
+    `(Includes interior roll out and trash cabinet)\n` +
     `Adjustable shelves\n` +
-    `\nIncludes Installation\n\nExclusions:\n- Stone\n- Power\n- LEDS\n- Handles`,
+    `*GC to provide wood blocking in wall\n` +
+    `\nIncludes Installation\n\nExclusions:\n- Stone\n- Power\n- LEDS\n- Handles\n- Sinks and fixtures`,
   quantity: 1,
   unit: 'ea',
   unit_price: amount,
@@ -115,7 +128,7 @@ const KENNEDY = [
   ["Patrick's Office Cabinets & Wall Panels", 47885], ['Bath 3 Cabinet', 5814],
   ['Bath 2 Cabinet', 8274], ["Emily's Closet Cabinets and Shelving", 79517],
   ["Patrick's Closet", 43325], ['Yoga Room and Bath Cabinet & Shelves', 11158],
-].map(([n, a]) => kennedyLine(n as string, a as number, 'Satin lacquer finish to match paint spec. TBD'))
+].map(([n, a]) => kennedyLine(n as string, a as number))
 
 const DOVER = [
   line('Painted Vanity (Sheets: 3)', 6029, 'Poplar · engineered sheet goods',

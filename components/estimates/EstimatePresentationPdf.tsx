@@ -319,8 +319,8 @@ const s = StyleSheet.create({
   preparedName: { fontSize: mm(14) },
   preparedSub: { fontSize: mm(12), color: MUT, marginTop: mm(5) },
   // ── scope pages ──
-  scopeSec: { marginBottom: mm(64) },
-  scopeHead: { flexDirection: 'row', alignItems: 'baseline', marginTop: mm(34) },
+  scopeSec: { marginBottom: mm(40) },
+  scopeHead: { flexDirection: 'row', alignItems: 'baseline', marginTop: mm(22) },
   // ⛔ EXPLICIT WIDTHS, not flexShrink. The real title "Powder 1 & 2 · Bunk ·
   // Caydon · Dallas · Emery · Finley · Pool Bath vanities" printed straight
   // THROUGH its own $34,872. Neither flexShrink on the Text nor on a wrapping
@@ -338,11 +338,11 @@ const s = StyleSheet.create({
   scopePlan: { fontSize: mm(11.5), color: MUT, paddingRight: mm(12) },
   scopeAmt: { fontFamily: f.mono, fontSize: mm(14.5) },
   matline: { fontSize: mm(12), color: MUT, marginTop: mm(8) },
-  details: { flexDirection: 'row', flexWrap: 'wrap', marginTop: mm(14) },
+  details: { flexDirection: 'row', flexWrap: 'wrap', marginTop: mm(10) },
   detailCell: {
     width: '50%',
     paddingRight: mm(32),
-    paddingVertical: mm(10),
+    paddingVertical: mm(7),
     borderBottomWidth: 1,
     borderBottomStyle: 'dotted',
     borderBottomColor: HAIR,
@@ -571,17 +571,28 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
         <Text style={s.kicker}>The work</Text>
 
         {blocks.map((b, i) => (
-          <View key={i} style={s.scopeSec} wrap={false}>
-            <View style={s.scopeHead}>
-              <View style={s.scopeNameBox}>
-                <Text style={s.scopeName}>{pdfText(b.name)}</Text>
+          // ⛔ The SECTION must be allowed to wrap. With wrap={false} on the
+          // whole block, a subproject that didn't fit in the remaining space
+          // moved to the next page entire — and since a real block runs most
+          // of a page, that meant ONE SUBPROJECT PER PAGE with ~40% of every
+          // sheet left blank. Kennedy came out at 22 pages.
+          //
+          // Only the HEADER is held together (title + price + material line),
+          // with minPresenceAhead so it can't be stranded at the foot of a
+          // page with its details overleaf. The detail grid flows freely.
+          <View key={i} style={s.scopeSec}>
+            <View wrap={false} minPresenceAhead={mm(90)}>
+              <View style={s.scopeHead}>
+                <View style={s.scopeNameBox}>
+                  <Text style={s.scopeName}>{pdfText(b.name)}</Text>
+                </View>
+                <View style={s.scopeRight}>
+                  {b.planRef ? <Text style={s.scopePlan}>{pdfText(b.planRef)}</Text> : null}
+                  <Text style={s.scopeAmt}>{money(b.amount)}</Text>
+                </View>
               </View>
-              <View style={s.scopeRight}>
-                {b.planRef ? <Text style={s.scopePlan}>{pdfText(b.planRef)}</Text> : null}
-                <Text style={s.scopeAmt}>{money(b.amount)}</Text>
-              </View>
+              {b.material ? <Text style={s.matline}>{pdfText(b.material)}</Text> : null}
             </View>
-            {b.material ? <Text style={s.matline}>{pdfText(b.material)}</Text> : null}
             {b.details.length > 0 && (
               <View style={s.details}>
                 {b.details.map((d, di) => (
