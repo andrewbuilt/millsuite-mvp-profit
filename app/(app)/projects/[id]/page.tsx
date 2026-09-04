@@ -1154,7 +1154,8 @@ export default function ProjectCoverPage() {
 
   // ── Estimate PDF (MillSuite-native; available in both modes) ──
   // Builds the same computed lines shown on screen so the PDF total reconciles
-  // with the project price. Consumed by SendEstimateModal (download + email).
+  // with the project price. Consumed by SendEstimateModal (template picker +
+  // download).
   function buildEstimatePayload(): EstimatePdfPayload {
     const taxPct = Number((org as any)?.default_tax_pct) || 0
     const subtotal = qbTotal
@@ -2435,8 +2436,6 @@ export default function ProjectCoverPage() {
           payload={buildEstimatePayload()}
           clientName={project.client_name}
           projectName={project.name}
-          total={qbTotal}
-          orgName={org?.name ?? 'Your Company'}
           orgId={org?.id ?? null}
           defaultTemplate={(project as { estimate_template?: string | null }).estimate_template ?? null}
           onClose={() => setSendEstimateOpen(false)}

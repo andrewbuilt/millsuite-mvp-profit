@@ -9,7 +9,7 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react'
-import { Check, Download, ExternalLink, FileText, Mail, Plus, Trash2, X } from 'lucide-react'
+import { Check, Download, ExternalLink, FileText, Plus, Send, Trash2, X } from 'lucide-react'
 import {
   loadProjectDocuments,
   addProjectDocument,
@@ -105,8 +105,11 @@ export default function ProjectDocuments({
             <span className="text-[13px] text-[#111] truncate">Estimate</span>
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+            {/* Opens SendEstimateModal (template picker + download). Renamed
+                from "Email" 2026-09-04 — no email is connected, so the label
+                misled. */}
             <button onClick={onEmailEstimate} className={linkCls}>
-              <Mail className="w-3 h-3" /> Email
+              <Send className="w-3 h-3" /> Send
             </button>
             <button
               onClick={async () => {

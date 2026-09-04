@@ -1,16 +1,21 @@
 'use client'
 
 // ============================================================================
-// SendEstimateModal — download the estimate PDF + copy a templated email
+// SendEstimateModal — pick a template, download the estimate PDF
 // ============================================================================
-// Estimate analogue of SendInvoiceModal. Download-and-send-yourself: there's no
-// in-app email send and no status machine (the PDF route stamps
-// estimate_sent_at on download). An embedded live preview is deferred to the
-// design pass — "Download PDF" opens the real rendered PDF in a new tab.
+// Download-and-send-yourself: there's no in-app email send and no status
+// machine (the PDF route stamps estimate_sent_at on download). The email
+// subject/body composer was removed 2026-09-04 (round 3 item A) — no email is
+// connected, so the fields were dead weight; resurrect from git if email ever
+// lands. An embedded live preview is deferred to the design pass —
+// "Download PDF" opens the real rendered PDF in a new tab.
+//
+// Layout contract: future presentation options (toggles/sections) stack in the
+// presentation block under the cover line — add rows there, no redesign.
 // ============================================================================
 
-import { useEffect, useMemo, useState } from 'react'
-import { Copy, Download, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Download, X } from 'lucide-react'
 import { downloadEstimatePdf, type EstimatePdfPayload } from '@/lib/estimate-pdf'
 import { supabase } from '@/lib/supabase'
 // ⛔ From lib/, NOT from EstimatePresentationPdf. This is a client component;
@@ -19,28 +24,11 @@ import { supabase } from '@/lib/supabase'
 // lib/estimate-headline.
 import { estimateHeadlineFor } from '@/lib/estimate-headline'
 
-const DEFAULT_TEMPLATE =
-  `Hi \${client_name},\n\n` +
-  `Attached is our estimate for \${project_name}, total \${total}.\n\n` +
-  `It's valid for 30 days — let me know if you have any questions or would like to move forward.\n\n` +
-  `Thanks,\n\${org_name}`
-
-function money(n: number): string {
-  return '$' + Math.round(n || 0).toLocaleString('en-US')
-}
-
-function substitute(template: string, vars: Record<string, string>): string {
-  return template.replace(/\$\{(\w+)\}/g, (_, k) => vars[k] ?? '')
-}
-
 export default function SendEstimateModal({
   projectId,
   payload,
   clientName,
   projectName,
-  total,
-  orgName,
-  emailTemplateOverride,
   defaultTemplate,
   orgId,
   onClose,
@@ -49,10 +37,6 @@ export default function SendEstimateModal({
   payload: EstimatePdfPayload
   clientName: string | null
   projectName: string
-  total: number
-  orgName: string
-  /** orgs.estimate_email_template; falls back to DEFAULT_TEMPLATE when null. */
-  emailTemplateOverride?: string | null
   /** The project's STAMPED template, if it was sent before. Wins over the org
    *  default — a resend should reproduce what the client already has. */
   defaultTemplate?: string | null
@@ -60,22 +44,6 @@ export default function SendEstimateModal({
   orgId?: string | null
   onClose: () => void
 }) {
-  const baseTemplate =
-    emailTemplateOverride && emailTemplateOverride.trim().length > 0
-      ? emailTemplateOverride
-      : DEFAULT_TEMPLATE
-
-  const seedBody = useMemo(
-    () =>
-      substitute(baseTemplate, {
-        client_name: clientName || 'there',
-        project_name: projectName || 'your project',
-        total: money(total),
-        org_name: orgName,
-      }),
-    [baseTemplate, clientName, projectName, total, orgName],
-  )
-
   const [template, setTemplate] = useState<'standard' | 'presentation'>(
     defaultTemplate === 'presentation' ? 'presentation' : 'standard',
   )
@@ -108,17 +76,8 @@ export default function SendEstimateModal({
     }
   }, [defaultTemplate, orgId])
 
-  const [subject, setSubject] = useState(`Estimate — ${projectName}`)
-  const [body, setBody] = useState(seedBody)
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (copyState === 'idle') return
-    const t = setTimeout(() => setCopyState('idle'), 2400)
-    return () => clearTimeout(t)
-  }, [copyState])
 
   async function handleDownload() {
     setError(null)
@@ -138,15 +97,6 @@ export default function SendEstimateModal({
     }
   }
 
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`)
-      setCopyState('copied')
-    } catch {
-      setCopyState('error')
-    }
-  }
-
   return (
     <div
       className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center px-4"
@@ -160,7 +110,7 @@ export default function SendEstimateModal({
           <div>
             <h3 className="text-[15px] font-semibold text-[#111]">Send estimate</h3>
             <p className="text-[11.5px] text-[#9CA3AF] mt-0.5">
-              Download the PDF, paste the email into your client, and send it yourself.
+              Pick a template and download the PDF — you attach and send it yourself.
             </p>
           </div>
           <button onClick={onClose} className="text-[#9CA3AF] hover:text-[#111] p-1" aria-label="Close">
@@ -197,19 +147,24 @@ export default function SendEstimateModal({
             </div>
           </div>
 
+          {/* Presentation options. Future template options (toggles/sections)
+              stack HERE, under the cover line — rows in this block, no
+              redesign. */}
           {template === 'presentation' && (
-            <div>
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
-                Cover line
-              </label>
-              <input
-                value={headline}
-                onChange={(e) => setHeadline(e.target.value)}
-                className="mt-1.5 w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
-              />
-              <p className="text-[11px] text-[#9CA3AF] mt-1">
-                Prints large on the cover. Saved with the estimate.
-              </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                  Cover line
+                </label>
+                <input
+                  value={headline}
+                  onChange={(e) => setHeadline(e.target.value)}
+                  className="mt-1.5 w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
+                />
+                <p className="text-[11px] text-[#9CA3AF] mt-1">
+                  Prints large on the cover. Saved with the estimate.
+                </p>
+              </div>
             </div>
           )}
 
@@ -223,40 +178,8 @@ export default function SendEstimateModal({
               {downloading ? 'Generating…' : 'Download PDF'}
             </button>
             <span className="text-[11.5px] text-[#9CA3AF]">
-              Opens in a new tab. Save and attach to the email below.
+              Opens in a new tab. Save it and send it to your client.
             </span>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block">
-              <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1">
-                Subject
-              </div>
-              <input
-                type="text"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
-              />
-            </label>
-            <label className="block">
-              <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1">
-                Email body
-              </div>
-              <textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={9}
-                className="w-full px-2.5 py-1.5 text-[13px] bg-white border border-[#E5E7EB] rounded-md outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] resize-none font-mono"
-              />
-            </label>
-            <button
-              onClick={handleCopy}
-              className="px-3 py-1.5 text-[12.5px] text-[#374151] border border-[#E5E7EB] hover:bg-[#F9FAFB] rounded-md inline-flex items-center gap-1.5"
-            >
-              <Copy className="w-3.5 h-3.5" />
-              {copyState === 'copied' ? 'Copied!' : copyState === 'error' ? 'Copy failed' : 'Copy email + subject'}
-            </button>
           </div>
 
           {error && (

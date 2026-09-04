@@ -7,14 +7,14 @@
 // project. The estimate PDF route stashes a snapshot on the project
 // (projects.estimate_snapshot_json: lineItems / schedule / totals / terms) each
 // time the PDF is generated. This page renders that snapshot read-only, with
-// Email / Download / Mark-sent / Open-project actions. When no snapshot exists
+// Send / Download / Mark-sent / Open-project actions. When no snapshot exists
 // yet (marked sent but never generated), it routes the user to the project.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Download, Check, Mail, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Download, Check, Send, ExternalLink } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { isPresold, type ProjectStage } from '@/lib/types'
@@ -160,7 +160,6 @@ export default function EstimateDetailPage() {
 
   const status = estimateStatus(project.stage)
   const tone = STATUS_TONE[status]
-  const total = payload?.totals.total ?? project.bid_total ?? 0
 
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
@@ -196,7 +195,7 @@ export default function EstimateDetailPage() {
                 onClick={() => setEmailOpen(true)}
                 className="px-3 py-1.5 text-[12px] text-[#374151] border border-[#E5E7EB] hover:bg-[#F9FAFB] rounded-md inline-flex items-center gap-1.5"
               >
-                <Mail className="w-3.5 h-3.5" /> Email estimate
+                <Send className="w-3.5 h-3.5" /> Send estimate
               </button>
             )}
             {payload && (
@@ -364,8 +363,6 @@ export default function EstimateDetailPage() {
           payload={payload}
           clientName={project.client_name}
           projectName={project.name}
-          total={total}
-          orgName={org?.name ?? 'Your Company'}
           orgId={org?.id ?? null}
           defaultTemplate={(project as { estimate_template?: string | null }).estimate_template ?? null}
           onClose={() => setEmailOpen(false)}
