@@ -145,7 +145,7 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ### ~~Standard construction note~~ — **DROPPED 2026-09-04 by Andrew ("the boilerplate might not work for every project so lets remove that idea"). Do not build; sub scopes and prefills stay as they are.**
 
-### Presentation estimate — round 3. **✅ ALL DONE + DEPLOYED 2026-09-04 (`c24dae1` modal · `8031967`+`d5a5e91` footer mark · `1fadef3`+`5bf1b06` cover redlines, two passes); migration `096` on prod; mark uploaded. Only Andrew's live pass + a Vercel-build glance remain (end of section).**
+### Presentation estimate — round 3. **✅ ALL DONE + DEPLOYED 2026-09-04 (`c24dae1` modal · `8031967`+`d5a5e91` footer mark · `1fadef3`+`5bf1b06` cover redlines, two passes); migration `096` on prod; mark uploaded; **live pass done — Andrew verified real estimates on prod, round CLOSED** (only the HELD small-multi-package merge idea remains).**
 
 **A ✅ — one send modal, no email fields (`c24dae1`).** Template picker (keeps 095 stamping) → Standard = Download only · Presentation = cover line + Download. **Future presentation options stack in the marked block under the cover line** — the layout contract is commented in `SendEstimateModal`. The email composer (subject/body/copy, `emailTemplateOverride`, DEFAULT_TEMPLATE) is deleted, not parked — **resurrect from git (`c24dae1^`) if email ever connects.** Both former "Email" triggers — the Documents row and the `/estimates/[projectId]` header — now say **Send** (Send icon), open the same modal; "Mark as sent" untouched. Dropped now-dead props `total`/`orgName` at both call sites.
 
