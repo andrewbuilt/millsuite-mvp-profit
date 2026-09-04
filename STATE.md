@@ -8,7 +8,9 @@
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-09-03)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-09-04)
+
+**NEW 2026-09-04: KANBAN STAGE-CHIP COLORS — scoped, NOT built, build next (small).** The sold-column chips are all green; the projects page gives each stage its own color (amber pre-prod, purple in-production, …). Lift the projects page's color map into the shared `StagePill` module and have both surfaces read it. Spec = "Kanban stage-chip colors" in Now.
 
 **✅ 2026-09-04: PRESENTATION ROUND 3 — ALL THREE ITEMS DONE AND DEPLOYED (A `c24dae1` · B `8031967`+`d5a5e91` · C `1fadef3`+`5bf1b06`, two redline passes — the second added the single-item one-flow document, EST+date-only header, phone in footer). Migration `096` ✅ ON PROD; footer-mark asset uploaded. Round 3 is CLOSED except Andrew's live pass + one HELD idea (merge "The numbers" onto the scope flow for small packages — offered, held by Andrew).** C came from Andrew's redlined Dover PDF, same session: cover kicker deleted (date → run header on every page) · **"Delivered to {address}" under the headline REPLACES the entire Prepared-for grid** (client in headline, project in header, shop in footer — the grid was duplicates) · cover spacer gone (it made the 1-sub cover a void) · index sum row hidden at 1 space · scope flow opens with a **"The specifications"** kicker. (A) `SendEstimateModal` is one modal — template picker, cover line under Presentation, Download; email subject/body/copy gone (resurrect from git if email ever lands); both "Email" triggers renamed **Send**. (B) went through a live iteration with Andrew: the full lockup at cap height was **muddy**, so the footer mark is now its OWN asset — `orgs.estimate_footer_logo_url` (096), the logomark ALONE extracted from the .ai as vector paths, pre-tinted to the footer gray `#B4AFA4`, rendered at 2x cap height (mm(14)). **Regenerate + re-upload via `scripts/built-footer-mark.tsx` → `scripts/upload-built-footer-mark.mjs`** if the color ever changes. **The "standard construction note" idea is DROPPED by Andrew — don't build it.** Detail under "Presentation estimate — round 3" in Now.
 
@@ -142,6 +144,10 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ---
 
 ## Now
+
+### Kanban stage-chip colors — scoped 2026-09-04 (Andrew: "change the kanban status colors so they match the project page"), NOT built. BUILD NEXT — small.
+
+The sold-column stage chips on `/sales/kanban` render EVERY stage in the same green (`bg-[#ECFDF5] text-[#059669]`, kanban page ~389), while the projects dashboard gives each derived stage its own color (`app/(app)/projects/page.tsx` ~82: pre = amber `#FEF3C7`/`#92400E`, production = purple `#EDE9FE`/`#5B21B6`, plus ready/installed/complete). Fix: **one shared source** — lift the projects page's stage→{label, bg, fg, border} map into the shared cover-stage module (`components/project/StagePill` already owns the stage mapping precisely so the board and project surfaces can't drift; colors belong there too), and have BOTH the kanban chip and the projects-page badge read it. No new colors — the project page's palette is the truth. Verify: a pre-production sold card shows amber, an in-production card purple, on both surfaces, and `grep` shows no remaining hardcoded stage colors on the kanban page.
 
 ### ~~Standard construction note~~ — **DROPPED 2026-09-04 by Andrew ("the boilerplate might not work for every project so lets remove that idea"). Do not build; sub scopes and prefills stay as they are.**
 
