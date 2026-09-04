@@ -27,11 +27,12 @@
 // ============================================================================
 
 import React from 'react'
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
+import { Document, Image, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 import { parseRichDescription } from '@/lib/subproject-description'
 import { pdfText } from '@/lib/pdf-text'
 import { estimateFonts } from '@/lib/estimate-fonts'
 import { estimateHeadlineFor } from '@/lib/estimate-headline'
+import { pdfLogoOk } from './EstimatePdf'
 import type { EstimatePdfLine, EstimateScheduleRow } from './EstimatePdf'
 
 /** Mockup pixels → PDF points. The mockup is 850px wide for a 612pt page. */
@@ -258,10 +259,20 @@ const s = StyleSheet.create({
     left: mm(96),
     right: mm(96),
     flexDirection: 'row',
+    // 'center', not 'baseline' — an Image has no baseline, so 'baseline' drops
+    // it to the bottom of the row. Centering a cap-height logo against a line
+    // of caps-ish footer text is the closest a flex row gets to "sitting on
+    // the baseline" at this size.
+    alignItems: 'center',
     fontSize: mm(10),
     letterSpacing: mm(10) * 0.1,
     color: '#B4AFA4',
   },
+  // Round-3 item B, experimental: the org logo at roughly the cap height of
+  // the footer text ("around the same size as the 6, so tiny"). Height only —
+  // react-pdf keeps the aspect ratio, same as the standard template's header
+  // logo. mm(7) ≈ 5pt against the mm(10) ≈ 7.2pt footer type.
+  runfootLogo: { height: mm(7), marginRight: mm(8) },
   kicker: {
     fontSize: mm(10),
     fontWeight: 500,
@@ -432,9 +443,10 @@ function RunHead({ brand, num, right }: { brand: string; num: string; right: str
   )
 }
 
-function RunFoot({ left, right }: { left: string; right: string }) {
+function RunFoot({ left, right, logoUrl }: { left: string; right: string; logoUrl?: string | null }) {
   return (
     <View style={s.runfoot} fixed>
+      {pdfLogoOk(logoUrl) && <Image src={logoUrl} style={s.runfootLogo} />}
       <Text>{pdfText(left)}</Text>
       <Text style={{ marginLeft: 'auto' }}>{pdfText(right)}</Text>
     </View>
@@ -572,7 +584,7 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
           </View>
         </View>
 
-        <RunFoot left={addressLine} right={footRight} />
+        <RunFoot left={addressLine} right={footRight} logoUrl={org.logo_url} />
       </Page>
 
       {/* ── 2 · THE WORK ── */}
@@ -640,7 +652,7 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
           </View>
         ))}
 
-        <RunFoot left={addressLine} right={footRight} />
+        <RunFoot left={addressLine} right={footRight} logoUrl={org.logo_url} />
       </Page>
 
       {/* ── 3 · THE NUMBERS ── */}
@@ -738,7 +750,7 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
           <Text style={[s.acceptBox, { marginRight: 0 }]}>{pdfText(`Authorized · ${org.name}`)}</Text>
         </View>
 
-        <RunFoot left={addressLine} right={footRight} />
+        <RunFoot left={addressLine} right={footRight} logoUrl={org.logo_url} />
       </Page>
     </Document>
   )

@@ -138,7 +138,10 @@ const DOVER = [
 
 const ORG = {
   name: 'Built',
-  logo_url: null,
+  // Round-3 item B renders the org logo in the run footer. Pass a real URL to
+  // see it (e.g. Built's orgs.logo_url):
+  //   PREVIEW_LOGO_URL=https://… npx tsx scripts/preview-presentation-estimate.tsx
+  logo_url: process.env.PREVIEW_LOGO_URL || null,
   business_address: '602 N Newport Ave',
   business_city: 'Tampa',
   business_state: 'FL',
