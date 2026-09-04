@@ -78,6 +78,23 @@ export interface EstimatePresentationProps {
   signature?: string | null
 }
 
+/**
+ * The cover sentence: "A custom millwork package for the Kennedy Residence."
+ *
+ * ⛔ The article is conditional on purpose. A household reads wrong without it
+ * ("for Kennedy Residence") and a person reads wrong WITH it ("for the Patrick
+ * Kennedy"), and Built's client records hold both. So it's added only for
+ * names that are plainly a place or household, and never when the name already
+ * begins with "The".
+ */
+export function estimateHeadlineFor(name: string): string {
+  const n = (name || '').trim()
+  if (!n) return 'A custom millwork package.'
+  const needsArticle =
+    !/^the\s/i.test(n) && /\b(residence|household|family|house|estate|home)\s*$/i.test(n)
+  return `A custom millwork package for ${needsArticle ? 'the ' : ''}${n}.`
+}
+
 const money = (n: number) =>
   '$' + Math.round(Number(n) || 0).toLocaleString('en-US')
 
@@ -319,8 +336,8 @@ const s = StyleSheet.create({
   preparedName: { fontSize: mm(14) },
   preparedSub: { fontSize: mm(12), color: MUT, marginTop: mm(5) },
   // ── scope pages ──
-  scopeSec: { marginBottom: mm(40) },
-  scopeHead: { flexDirection: 'row', alignItems: 'baseline', marginTop: mm(22) },
+  scopeSec: { marginBottom: mm(30) },
+  scopeHead: { flexDirection: 'row', alignItems: 'baseline', marginTop: mm(16) },
   // ⛔ EXPLICIT WIDTHS, not flexShrink. The real title "Powder 1 & 2 · Bunk ·
   // Caydon · Dallas · Emery · Finley · Pool Bath vanities" printed straight
   // THROUGH its own $34,872. Neither flexShrink on the Text nor on a wrapping
@@ -329,12 +346,9 @@ const s = StyleSheet.create({
   // version that can't collide, at any name length.
   scopeNameBox: { width: '68%', paddingRight: mm(16) },
   scopeName: { fontFamily: f.serif, fontWeight: 400, fontSize: mm(21) },
-  scopeRight: {
-    width: '32%',
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'flex-end',
-  },
+  scopeRight: { width: '32%', alignItems: 'flex-end' },
+  scopeRightTop: { flexDirection: 'row', alignItems: 'baseline' },
+  installNote: { fontSize: mm(9.5), color: MUT, marginTop: mm(3) },
   scopePlan: { fontSize: mm(11.5), color: MUT, paddingRight: mm(12) },
   scopeAmt: { fontFamily: f.mono, fontSize: mm(14.5) },
   matline: { fontSize: mm(12), color: MUT, marginTop: mm(8) },
@@ -348,8 +362,7 @@ const s = StyleSheet.create({
     borderBottomColor: HAIR,
   },
   detailText: { fontSize: mm(12.5), lineHeight: 1.55 },
-  subfoot: { flexDirection: 'row', marginTop: mm(14), fontSize: mm(11.5), color: MUT },
-  subfootStrong: { color: INK, fontWeight: 600 },
+  subfoot: { flexDirection: 'row', marginTop: mm(12), fontSize: mm(11), color: MUT },
   // ── numbers ──
   bigtotal: { fontFamily: f.mono, fontSize: mm(36), marginTop: mm(18) },
   schedule: { marginTop: mm(40) },
@@ -513,7 +526,7 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
         </Text>
 
         <Text style={s.h1}>
-          {pdfText(headline || `A custom millwork package for ${client?.name || projectName}.`)}
+          {pdfText(headline || estimateHeadlineFor(client?.name || projectName))}
         </Text>
 
         <View style={s.totalline}>
@@ -567,8 +580,9 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
 
       {/* ── 2 · THE WORK ── */}
       <Page size="LETTER" style={s.page}>
-        <RunHead brand={org.name} num={estimateNumber} right="The work" />
-        <Text style={s.kicker}>The work</Text>
+        {/* No "The work" label — Andrew's call. It appeared twice (kicker and
+            run header) and named something the reader can already see. */}
+        <RunHead brand={org.name} num={estimateNumber} right={projectName} />
 
         {blocks.map((b, i) => (
           // ⛔ The SECTION must be allowed to wrap. With wrap={false} on the
@@ -581,14 +595,21 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
           // with minPresenceAhead so it can't be stranded at the foot of a
           // page with its details overleaf. The detail grid flows freely.
           <View key={i} style={s.scopeSec}>
-            <View wrap={false} minPresenceAhead={mm(90)}>
+            <View wrap={false} minPresenceAhead={mm(35)}>
               <View style={s.scopeHead}>
                 <View style={s.scopeNameBox}>
                   <Text style={s.scopeName}>{pdfText(b.name)}</Text>
                 </View>
                 <View style={s.scopeRight}>
-                  {b.planRef ? <Text style={s.scopePlan}>{pdfText(b.planRef)}</Text> : null}
-                  <Text style={s.scopeAmt}>{money(b.amount)}</Text>
+                  <View style={s.scopeRightTop}>
+                    {b.planRef ? <Text style={s.scopePlan}>{pdfText(b.planRef)}</Text> : null}
+                    <Text style={s.scopeAmt}>{money(b.amount)}</Text>
+                  </View>
+                  {/* Andrew's call: it belongs with the price, not stranded at
+                      the foot of the block — it qualifies what the number buys. */}
+                  {b.installIncluded ? (
+                    <Text style={s.installNote}>Installation included</Text>
+                  ) : null}
                 </View>
               </View>
               {b.material ? <Text style={s.matline}>{pdfText(b.material)}</Text> : null}
@@ -614,18 +635,11 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
                 ))}
               </View>
             )}
-            {(b.installIncluded || b.excludes) && (
+            {b.excludes ? (
               <View style={s.subfoot}>
-                {b.installIncluded ? (
-                  <Text style={s.subfootStrong}>Installation included</Text>
-                ) : null}
-                {b.excludes ? (
-                  <Text style={{ marginLeft: b.installIncluded ? mm(26) : 0 }}>
-                    {pdfText(`Excludes: ${b.excludes}`)}
-                  </Text>
-                ) : null}
+                <Text>{pdfText(`Excludes: ${b.excludes}`)}</Text>
               </View>
-            )}
+            ) : null}
           </View>
         ))}
 
@@ -668,8 +682,34 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
         {closingNote ? (
           <View style={s.thanks}>
             <Text style={s.kicker}>From the shop</Text>
-            <Text style={s.thanksText}>{pdfText(closingNote)}</Text>
-            {signature ? <Text style={s.sig}>{pdfText(`— ${signature}`)}</Text> : null}
+            {/* ⛔ Split on the shop's own line breaks and space the paragraphs.
+                As one Text the stored note's newlines rendered at the body
+                line-height, so a new sentence began flush against the wrapped
+                tail of the previous one and the block read as a mistake.
+                A trailing "- Andrew" line becomes the signature, since that's
+                what it is — the design has a styled sign-off for it. */}
+            {(() => {
+              const paras = closingNote
+                .split(/\r?\n/)
+                .map((x) => x.trim())
+                .filter(Boolean)
+              const last = paras[paras.length - 1]
+              const inlineSig = paras.length > 1 && /^[-–—]\s*\S/.test(last || '')
+              const body = inlineSig ? paras.slice(0, -1) : paras
+              const sigText = inlineSig
+                ? (last || '').replace(/^[-–—]\s*/, '')
+                : signature || null
+              return (
+                <>
+                  {body.map((para, pi) => (
+                    <Text key={pi} style={[s.thanksText, pi > 0 ? { marginTop: mm(10) } : {}]}>
+                      {pdfText(para)}
+                    </Text>
+                  ))}
+                  {sigText ? <Text style={s.sig}>{pdfText(`— ${sigText}`)}</Text> : null}
+                </>
+              )
+            })()}
             {cleanStats.length > 0 && (
               <View style={s.ministats}>
                 {cleanStats.map((st, i) => (

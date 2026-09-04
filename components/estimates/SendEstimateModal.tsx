@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Copy, Download, X } from 'lucide-react'
 import { downloadEstimatePdf, type EstimatePdfPayload } from '@/lib/estimate-pdf'
 import { supabase } from '@/lib/supabase'
+import { estimateHeadlineFor } from './EstimatePresentationPdf'
 
 const DEFAULT_TEMPLATE =
   `Hi \${client_name},\n\n` +
@@ -75,9 +76,10 @@ export default function SendEstimateModal({
     defaultTemplate === 'presentation' ? 'presentation' : 'standard',
   )
   // Auto-generated, then editable. Only the presentation template prints it.
-  const [headline, setHeadline] = useState(
-    `A custom millwork package for ${clientName || projectName}.`,
-  )
+  // Shares the generator with the PDF so the preview and the fallback can't
+  // drift — including the conditional "the" (a household needs it, a person's
+  // name doesn't).
+  const [headline, setHeadline] = useState(estimateHeadlineFor(clientName || projectName))
   // The org default is read HERE, in its own tiny select, rather than being
   // threaded through the pages' shared org object. Adding the column to that
   // shared read would take the whole app down on a pre-095 database, since

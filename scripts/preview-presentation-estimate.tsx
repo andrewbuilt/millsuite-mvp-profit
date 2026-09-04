@@ -152,8 +152,14 @@ const STATS = [
   { value: '8', label: 'Families supported' },
   { value: '12 & 16', label: 'Kids and pets' },
 ]
+// Andrew's real org note, verbatim — THREE lines with hard breaks and a
+// trailing signature. As a single string this never exercised the paragraph
+// handling, which is why the run-together spacing shipped.
 const NOTE =
-  "Thank you for considering us for your project. We take pride in what leaves this shop, and we're thankful for the opportunity to make you something great."
+  "Thank you for considering us for your project! Built has been family owned since 2013. " +
+  "When you work with us, you're supporting 15 craftspeople, 8 families, 12 kids, and 16 pets!\n" +
+  "We take take pride in what leaves this shop and we're grateful for the opportunity to make " +
+  "you something great.\n- Andrew"
 const TERMS =
   'Estimate valid for 30 days · 30% deposit due at contract signing · remaining balance billed per production milestones · lead time quoted separately · change orders in writing only.'
 
@@ -193,8 +199,8 @@ async function main() {
     'A custom millwork package for the Williams residence.',
     'Williams Residential Millwork Package', 'The Williams Residence')
   await render('kennedy', KENNEDY, 'EST-0017',
-    'A custom millwork package for Patrick Kennedy.',
-    'Kennedy - Millwork Package', 'Patrick Kennedy')
+    undefined as any,
+    'Kennedy - Millwork Package', 'Kennedy Residence')
   await render('dover', DOVER, 'EST-0011',
     'A painted vanity for the Dover residence.',
     'Dover - Painted Vanity', 'The Dover Residence')
