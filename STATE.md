@@ -4,13 +4,13 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-09-02 · **Branch:** `main`
+**Last updated:** 2026-09-04 · **Branch:** `main`
 
 ---
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-03)
 
-**NEW 2026-09-04 (Cowork pass): PRESENTATION ESTIMATE ROUND 3 — build A + B now, C blocked.** (A) `SendEstimateModal` loses all email fields (none connected) → one modal: template picker; Standard = download only; Presentation = cover line + room for template options. (B) tiny org logo (~cap-height of the footer text) beside the footer address — experimental, show Andrew before shipping. (C) small-vs-large formatting fixes BLOCKED on Andrew's example PDFs (upload failed, re-sending). **The "standard construction note" idea is DROPPED by Andrew — don't build it.** Specs under "Presentation estimate — round 3" in Now.
+**✅ 2026-09-04: PRESENTATION ROUND 3 A + B BUILT, DEPLOYED, ANDREW-APPROVED (`c24dae1`, `8031967`, `d5a5e91`). Migration `096` ✅ ON PROD; footer-mark asset uploaded and column set. Item C still BLOCKED on Andrew's example PDFs.** (A) `SendEstimateModal` is one modal — template picker, cover line under Presentation, Download; email subject/body/copy gone (resurrect from git if email ever lands); both "Email" triggers renamed **Send**. (B) went through a live iteration with Andrew: the full lockup at cap height was **muddy**, so the footer mark is now its OWN asset — `orgs.estimate_footer_logo_url` (096), the logomark ALONE extracted from the .ai as vector paths, pre-tinted to the footer gray `#B4AFA4`, rendered at 2x cap height (mm(14)). **Regenerate + re-upload via `scripts/built-footer-mark.tsx` → `scripts/upload-built-footer-mark.mjs`** if the color ever changes. **The "standard construction note" idea is DROPPED by Andrew — don't build it.** Detail under "Presentation estimate — round 3" in Now.
 
 **✅ 2026-09-04: PRESENTATION ESTIMATE — LIVE AND DEPLOYED.** Migration `095` on prod, fonts vendored, and **survived a real-data pass on Kennedy EST-0017 (20 subprojects, $632k)** which found six things the fixtures never could — see "Presentation estimate" in Now. Both degrade rather than break — pre-095 it falls back to the standard template, and with no fonts it renders in Helvetica and logs why. Detail under "Presentation estimate" in Now.
 
@@ -145,18 +145,19 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ### ~~Standard construction note~~ — **DROPPED 2026-09-04 by Andrew ("the boilerplate might not work for every project so lets remove that idea"). Do not build; sub scopes and prefills stay as they are.**
 
-### Presentation estimate — round 3 (scoped 2026-09-04, Cowork pass with Andrew). **BUILD ITEMS A + B; item C is BLOCKED on Andrew's example PDFs (they failed to upload — he's re-sending).**
+### Presentation estimate — round 3. **A + B ✅ BUILT + DEPLOYED 2026-09-04 (`c24dae1` modal, `8031967` + `d5a5e91` footer mark); migration `096` on prod; mark uploaded. C ⛔ BLOCKED on Andrew's example PDFs (they failed to upload — he's re-sending).**
 
-**A. Send-estimate modal simplification — one modal, no email fields.** No email is connected, so SUBJECT / EMAIL BODY / "Copy email + subject" are dead weight (Andrew: "the email modal isn't needed"). Rework `SendEstimateModal`:
-   - **One modal, template picker at top (Standard | Presentation)** — keeps the 095 stamping behavior.
-   - **Standard selected:** just the Download PDF button (room to grow editable lines later — don't add any now).
-   - **Presentation selected:** the COVER LINE field (as today) + this is the home for future template options (toggles/sections) — structure the layout so options can stack under the cover line without redesign.
-   - The Documents row's "Email" button: with no email infra it misleads — open the same simplified modal (rename accordingly) or drop it next to Download; small call, make it consistent with the new modal. "Mark as sent" flow unchanged.
-   - Remove the email templating code paths only if nothing else uses them; keep the copy helpers dead-simple to resurrect if email ever connects.
+**A ✅ — one send modal, no email fields (`c24dae1`).** Template picker (keeps 095 stamping) → Standard = Download only · Presentation = cover line + Download. **Future presentation options stack in the marked block under the cover line** — the layout contract is commented in `SendEstimateModal`. The email composer (subject/body/copy, `emailTemplateOverride`, DEFAULT_TEMPLATE) is deleted, not parked — **resurrect from git (`c24dae1^`) if email ever connects.** Both former "Email" triggers — the Documents row and the `/estimates/[projectId]` header — now say **Send** (Send icon), open the same modal; "Mark as sent" untouched. Dropped now-dead props `total`/`orgName` at both call sites.
 
-**B. Tiny logo in the presentation footer.** Andrew: org logo next to the address in the run footer, **about the cap-height of the footer text ("around the same size as the 6, so tiny")**. Use `orgs.logo_url` (the standard header already loads it), rendered ~7–8pt tall, auto width, baseline-aligned before the address string, both templates' footers or presentation only — presentation only for now. **Explicitly experimental ("not sure if it will render well but lets try it")** — if it rasterizes muddy at that size, show Andrew before shipping; dropping it is an accepted outcome.
+**B ✅ — footer mark, iterated live with Andrew (`8031967` first cut, `d5a5e91` final).** The planned `orgs.logo_url` at cap height rendered MUDDY (it's the full mark+wordmark lockup — the word is illegible at 5pt no matter the resolution). Andrew's call: **mark only, tinted the footer's own gray, 2x size.** Final shape:
+   - **`orgs.estimate_footer_logo_url` (migration `096`, ✅ on prod)** — a footer-specific asset, deliberately NOT `logo_url`. NULL ⇒ no mark (every org but Built). The PDF route reads it in an **isolated select** (the 095 pattern — pre-096 must still generate estimates).
+   - **The asset is generated, not drawn by hand:** `scripts/built-footer-mark.tsx` (KEPT) holds the logomark's three vector paths, extracted from `Built_Logomark_Horizontal_Final_Black.ai` via `pdftocairo -svg`, renders them tinted `#B4AFA4` through react-pdf `<Svg>` and rasterizes at 300dpi with transparency — crisp at any print size. `scripts/upload-built-footer-mark.mjs` (preview / `--apply`) uploads to `org-logos/{orgId}/estimate-footer-mark.png` (cache-busted URL) and sets the column; it gates on 096 loudly. **✅ Run against prod 2026-09-04 by Andrew — the mark is live.** If the footer color ever changes: edit `FILL`, re-run both.
+   - Footer style: `runfootLogo` height `mm(14)` (2x cap height — Andrew's ask after seeing `mm(7)`), row `alignItems:'center'` because an `Image` has no baseline. Kennedy stayed 14 pages (footer is absolute+fixed, out of flow).
+   - Preview: `PREVIEW_LOGO_URL=/tmp/built-footer-mark-1.png npx tsx scripts/preview-presentation-estimate.tsx` (env feeds `estimate_footer_logo_url` in the fixture).
 
 **C. Small-vs-large formatting — ⛔ BLOCKED, examples pending.** Andrew: "the template doesn't work for both small and large projects" — his two example PDFs failed to upload. Do NOT guess fixes; wait for the PDFs (or his description), then scope against the real pages. Known from his screenshot so far: the Prepared-for block's Built column duplicates the address that's already in the run footer directly beneath it — likely part of the complaint.
+
+**Left for Andrew (round 3 live pass):** send a presentation estimate from the real app — confirm the modal reads right, the stamped template still resolves, and the footer mark prints on a real download (the preview used a local file; prod reads the bucket URL).
 
 ### Presentation estimate — Built's premium template. **✅ BUILT, DEPLOYED AND ITERATED ON REAL DATA (2026-09-03 → 09-04).** Visual spec was `mockups/estimate-presentation-mockup.html` (v3) — but see the letter-page note below: the mockup is a SCREEN document and its spacing does not survive contact with a page.
 
