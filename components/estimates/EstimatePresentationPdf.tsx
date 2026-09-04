@@ -56,6 +56,10 @@ export interface EstimatePresentationProps {
   org: {
     name: string
     logo_url?: string | null
+    /** Footer-specific mark (096) — NOT logo_url. The full lockup reads muddy
+     *  at footer size; this is the mark alone, pre-tinted to the footer gray.
+     *  Null ⇒ no mark, which is every org but Built until they make one. */
+    estimate_footer_logo_url?: string | null
     business_address?: string | null
     business_city?: string | null
     business_state?: string | null
@@ -268,11 +272,12 @@ const s = StyleSheet.create({
     letterSpacing: mm(10) * 0.1,
     color: '#B4AFA4',
   },
-  // Round-3 item B, experimental: the org logo at roughly the cap height of
-  // the footer text ("around the same size as the 6, so tiny"). Height only —
+  // Round-3 item B: the org mark next to the footer address. Height only —
   // react-pdf keeps the aspect ratio, same as the standard template's header
-  // logo. mm(7) ≈ 5pt against the mm(10) ≈ 7.2pt footer type.
-  runfootLogo: { height: mm(7), marginRight: mm(8) },
+  // logo. Started at cap height (mm(7)); Andrew asked for 2x after seeing it
+  // rendered. mm(14) ≈ 10pt against the mm(10) ≈ 7.2pt footer type — the row
+  // is alignItems center, so the taller mark grows evenly around the text.
+  runfootLogo: { height: mm(14), marginRight: mm(8) },
   kicker: {
     fontSize: mm(10),
     fontWeight: 500,
@@ -584,7 +589,7 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
           </View>
         </View>
 
-        <RunFoot left={addressLine} right={footRight} logoUrl={org.logo_url} />
+        <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
       </Page>
 
       {/* ── 2 · THE WORK ── */}
@@ -652,7 +657,7 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
           </View>
         ))}
 
-        <RunFoot left={addressLine} right={footRight} logoUrl={org.logo_url} />
+        <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
       </Page>
 
       {/* ── 3 · THE NUMBERS ── */}
@@ -750,7 +755,7 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
           <Text style={[s.acceptBox, { marginRight: 0 }]}>{pdfText(`Authorized · ${org.name}`)}</Text>
         </View>
 
-        <RunFoot left={addressLine} right={footRight} logoUrl={org.logo_url} />
+        <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
       </Page>
     </Document>
   )

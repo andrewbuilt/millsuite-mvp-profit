@@ -68,7 +68,7 @@ export async function POST(
   // deploy that lands before the migration would stop every estimate from
   // generating rather than merely falling back to the standard template.
   // Same pattern as wave-1 item 9.
-  const [tmplRes, projTmplRes] = await Promise.all([
+  const [tmplRes, projTmplRes, footerLogoRes] = await Promise.all([
     supabaseAdmin
       .from('orgs')
       .select('estimate_template_default, estimate_cover_stats')
@@ -78,6 +78,13 @@ export async function POST(
       .from('projects')
       .select('estimate_template, estimate_headline')
       .eq('id', projectId)
+      .single(),
+    // 096 column, isolated for the same reason — an org on 095 but not 096
+    // must still generate estimates (just without the footer mark).
+    supabaseAdmin
+      .from('orgs')
+      .select('estimate_footer_logo_url')
+      .eq('id', callerOrgId)
       .single(),
   ])
 
@@ -167,7 +174,12 @@ export async function POST(
           estimateNumber,
           estimateDate,
           validUntil: body.validUntil ?? null,
-          org,
+          org: {
+            ...org,
+            estimate_footer_logo_url:
+              (footerLogoRes.data as { estimate_footer_logo_url?: string | null } | null)
+                ?.estimate_footer_logo_url ?? null,
+          },
           project: { name: (project as any).name },
           client,
           lines: body.lineItems,
