@@ -729,14 +729,22 @@ export function EstimatePresentationPdf(props: EstimatePresentationProps) {
   )
 
   if (single) {
-    // ── SINGLE ITEM · one continuous flow (round-3 C, second redline pass) ──
+    // ── SINGLE ITEM (round-3 C, second redline pass + live-test note) ──
+    // No index cover: the specifications start straight under the headline.
+    // But "The numbers" ALWAYS gets its own page (Andrew, from the first real
+    // single-item estimate: the numbers starting mid-sheet left the signature
+    // block stranded in white space on a spillover page).
     return (
       <Document>
         <Page size="LETTER" style={s.page}>
           <RunHead brand={org.name} num={estimateNumber} date={fmtDate(estimateDate)} />
           {intro}
           <View style={{ marginTop: mm(34) }}>{specsFlow}</View>
-          <View style={{ marginTop: mm(10) }}>{numbersFlow}</View>
+          <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
+        </Page>
+        <Page size="LETTER" style={s.page}>
+          <RunHead brand={org.name} num={estimateNumber} date={fmtDate(estimateDate)} />
+          {numbersFlow}
           <RunFoot left={addressLine} right={footRight} logoUrl={org.estimate_footer_logo_url} />
         </Page>
       </Document>
