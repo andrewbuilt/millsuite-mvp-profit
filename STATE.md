@@ -162,7 +162,10 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 - **The subproject page reads `quantity` in its OWN select.** The main select lists explicit columns and renders the whole page — folding it in would 42703 the entire page pre-097.
 - Verified: 15 cases — quantity 1 provably a no-op, linear cost/hours scaling, margin % unmoved, and 0 / negative / NaN / fractional inputs all refusing to zero, negate or fractionally price a subproject.
 - ⚠️ **The `CHECK (quantity >= 1)` was NOT probed separately, on purpose** — the only test is writing a 0, and if the constraint were missing that write would zero a real subproject's price. It's in the same `BEGIN…COMMIT` as the column, so the column existing proves it committed.
-- **NOT covered, decide if it comes up:** the estimate PDF still renders one row per subproject with the scaled total; it doesn't print "× 4". Approvals/finish specs are one set per subproject regardless of quantity, which is right for a "(TYP)" unit.
+- **✅ The estimate now prints the quantity (`5a2cb27`).** The Qty column was hard-coded to 1. ⛔ **The rate is DERIVED from the amount, never the reverse** — `amount` is authoritative because it's what keeps the estimate total equal to the project total.
+  - **⛔ THE RATE CELL WITHHOLDS ITSELF RATHER THAN PRINT SOMETHING UNTRUE.** Qty × Rate must equal Amount *as printed*, on a document a client checks with a phone. Whole dollars break it ($11,871 ÷ 4 = $2,967.75; rounding to $2,968 prints "4 × $2,968 = $11,871"), and **some divisions can't reconcile at ANY precision** ($10,000 ÷ 3 = $3,333.33 → $9,999.99). When no true rate exists the cell prints `—` and the row reads "3 · — · $10,000". Verified across ten amount/qty pairs.
+  - **⚠️ The QUICKBOOKS qty is deliberately untouched** — it still pushes qty 1 at the full amount. That drives a real invoice; Andrew asked about the estimate. **Decide before changing it.**
+- Approvals/finish specs are one set per subproject regardless of quantity, which is right for a "(TYP)" unit.
 
 ### Kanban stage-chip colors — ✅ BUILT 2026-09-04 (`7331d4f`). **Nothing blocking; Andrew's live look is the only thing left.**
 
