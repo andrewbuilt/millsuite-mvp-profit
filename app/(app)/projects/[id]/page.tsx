@@ -282,6 +282,12 @@ interface QbLine {
   qty: string
   rate: number
   amount: number
+  /** 097 — how many of this "(TYP)" subproject the job includes.
+   *  ⛔ SEPARATE FROM `qty`, deliberately. `qty` drives the QuickBooks push and
+   *  is left alone; this drives the ESTIMATE's Qty column. Andrew asked for the
+   *  estimate only, and quietly changing how lines reach a real invoice is not
+   *  a change to make in passing. */
+  subQty?: number
 }
 
 // ── Helpers ──
@@ -654,6 +660,7 @@ export default function ProjectCoverPage() {
           qty: '1',
           rate: price,
           amount: price,
+          subQty: Math.max(1, Math.round(Number((sub as { quantity?: number }).quantity) || 1)),
         }
       })
     )
@@ -1169,13 +1176,23 @@ export default function ProjectCoverPage() {
     const subtotal = qbTotal
     const taxAmount = Math.round(subtotal * (taxPct / 100))
     return {
-      lineItems: qbLines.map((l) => ({
-        description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
-        quantity: Number(l.qty) || 1,
-        unit: null,
-        unit_price: l.rate,
-        amount: l.amount,
-      })),
+      lineItems: qbLines.map((l) => {
+        // ⛔ The row must RECONCILE: qty × rate has to equal amount exactly, on
+        // a document a client checks with a calculator. `amount` stays
+        // authoritative (it's what makes the estimate total equal the project
+        // total), so the rate is derived from it — NOT the other way round.
+        // Rounding the rate to whole dollars and multiplying back would print
+        // 4 × $2,968 = $11,871, which is visibly wrong; the PDF prints cents
+        // on a rate that needs them.
+        const q = Math.max(1, Math.round(l.subQty ?? 1))
+        return {
+          description: [l.desc, (l.spec || '').trim()].filter(Boolean).join('\n'),
+          quantity: q,
+          unit: null,
+          unit_price: q > 1 ? l.amount / q : l.rate,
+          amount: l.amount,
+        }
+      }),
       schedule: milestones.map((m) => ({
         label: m.label,
         pct: m.pct,
