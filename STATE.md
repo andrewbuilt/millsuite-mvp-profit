@@ -10,6 +10,8 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-04)
 
+**⚠️ 2026-09-04: SUBPROJECT QUANTITY BUILT (`39b4d67`) — MIGRATION `097` NOT RUN YET.** Andrew: "we have a QTY 4 of this cabinet, but no way to price multiples." `subprojects.quantity` (default 1) scales a "(TYP)" unit's cost AND hours. **Pre-097 it degrades to 1 everywhere** — the subproject page reads it in an isolated select, so an un-migrated database prices exactly as before. Detail in Now.
+
 **⛔ 2026-09-04: THE HANDOFF SCREEN WAS RE-PRICING IMPORTED JOBS — FIXED (`08d2169`), and it was one click from corrupting a contract.** Andrew caught it before selling Bonzer: handoff showed **$257,907** against the project page's **$168,090** on a frozen 6c-2 job. It built its pricing context from the live org rate + org consumables with **no imported handling and no locked-rate handling**, so the job paid for its labour TWICE — once inside the frozen line price Built already quoted, once as hours × the current org rate — plus consumables.
 - **NOT cosmetic. `handleConfirm` writes `projectTotals.total` into `projects.bid_total` and THEN flips the stage**, so confirming would have overwritten a real contract, locked the estimate against the wrong number, and fed every downstream surface from it.
 - **Both rules now live in `lib/pricing`: `effectiveShopRate` + `effectiveConsumablePct`** (imported ⇒ 0; otherwise a locked rate beats the org rate). The project page reads them too. ⛔ **Don't rebuild either rule at a call site.**
@@ -151,6 +153,15 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ---
 
 ## Now
+
+### Subproject quantity ("QTY 4 of this cabinet") — ✅ BUILT 2026-09-04 (`39b4d67`). **⚠️ Run migration `097`, then verify.**
+
+`subprojects.quantity` — integer, NOT NULL, DEFAULT 1, CHECK ≥ 1. **The default is the safety property: every existing subproject keeps its exact price and the migration cannot move money on its own.** `scripts/verify-subproject-quantity.mjs` asserts that rather than assuming it (run with `npx tsx --env-file=.env.local`).
+- **⛔ SCALING HAPPENS INSIDE `computeSubprojectRollup`, NOT AT THE CALL SITES.** Eight modules consume that rollup; scaling outside it would be eight chances to forget — which is exactly how one job ended up with three different prices on 09-04. Every site holding a subproject passes the quantity: project page, handoff, subproject page, `project-totals` (bid_total) and `project-hours` (schedule + capacity).
+- **⛔ INSTALL IS DELIBERATELY NOT SCALED** (Andrew's call). It's an explicit site estimate — guys × days — and four cabinets in one room isn't four mobilisations. This falls out for free because the install prefill **isn't in this rollup**; consumers fold it in separately. **Don't "fix" that by scaling install.**
+- **The subproject page reads `quantity` in its OWN select.** The main select lists explicit columns and renders the whole page — folding it in would 42703 the entire page pre-097.
+- Verified: 15 cases — quantity 1 provably a no-op, linear cost/hours scaling, margin % unmoved, and 0 / negative / NaN / fractional inputs all refusing to zero, negate or fractionally price a subproject.
+- **NOT covered, decide if it comes up:** the estimate PDF still renders one row per subproject with the scaled total; it doesn't print "× 4". Approvals/finish specs are one set per subproject regardless of quantity, which is right for a "(TYP)" unit.
 
 ### Kanban stage-chip colors — ✅ BUILT 2026-09-04 (`7331d4f`). **Nothing blocking; Andrew's live look is the only thing left.**
 
