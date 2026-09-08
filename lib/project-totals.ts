@@ -175,7 +175,14 @@ export async function recomputeProjectBidTotal(
         // project-level computeBucketedPrice below — same as the project page.
         profitMarginPct: 0,
       }
-      const rollup = computeSubprojectRollup(lines, rateBook.itemsById, new Map(), ctx)
+      // 097: a "(TYP)" subproject priced once but built N times.
+      const rollup = computeSubprojectRollup(
+        lines,
+        rateBook.itemsById,
+        new Map(),
+        ctx,
+        (sub as { quantity?: number }).quantity ?? 1,
+      )
       const installPrefill = {
         guys: sub.install_guys,
         days: sub.install_days,

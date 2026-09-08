@@ -105,6 +105,8 @@ interface SubprojectRow {
   activity_type: string | null
   details_json: unknown
   exclusions_json: unknown
+  /** 097. Read in its OWN select — see the loader. */
+  quantity?: number | null
 }
 
 interface ProjectRow {
@@ -152,6 +154,12 @@ export default function SubprojectEditorPage() {
 
   const [project, setProject] = useState<ProjectRow | null>(null)
   const [subproject, setSubproject] = useState<SubprojectRow | null>(null)
+  /** 097. How many of this "(TYP)" unit the job includes. Held separately
+   *  from `subproject` because it's READ IN ITS OWN SELECT — folding it into
+   *  the main one would 42703 the entire page on a pre-097 database, and that
+   *  select is what renders everything. 1 is both the default and the
+   *  pre-migration answer, so the page prices identically either way. */
+  const [quantity, setQuantity] = useState(1)
   // Rename, same affordance as the project header: pencil on the h1 → input,
   // Enter or the check saves, Escape backs out.
   const [renaming, setRenaming] = useState(false)
@@ -291,6 +299,20 @@ export default function SubprojectEditorPage() {
       if (cancelled) return
       if (projRes.data) setProject(projRes.data as any)
       if (subRes.data) setSubproject(subRes.data as any)
+      // Isolated on purpose — see the note on `quantity`.
+      supabase
+        .from('subprojects')
+        .select('quantity')
+        .eq('id', subId)
+        .single()
+        .then(({ data, error }) => {
+          if (error) {
+            console.warn('subproject quantity unavailable — run migration 097')
+            return
+          }
+          const q = Number((data as { quantity?: number } | null)?.quantity)
+          setQuantity(Number.isFinite(q) && q >= 1 ? Math.round(q) : 1)
+        })
       setSiblingSubs((siblingsRes.data || []) as Array<{ id: string; name: string; sort_order: number }>)
       setLines(linesData)
       setItems(rb.items)
@@ -628,10 +650,29 @@ export default function SubprojectEditorPage() {
     }
   }
 
+  /** Persist the multiplier. Clamped to >= 1 here as well as in the DB (097):
+   *  a 0 would silently zero a real subproject's price. */
+  async function saveQuantity(next: number) {
+    const q = Number.isFinite(next) ? Math.max(1, Math.round(next)) : 1
+    setQuantity(q)
+    if (!subId) return
+    const { error } = await supabase
+      .from('subprojects')
+      .update({ quantity: q })
+      .eq('id', subId)
+      .select('id')
+    if (error) {
+      console.error('saveQuantity', error)
+    }
+  }
+
   // ── Rollup ──
+  // 097: a "(TYP)" unit priced once but built N times. Scaling happens inside
+  // computeSubprojectRollup so every surface agrees; install is deliberately
+  // outside it and stays as entered.
   const rollup = useMemo(
-    () => computeSubprojectRollup(lines, itemsById, lineOptions, pricingCtx),
-    [lines, itemsById, lineOptions, pricingCtx]
+    () => computeSubprojectRollup(lines, itemsById, lineOptions, pricingCtx, quantity),
+    [lines, itemsById, lineOptions, pricingCtx, quantity]
   )
   // Subproject-level install prefill cost (Phase 12 item 9). Computed off
   // the loaded installValues + the shop install rate; folds into the
@@ -848,7 +889,51 @@ export default function SubprojectEditorPage() {
               <p className="text-xs text-[#6B7280] mt-0.5">
                 {subproject.linear_feet ? `${subproject.linear_feet} LF · ` : ''}
                 {lines.length} {lines.length === 1 ? 'line' : 'lines'}
+                {quantity > 1 ? ` · ×${quantity}` : ''}
               </p>
+              {/* 097 — "QTY 4 of this cabinet". Price the unit once and say how
+                  many. Editable only before the estimate locks, like every
+                  other price input on this page: after sold it's a change
+                  order. */}
+              {project && isPresold(project.stage) && (
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                    Quantity
+                  </span>
+                  <div className="inline-flex items-center border border-[#E5E7EB] rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => void saveQuantity(quantity - 1)}
+                      disabled={quantity <= 1}
+                      aria-label="Decrease quantity"
+                      className="px-2 py-1 text-[#6B7280] hover:bg-[#F9FAFB] disabled:opacity-40"
+                    >
+                      −
+                    </button>
+                    <input
+                      value={quantity}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10)
+                        setQuantity(Number.isFinite(n) && n >= 1 ? n : 1)
+                      }}
+                      onBlur={() => void saveQuantity(quantity)}
+                      inputMode="numeric"
+                      className="w-12 text-center text-[13px] font-mono py-1 outline-none"
+                    />
+                    <button
+                      onClick={() => void saveQuantity(quantity + 1)}
+                      aria-label="Increase quantity"
+                      className="px-2 py-1 text-[#6B7280] hover:bg-[#F9FAFB]"
+                    >
+                      +
+                    </button>
+                  </div>
+                  {quantity > 1 && (
+                    <span className="text-[11px] text-[#9CA3AF]">
+                      priced once, built {quantity}× · install not multiplied
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             {/* Top-right is a secondary action only — Clone from past stays
                 here. Compose line is the primary action and lives below the

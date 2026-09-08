@@ -487,7 +487,13 @@ export default function ProjectCoverPage() {
         // exactly once at the project total below.
         profitMarginPct: 0,
       }
-      const rollup = computeSubprojectRollup(subLines, rateBook.itemsById, new Map(), perSubCtx)
+      const rollup = computeSubprojectRollup(
+        subLines,
+        rateBook.itemsById,
+        new Map(),
+        perSubCtx,
+        (sub as { quantity?: number }).quantity ?? 1,
+      )
       // Finish-spec count comes from:
       //   - composer slots (carcassMaterial / doorMaterial / exteriorFinish
       //     ≠ Prefinished sentinel) on each composer line, AND

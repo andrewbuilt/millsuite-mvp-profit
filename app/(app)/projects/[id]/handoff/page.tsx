@@ -266,7 +266,13 @@ function HandoffPageInner() {
             profitMarginPct: 0,
           }
           // No per-line options loaded here — handoff rollup uses the base buildup.
-          rbSub[sub.id] = computeSubprojectRollup(lines, rb.itemsById, new Map(), perSubCtx)
+          rbSub[sub.id] = computeSubprojectRollup(
+            lines,
+            rb.itemsById,
+            new Map(),
+            perSubCtx,
+            (sub as { quantity?: number }).quantity ?? 1,
+          )
           const prefill = {
             guys: sub.install_guys,
             days: sub.install_days,

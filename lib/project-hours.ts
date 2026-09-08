@@ -125,11 +125,14 @@ export async function loadProjectDeptHours(
         // Hours don't depend on margin; matches lib/project-totals.ts.
         profitMarginPct: 0,
       }
+      // 097: N of a "(TYP)" subproject is N times the shop work, so the
+      // schedule and capacity have to see it.
       const rollup = computeSubprojectRollup(
         lines,
         rateBook.itemsById,
         new Map(),
         ctx,
+        (sub as { quantity?: number }).quantity ?? 1,
       )
       totalHours += rollup.totalHours
       for (const key of LABOR_DEPTS) {

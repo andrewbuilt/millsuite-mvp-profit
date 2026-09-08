@@ -560,12 +560,24 @@ export function computeLineBuildup(
 /**
  * Subproject-level rollup. Profit margin is applied as a gross-margin mark-up
  * (price = cost / (1 - margin%)), matching lib/pricing.ts.
+ *
+ * `quantity` is the subproject's own multiplier — a "(TYP)" unit priced once
+ * that the job needs N of (migration 097). It scales INSIDE this function on
+ * purpose: eight modules consume this rollup, and scaling at the call sites
+ * would mean eight chances to forget, which is precisely how the same job
+ * ended up with three different prices earlier today.
+ *
+ * ⛔ IT SCALES LINE-DERIVED COST AND HOURS ONLY. The install prefill is NOT in
+ * this rollup — consumers fold it in separately — which is what makes "don't
+ * multiply install" (Andrew, 2026-09-04) fall out for free rather than needing
+ * a rule. Four cabinets in one room is not four mobilisations.
  */
 export function computeSubprojectRollup(
   lines: EstimateLine[],
   itemsById: Map<string, RateBookItemRow>,
   lineOptions: Map<string, Array<{ option: RateBookOptionRow; effect_value_override: number | null }>>,
-  ctx: PricingContext
+  ctx: PricingContext,
+  quantity: number = 1,
 ): SubprojectRollup {
   const acc: SubprojectRollup = {
     hoursByDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 },
@@ -606,6 +618,28 @@ export function computeSubprojectRollup(
     acc.consumablesCost + acc.installCost + acc.optionsCost + acc.customCost
 
   const marginFraction = Math.min(Math.max(ctx.profitMarginPct / 100, 0), 0.95)
+  // Scale before margin so the margin maths is unchanged — margin is a
+  // percentage, so it doesn't care whether it marks up one unit or four.
+  // Guarded: a 0 or negative quantity would zero or negate a real price, and
+  // a non-integer would produce fractions of a cabinet. The DB constrains it
+  // too (097); this is the belt for anything that reaches here another way.
+  const q = Number.isFinite(quantity) ? Math.max(1, Math.round(quantity)) : 1
+  if (q > 1) {
+    for (const d of Object.keys(acc.hoursByDept) as LaborDept[]) {
+      acc.hoursByDept[d] *= q
+    }
+    acc.totalHours *= q
+    acc.laborCost *= q
+    acc.materialCost *= q
+    acc.hardwareCost *= q
+    acc.consumablesCost *= q
+    acc.optionsCost *= q
+    acc.customCost *= q
+    acc.subtotal *= q
+    // NB installCost is deliberately absent — see the note above. It's zero in
+    // this rollup anyway; consumers add the prefill themselves.
+  }
+
   acc.total = marginFraction > 0 ? acc.subtotal / (1 - marginFraction) : acc.subtotal
   acc.marginPct = acc.total > 0 ? ((acc.total - acc.subtotal) / acc.total) * 100 : 0
 
