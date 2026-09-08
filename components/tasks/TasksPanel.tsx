@@ -63,6 +63,10 @@ export default function TasksPanel() {
   const [newTitle, setNewTitle] = useState('')
   const [newBucket, setNewBucket] = useState<TaskBucket>('today')
   const [newAssignees, setNewAssignees] = useState<string[]>([])
+  /** Project chosen while typing the task. Seeded from `projectFilter` so a
+   *  task started from a project's "Tasks · N" still lands on that project
+   *  without the operator re-picking it. */
+  const [newProjectId, setNewProjectId] = useState<string>('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -85,6 +89,13 @@ export default function TasksPanel() {
       /* ignore */
     }
   }, [filter])
+
+  // Follow the drawer's project filter: opening it from a project should
+  // pre-select that project, and clearing the filter shouldn't strand a
+  // selection the operator can no longer see.
+  useEffect(() => {
+    setNewProjectId(projectFilter ?? '')
+  }, [projectFilter])
 
   const projectById = useMemo(() => {
     const m = new Map<string, TaskProjectRef>()
@@ -162,12 +173,13 @@ export default function TasksPanel() {
         orgId: user.org_id,
         title,
         bucket: newBucket,
-        projectId: projectFilter ?? null,
+        projectId: newProjectId || null,
         assigneeIds: newAssignees,
         createdBy: user.id,
       })
       setNewTitle('')
       setNewAssignees([])
+      setNewProjectId(projectFilter ?? '')
       setAdding(false)
     })
   }
@@ -303,6 +315,26 @@ export default function TasksPanel() {
                   </button>
                 ))}
               </div>
+              {/* Project, AT CREATE TIME. Same gap as assignment had: it only
+                  existed inside an expanded row, so linking a task to a job
+                  meant adding it, saving, reopening it and picking. */}
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1">
+                  Project
+                </div>
+                <select
+                  value={newProjectId}
+                  onChange={(e) => setNewProjectId(e.target.value)}
+                  className="w-full px-2 py-1.5 text-[12.5px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
+                >
+                  <option value="">No project</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               {/* Who it's for, AT CREATE TIME. This was the whole gap in the
                   first cut: assignment only existed inside an expanded row, so
                   from the drawer there was no way to hand a task to anyone. */}
@@ -347,6 +379,7 @@ export default function TasksPanel() {
                   onClick={() => {
                     setAdding(false)
                     setNewTitle('')
+                    setNewProjectId(projectFilter ?? '')
                   }}
                   className="px-3 py-1.5 rounded-md border border-[#E5E7EB] text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
                 >

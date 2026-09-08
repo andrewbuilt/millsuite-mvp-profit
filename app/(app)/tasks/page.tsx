@@ -40,6 +40,9 @@ export default function TasksPage() {
   const [addingIn, setAddingIn] = useState<TaskBucket | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [newAssignees, setNewAssignees] = useState<string[]>([])
+  /** Project chosen while typing. Same gap the drawer had: linking a task to a
+   *  job used to mean add → save → reopen → pick. */
+  const [newProjectId, setNewProjectId] = useState<string>('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -115,11 +118,13 @@ export default function TasksPage() {
         orgId: user.org_id,
         title,
         bucket,
+        projectId: newProjectId || null,
         assigneeIds: newAssignees,
         createdBy: user.id,
       })
       setNewTitle('')
       setNewAssignees([])
+      setNewProjectId('')
       setAddingIn(null)
     })
   }
@@ -241,6 +246,18 @@ export default function TasksPage() {
                         placeholder="What needs doing?"
                         className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
                       />
+                      <select
+                        value={newProjectId}
+                        onChange={(e) => setNewProjectId(e.target.value)}
+                        className="w-full px-2 py-1.5 text-[12px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
+                      >
+                        <option value="">No project</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
                       <div className="flex items-center gap-1 flex-wrap">
                         {pickable.map((a) => {
                           const on = newAssignees.includes(a.id)
@@ -275,6 +292,7 @@ export default function TasksPage() {
                           onClick={() => {
                             setAddingIn(null)
                             setNewTitle('')
+                            setNewProjectId('')
                           }}
                           className="px-2.5 py-1 rounded-md border border-[#E5E7EB] text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
                         >
@@ -288,6 +306,7 @@ export default function TasksPage() {
                         setAddingIn(b)
                         setNewTitle('')
                         setNewAssignees([])
+                        setNewProjectId('')
                       }}
                       className="w-full mt-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border border-dashed border-[#E5E7EB] text-[#9CA3AF] text-[11.5px] hover:border-[#2563EB] hover:text-[#2563EB] transition-colors"
                     >
