@@ -62,6 +62,8 @@ import {
 import {
   computeBucketedPrice,
   resolveBucketMargins,
+  effectiveShopRate,
+  effectiveConsumablePct,
   type CostBuckets,
 } from '@/lib/pricing'
 import { computeInstallCost, computeInstallHours } from '@/lib/install-prefill'
@@ -101,6 +103,12 @@ interface Project {
   labor_margin_pct: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
+  // ⛔ These two DECIDE THE PRICE and were missing from this interface, which
+  // is part of why the page silently re-priced imported jobs: the fields that
+  // make a job frozen weren't even visible to it. The row is loaded with
+  // select('*'), so they were always in the data — just not in the type.
+  imported_at: string | null
+  locked_shop_rate: number | null
 }
 
 interface Subproject {
@@ -167,18 +175,24 @@ function HandoffPageInner() {
   const router = useRouter()
   const { org } = useAuth()
 
-  const shopRate = org?.shop_rate ?? 0
+  const orgShopRate = org?.shop_rate ?? 0
+  const [project, setProject] = useState<Project | null>(null)
+
+  // ⛔ Through effectiveShopRate, NOT org.shop_rate directly. This page used
+  // the live org rate and org consumables on every job, so an IMPORTED project
+  // priced its frozen lines a second time — Bonzer read $257,907 here against
+  // $168,090 on the project page, and handleConfirm writes this number into
+  // bid_total before flipping to sold.
+  const shopRate = effectiveShopRate(project, orgShopRate)
 
   const pricingCtx: PricingContext = useMemo(
     () => ({
       shopRate,
-      consumableMarkupPct: org?.consumable_markup_pct ?? 10,
-      profitMarginPct: org?.profit_margin_pct ?? 35,
+      consumableMarkupPct: effectiveConsumablePct(project, org?.consumable_markup_pct),
+      profitMarginPct: project?.imported_at ? 0 : (org?.profit_margin_pct ?? 35),
     }),
-    [shopRate, org?.consumable_markup_pct, org?.profit_margin_pct]
+    [shopRate, project?.imported_at, org?.consumable_markup_pct, org?.profit_margin_pct]
   )
-
-  const [project, setProject] = useState<Project | null>(null)
   const [subs, setSubs] = useState<Subproject[]>([])
   const [lineBySub, setLineBySub] = useState<
     Record<string, EstimateLine[]>
@@ -223,6 +237,10 @@ function HandoffPageInner() {
         loadComposerRateBook(org!.id),
       ])
       if (cancelled) return
+      // Priced off the row just fetched — render state is a tick behind on
+      // first paint, and on an imported job that tick is the difference
+      // between the frozen price and a re-priced one.
+      const loadedProject = projRes.data as Project | null
       const subList = (subsRes.data || []) as Subproject[]
 
       const linesBySub: Record<string, EstimateLine[]> = {}
@@ -233,10 +251,16 @@ function HandoffPageInner() {
         subList.map(async (sub) => {
           const lines = await loadEstimateLines(sub.id)
           linesBySub[sub.id] = lines
+          // ⚠️ Priced off the row we JUST loaded, not the render-time
+          // `shopRate`, which is a tick behind on first paint — the same
+          // reason the project page does it this way.
           const perSubCtx: PricingContext = {
-            shopRate,
-            consumableMarkupPct:
-              sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
+            shopRate: effectiveShopRate(loadedProject, orgShopRate),
+            consumableMarkupPct: effectiveConsumablePct(
+              loadedProject,
+              org?.consumable_markup_pct,
+              sub.consumable_markup_pct,
+            ),
             // Subproject rollups always run at COST. Margin is applied
             // exactly once at the project total.
             profitMarginPct: 0,

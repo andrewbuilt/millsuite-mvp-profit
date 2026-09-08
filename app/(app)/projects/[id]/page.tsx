@@ -69,6 +69,8 @@ import {
 import {
   computeBucketedPrice,
   resolveBucketMargins,
+  effectiveShopRate,
+  effectiveConsumablePct,
   type CostBuckets,
   type BucketMargins,
 } from '@/lib/pricing'
@@ -316,18 +318,18 @@ export default function ProjectCoverPage() {
   const [project, setProject] = useState<Project | null>(null)
   // Rate precedence (6c): a job's locked rate wins over the org's current
   // rate, so a sold job's cost doesn't move when the shop rate changes.
-  const shopRate = Number(project?.locked_shop_rate) || orgShopRate
-  // Imported jobs price FROZEN (6c-2): the stored line price IS the quoted
-  // price, so no labor $, consumables, or margin get layered on. Hours still
-  // accumulate. Native projects unaffected.
+  // Both rules (imported ⇒ 0, else locked-beats-org) live in lib/pricing so
+  // this page and the handoff page can't answer differently — they did, and
+  // handoff was about to write the wrong contract total on sale.
+  const shopRate = effectiveShopRate(project, orgShopRate)
   const isImported = !!project?.imported_at
   const pricingCtx: PricingContext = useMemo(
     () => ({
-      shopRate: isImported ? 0 : shopRate,
-      consumableMarkupPct: isImported ? 0 : (org?.consumable_markup_pct ?? 10),
+      shopRate,
+      consumableMarkupPct: effectiveConsumablePct(project, org?.consumable_markup_pct),
       profitMarginPct: isImported ? 0 : (org?.profit_margin_pct ?? 35),
     }),
-    [isImported, shopRate, org?.consumable_markup_pct, org?.profit_margin_pct]
+    [isImported, shopRate, project, org?.consumable_markup_pct, org?.profit_margin_pct]
   )
   // Migration 052: three per-bucket margins (labor / material / consumables).
   // Each resolves project pin → org default → 35. Subproject rollups stay
@@ -468,19 +470,19 @@ export default function ProjectCoverPage() {
     // Use the rate off the row we just loaded (not the render-time `shopRate`,
     // which is a tick behind on first load) so cards price at the job's
     // locked rate immediately.
-    const importedJob = !!(projRes.data as Project | null)?.imported_at
-    const effRate = importedJob
-      ? 0
-      : Number((projRes.data as Project | null)?.locked_shop_rate) || orgShopRate
+    const loadedProject = projRes.data as Project | null
+    const effRate = effectiveShopRate(loadedProject, orgShopRate)
 
     const cardData: SubCardData[] = subs.map((sub) => {
       const subLines =
         linesBySub.find((x) => x.subId === sub.id)?.lines || ([] as EstimateLine[])
       const perSubCtx: PricingContext = {
         shopRate: effRate,
-        consumableMarkupPct: importedJob
-          ? 0
-          : sub.consumable_markup_pct ?? (org?.consumable_markup_pct ?? 10),
+        consumableMarkupPct: effectiveConsumablePct(
+          loadedProject,
+          org?.consumable_markup_pct,
+          sub.consumable_markup_pct,
+        ),
         // Subproject rollups always run at COST. Margin is applied
         // exactly once at the project total below.
         profitMarginPct: 0,

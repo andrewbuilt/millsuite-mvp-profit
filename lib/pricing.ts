@@ -90,6 +90,50 @@ export function resolveBucketMargins(
   }
 }
 
+/** The bits of a project row that decide how its lines are priced. */
+export interface PricingProjectSource {
+  imported_at?: string | null
+  locked_shop_rate?: number | null
+}
+
+/**
+ * ⛔ THE ONE ANSWER TO "what rate and consumables price this project's lines".
+ *
+ * Two rules, and BOTH must travel together or money goes wrong:
+ *
+ *   IMPORTED (6c-2 frozen model) ⇒ rate 0 AND consumables 0. The stored line
+ *   price IS the quoted price; layering labor $ or consumables on top
+ *   double-counts work Built already charged for. Hours still accumulate.
+ *
+ *   LOCKED RATE WINS over the org's current rate, so a sold job's cost stops
+ *   moving when the shop rate changes.
+ *
+ * This exists because the handoff page had NEITHER. It priced an imported job
+ * with the live org rate plus consumables on top of the frozen lump and showed
+ * $257,907 against the project page's $168,090 — and `handleConfirm` writes
+ * that number into `projects.bid_total` before flipping the stage, so selling
+ * would have overwritten a real contract with an invented one. Both pages read
+ * this now; don't rebuild the rule at a call site.
+ */
+export function effectiveShopRate(
+  project: PricingProjectSource | null | undefined,
+  orgShopRate: number,
+): number {
+  if (project?.imported_at) return 0
+  return Number(project?.locked_shop_rate) || orgShopRate
+}
+
+/** Consumables markup for this project's lines — zero on imported jobs, for
+ *  the same reason the rate is. `subPct` is a subproject-level override. */
+export function effectiveConsumablePct(
+  project: PricingProjectSource | null | undefined,
+  orgPct: number | null | undefined,
+  subPct?: number | null,
+): number {
+  if (project?.imported_at) return 0
+  return subPct ?? orgPct ?? 10
+}
+
 function marginFraction(pct: number): number {
   return Math.min(Math.max(pct / 100, 0), 0.99)
 }
