@@ -172,6 +172,52 @@ export interface ComposerFinishProductRow {
   material: number
 }
 
+/**
+ * Slot ids that are SET on a saved line but no longer resolve in the current
+ * rate book — an archived material, a deleted door type, a finish that moved.
+ *
+ * ⛔ WHY THIS EXISTS, and why it's a safety check rather than a nicety.
+ * `computeBreakdown` resolves every slot with `find(...) || null` and then
+ * prices a null as ZERO:
+ *
+ *     const cm = s.carcassMaterial ? rb.materials.find(...) || null : null
+ *     const carcassMaterial = cm ? carcassSheets * cm.cost_value : 0
+ *
+ * So an id that stops resolving doesn't error — the line just recomputes
+ * dramatically cheaper. Two things follow, and the second is the dangerous one:
+ *
+ *   1. The staleness check sees a large delta and flags the line as "rates have
+ *      changed", which is why the banner fires on lines nobody touched.
+ *   2. "Update to latest rates" would then WRITE that cheaper number in,
+ *      silently destroying real material cost on a live estimate.
+ *
+ * A line in this state isn't stale — it's UNRESOLVABLE, and the fix is to
+ * re-pick the slot, not to recompute it. Callers must treat a non-empty result
+ * as "do not touch this line".
+ *
+ * Only ids that are set are checked; a null slot is a legitimate "none".
+ */
+export function unresolvedSlotIds(
+  slots: ComposerSlots,
+  rb: ComposerRateBook,
+): string[] {
+  const missing: string[] = []
+  const check = (label: string, id: unknown, pool: Array<{ id: string }> | undefined) => {
+    if (!id || typeof id !== 'string') return
+    if (!pool || !pool.some((x) => x.id === id)) missing.push(label)
+  }
+  check('carcass material', slots.carcassMaterial, rb.materials)
+  check('back panel material', slots.backPanelMaterial, rb.materials)
+  check('door type', slots.doorTypeId, rb.doorTypes)
+  check('door material', slots.doorMaterialId, rb.doorTypeMaterials)
+  check('door finish', slots.doorFinishId, rb.doorTypeMaterialFinishes)
+  check('interior finish', slots.interiorFinish, rb.finishes)
+  check('drawer style', slots.drawerStyle, rb.drawerStyles)
+  check('custom product', slots.customProductId, rb.customProducts)
+  check('solid wood material', slots.solidWoodMaterialId, rb.solidWoodComponents)
+  return missing
+}
+
 export interface ComposerRateBook {
   /** Single blended rate from orgs.shop_rate, applied to total hours. */
   shopRate: number

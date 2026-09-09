@@ -48,6 +48,7 @@ import { supabase } from './supabase'
 import type { EstimateLine } from './estimate-lines'
 import {
   computeBreakdown,
+  unresolvedSlotIds,
   type ComposerDefaults,
   type ComposerDraft,
   type ComposerRateBook,
@@ -109,13 +110,59 @@ export function checkLineStaleness(
   const product = PRODUCTS[line.product_key as ProductKey]
   if (!product || !product.active) return null
 
+  const slots = line.product_slots as unknown as ComposerSlots
+
+  // ⛔ FIRST, BEFORE ANY COMPARISON. A slot id that no longer resolves makes
+  // computeBreakdown price that component at ZERO (it resolves with
+  // `find() || null` and treats null as free), so the line recomputes far
+  // cheaper and looks stale. It isn't — it's UNRESOLVABLE.
+  //
+  // Returning null here fixes two things at once:
+  //   · the banner stops firing on lines nobody touched, which is the
+  //     "pops up randomly and doesn't make sense" report; and
+  //   · more importantly it keeps the line OUT of bulkRefreshStaleLines,
+  //     which would otherwise write the zeroed cost straight into a live
+  //     estimate and quietly delete real material money.
+  //
+  // The fix for these lines is to re-pick the slot, which the editor already
+  // tells the operator to do — it can't be recomputed.
+  const missing = unresolvedSlotIds(slots, rateBook)
+  if (missing.length > 0) {
+    if (typeof console !== 'undefined') {
+      console.warn(
+        `checkLineStaleness: line ${line.id} references ${missing.length} slot(s) that no ` +
+          `longer exist in the rate book (${missing.join(', ')}). NOT marking stale — a ` +
+          `refresh would price the missing part at $0. Re-pick the slot on this line.`,
+      )
+    }
+    return null
+  }
+
   const qty = Number(line.quantity) || 0
   const draft: ComposerDraft = {
     productId: line.product_key as ProductKey,
     qty,
-    slots: line.product_slots as unknown as ComposerSlots,
+    slots,
   }
   const fresh = computeBreakdown(draft, rateBook, defaults)
+
+  // ⛔ Same hazard, different cause. A door type or drawer style that resolves
+  // but is UNCALIBRATED prices its labour at zero — computeBreakdown guards
+  // with `if (dt && dt.calibrated)`. If it was calibrated when the line was
+  // saved and isn't now (someone cleared the walkthrough), the recompute drops
+  // real hours and a refresh would bank that loss. The breakdown already tells
+  // us; we just have to not act on it.
+  if (fresh.doorLaborWarn || fresh.drawerLaborWarn) {
+    if (typeof console !== 'undefined') {
+      console.warn(
+        `checkLineStaleness: line ${line.id} prices against an UNCALIBRATED ` +
+          `${fresh.doorLaborWarn ? 'door type' : 'drawer style'} — its labour recomputes to 0. ` +
+          `NOT marking stale; calibrate it in the rate book instead.`,
+      )
+    }
+    return null
+  }
+
   const freshStorage = breakdownToStorageValues(fresh, qty)
   const freshHoursByDept = {
     eng: Number(freshStorage.deptHourOverrides?.eng) || 0,
