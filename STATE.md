@@ -10,6 +10,12 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-04)
 
+**⛔ 2026-09-04: THE STALENESS BANNER WAS FIRING ON LINES THAT CANNOT BE RECOMPUTED — FIXED (`a951d97`).** Andrew: "pops up randomly… doesn't seem like it makes any sense." **`computeBreakdown` resolves every slot with `find() || null` and prices a null as ZERO**, so an id that stops resolving (archived material, deleted door type) doesn't error — the line recomputes far cheaper, trips the threshold, and flags a line nobody touched.
+- **⚠️ THE BANNER WAS THE SYMPTOM; THE HAZARD IS THE REFRESH.** "Update to latest rates" WRITES the recomputed numbers back, so refreshing one of these would have **banked the zero and deleted real material cost from a live estimate**. Same shape as the imported re-pricing bug.
+- **`unresolvedSlotIds` (lib/composer) checks all nine id-bearing slots**; `checkLineStaleness` skips any line with an unresolved id and logs which. **Those lines aren't stale, they're UNRESOLVABLE — the fix is re-picking the slot, not recomputing.** Same guard for a door type or drawer style that resolves but is **uncalibrated**, which zeroes labour the same way (the breakdown already flagged it; nothing acted on the flag).
+- **Ruled out, don't re-investigate:** a shop-rate change *cannot* cause this. `materialSubtotal` is purely material — no labour — so `lump_cost_override` doesn't move when the rate does. The module claimed it; now it's checked.
+- `scripts/verify-composer-staleness.mjs` pins it, including that **all nine slots are covered** — an unchecked slot is one that can silently price at zero.
+
 **✅ 2026-09-04: SUBPROJECT QUANTITY — BUILT (`39b4d67`), MIGRATION `097` ✅ ON PROD AND VERIFIED.** Andrew: "we have a QTY 4 of this cabinet, but no way to price multiples." `subprojects.quantity` (default 1) scales a "(TYP)" unit's cost AND hours. Nothing blocking — Andrew's live pass is the only thing left. Detail in Now.
 
 **⛔ 2026-09-04: THE HANDOFF SCREEN WAS RE-PRICING IMPORTED JOBS — FIXED (`08d2169`), and it was one click from corrupting a contract.** Andrew caught it before selling Bonzer: handoff showed **$257,907** against the project page's **$168,090** on a frozen 6c-2 job. It built its pricing context from the live org rate + org consumables with **no imported handling and no locked-rate handling**, so the job paid for its labour TWICE — once inside the frozen line price Built already quoted, once as hours × the current org rate — plus consumables.
