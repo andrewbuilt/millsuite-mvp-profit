@@ -13,6 +13,7 @@
 // ============================================================================
 
 import { useCallback, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
 import { useTasks } from '@/components/tasks/TasksProvider'
@@ -251,6 +252,21 @@ export default function TasksPage() {
         </div>
 
         <div className="max-w-[1400px] mx-auto px-8 py-6">
+          {/* ⛔ "Mine" with no roster link silently shows EVERYONE. The drawer
+              has always said so in its subtitle; this page didn't, so the chip
+              read "Mine" over the whole shop's list. Same fallback, now with
+              the same honesty. */}
+          {filter === 'mine' && !myAssigneeId && !loading && (
+            <div className="mb-4 text-[11.5px] text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-md px-3 py-2 leading-snug">
+              “Mine” is showing <strong>everyone’s</strong> tasks — your login
+              isn’t linked to a team member, so nothing can be assigned to you.{' '}
+              <Link href="/team" className="underline hover:text-[#111]">
+                Link it on Team
+              </Link>
+              .
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
               {error}

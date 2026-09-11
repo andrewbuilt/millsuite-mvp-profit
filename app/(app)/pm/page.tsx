@@ -125,10 +125,21 @@ function TodayCard() {
     return m
   }, [projects])
 
-  /** Mine. ⚠️ Same fallback as the nav badge and the drawer: a login with no
-   *  roster row can't be assigned anything, so showing EVERYTHING makes the
-   *  misconfiguration visible instead of rendering a permanent, undiagnosable
-   *  empty list. */
+  /**
+   * ⛔ THE VIEWER'S LOGIN ISN'T ON THE ROSTER, so nothing can be "theirs".
+   *
+   * `myAssigneeId` bridges login → `orgs.team_members` row, and it's only
+   * written when someone links that person on /team. Until then the fallback
+   * below shows EVERYONE — deliberately, because a permanent empty list on a
+   * page called "your day" is undiagnosable.
+   *
+   * ⚠️ But the fallback has to SAY SO. It didn't, and Andrew reasonably read
+   * a list of Kaylin's and Hunter's work under his own name as a bug. A
+   * silent fallback is only defensible while it's visible.
+   */
+  const unlinked = !myAssigneeId
+
+  /** Mine — or everyone, when this login isn't on the roster (see above). */
   const mine = useCallback(
     (t: Task) => (myAssigneeId ? t.assignee_ids.includes(myAssigneeId) : true),
     [myAssigneeId],
@@ -179,11 +190,28 @@ function TodayCard() {
             {BUCKET_LABEL.today}
           </span>
           <span className="text-xs text-[#D1D5DB]">{today.length}</span>
+          {unlinked && (
+            <span className="text-[9.5px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#FFFBEB] text-[#92400E] whitespace-nowrap">
+              everyone
+            </span>
+          )}
         </div>
         <Link href="/tasks" className="text-[11px] text-[#2563EB] hover:underline whitespace-nowrap">
           View all →
         </Link>
       </div>
+
+      {/* ⛔ Never let the fallback pass for "your tasks". */}
+      {unlinked && !loading && (
+        <div className="mx-4 mt-3 text-[11.5px] text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-md px-3 py-2 leading-snug">
+          Showing <strong>everyone’s</strong> tasks — your login isn’t linked to
+          a team member yet, so nothing can be assigned to you.{' '}
+          <Link href="/team" className="underline hover:text-[#111]">
+            Link it on Team
+          </Link>{' '}
+          and this becomes just yours.
+        </div>
+      )}
 
       {error && (
         <div className="mx-4 mt-3 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
@@ -196,7 +224,9 @@ function TodayCard() {
           <div className="text-[12px] text-[#9CA3AF] italic px-2 py-6">Loading tasks…</div>
         ) : today.length === 0 ? (
           <div className="px-2 py-8 text-center">
-            <div className="text-sm text-[#374151] font-medium">Nothing due today.</div>
+            <div className="text-sm text-[#374151] font-medium">
+              {unlinked ? 'Nothing in Today.' : 'Nothing due today.'}
+            </div>
             <div className="text-xs text-[#9CA3AF] mt-1">
               {weekCount > 0
                 ? `${weekCount} waiting in This week.`
