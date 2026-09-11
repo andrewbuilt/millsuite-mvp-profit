@@ -6,14 +6,14 @@
 
 **Last updated:** 2026-09-11 · **Branch:** `main`
 
-**Left off:** wave 4 is done and pushed (`973d9d0`). **Next obvious step: Andrew runs migration `098` on prod and does a live pass** (the deploy itself is safe to ship first — see CURRENT FOCUS). After that, `/payments`, then `/pm`.
+**Left off:** wave 4 is done and pushed (`973d9d0`); **migration `098` is ✅ ON PROD AND VERIFIED** (2026-09-11). **Next obvious step: Andrew's live pass on the task system.** After that, `/payments`, then `/pm`.
 
 ---
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-11)
 
 **✅ 2026-09-11: SMALL FIXES WAVE 4 — ALL EIGHT ITEMS BUILT AND PUSHED** (`2707173` migration · `e171f16` task items 1–6 · `c782336` kanban search · `973d9d0` subproject price). tsc clean, production `next build` clean, tour targets PASS 57/44, four verification scripts pass.
-- **⛔ ANDREW OWES ONE THING: RUN MIGRATION `098` ON PROD.** SQL is in `db/migrations/098_task_links_tags.sql`. **The deploy is SAFE to ship BEFORE the migration** — probed prod 2026-09-11 (42703 confirmed), and the code degrades: tasks work, links and tags simply hide until the columns exist. After running it, re-probe with `node --env-file=.env.local scripts/verify-migration.mjs tasks:links,tags orgs:task_tags`.
+- **✅ MIGRATION `098` IS ON PROD AND VERIFIED** (2026-09-11, `verify-migration` reports both tables PASS and in the schema cache). Links and tags are live. **Nothing blocking — only Andrew's live pass.**
 - **NEXT UP, unchanged:** **`/payments`** (upcoming draws by month, drag to reschedule, mark received, needed-vs-received totals) then **`/pm`** (per-viewer manager home for Kaylin). Both still NOT built; full specs in Now.
 
 **⛔ 2026-09-04: THE STALENESS BANNER WAS FIRING ON LINES THAT CANNOT BE RECOMPUTED — FIXED (`a951d97`).** Andrew: "pops up randomly… doesn't seem like it makes any sense." **`computeBreakdown` resolves every slot with `find() || null` and prices a null as ZERO**, so an id that stops resolving (archived material, deleted door type) doesn't error — the line recomputes far cheaper, trips the threshold, and flags a line nobody touched.
@@ -168,7 +168,9 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ### Small fixes wave 4 — ✅ ALL EIGHT BUILT 2026-09-11. **Only blocker: migration `098` on prod (see CURRENT FOCUS). Then Andrew's live pass.**
 
-**⛔ MIGRATION `098` IS NOT ON PROD YET — AND THAT IS SAFE.** Probed 2026-09-11: `tasks.links`, `tasks.tags`, `orgs.task_tags` all 42703. **Deploy first if you like; nothing breaks.** PostgREST fails an ENTIRE select on one unknown column, so `lib/tasks` asks for the new columns optimistically, and on 42703/PGRST204 drops them for the session and retries — the task list degrades instead of coming back empty, and the UI hides the links/tags affordances rather than offering controls whose every save would throw. Re-probe after running it:
+**✅ MIGRATION `098` RAN ON PROD 2026-09-11 AND IS VERIFIED** — `tasks.links`, `tasks.tags`, `orgs.task_tags` all PASS and are in the schema cache. Links and tags are live.
+
+**⚠️ THE PRE-098 FALLBACK IS STILL IN `lib/tasks` AND MUST STAY.** It is now dormant, not dead: PostgREST fails an ENTIRE select on one unknown column, so the module asks for these columns optimistically and, on 42703/PGRST204, drops them for the session and retries. That is what let this deploy ship before the migration, and it is the same net any FUTURE task column will need. It also covers a real case that isn't hypothetical — **a customer org restored from an older schema, or a 098 that gets rolled back.** Don't "simplify" it away now that the columns exist. Re-probe any time with:
 `node --env-file=.env.local scripts/verify-migration.mjs tasks:links,tags orgs:task_tags`
 
 **1 ✅ Who added a task.** ⛔ **`created_by` IS A LOGIN ID (`users.id`); `assignee_ids` ARE ROSTER IDS (`orgs.team_members[].id`).** Two id spaces that look identical and fail SILENTLY when swapped. `users_select_self` (084) forbids the browser reading anyone else's `users` row, so the only client-side resolution is the roster's `user_id` bridge — that's `nameByUserId` in the provider, deliberately a **different map** from `nameById`. An unlinked login can't be named at all, so the line is omitted rather than printing "Unknown" on every task in a shop that hasn't done the /team linking pass.
