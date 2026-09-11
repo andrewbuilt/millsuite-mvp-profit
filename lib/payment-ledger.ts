@@ -42,6 +42,24 @@ import {
 /** Money compares to the cent; anything finer is float noise. */
 const EPS = 0.005
 
+/**
+ * ⛔ A DRAW OWING LESS THAN A DOLLAR IS SETTLED.
+ *
+ * Not fussiness — this was a live bug. Draw amounts are ROUNDED to whole
+ * dollars when the schedule is saved, but a contract total and a real payment
+ * both carry cents. Murtagh Bar: contract $26,227, deposit stored as $13,114
+ * (half of an odd number, rounded up), client paid the true half — $13,113.50.
+ * That left $0.50 "outstanding", which is a rounding artifact and not a debt.
+ *
+ * At the old $0.005 tolerance the draw came back `partial`, and because the
+ * board prints whole dollars it rendered as a card reading **"$1"** with the
+ * badge "$13,114 of $13,114 in" — a phantom bill for a draw that was paid.
+ *
+ * So the comparison has to match the resolution the money is DISPLAYED at.
+ * Nobody chases fifty cents, and nobody should have to explain a $1 card.
+ */
+const SETTLED = 1
+
 /** One logged receipt. */
 export interface LedgerEntry {
   id: string
@@ -174,7 +192,7 @@ export function reconcileProject(
   for (const d of out) {
     d.outstanding = round2(Math.max(0, d.scheduled - d.covered))
     d.state =
-      d.outstanding <= EPS ? 'paid' : d.covered > EPS ? 'partial' : 'open'
+      d.outstanding < SETTLED ? 'paid' : d.covered > EPS ? 'partial' : 'open'
   }
 
   return {
@@ -270,8 +288,10 @@ export function buildPaymentsView(
   const overdue: DerivedDraw[] = []
 
   for (const d of draws) {
-    // Nothing owed ⇒ nothing to plan for. The money is in the ledger.
-    if (d.outstanding <= 0.005) continue
+    // Nothing meaningfully owed ⇒ nothing to plan for; the money is in the
+    // ledger. Uses the same sub-dollar tolerance as `state`, or a settled draw
+    // would drop off the card list but still be counted in "needed".
+    if (d.outstanding < SETTLED) continue
     if (d.row.status === 'cancelled') continue
     if (!isOutstanding(d.row) && d.row.status !== 'received') continue
 
@@ -313,4 +333,56 @@ export function buildPaymentsView(
   unscheduled.sort((a, b) => a.row.projectName.localeCompare(b.row.projectName))
 
   return { months: months.map((k) => buckets.get(monthId(k))!), unscheduled, overdue }
+}
+
+/**
+ * Reconcile every project at once: the schedule, the ledger and the contract
+ * totals in, derived draws out.
+ *
+ * ⛔ DRAWS ARE ORDERED BY THE AUTHORED SCHEDULE (`sortOrder`), NEVER BY
+ * `expectedDate`.
+ *
+ * This sorted by expected date, and it was a real bug with a very confusing
+ * symptom: dragging a card to another month CHANGED THE WATERFALL ORDER, so
+ * whichever draw counted as "paid" jumped to a different card. Andrew:
+ * "it's making a new card for $1 and saying the $6k ish was received but then
+ * changes when I move the new card."
+ *
+ * Deposit-then-final is a property of the agreement. A forecast date is a
+ * guess about timing and must not decide which draw a payment settled.
+ */
+export function reconcileAll(
+  rows: PaymentRow[],
+  entries: LedgerEntry[],
+  contractTotals: Record<string, number>,
+): DerivedDraw[] {
+  const byProject = new Map<string, PaymentRow[]>()
+  for (const r of rows) {
+    const list = byProject.get(r.projectId)
+    if (list) list.push(r)
+    else byProject.set(r.projectId, [r])
+  }
+  const payByProject = new Map<string, LedgerEntry[]>()
+  for (const e of entries) {
+    const list = payByProject.get(e.projectId)
+    if (list) list.push(e)
+    else payByProject.set(e.projectId, [e])
+  }
+
+  const out: DerivedDraw[] = []
+  for (const [projectId, draws] of byProject) {
+    draws.sort(
+      (a, b) =>
+        a.sortOrder - b.sortOrder ||
+        (a.createdAt || '').localeCompare(b.createdAt || '') ||
+        a.label.localeCompare(b.label),
+    )
+    const r = reconcileProject(
+      draws,
+      payByProject.get(projectId) || [],
+      contractTotals[projectId] ?? draws.reduce((s, d) => s + d.amount, 0),
+    )
+    out.push(...r.draws)
+  }
+  return out
 }

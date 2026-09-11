@@ -17,7 +17,12 @@
 // moves the total after the schedule was authored.
 // ============================================================================
 
-import { reconcileProject, defaultDrawDates, buildPaymentsView } from '../lib/payment-ledger.ts'
+import {
+  reconcileProject,
+  reconcileAll,
+  defaultDrawDates,
+  buildPaymentsView,
+} from '../lib/payment-ledger.ts'
 
 let bad = 0
 const ck = (label, actual, expected) => {
@@ -231,6 +236,73 @@ ck('a July draw is past due in September', v3.overdue.map((d) => d.row.id), ['ol
 const PAGED = [{ year: 2026, month: 9 }, { year: 2026, month: 10 }, { year: 2026, month: 11 }]
 const v4 = buildPaymentsView(rec.draws, BOARD_PAYS, PAGED, TODAY)
 ck('paging forward does NOT make this month past due', v4.overdue.length, 0)
+
+// ── ⛔ THE MURTAGH BAR REGRESSION (live bug, 2026-09-11) ────────────────────
+// Contract $26,227 — an ODD number. Half is $13,113.50, but the deposit draw
+// was stored ROUNDED to $13,114 when the schedule was saved. The client paid
+// the true half. That 50c gap is a rounding artifact, not a debt — and at a
+// $0.005 tolerance it came back `partial` and rendered as a phantom card
+// reading "$1" with the badge "$13,114 of $13,114 in".
+const MUR = [draw('Deposit', 13114), draw('Production kickoff', 6557), draw('Final', 6556)]
+const mur = reconcileProject(MUR, [pay(13113.5, '2026-05-18')], 26227)
+ck('sub-dollar rounding residue counts as PAID, not a $1 partial', mur.draws[0].state, 'paid')
+ck('the phantom never reaches the board', buildPaymentsView(mur.draws, [], MONTHS, TODAY).months[0].outstanding.length, 0)
+// A real part-payment must still read partial — the tolerance is a dollar,
+// not a licence to round away actual debt.
+const real = reconcileProject(MUR, [pay(10000, '2026-05-18')], 26227)
+ck('a genuine partial payment is still partial', real.draws[0].state, 'partial')
+ck('and still owes the balance', real.draws[0].outstanding, 3114)
+
+// ── ⛔ ORDER INDEPENDENCE — the "it changes when I move the card" bug ───────
+// The waterfall must follow the AUTHORED schedule. Dragging a card changes
+// `expectedDate`, and that must NOT change which draw a payment settled.
+// ⛔ Goes through reconcileAll, which is where the SORT lives — that's the
+// code that was ordering by expectedDate. Testing reconcileProject alone would
+// pass trivially, because it takes the array already ordered.
+const ordered = (o0, o1, o2) => [
+  { ...draw('Deposit', 13114), sortOrder: 0, createdAt: '2026-01-01', expectedDate: o0 },
+  { ...draw('Production kickoff', 6557), sortOrder: 1, createdAt: '2026-01-02', expectedDate: o1 },
+  { ...draw('Final', 6556), sortOrder: 2, createdAt: '2026-01-03', expectedDate: o2 },
+]
+const PAID = [pay(13113.5, '2026-05-18')]
+const TOT = { p1: 26227 }
+
+const natural = reconcileAll(ordered('2026-09-01', '2026-10-01', '2026-11-01'), PAID, TOT)
+// The deposit dragged to LAST by date, and the array handed over shuffled —
+// exactly what the board does after a drag.
+const dragged = reconcileAll(
+  [...ordered('2026-12-01', '2026-09-01', '2026-09-01')].reverse(),
+  PAID,
+  TOT,
+)
+const key = (list) =>
+  list.map((d) => `${d.row.label}:${d.state}:${d.outstanding}`).sort()
+
+ck('moving a card does not change which draw is paid', key(dragged), key(natural))
+ck(
+  'the deposit stays the settled one no matter where it sits',
+  natural.find((d) => d.row.label === 'Deposit').state,
+  'paid',
+)
+ck(
+  'even after being dragged to December',
+  dragged.find((d) => d.row.label === 'Deposit').state,
+  'paid',
+)
+// A row with no order:N must sort LAST, never hijack the deposit slot.
+const unlabelled = reconcileAll(
+  [
+    { ...draw('Mystery', 5000), sortOrder: Number.MAX_SAFE_INTEGER, createdAt: null, expectedDate: '2026-01-01' },
+    ...ordered('2026-09-01', '2026-10-01', '2026-11-01'),
+  ],
+  PAID,
+  { p1: 31227 },
+)
+ck(
+  'an unordered row sorts last, not first',
+  unlabelled.find((d) => d.row.label === 'Deposit').state,
+  'paid',
+)
 
 console.log(bad ? `\n${bad} FAILING` : '\nall payment-ledger cases pass')
 process.exit(bad ? 1 : 0)

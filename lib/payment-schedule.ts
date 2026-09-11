@@ -56,6 +56,12 @@ export interface PaymentRow {
   expectedDate: string | null
   /** Bare 'YYYY-MM-DD' or null. */
   receivedDate: string | null
+  /** Position in the AUTHORED schedule (deposit → … → final).
+   *  ⛔ THE WATERFALL ORDERS BY THIS, NEVER BY `expectedDate`. See
+   *  `reconcileAll`. Encoded as `order:N` in the row's `notes` (093). */
+  sortOrder: number
+  /** Tiebreak when two rows carry the same `order:N`. */
+  createdAt: string | null
 }
 
 // ── Calendar-day helpers (see the timezone trap above) ──────────────────────

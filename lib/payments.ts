@@ -13,7 +13,7 @@
 import { supabase } from './supabase'
 import { POSTSOLD_STAGES, type ProjectStage } from './types'
 import { formatLocalDate, type PaymentRow } from './payment-schedule'
-import { reconcileProject, type LedgerEntry, type DerivedDraw } from './payment-ledger'
+import type { LedgerEntry } from './payment-ledger'
 
 export * from './payment-schedule'
 export * from './payment-ledger'
@@ -26,6 +26,8 @@ interface RawRow {
   status: string
   expected_date: string | null
   received_date: string | null
+  notes: string | null
+  created_at: string | null
   projects: {
     name: string | null
     client_name: string | null
@@ -60,7 +62,7 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
     .from('cash_flow_receivables')
     .select(
       'id, project_id, milestone_label, amount, status, expected_date, received_date, ' +
-        'projects!inner(name, client_name, stage, bid_total)',
+        'notes, created_at, projects!inner(name, client_name, stage, bid_total)',
     )
     .eq('org_id', orgId)
     .eq('type', 'receivable')
@@ -82,6 +84,12 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
     status: (r.status as PaymentRow['status']) || 'projected',
     expectedDate: r.expected_date,
     receivedDate: r.received_date,
+    // `sort_order` has no column of its own — it's encoded in `notes` as
+    // `order:N` (see rowToMilestone in lib/milestones). A row without it sorts
+    // last rather than to the front, so an unlabelled row can't hijack the
+    // deposit position in the waterfall.
+    sortOrder: Number(/order:(\d+)/.exec(r.notes || '')?.[1] ?? Number.MAX_SAFE_INTEGER),
+    createdAt: r.created_at,
   }))
   const contractTotals: Record<string, number> = {}
   for (const r of (data || []) as unknown as RawRow[]) {
@@ -218,49 +226,6 @@ export async function deletePayment(id: string, orgId?: string): Promise<void> {
   if (!data || data.length === 0) {
     throw new Error('Could not remove that payment (no row deleted).')
   }
-}
-
-/**
- * Reconcile every project at once: the schedule, the ledger and the contract
- * totals in, derived draws out.
- *
- * ⛔ Draws MUST stay in schedule order per project — the waterfall depends on
- * it. `loadOrgPayments` returns them in no particular order, so they're
- * grouped and sorted by expected date then label here.
- */
-export function reconcileAll(
-  rows: PaymentRow[],
-  entries: LedgerEntry[],
-  contractTotals: Record<string, number>,
-): DerivedDraw[] {
-  const byProject = new Map<string, PaymentRow[]>()
-  for (const r of rows) {
-    const list = byProject.get(r.projectId)
-    if (list) list.push(r)
-    else byProject.set(r.projectId, [r])
-  }
-  const payByProject = new Map<string, LedgerEntry[]>()
-  for (const e of entries) {
-    const list = payByProject.get(e.projectId)
-    if (list) list.push(e)
-    else payByProject.set(e.projectId, [e])
-  }
-
-  const out: DerivedDraw[] = []
-  for (const [projectId, draws] of byProject) {
-    draws.sort(
-      (a, b) =>
-        (a.expectedDate || '9999').localeCompare(b.expectedDate || '9999') ||
-        a.label.localeCompare(b.label),
-    )
-    const r = reconcileProject(
-      draws,
-      payByProject.get(projectId) || [],
-      contractTotals[projectId] ?? draws.reduce((s, d) => s + d.amount, 0),
-    )
-    out.push(...r.draws)
-  }
-  return out
 }
 
 /**
