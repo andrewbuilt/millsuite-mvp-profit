@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-11 · **Branch:** `main`
 
-**Left off:** wave 4 is done and pushed (`973d9d0`); **migration `098` is ✅ ON PROD AND VERIFIED** (2026-09-11). **Next obvious step: Andrew's live pass on the task system.** After that, `/payments`, then `/pm`.
+**Left off:** wave 4 done, migration `098` ✅ on prod, and **`/payments` built and pushed (`f7371ce`)**. **Next obvious step: Andrew's live pass** on the task system and the payments board (foot a couple of months' totals by hand). Then the last scoped item, **`/pm`**.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **✅ 2026-09-11: SMALL FIXES WAVE 4 — ALL EIGHT ITEMS BUILT AND PUSHED** (`2707173` migration · `e171f16` task items 1–6 · `c782336` kanban search · `973d9d0` subproject price). tsc clean, production `next build` clean, tour targets PASS 57/44, four verification scripts pass.
 - **✅ MIGRATION `098` IS ON PROD AND VERIFIED** (2026-09-11, `verify-migration` reports both tables PASS and in the schema cache). Links and tags are live. **Nothing blocking — only Andrew's live pass.**
-- **NEXT UP, unchanged:** **`/payments`** (upcoming draws by month, drag to reschedule, mark received, needed-vs-received totals) then **`/pm`** (per-viewer manager home for Kaylin). Both still NOT built; full specs in Now.
+- **✅ `/payments` BUILT 2026-09-11** — no migration needed (the scope note was wrong about both the table and the missing column; see Now). It also turned up **three real bugs in existing milestone code**, including one that let a project schedule more than 100% of its value. **NEXT AND LAST: `/pm`** (per-viewer manager home for Kaylin) — still NOT built; spec in Now.
 
 **⛔ 2026-09-04: THE STALENESS BANNER WAS FIRING ON LINES THAT CANNOT BE RECOMPUTED — FIXED (`a951d97`).** Andrew: "pops up randomly… doesn't seem like it makes any sense." **`computeBreakdown` resolves every slot with `find() || null` and prices a null as ZERO**, so an id that stops resolving (archived material, deleted door type) doesn't error — the line recomputes far cheaper, trips the threshold, and flags a line nobody touched.
 - **⚠️ THE BANNER WAS THE SYMPTOM; THE HAZARD IS THE REFRESH.** "Update to latest rates" WRITES the recomputed numbers back, so refreshing one of these would have **banked the zero and deleted real material cost from a live estimate**. Same shape as the imported re-pricing bug.
@@ -202,15 +202,31 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 - two copies of the tag-filter hook raced over one localStorage key, so the drawer and `/tasks` showed **different filters** (the drawer is mounted app-wide and returns null *after* its hooks run, so both were live at once). It lives in the provider now.
 Also: a failed archive fetch no longer counts as loaded (it said "Nothing completed yet" and cached that forever), the archive resets on org change, and the "Manage tags" gear can now close its own popover.
 
-### Upcoming payments dashboard — scoped 2026-09-04, NOT built. **Build after wave 4.**
+### Upcoming payments dashboard (`/payments`) — ✅ BUILT 2026-09-11 (`ecf9d37` data · `5889810` milestone fixes · `f7371ce` the board). **NO MIGRATION. Nothing blocking — Andrew's live pass is all that's left.**
 
-**Andrew:** "automatically populates with the upcoming draw payments · drag the payment to another month · mark as received (connect to QB eventually) · total needed for the month · the math of what has come in this month."
-- **Data — likely NO migration:** `project_milestones` already has `amount`, `status` ('projected'|'invoiced'|'received'|'cancelled') and **`expected_date`**. Rows = every non-received, non-cancelled milestone on sold/production projects. No `expected_date` → an "Unscheduled" tray (capacity-page pattern). Check whether marking received records WHEN (`received_at` or similar) — if not, add it (small migration) because "came in this month" needs it.
-- **View:** new page **`/payments`** (Sales dropdown, beside Invoices, same `hasAccess` gating). Rolling month columns (◀ ▶ + Today, the /schedule feel): milestone cards (project · label · amount) per month + **"Needed this month"**; current month also shows **"Received this month"** + the delta.
-- **Drag between months** writes `expected_date` (preserve day-of-month when it had one). **Mark received** = the existing `markMilestoneReceived` path — ⚠️ read the PORTAL PAYMENTS trap in CURRENT FOCUS first: QB mode deliberately does not touch the invoice; for this cash view the milestone status IS the signal. QB auto-matching stays future — do not build it now.
-- Verify: every unpaid draw appears exactly once; drag persists across reload; received moves from Needed to Received; month totals foot by hand against 2–3 real projects.
+**⛔ TWO THINGS THE SCOPE NOTE GOT WRONG. Both were checked, not trusted:**
+- **The table is `cash_flow_receivables` (`type='receivable'`), NOT `project_milestones`.** There is no project_milestones table; milestones piggyback on receivables (see `lib/milestones`).
+- **NO MIGRATION WAS NEEDED.** The note asked whether marking received records WHEN and budgeted a migration if not. **It always has** — `markMilestoneReceived` stamps `received_date`, verified present on prod. It just wasn't on the `ProjectMilestone` type, which is why it looked absent. It is now.
 
-### Manager dashboard (`/pm`) — scoped 2026-09-04, NOT built. **Build LAST — needs the payments page.**
+**⛔ THE TIMEZONE TRAP — read before touching any date here.** `expected_date`/`received_date` are DATE columns (bare 'YYYY-MM-DD'). `new Date('2026-09-01')` is UTC midnight = **Aug 31 20:00 in New York**, so `.getMonth()` says August. **Every draw dated the 1st would have rendered in the previous month** — silently, and only for shops west of Greenwich, which is all of them. Confirmed by hand before the guard was written. Use `parseLocalDate`/`formatLocalDate`; never `new Date(str)`, never `.toISOString()` on a calendar day. `scripts/verify-payments.mjs` pins it and **is run in three timezones**.
+- **`lib/payment-schedule` is PURE (no database import) on purpose** — the guard first lived in `lib/payments`, which builds a Supabase client at module scope, so it threw `supabaseUrl is required` before its first assertion. **A safety net that can't run isn't one.** It now needs no credentials and no network. Don't re-merge the two modules.
+
+**TWO DATES, NOT INTERCHANGEABLE.** `expected_date` drives "needed this month"; `received_date` drives "what came in this month". A draw expected in August but paid in September is **September cash and August shortfall**.
+
+**What's on the page:** rolling 3-month columns (◀ Today ▶), Needed + Received per month, and two trays ABOVE the board — **Past due** (relative to TODAY, never the window: deciding it from the window start painted this month's un-due draws red the moment you paged forward) and **No date set**. Received cards are inert (their date is a record, not a plan). Dragging writes `expected_date` and nothing else, and treats a zero-row update as failure.
+- ⚠️ **Firefox needed `dataTransfer.setData` on dragstart** — without it the board is entirely undraggable there while working fine in Chrome/Safari. Worth knowing for the kanban and /schedule too.
+- `scripts/verify-payments-query.mjs` asks the real database whether the embedded join + embedded stage filter resolve. **That's PostgREST syntax, not TypeScript** — `tsc` happily compiles a select string the server rejects.
+
+**⛔ THREE REAL BUGS IN EXISTING MILESTONE CODE, found building this and fixed (`5889810`). /payments is the first surface that sums these rows into a headline number, so all three went from latent to visible:**
+1. **Saving milestones DUPLICATED every received one.** `saveMilestones` deletes only `status='projected'` but re-inserted the caller's ENTIRE list as projected — and the project page passed every milestone, stripped of status. A received milestone survived the delete AND got a projected copy: the project scheduled **more than 100%** of its value and /payments counted that money **twice** (once received, once needed). Now only what the delete removed is re-inserted, `status` travels from the call site, and the **original index is carried through the filter** because `sort_order` is `order:N` in `notes` and the surviving rows keep the N they had.
+2. **`received_date` was stamped with the UTC day** — `toISOString().slice(0,10)` rolls at 8pm Eastern, so an evening payment recorded as arriving *tomorrow*, and on a month's last evening in the *next month*. That's the exact date this page buckets by.
+3. **The optimistic "received" update wrote `expected_date`** (a fabricated today) instead of `received_date`. Cosmetic alone; combined with (1) the next Save **persisted that invented forecast date**.
+
+**⚠️ STILL TRUE, NOT FIXED — the project page and /payments can race.** `saveMilestones` still DELETES and re-inserts projected rows, so a drag on /payments is lost if a project page was **already mounted before the drag** and is saved after (its in-memory `expected_date` is stale, and the builder has no UI to show or edit that field). Fresh-load-then-save preserves it, which is the common path. **The real fix is to make `saveMilestones` update-in-place instead of delete+insert** — that also keeps row ids stable, so an open /payments tab doesn't hold dead ids. Not done; it's a change to a core write path and wanted its own pass.
+
+**Andrew's live pass:** every unpaid draw appears exactly once · drag persists across reload · received moves from Needed to Received · **month totals foot by hand against 2–3 real projects** (the query is verified, the totals are not — that needs a signed-in session).
+
+### Manager dashboard (`/pm`) — scoped 2026-09-04, NOT built. **Build LAST; the payments page it needs now EXISTS (`lib/payments` → `loadOrgPayments` + `buildPaymentsView`).**
 
 **Andrew: "a project manager dashboard for Kaylin — we'll add more here later."** Built as a per-viewer manager home, not a Kaylin-only page (she's the first user; the page is generic): route **`/pm`**, role-gated owner/admin/manager, personal to the signed-in viewer.
 - **Today's tasks:** viewer's Mine ∩ Today (+ a Mine ∩ This Week count), reusing task components; "View all" → `/tasks`.
