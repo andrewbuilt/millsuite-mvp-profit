@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-11 · **Branch:** `main`
 
-**Left off:** wave 4 done, migration `098` ✅ on prod, and **`/payments` built and pushed (`f7371ce`)**. **Next obvious step: Andrew's live pass** on the task system and the payments board (foot a couple of months' totals by hand). Then the last scoped item, **`/pm`**.
+**Left off:** wave 4 done, `098` ✅ on prod, `/payments` v1 built (`f7371ce`). **Then Andrew reframed payments** (2026-09-11): draws and actual payments must be separate — a ledger, not a status flag. **"Payments v2" is now SCOPED in Now and is the next build**, ahead of `/pm`. Needs migration `099` and one confirmation (change-order handling).
 
 ---
 
@@ -225,6 +225,36 @@ Also: a failed archive fetch no longer counts as loaded (it said "Nothing comple
 **⚠️ STILL TRUE, NOT FIXED — the project page and /payments can race.** `saveMilestones` still DELETES and re-inserts projected rows, so a drag on /payments is lost if a project page was **already mounted before the drag** and is saved after (its in-memory `expected_date` is stale, and the builder has no UI to show or edit that field). Fresh-load-then-save preserves it, which is the common path. **The real fix is to make `saveMilestones` update-in-place instead of delete+insert** — that also keeps row ids stable, so an open /payments tab doesn't hold dead ids. Not done; it's a change to a core write path and wanted its own pass.
 
 **Andrew's live pass:** every unpaid draw appears exactly once · drag persists across reload · received moves from Needed to Received · **month totals foot by hand against 2–3 real projects** (the query is verified, the totals are not — that needs a signed-in session).
+
+### Payments v2 — ledger + schedule. **SCOPED 2026-09-11 with Andrew. NOT BUILT. Build before `/pm`.** Migration `099`.
+
+**Andrew's reframe:** "the payment milestone section of the project is worthless after the sale. That becomes locked and is referenced on the invoice, not the project page… really the payment bookkeeping happens in QB, not here. **this is an internal cash flow tool**… it's really a ledger of the transactions. The project page is a link and ledger but the changes happen in the payments page."
+
+**⛔ THE STRUCTURAL PROBLEM, and why Built OS could never reconcile this.** A milestone row is currently BOTH the plan and the payment record: `status='received'` plus the *projected* `amount`. One row doing two jobs, so **a payment that isn't exactly the projected amount has nowhere to go.** Andrew: "1 issue we've had in the past, with built OS, is when someone pays a different amount than what we're projecting. getting the math to link was not working for a while."
+- **The fix is to separate them.** SCHEDULE = the agreement (draws summing to the contract total, forecast dates). LEDGER = what actually happened (amount + date). Then `received = sum(ledger)`, `remaining = total − received`, and unpaid draws rebalance to equal `remaining`. Out-of-order and partial payments stop being special cases — they're just entries.
+- **⛔ "MARK RECEIVED" STOPS BEING A THING.** You log a payment; a draw's paid-ness becomes DERIVED, not stored. The duplicate-received-milestone fix (`5889810`) is a stopgap on a model that's going away.
+
+**⛔ THE EXISTING LEDGER CANNOT BE REUSED — checked, 2026-09-11.** `client_invoice_payments` (041) is `invoice_id NOT NULL REFERENCES client_invoices`. **You cannot log a payment without an invoice, and Built's invoices live in QuickBooks.** That is probably the single biggest reason this never worked. Migration `099` needs a PROJECT-level ledger with no invoice requirement.
+
+**⛔ HOW DRAWS WORK TODAY (Andrew asked; answered from the code, not memory).** They are NOT their own estimate. The builder is a **percentage split of the project price**; on Save each pct becomes a **frozen dollar amount** (`round(total × pct / 100)`). Both pct and amount are stored, and **nothing ever recomputes the amount.**
+- **⛔ CHANGE ORDERS NEVER TOUCH DRAWS.** `applyApprovedCo → recomputeProjectBidTotal` updates `projects.bid_total` and stops; `lib/change-orders.ts` does not reference `cash_flow_receivables` once (grepped, zero hits). **So draws silently stop summing to the total whenever the price moves — a CO, a subproject edit, a re-price — and nothing says so.** The only resync is reopening the project page and re-saving the builder.
+- Drift IS detectable because both pct and amount are stored: compare `pct × current total` to the stored `amount`.
+
+**DECISIONS — Andrew, 2026-09-11:**
+1. **Applying a payment = WATERFALL, final draw balances.** Money fills the oldest unpaid draws first; leftover or shortfall lands on the LAST draw so the schedule always sums to `remaining`. His words: "it should just log the payment and adjust the final payments."
+2. **⛔ NO COMPLETION-TRIGGER DERIVATION. Do not build due-detection.** Andrew: "Just make each draw payment due a month apart as default. we will manually move them where appropriate as the schedule shifts." So dates seed **one month apart** and **dragging on /payments is the mechanism**. "Due" is simply *expected this month and not yet covered by the ledger*. (The `milestone_trigger` column stays for labelling; nothing derives state from it.)
+3. **Change orders: the final unpaid draw absorbs the delta** — symmetric with (1). If it can't (everything paid), show the gap rather than hide it. *Proposed as the consistent default; Andrew asked how draws worked rather than choosing, so confirm before building.*
+
+**Build shape:**
+- **Migration `099`** — project-level payment ledger (`project_id`, `org_id`, `amount`, `payment_date`, `method`, `reference`, `notes`, `qb_event_id` nullable for a future watcher). No invoice FK.
+- **`/payments`** gains **Log a payment** (amount + date) and becomes the only place the schedule changes. The board built in `f7371ce` mostly survives — month bucketing, drag, the two-dates rule, past-due are all still right; **"Received" changes from a status on a draw to a sum of ledger entries.**
+- **Project page**: pre-sale the builder stays as-is (it composes 50/25/25). **Post-sale it locks** → becomes a read-only ledger (payments received, amounts, dates) + a link to `/payments`.
+- **QB: manual entry only.** No auto-matching — bookkeeping stays in QB; this is a cash-flow view. `qb_event_id` is a hook for later, not a feature now.
+
+**Still open, decide while building:**
+- Does logging a payment still sync `client_invoices` for INTERNAL-mode orgs? (Built is QB, so unaffected.) Proposal: keep the existing internal-mode side-effect so other orgs don't regress, but the ledger is the truth on `/payments`.
+- Overpayment beyond every remaining draw ⇒ surface as a credit; never a negative draw.
+- **This supersedes the `saveMilestones` delete-and-re-insert race noted above** — fixing the model removes the need for that separate pass. Don't do both.
 
 ### Manager dashboard (`/pm`) — scoped 2026-09-04, NOT built. **Build LAST; the payments page it needs now EXISTS (`lib/payments` → `loadOrgPayments` + `buildPaymentsView`).**
 
