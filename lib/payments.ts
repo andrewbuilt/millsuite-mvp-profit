@@ -13,8 +13,10 @@
 import { supabase } from './supabase'
 import { POSTSOLD_STAGES, type ProjectStage } from './types'
 import { formatLocalDate, type PaymentRow } from './payment-schedule'
+import { reconcileProject, type LedgerEntry, type DerivedDraw } from './payment-ledger'
 
 export * from './payment-schedule'
+export * from './payment-ledger'
 
 interface RawRow {
   id: string
@@ -24,11 +26,19 @@ interface RawRow {
   status: string
   expected_date: string | null
   received_date: string | null
-  projects: { name: string | null; client_name: string | null; stage: string } | null
+  projects: {
+    name: string | null
+    client_name: string | null
+    stage: string
+    bid_total: number | null
+  } | null
 }
 
 export interface PaymentsLoad {
   rows: PaymentRow[]
+  /** Contract value per project id — `bid_total`, the number the client
+   *  agreed to. The reconciliation balances the schedule against THIS. */
+  contractTotals: Record<string, number>
   /** Non-null when the READ failed.
    *  ⛔ A swallowed error here is indistinguishable from "this shop has no
    *  draws", and the page would cheerfully tell Andrew to go set up milestones
@@ -50,7 +60,7 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
     .from('cash_flow_receivables')
     .select(
       'id, project_id, milestone_label, amount, status, expected_date, received_date, ' +
-        'projects!inner(name, client_name, stage)',
+        'projects!inner(name, client_name, stage, bid_total)',
     )
     .eq('org_id', orgId)
     .eq('type', 'receivable')
@@ -58,7 +68,7 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
     .in('projects.stage', POSTSOLD_STAGES)
   if (error) {
     console.error('loadOrgPayments', error)
-    return { rows: [], error: error.message || 'Could not load payments.' }
+    return { rows: [], contractTotals: {}, error: error.message || 'Could not load payments.' }
   }
 
   const rows = ((data || []) as unknown as RawRow[]).map((r) => ({
@@ -73,7 +83,184 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
     expectedDate: r.expected_date,
     receivedDate: r.received_date,
   }))
-  return { rows, error: null }
+  const contractTotals: Record<string, number> = {}
+  for (const r of (data || []) as unknown as RawRow[]) {
+    contractTotals[r.project_id] = Number(r.projects?.bid_total) || 0
+  }
+  return { rows, contractTotals, error: null }
+}
+
+// ── The ledger (migration 099) ──────────────────────────────────────────────
+
+const LEDGER_COLUMNS = 'id, project_id, amount, payment_date, method, reference, notes'
+
+function toEntry(r: any): LedgerEntry {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    amount: Number(r.amount) || 0,
+    paymentDate: r.payment_date,
+    method: r.method ?? null,
+    reference: r.reference ?? null,
+    notes: r.notes ?? null,
+  }
+}
+
+export interface LedgerLoad {
+  entries: LedgerEntry[]
+  error: string | null
+  /** True when migration 099 hasn't been run. The page degrades to a
+   *  schedule-only view instead of showing nothing. */
+  missing: boolean
+}
+
+/** True when PostgREST is telling us the table/column isn't there. */
+function isMissingRelation(e: { code?: string; message?: string } | null): boolean {
+  if (!e) return false
+  const code = e.code || ''
+  if (code === '42P01' || code === '42703' || code === 'PGRST204' || code === 'PGRST205') return true
+  return /does not exist|could not find the/i.test(e.message || '')
+}
+
+/** Every payment the org has received. */
+export async function loadOrgLedger(orgId: string): Promise<LedgerLoad> {
+  const { data, error } = await supabase
+    .from('project_payments')
+    .select(LEDGER_COLUMNS)
+    .eq('org_id', orgId)
+    .order('payment_date', { ascending: false })
+  if (error) {
+    if (isMissingRelation(error)) {
+      console.warn('loadOrgLedger: migration 099 (project_payments) has not been run.')
+      return { entries: [], error: null, missing: true }
+    }
+    console.error('loadOrgLedger', error)
+    return { entries: [], error: error.message || 'Could not load payments.', missing: false }
+  }
+  return { entries: (data || []).map(toEntry), error: null, missing: false }
+}
+
+/** One project's payments, newest first — the project page's ledger. */
+export async function loadProjectLedger(projectId: string): Promise<LedgerLoad> {
+  const { data, error } = await supabase
+    .from('project_payments')
+    .select(LEDGER_COLUMNS)
+    .eq('project_id', projectId)
+    .order('payment_date', { ascending: false })
+  if (error) {
+    if (isMissingRelation(error)) return { entries: [], error: null, missing: true }
+    console.error('loadProjectLedger', error)
+    return { entries: [], error: error.message || 'Could not load payments.', missing: false }
+  }
+  return { entries: (data || []).map(toEntry), error: null, missing: false }
+}
+
+/**
+ * Record cash received.
+ *
+ * ⛔ THIS IS THE ONLY THING THAT MAKES A DRAW "PAID", and it does not touch the
+ * schedule at all. Paid-ness is derived by `reconcileProject`. There is no
+ * "mark received" any more: a draw can't be flipped, because the old flag
+ * could only ever record the PROJECTED amount, which is precisely why a
+ * payment that differed from its projection had nowhere to go.
+ */
+export async function logPayment(input: {
+  orgId: string
+  projectId: string
+  amount: number
+  paymentDate: string
+  method?: string | null
+  reference?: string | null
+  notes?: string | null
+  createdBy?: string | null
+}): Promise<LedgerEntry> {
+  const amount = Number(input.amount)
+  if (!Number.isFinite(amount) || amount === 0) {
+    throw new Error('Enter an amount. (A refund can be negative; zero can’t.)')
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.paymentDate)) {
+    throw new Error('Pick a payment date.')
+  }
+  const { data, error } = await supabase
+    .from('project_payments')
+    .insert({
+      org_id: input.orgId,
+      project_id: input.projectId,
+      amount,
+      payment_date: input.paymentDate,
+      method: input.method || null,
+      reference: input.reference?.trim() || null,
+      notes: input.notes?.trim() || null,
+      created_by: input.createdBy ?? null,
+    })
+    .select(LEDGER_COLUMNS)
+    .single()
+  if (error || !data) {
+    console.error('logPayment', error)
+    if (isMissingRelation(error)) {
+      throw new Error('Recording payments needs migration 099. Run it, then reload.')
+    }
+    throw new Error(error?.message || 'Could not record that payment.')
+  }
+  return toEntry(data)
+}
+
+/** Remove a ledger entry — a mis-keyed amount, a duplicate.
+ *  Zero rows is failure: PostgREST reports an RLS-blocked delete as success. */
+export async function deletePayment(id: string, orgId?: string): Promise<void> {
+  let q = supabase.from('project_payments').delete().eq('id', id)
+  if (orgId) q = q.eq('org_id', orgId)
+  const { data, error } = await q.select('id')
+  if (error) {
+    console.error('deletePayment', error)
+    throw new Error(error.message || 'Could not remove that payment.')
+  }
+  if (!data || data.length === 0) {
+    throw new Error('Could not remove that payment (no row deleted).')
+  }
+}
+
+/**
+ * Reconcile every project at once: the schedule, the ledger and the contract
+ * totals in, derived draws out.
+ *
+ * ⛔ Draws MUST stay in schedule order per project — the waterfall depends on
+ * it. `loadOrgPayments` returns them in no particular order, so they're
+ * grouped and sorted by expected date then label here.
+ */
+export function reconcileAll(
+  rows: PaymentRow[],
+  entries: LedgerEntry[],
+  contractTotals: Record<string, number>,
+): DerivedDraw[] {
+  const byProject = new Map<string, PaymentRow[]>()
+  for (const r of rows) {
+    const list = byProject.get(r.projectId)
+    if (list) list.push(r)
+    else byProject.set(r.projectId, [r])
+  }
+  const payByProject = new Map<string, LedgerEntry[]>()
+  for (const e of entries) {
+    const list = payByProject.get(e.projectId)
+    if (list) list.push(e)
+    else payByProject.set(e.projectId, [e])
+  }
+
+  const out: DerivedDraw[] = []
+  for (const [projectId, draws] of byProject) {
+    draws.sort(
+      (a, b) =>
+        (a.expectedDate || '9999').localeCompare(b.expectedDate || '9999') ||
+        a.label.localeCompare(b.label),
+    )
+    const r = reconcileProject(
+      draws,
+      payByProject.get(projectId) || [],
+      contractTotals[projectId] ?? draws.reduce((s, d) => s + d.amount, 0),
+    )
+    out.push(...r.draws)
+  }
+  return out
 }
 
 /**

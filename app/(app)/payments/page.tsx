@@ -1,52 +1,58 @@
 'use client'
 
 // ============================================================================
-// /payments — upcoming draws, by the month the cash lands in
+// /payments — the cash view: what's owed, what came in, and when
 // ============================================================================
 // Andrew: "automatically populates with the upcoming draw payments · drag the
-// payment to another month · mark as received · total needed for the month ·
-// the math of what has come in this month."
+// payment to another month · total needed for the month · the math of what has
+// come in this month… really it's a ledger of the transactions. The project
+// page is a link and ledger but the changes happen in the payments page."
 //
-// Rolling month columns with the /schedule pager feel (◀ Today ▶). Two trays
-// sit above the board and are the parts most likely to matter:
-//   · OVERDUE — still owed, expected before the window. The single most
-//     important row on the page; it must never be something you scroll past.
-//   · UNSCHEDULED — real draws with no expected date, which belong to no
-//     column and would otherwise be invisible.
+// ⛔ THERE IS NO "MARK RECEIVED" HERE, AND THAT IS THE WHOLE POINT.
+// A draw used to carry `status='received'`, which could only ever record the
+// PROJECTED amount — so a client who paid something else had nowhere to go.
+// Now you LOG A PAYMENT (amount + date) and a draw's paid-ness is DERIVED by
+// `reconcileProject`. Partial, overpaid and out-of-order payments stop being
+// special cases.
 //
-// ⛔ MARKING RECEIVED IS NOT AN INVOICE OPERATION HERE. `markMilestoneReceived`
-// behaves differently by invoicing mode: internal mode also records a payment
-// on the contract invoice; QUICKBOOKS MODE DELIBERATELY STOPS at the milestone,
-// because money is meant to arrive via the QB watcher. BUILT IS A QB ORG, so on
-// this page the milestone status IS the signal and `amount_received` staying 0
-// is correct, not a bug. The portal learned this the hard way — it read only
-// invoice payments and showed "$0 paid" against a project with real money on
-// it. QB auto-matching stays future; don't build it here.
+// ⛔ NOTHING ON THIS PAGE REWRITES THE SCHEDULE. Draw amounts stay as authored;
+// the final-draw balancing is derived on read. Dragging writes `expected_date`
+// and nothing else. (Two past bugs in this codebase came from a screen quietly
+// persisting recomputed money.)
+//
+// QuickBooks: entry is manual. Bookkeeping lives in QB; this is an internal
+// cash-flow tool. `qb_event_id` on the ledger is a hook for a future watcher.
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Check, CalendarClock, AlertTriangle, Inbox } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Inbox, Plus, Trash2, X } from 'lucide-react'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
-import { markMilestoneReceived } from '@/lib/milestones'
 import {
   addMonths,
   buildPaymentsView,
   currentMonth,
+  deletePayment,
+  loadOrgLedger,
   loadOrgPayments,
+  logPayment,
   monthId,
   monthLabel,
   parseLocalDate,
+  reconcileAll,
   reschedulePayment,
   rescheduleTo,
   sameMonth,
+  todayStamp,
+  type DerivedDraw,
+  type LedgerEntry,
   type MonthKey,
   type PaymentRow,
 } from '@/lib/payments'
 
-/** How many months the board shows at once. Three fits without scrolling and
- *  is the horizon a shop actually plans cash against. */
+/** How many months the board shows at once. Three is the horizon a shop plans
+ *  cash against and it fits without scrolling. */
 const VISIBLE_MONTHS = 3
 
 function money(n: number): string {
@@ -54,40 +60,47 @@ function money(n: number): string {
   return r < 0 ? `-$${Math.abs(r).toLocaleString()}` : `$${r.toLocaleString()}`
 }
 
-/** "Sep 15" — the day inside its column. */
 function dayLabel(iso: string | null): string {
   const d = parseLocalDate(iso)
   if (!d) return 'No date'
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric' })
 }
 
+interface PayTarget {
+  projectId: string
+  projectName: string
+  amount: number
+}
+
 export default function PaymentsPage() {
-  const { org } = useAuth()
+  const { org, user } = useAuth()
   const [rows, setRows] = useState<PaymentRow[]>([])
+  const [totals, setTotals] = useState<Record<string, number>>({})
+  const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [ledgerMissing, setLedgerMissing] = useState(false)
   const [monthOffset, setMonthOffset] = useState(0)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [payFor, setPayFor] = useState<PayTarget | null>(null)
 
-  // `today` is captured once per load rather than read at render time, so the
-  // "Today" button and the current-month highlight can't disagree mid-session.
   const [today] = useState(() => currentMonth())
-
-  /** Null until the first load resolves. Distinguishes "nothing here" from
-   *  "we never managed to ask" — an empty board must only ever mean an empty
-   *  board. */
-  const [loadError, setLoadError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     if (!org?.id) return
-    const res = await loadOrgPayments(org.id)
-    setLoadError(res.error)
-    // ⛔ Don't blank the board on a failed refresh. A drag that fails would
-    // otherwise wipe every card and leave an error floating above an empty
-    // page that says "no draw payments yet".
-    if (!res.error) setRows(res.rows)
+    const [sched, led] = await Promise.all([loadOrgPayments(org.id), loadOrgLedger(org.id)])
+    setLoadError(sched.error || led.error)
+    setLedgerMissing(led.missing)
+    // Don't blank the board on a failed refresh — a failed drag would otherwise
+    // wipe every card and leave an error above an empty page.
+    if (!sched.error) {
+      setRows(sched.rows)
+      setTotals(sched.contractTotals)
+    }
+    if (!led.error) setLedger(led.entries)
     setLoading(false)
   }, [org?.id])
 
@@ -96,24 +109,38 @@ export default function PaymentsPage() {
   }, [refresh])
 
   const months = useMemo<MonthKey[]>(
-    () =>
-      Array.from({ length: VISIBLE_MONTHS }, (_, i) =>
-        addMonths(today, monthOffset + i),
-      ),
+    () => Array.from({ length: VISIBLE_MONTHS }, (_, i) => addMonths(today, monthOffset + i)),
     [today, monthOffset],
   )
 
-  // `today` is passed explicitly — "past due" is relative to today, never to
-  // the window, which moves when the operator pages.
-  const view = useMemo(() => buildPaymentsView(rows, months, today), [rows, months, today])
+  /** Schedule × ledger → what's actually still owed on each draw. */
+  const derived = useMemo(() => reconcileAll(rows, ledger, totals), [rows, ledger, totals])
 
-  /** Totals across the WHOLE board, not just the visible window — "what's
-   *  still out there" shouldn't change because you paged forward. */
-  const outstandingTotal = useMemo(
-    () => rows.filter((r) => r.status !== 'received' && r.status !== 'cancelled')
-      .reduce((s, r) => s + r.amount, 0),
-    [rows],
+  const view = useMemo(
+    () => buildPaymentsView(derived, ledger, months, today),
+    [derived, ledger, months, today],
   )
+
+  /** Still owed across every sold job — not just the visible window. */
+  const outstandingTotal = useMemo(
+    () => derived.reduce((s, d) => s + d.outstanding, 0),
+    [derived],
+  )
+
+  /** Projects that can receive a payment: every sold job that has draws. */
+  const projectOptions = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const r of rows) m.set(r.projectId, r.projectName)
+    return [...m.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [rows])
+
+  const projectNameById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const r of rows) m.set(r.projectId, r.projectName)
+    return m
+  }, [rows])
 
   async function run(id: string, fn: () => Promise<unknown>) {
     setBusyId(id)
@@ -123,15 +150,12 @@ export default function PaymentsPage() {
       await refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.')
-      // Reload anyway: the optimistic move may or may not have landed, and a
-      // board showing a card where it isn't is worse than a flicker.
       await refresh()
     } finally {
       setBusyId(null)
     }
   }
 
-  /** Drop a dragged draw into a month. */
   async function handleDropInto(target: MonthKey) {
     const id = dragId
     setDragId(null)
@@ -139,20 +163,31 @@ export default function PaymentsPage() {
     if (!id) return
     const row = rows.find((r) => r.id === id)
     if (!row) return
-    // A received payment's month is when the money ARRIVED — that's a fact,
-    // not a plan, so it isn't draggable and this is a no-op guard.
-    if (row.status === 'received') return
-
     const next = rescheduleTo(row, target)
     if (next === row.expectedDate) return
-
-    // Optimistic: the card should follow the cursor immediately.
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, expectedDate: next } : r)))
     await run(id, () => reschedulePayment(id, next, org?.id))
   }
 
   const pagerLabel =
     monthOffset === 0 ? null : monthOffset < 0 ? `${-monthOffset}m back` : `${monthOffset}m ahead`
+
+  const cardProps = (d: DerivedDraw) => ({
+    draw: d,
+    busy: busyId === d.row.id,
+    onDragStart: () => setDragId(d.row.id),
+    onDragEnd: () => {
+      setDragId(null)
+      setDragOver(null)
+    },
+    dragging: dragId === d.row.id,
+    onLogPayment: () =>
+      setPayFor({
+        projectId: d.row.projectId,
+        projectName: d.row.projectName,
+        amount: d.outstanding,
+      }),
+  })
 
   return (
     <PlanGate requires="invoices">
@@ -161,6 +196,12 @@ export default function PaymentsPage() {
           <div className="flex items-center gap-3 mb-1 flex-wrap">
             <h1 className="text-[20px] font-semibold text-[#111]">Payments</h1>
             <div className="flex items-center gap-1 ml-auto">
+              <button
+                onClick={() => setPayFor({ projectId: '', projectName: '', amount: 0 })}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#059669] text-white text-[12px] font-medium hover:bg-[#047857] mr-1"
+              >
+                <Plus className="w-3.5 h-3.5" /> Log a payment
+              </button>
               <button
                 onClick={() => setMonthOffset((o) => o - 1)}
                 title="Back a month"
@@ -195,10 +236,16 @@ export default function PaymentsPage() {
             </div>
           </div>
           <p className="text-xs text-[#6B7280] mb-5">
-            Draw payments on sold and in-production jobs. Drag a payment to move
-            when you expect it — that changes the forecast, not the contract.
+            Draw payments on sold and in-production jobs. Drag one to move when
+            you expect it — that changes the forecast, not the contract.
           </p>
 
+          {ledgerMissing && (
+            <div className="mb-4 text-[12px] text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-md px-3 py-2">
+              Recording payments needs migration <code>099</code>. Until it runs
+              the schedule still shows, but nothing can be marked paid.
+            </div>
+          )}
           {(error || loadError) && (
             <div className="mb-4 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
               {error || `Couldn’t load payments: ${loadError}`}
@@ -213,13 +260,12 @@ export default function PaymentsPage() {
                 No draw payments yet.
               </div>
               <div className="text-xs text-[#9CA3AF]">
-                Payment milestones are set per project, on the project page. Once
-                a job is sold, its draws show up here.
+                Payment milestones are set per project before the sale. Once a
+                job is sold, its draws show up here.
               </div>
             </div>
           ) : (
             <>
-              {/* ── Overdue. Above the board on purpose. ── */}
               {view.overdue.length > 0 && (
                 <section className="mb-4 bg-white border border-[#FECACA] rounded-xl overflow-hidden">
                   <div className="px-4 py-2.5 bg-[#FEF2F2] border-b border-[#FECACA] flex items-center gap-2">
@@ -228,34 +274,20 @@ export default function PaymentsPage() {
                       Past due · {view.overdue.length}
                     </span>
                     <span className="ml-auto text-[13px] font-mono tabular-nums font-semibold text-[#B91C1C]">
-                      {money(view.overdue.reduce((s, r) => s + r.amount, 0))}
+                      {money(view.overdue.reduce((s, d) => s + d.outstanding, 0))}
                     </span>
                   </div>
                   <div className="p-2 space-y-1.5">
-                    {view.overdue.map((r) => (
-                      <PaymentCard
-                        key={r.id}
-                        row={r}
-                        busy={busyId === r.id}
-                        onDragStart={() => setDragId(r.id)}
-                        onDragEnd={() => {
-                          setDragId(null)
-                          setDragOver(null)
-                        }}
-                        dragging={dragId === r.id}
-                        onReceived={() =>
-                          void run(r.id, () => markMilestoneReceived(r.id))
-                        }
-                      />
+                    {view.overdue.map((d) => (
+                      <DrawCard key={d.row.id} {...cardProps(d)} />
                     ))}
                   </div>
                 </section>
               )}
 
-              {/* ── Unscheduled tray ── */}
               {view.unscheduled.length > 0 && (
                 <section className="mb-4 bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
-                  <div className="px-4 py-2.5 bg-[#F9FAFB] border-b border-[#E5E7EB] flex items-center gap-2">
+                  <div className="px-4 py-2.5 bg-[#F9FAFB] border-b border-[#E5E7EB] flex items-center gap-2 flex-wrap">
                     <Inbox className="w-3.5 h-3.5 text-[#6B7280]" />
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280]">
                       No date set · {view.unscheduled.length}
@@ -264,31 +296,17 @@ export default function PaymentsPage() {
                       drag one into a month to schedule it
                     </span>
                     <span className="ml-auto text-[13px] font-mono tabular-nums text-[#374151]">
-                      {money(view.unscheduled.reduce((s, r) => s + r.amount, 0))}
+                      {money(view.unscheduled.reduce((s, d) => s + d.outstanding, 0))}
                     </span>
                   </div>
                   <div className="p-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5">
-                    {view.unscheduled.map((r) => (
-                      <PaymentCard
-                        key={r.id}
-                        row={r}
-                        busy={busyId === r.id}
-                        onDragStart={() => setDragId(r.id)}
-                        onDragEnd={() => {
-                          setDragId(null)
-                          setDragOver(null)
-                        }}
-                        dragging={dragId === r.id}
-                        onReceived={() =>
-                          void run(r.id, () => markMilestoneReceived(r.id))
-                        }
-                      />
+                    {view.unscheduled.map((d) => (
+                      <DrawCard key={d.row.id} {...cardProps(d)} />
                     ))}
                   </div>
                 </section>
               )}
 
-              {/* ── The board ── */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
                 {view.months.map((b) => {
                   const id = monthId(b.key)
@@ -303,8 +321,7 @@ export default function PaymentsPage() {
                       }}
                       onDragLeave={() => setDragOver((x) => (x === id ? null : x))}
                       onDrop={(e) => {
-                        // Firefox treats an un-prevented drop on an element
-                        // containing an <a> as a navigation.
+                        // Firefox navigates an un-prevented drop onto an <a>.
                         e.preventDefault()
                         void handleDropInto(b.key)
                       }}
@@ -327,7 +344,6 @@ export default function PaymentsPage() {
                             </span>
                           )}
                         </div>
-
                         <div className="mt-1.5 flex items-baseline gap-1.5">
                           <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
                             Needed
@@ -336,12 +352,7 @@ export default function PaymentsPage() {
                             {money(b.needed)}
                           </span>
                         </div>
-
-                        {/* Received is shown wherever money actually landed —
-                            not only the current month. A payment that arrived
-                            in August is August's answer, and hiding it as soon
-                            as the page rolls over makes the history useless. */}
-                        {b.receivedTotal > 0 && (
+                        {b.receivedTotal !== 0 && (
                           <div className="mt-0.5 flex items-baseline gap-1.5">
                             <span className="text-[10px] uppercase tracking-wider text-[#059669] font-semibold">
                               Received
@@ -349,11 +360,6 @@ export default function PaymentsPage() {
                             <span className="text-[13px] font-semibold text-[#059669] font-mono tabular-nums">
                               {money(b.receivedTotal)}
                             </span>
-                            {b.needed > 0 && (
-                              <span className="text-[10px] text-[#9CA3AF] ml-auto font-mono tabular-nums">
-                                {money(b.needed)} to go
-                              </span>
-                            )}
                           </div>
                         )}
                       </div>
@@ -365,24 +371,17 @@ export default function PaymentsPage() {
                           </div>
                         ) : (
                           <>
-                            {b.outstanding.map((r) => (
-                              <PaymentCard
-                                key={r.id}
-                                row={r}
-                                busy={busyId === r.id}
-                                onDragStart={() => setDragId(r.id)}
-                                onDragEnd={() => {
-                                  setDragId(null)
-                                  setDragOver(null)
-                                }}
-                                dragging={dragId === r.id}
-                                onReceived={() =>
-                                  void run(r.id, () => markMilestoneReceived(r.id))
-                                }
-                              />
+                            {b.outstanding.map((d) => (
+                              <DrawCard key={d.row.id} {...cardProps(d)} />
                             ))}
-                            {b.received.map((r) => (
-                              <PaymentCard key={r.id} row={r} busy={false} received />
+                            {b.received.map((e) => (
+                              <ReceiptCard
+                                key={e.id}
+                                entry={e}
+                                projectName={projectNameById.get(e.projectId) || 'Project'}
+                                busy={busyId === e.id}
+                                onDelete={() => void run(e.id, () => deletePayment(e.id, org?.id))}
+                              />
                             ))}
                           </>
                         )}
@@ -393,52 +392,61 @@ export default function PaymentsPage() {
               </div>
 
               <div className="mt-4 text-[11px] text-[#9CA3AF]">
-                {money(outstandingTotal)} outstanding across every sold job —
+                {money(outstandingTotal)} still owed across every sold job —
                 including months outside this window.
               </div>
             </>
           )}
         </div>
       </div>
+
+      {payFor && (
+        <LogPaymentModal
+          target={payFor}
+          projects={projectOptions}
+          onClose={() => setPayFor(null)}
+          onSave={async (input) => {
+            if (!org?.id) return
+            await logPayment({ ...input, orgId: org.id, createdBy: user?.id ?? null })
+            setPayFor(null)
+            await refresh()
+          }}
+        />
+      )}
     </PlanGate>
   )
 }
 
-/** One draw. Received cards are inert: their date is a record of what happened,
- *  not a plan to be edited. */
-function PaymentCard({
-  row,
+/** A draw with money still owed. Draggable between months; the big number is
+ *  what REMAINS, not what was originally scheduled. */
+function DrawCard({
+  draw,
   busy,
-  received = false,
-  dragging = false,
+  dragging,
   onDragStart,
   onDragEnd,
-  onReceived,
+  onLogPayment,
 }: {
-  row: PaymentRow
+  draw: DerivedDraw
   busy: boolean
-  received?: boolean
-  dragging?: boolean
-  onDragStart?: () => void
-  onDragEnd?: () => void
-  onReceived?: () => void
+  dragging: boolean
+  onDragStart: () => void
+  onDragEnd: () => void
+  onLogPayment: () => void
 }) {
+  const { row, scheduled, covered, outstanding, state } = draw
   return (
     <div
-      draggable={!received}
+      draggable
       onDragStart={(e) => {
-        // ⛔ Firefox refuses to start a drag unless dataTransfer carries
-        // something — without this the whole board is undraggable there, while
-        // working fine in Chrome and Safari.
+        // Firefox won't start a drag without something on the dataTransfer.
         e.dataTransfer.setData('text/plain', row.id)
         e.dataTransfer.effectAllowed = 'move'
-        onDragStart?.()
+        onDragStart()
       }}
       onDragEnd={onDragEnd}
-      className={`rounded-lg border px-2.5 py-2 transition-colors ${
-        received
-          ? 'border-[#A7F3D0] bg-[#F0FDF4]'
-          : 'border-[#E5E7EB] bg-white hover:border-[#D1D5DB] cursor-grab active:cursor-grabbing'
+      className={`rounded-lg border px-2.5 py-2 transition-colors bg-white cursor-grab active:cursor-grabbing ${
+        state === 'partial' ? 'border-[#FDE68A]' : 'border-[#E5E7EB] hover:border-[#D1D5DB]'
       } ${dragging ? 'opacity-40' : ''} ${busy ? 'opacity-60' : ''}`}
     >
       <div className="flex items-start gap-2">
@@ -455,34 +463,287 @@ function PaymentCard({
             {row.label}
             {row.clientName ? ` · ${row.clientName}` : ''}
           </div>
-          <div className="text-[10px] text-[#9CA3AF] mt-0.5 flex items-center gap-1">
+          <div className="text-[10px] text-[#9CA3AF] mt-0.5 flex items-center gap-1 flex-wrap">
             <CalendarClock className="w-2.5 h-2.5" />
-            {received ? `Received ${dayLabel(row.receivedDate || row.expectedDate)}` : dayLabel(row.expectedDate)}
-            {row.status === 'invoiced' && !received && (
-              <span className="ml-1 px-1 rounded bg-[#EFF6FF] text-[#1E40AF]">invoiced</span>
+            {dayLabel(row.expectedDate)}
+            {/* A part-paid draw must show BOTH numbers, or the card looks like
+                the draw shrank for no reason. */}
+            {state === 'partial' && (
+              <span className="px-1 rounded bg-[#FFFBEB] text-[#92400E]">
+                {money(covered)} of {money(scheduled)} in
+              </span>
             )}
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className="text-[13px] font-semibold font-mono tabular-nums text-[#111]">
+            {money(outstanding)}
+          </div>
+          <button
+            disabled={busy}
+            onClick={onLogPayment}
+            title="Record a payment against this job"
+            className="mt-1 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-[#E5E7EB] text-[#6B7280] hover:border-[#059669] hover:text-[#059669] hover:bg-[#ECFDF5] disabled:opacity-50"
+          >
+            <Plus className="w-2.5 h-2.5" /> Payment
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Money that actually arrived. A fact, so it isn't draggable — but it IS
+ *  removable, because a mis-keyed amount has to be fixable. */
+function ReceiptCard({
+  entry,
+  projectName,
+  busy,
+  onDelete,
+}: {
+  entry: LedgerEntry
+  projectName: string
+  busy: boolean
+  onDelete: () => void
+}) {
+  const refund = entry.amount < 0
+  return (
+    <div
+      className={`rounded-lg border px-2.5 py-2 group ${
+        refund ? 'border-[#FECACA] bg-[#FEF2F2]' : 'border-[#A7F3D0] bg-[#F0FDF4]'
+      } ${busy ? 'opacity-60' : ''}`}
+    >
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <Link
+            href={`/projects/${entry.projectId}`}
+            className="text-[12.5px] font-medium text-[#111] hover:underline truncate block"
+          >
+            {projectName}
+          </Link>
+          <div className="text-[10px] text-[#6B7280] mt-0.5 truncate">
+            {refund ? 'Refund' : 'Received'} {dayLabel(entry.paymentDate)}
+            {entry.method ? ` · ${entry.method}` : ''}
+            {entry.reference ? ` · ${entry.reference}` : ''}
           </div>
         </div>
         <div className="text-right flex-shrink-0">
           <div
             className={`text-[13px] font-semibold font-mono tabular-nums ${
-              received ? 'text-[#059669]' : 'text-[#111]'
+              refund ? 'text-[#B91C1C]' : 'text-[#059669]'
             }`}
           >
-            {money(row.amount)}
+            {money(entry.amount)}
           </div>
-          {!received && onReceived && (
-            <button
-              disabled={busy}
-              onClick={onReceived}
-              title="Mark this payment received"
-              className="mt-1 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-[#E5E7EB] text-[#6B7280] hover:border-[#059669] hover:text-[#059669] hover:bg-[#ECFDF5] disabled:opacity-50"
-            >
-              <Check className="w-2.5 h-2.5" /> Received
-            </button>
-          )}
+          <button
+            disabled={busy}
+            onClick={onDelete}
+            title="Remove this payment"
+            className="mt-1 p-0.5 text-[#D1D5DB] hover:text-[#DC2626] opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
         </div>
       </div>
     </div>
+  )
+}
+
+/** Log cash received. The amount defaults to what's outstanding on the draw
+ *  you clicked, because "they paid the deposit" is the common case — but it's
+ *  editable, which is the entire reason this table exists. */
+function LogPaymentModal({
+  target,
+  projects,
+  onClose,
+  onSave,
+}: {
+  target: PayTarget
+  projects: Array<{ id: string; name: string }>
+  onClose: () => void
+  onSave: (input: {
+    projectId: string
+    amount: number
+    paymentDate: string
+    method: string | null
+    reference: string | null
+    notes: string | null
+  }) => Promise<void>
+}) {
+  const [projectId, setProjectId] = useState(target.projectId)
+  const [amount, setAmount] = useState(target.amount ? String(Math.round(target.amount)) : '')
+  const [paymentDate, setPaymentDate] = useState(todayStamp())
+  const [method, setMethod] = useState<string>('')
+  const [reference, setReference] = useState('')
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function submit() {
+    const n = Number(amount)
+    if (!projectId) {
+      setErr('Pick a project.')
+      return
+    }
+    if (!amount.trim() || !Number.isFinite(n) || n === 0) {
+      setErr('Enter an amount. A refund can be negative; zero can’t.')
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    try {
+      await onSave({
+        projectId,
+        amount: n,
+        paymentDate,
+        method: method || null,
+        reference: reference || null,
+        notes: notes || null,
+      })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not record that payment.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[70] bg-black/30" onClick={onClose} aria-hidden />
+      <div
+        role="dialog"
+        aria-label="Log a payment"
+        className="fixed z-[71] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(420px,92vw)] bg-white border border-[#E5E7EB] rounded-xl shadow-xl p-4"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-[15px] font-semibold text-[#111]">Log a payment</h2>
+          <button onClick={onClose} aria-label="Close" className="p-1 text-[#9CA3AF] hover:text-[#111]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="space-y-2.5">
+          <label className="block">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              Project
+            </span>
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              className="w-full mt-0.5 px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
+            >
+              <option value="">Pick a project…</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                Amount
+              </span>
+              <input
+                autoFocus
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void submit()
+                }}
+                inputMode="decimal"
+                placeholder="0.00"
+                className="w-full mt-0.5 px-2 py-1.5 text-[13px] font-mono tabular-nums border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                Date received
+              </span>
+              <input
+                type="date"
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+                className="w-full mt-0.5 px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                Method
+              </span>
+              <select
+                value={method}
+                onChange={(e) => setMethod(e.target.value)}
+                className="w-full mt-0.5 px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
+              >
+                <option value="">—</option>
+                <option value="check">Check</option>
+                <option value="ach">ACH</option>
+                <option value="card">Card</option>
+                <option value="cash">Cash</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                Check / ref
+              </span>
+              <input
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                placeholder="1042"
+                className="w-full mt-0.5 px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
+              />
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              Note
+            </span>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void submit()
+              }}
+              placeholder="Optional"
+              className="w-full mt-0.5 px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
+            />
+          </label>
+
+          <p className="text-[10.5px] text-[#9CA3AF] leading-snug">
+            Whatever they actually paid — it doesn’t have to match the draw. The
+            remaining draws rebalance, and the final one absorbs the difference.
+          </p>
+
+          {err && (
+            <div className="text-[11.5px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-2 py-1.5">
+              {err}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              disabled={busy}
+              onClick={() => void submit()}
+              className="px-3 py-1.5 rounded-md bg-[#059669] text-white text-[12px] font-medium hover:bg-[#047857] disabled:opacity-50"
+            >
+              {busy ? 'Saving…' : 'Record payment'}
+            </button>
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-md border border-[#E5E7EB] text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }

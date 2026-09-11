@@ -76,6 +76,7 @@ import {
 } from '@/lib/pricing'
 import { allocateRounded, allocationDrift } from '@/lib/allocate'
 import { todayStamp } from '@/lib/payments'
+import { ProjectPaymentLedger } from '@/components/project/ProjectPaymentLedger'
 import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   loadSubprojectActualHours,
@@ -2392,7 +2393,21 @@ export default function ProjectCoverPage() {
                 projectId={projectId}
               />
 
-              {/* Milestones — per-project builder */}
+              {/* ⛔ PRE-SALE: compose the schedule. POST-SALE: a READ-ONLY
+                  ledger + a link, because the schedule is locked once the job
+                  is sold and every change to it happens on /payments.
+                  Andrew: "the payment milestone section of the project is
+                  worthless after the sale… that can instead be a link to the
+                  payments page, or show a timestamp of the payment we received
+                  and the amount." */}
+              {!isPresold(project.stage) ? (
+                <ProjectPaymentLedger
+                  projectId={projectId}
+                  // bid_total is the CONTRACT — the number the client signed.
+                  // priceTotal is the live recompute and can drift from it.
+                  contractTotal={Number(project.bid_total) || proj.priceTotal}
+                />
+              ) : (
               <MilestoneBuilder
                 milestones={milestones}
                 total={proj.priceTotal}
@@ -2454,6 +2469,7 @@ export default function ProjectCoverPage() {
                 dirty={milestonesDirty}
                 saving={milestonesSaving}
               />
+              )}
 
               {/* Item 4 of post-sale-2: Client picker. Pre-sold = full
                   picker + add. Post-sold = read-only display so the

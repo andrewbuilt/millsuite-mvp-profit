@@ -1,5 +1,5 @@
 // ============================================================================
-// scripts/verify-payments.mjs — which month does this draw land in?
+// scripts/verify-payments.mjs — calendar guard for the payments pages
 // ============================================================================
 //   TZ=America/New_York npx tsx scripts/verify-payments.mjs
 //   TZ=UTC             npx tsx scripts/verify-payments.mjs
@@ -19,9 +19,9 @@
 // shops west of Greenwich — which is all of Andrew's. The cases below fail
 // loudly under TZ if anyone reintroduces `new Date(str)`.
 //
-// The rest pins the two things this page is actually for: "needed this month"
-// (by expected_date) and "what came in this month" (by received_date), which
-// are NOT the same bucket when a draw is paid late.
+// Bucketing and reconciliation moved to lib/payment-ledger when payments
+// became their own rows; see scripts/verify-payment-ledger.mjs. This file is
+// now purely the CALENDAR guard, which is the part that silently breaks.
 // ============================================================================
 
 import {
@@ -32,8 +32,6 @@ import {
   monthId,
   monthOf,
   rescheduleTo,
-  cashMonthOf,
-  buildPaymentsView,
   isOutstanding,
 } from '../lib/payment-schedule.ts'
 
@@ -125,97 +123,7 @@ for (const day of ['2026-01-29', '2026-01-30', '2026-01-31']) {
 }
 ck('every day/month combination lands in the target month', true, true)
 
-// ── The two dates are not the same bucket ──────────────────────────────────
-// A draw expected in August but PAID in September is September cash.
-const late = row({ id: 'late', status: 'received', expectedDate: '2026-08-20', receivedDate: '2026-09-03' })
-ck('a late payment counts in the month it ARRIVED', monthId(cashMonthOf(late)), '2026-09')
-
-// A received row that never got stamped still counts — falling back beats
-// money disappearing from the totals.
-const unstamped = row({ status: 'received', expectedDate: '2026-08-20', receivedDate: null })
-ck('received-but-unstamped falls back to expected', monthId(cashMonthOf(unstamped)), '2026-08')
-
 ck('outstanding statuses', ['projected', 'invoiced', 'received', 'cancelled'].map((s) => isOutstanding(row({ status: s }))), [true, true, false, false])
 
-// ── The view ───────────────────────────────────────────────────────────────
-const MONTHS = [
-  { year: 2026, month: 8 },  // Sep
-  { year: 2026, month: 9 },  // Oct
-  { year: 2026, month: 10 }, // Nov
-]
-const ROWS = [
-  row({ id: 'a', amount: 10000, expectedDate: '2026-09-10' }),
-  row({ id: 'b', amount: 5000, expectedDate: '2026-09-25', status: 'invoiced' }),
-  row({ id: 'c', amount: 7000, expectedDate: '2026-10-01' }),
-  row({ id: 'd', amount: 3000, status: 'received', expectedDate: '2026-09-05', receivedDate: '2026-09-06' }),
-  row({ id: 'e', amount: 9999, status: 'cancelled', expectedDate: '2026-09-15' }),
-  row({ id: 'f', amount: 2500, expectedDate: null }),                      // unscheduled
-  row({ id: 'g', amount: 4000, expectedDate: '2026-07-01' }),              // overdue
-  row({ id: 'h', amount: 1234, expectedDate: '2027-05-01' }),              // beyond window
-]
-const TODAY = { year: 2026, month: 8 } // September — the window starts here
-const v = buildPaymentsView(ROWS, MONTHS, TODAY)
-
-ck('September needed = 10000 + 5000', v.months[0].needed, 15000)
-ck('September received = 3000', v.months[0].receivedTotal, 3000)
-ck('October needed = 7000', v.months[1].needed, 7000)
-ck('November is empty', [v.months[2].needed, v.months[2].receivedTotal], [0, 0])
-ck('cancelled never appears', v.months[0].outstanding.some((r) => r.id === 'e'), false)
-ck('undated lands in the tray', v.unscheduled.map((r) => r.id), ['f'])
-ck('a past-due draw is surfaced, not dropped', v.overdue.map((r) => r.id), ['g'])
-ck('beyond-window is simply not shown', JSON.stringify(v).includes('"h"'), false)
-
-// "every unpaid draw appears exactly once" — the acceptance criterion.
-const placed = [
-  ...v.months.flatMap((m) => [...m.outstanding, ...m.received]),
-  ...v.unscheduled,
-  ...v.overdue,
-].map((r) => r.id)
-ck('no draw appears twice', placed.length, new Set(placed).size)
-ck(
-  'every non-cancelled, in-range draw is placed exactly once',
-  placed.sort(),
-  ['a', 'b', 'c', 'd', 'f', 'g'],
-)
-
-// Sorted soonest-first inside a month, so the next thing due reads first.
-ck('a month sorts by date', v.months[0].outstanding.map((r) => r.id), ['a', 'b'])
-
-// ── "Past due" is relative to TODAY, not to the window ─────────────────────
-// Paging forward must not repaint this month's un-due draws as overdue.
-const PAGED_FWD = [
-  { year: 2026, month: 9 },
-  { year: 2026, month: 10 },
-  { year: 2026, month: 11 },
-]
-const vf = buildPaymentsView(ROWS, PAGED_FWD, TODAY)
-ck(
-  'paging forward does NOT mark this month past due',
-  vf.overdue.map((r) => r.id),
-  ['g'], // only the genuinely-late July draw
-)
-ck(
-  "September's draws are simply off-window, not red",
-  vf.overdue.some((r) => ['a', 'b', 'd'].includes(r.id)),
-  false,
-)
-
-// Paging BACKWARD must not hide a genuinely late draw among ordinary cards,
-// and must still place every row exactly once.
-const PAGED_BACK = [
-  { year: 2026, month: 5 },
-  { year: 2026, month: 6 },
-  { year: 2026, month: 7 },
-]
-const vb = buildPaymentsView(ROWS, PAGED_BACK, TODAY)
-const placedBack = [
-  ...vb.months.flatMap((m) => [...m.outstanding, ...m.received]),
-  ...vb.unscheduled,
-  ...vb.overdue,
-].map((r) => r.id)
-ck('paging back still places each row once', placedBack.length, new Set(placedBack).size)
-ck('the July draw sits in its own column when visible', vb.months[1].outstanding.map((r) => r.id), ['g'])
-ck('and is not ALSO in the past-due tray', vb.overdue.map((r) => r.id), [])
-
-console.log(bad ? `\n${bad} FAILING` : '\nall payments cases pass')
+console.log(bad ? `\n${bad} FAILING` : '\nall payment-date cases pass')
 process.exit(bad ? 1 : 0)
