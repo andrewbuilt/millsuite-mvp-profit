@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-11 · **Branch:** `main`
 
-**Left off:** wave 4 + Payments v2 built; migrations `098` and `099` ✅ on prod. **Andrew's first real payment found two bugs — both fixed (`634c0eb`)**: a phantom "$1" card from sub-dollar rounding, and dragging a card changing which draw counted as paid. Andrew confirmed the board works after that. **The deposit gate now opens off a recorded payment (`77ab790`)** — no more mandatory override on QB jobs. **Next: the last scoped item, `/pm`.**
+**Left off:** wave 4 + Payments v2 built; migrations `098` and `099` ✅ on prod. **Andrew's first real payment found two bugs — both fixed (`634c0eb`)**: a phantom "$1" card from sub-dollar rounding, and dragging a card changing which draw counted as paid. Andrew confirmed the board works after that. **The deposit gate now opens off a recorded payment (`77ab790`)** — no more mandatory override on QB jobs. Then Leonard turned up missing — **sold jobs with no draw schedule were invisible (`a825fcc`)**; there's now a tray for them and the builder reappears so they can be set up. **⚠️ Andrew owes a pass setting up draws on Leonard ×3, Kinser and Gus Bus** (~$600k of contract value untracked). **Then the last scoped item, `/pm`.**
 
 ---
 
@@ -270,6 +270,13 @@ Partial, overpaid and out-of-order payments are just rows. **⛔ "MARK RECEIVED"
 - Degrades cleanly pre-099 (`projectReceivedTotal` → 0 → falls through). Incidentally **faster** for the common case: a paid project returns after two queries and skips the contract-invoice lookup.
 - **Fixes all three consumers at once:** the projects-dashboard "Ready" badge, the project page, and pre-production.
 - UI: **"Log the deposit"** now sits beside the override, linking to `/payments` — recording what actually happened must be at least as findable as skipping the check.
+
+**⛔ SOLD JOBS WITH NO DRAW SCHEDULE WERE INVISIBLE — FIXED (`a825fcc`).** Andrew: *"i dont see any of the Leonard payments."* **Not the import** (Bonzer and Murtagh are imported and show fine) — Leonard, Kinser and Gus Bus simply have **no payment milestones**.
+- **⛔ THE BOARD COULD NOT HAVE TOLD HIM.** `loadOrgPayments` selects FROM `cash_flow_receivables`, so **a project with zero draw rows produces zero rows** — the page cannot distinguish "no schedule" from "doesn't exist". **Three Leonard jobs worth $426,032 were invisible**, and the footer confidently read "$143,286 still owed across every sold job" while omitting them. **A cash-flow tool that silently drops contracts is worse than one that shows nothing.**
+- Now: a **"No payment schedule" tray** lists every sold job with no draws (contract value + link), and the footer says how much contract value **isn't counted** instead of implying it has everything.
+- **⛔ THIS ALSO EXPOSED A HOLE THE REDESIGN CREATED.** Locking the builder post-sale protects an AGREED schedule — but with no schedule there's nothing to protect, and hiding it left those jobs **permanently untrackable with no way to fix them**. The builder now shows on a sold job with **zero** milestones (with a note saying why) and reverts to the read-only ledger once a schedule exists. Gated on a loaded flag so it can't flash before the fetch lands.
+- The Log-a-payment project picker was derived from the schedule too, so a job with no draws couldn't even be selected. It lists every sold job now.
+- ⚠️ **GENERAL LESSON, worth applying elsewhere: any page built on an `!inner` join silently omits the parent rows that have no children.** Ask what's missing, not just what's shown.
 
 **Andrew's live pass:** log a payment that DOESN'T match its draw and watch the final draw absorb it · a partial payment shows "X of Y in" · drag a draw between months · the project page shows ledger-only post-sale · foot a month's totals by hand.
 
