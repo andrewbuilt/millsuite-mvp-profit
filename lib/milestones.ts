@@ -15,6 +15,7 @@
 
 import { supabase } from './supabase'
 import { recordProjectEvent } from './project-events'
+import { formatLocalDate } from './payment-schedule'
 import {
   syncInvoiceFromMilestoneReceived,
   findInvoiceForMilestone,
@@ -60,7 +61,14 @@ export interface ProjectMilestone {
   trigger: MilestoneTrigger
   amount: number
   status: 'projected' | 'invoiced' | 'received' | 'cancelled'
+  /** When we PLAN for the money. */
   expected_date: string | null
+  /** When the money ACTUALLY ARRIVED — stamped by `markMilestoneReceived`.
+   *  ⚠️ This column has existed all along; it just wasn't on this type, which
+   *  is why a later scope pass concluded it was missing and budgeted a
+   *  migration for it. The two dates answer different questions and /payments
+   *  buckets by each separately — see lib/payments. */
+  received_date: string | null
   sort_order: number
 }
 
@@ -73,6 +81,7 @@ interface Raw {
   amount: number | null
   status: string
   expected_date: string | null
+  received_date: string | null
   created_at: string
   notes: string | null
 }
@@ -87,6 +96,7 @@ function rowToMilestone(r: Raw, idx: number): ProjectMilestone {
     amount: Number(r.amount) || 0,
     status: (r.status as ProjectMilestone['status']) || 'projected',
     expected_date: r.expected_date,
+    received_date: r.received_date ?? null,
     // sort_order is encoded in notes until we add a column; fallback to idx.
     sort_order: Number(r.notes?.match(/order:(\d+)/)?.[1] ?? idx),
   }
@@ -95,7 +105,7 @@ function rowToMilestone(r: Raw, idx: number): ProjectMilestone {
 export async function loadMilestones(projectId: string): Promise<ProjectMilestone[]> {
   const { data, error } = await supabase
     .from('cash_flow_receivables')
-    .select('id, project_id, milestone_label, milestone_pct, milestone_trigger, amount, status, expected_date, created_at, notes')
+    .select('id, project_id, milestone_label, milestone_pct, milestone_trigger, amount, status, expected_date, received_date, created_at, notes')
     .eq('project_id', projectId)
     .eq('type', 'receivable')
     .order('created_at', { ascending: true })
@@ -119,7 +129,12 @@ export async function saveMilestones(input: {
   org_id: string
   project_id: string
   project_total: number
-  milestones: Array<Pick<ProjectMilestone, 'label' | 'pct' | 'trigger' | 'expected_date'>>
+  milestones: Array<
+    Pick<ProjectMilestone, 'label' | 'pct' | 'trigger' | 'expected_date'> & {
+      /** ⛔ REQUIRED so this can re-insert ONLY what it deleted. See below. */
+      status?: ProjectMilestone['status']
+    }
+  >
 }): Promise<boolean> {
   const { error: delErr } = await supabase
     .from('cash_flow_receivables')
@@ -131,9 +146,28 @@ export async function saveMilestones(input: {
     console.error('saveMilestones delete', delErr)
     return false
   }
-  if (input.milestones.length === 0) return true
+  // ⛔ RE-INSERT ONLY THE ROWS THE DELETE ABOVE ACTUALLY REMOVED.
+  // The delete is scoped to status='projected' (so it can't clobber real
+  // money), but this used to insert the caller's ENTIRE list — including
+  // milestones already 'received' or 'invoiced', every one of them as a fresh
+  // 'projected' row. The received row survived the delete and the copy was
+  // added beside it, so the project quietly ended up with MORE than 100% of
+  // its value scheduled, and /payments counted that money twice: once under
+  // "received", once under "needed".
+  // A row with no status is new (the builder's unsaved rows) ⇒ projected.
+  //
+  // ⚠️ THE ORIGINAL INDEX IS CARRIED THROUGH THE FILTER. `sort_order` is
+  // encoded as `order:N` in `notes`, and the received rows that survive the
+  // delete keep the N they already have. Re-numbering the survivors 0..n over
+  // the FILTERED list would collide with those — a received row at order:0 and
+  // a projected row also at order:0 — and the builder's ordering would scramble
+  // the next time the list loaded.
+  const insertable = input.milestones
+    .map((m, i) => ({ m, i }))
+    .filter(({ m }) => (m.status ?? 'projected') === 'projected')
+  if (insertable.length === 0) return true
 
-  const rows = input.milestones.map((m, i) => ({
+  const rows = insertable.map(({ m, i }) => ({
     org_id: input.org_id,
     project_id: input.project_id,
     type: 'receivable' as const,
@@ -167,8 +201,12 @@ export function sumMilestonePct(milestones: Array<{ pct: number }>): number {
 export async function markMilestoneReceived(
   milestoneId: string,
 ): Promise<ProjectMilestone | null> {
-  const now = new Date().toISOString()
-  const paymentDate = now.slice(0, 10)
+  // ⛔ LOCAL calendar day, not the UTC one. `new Date().toISOString().slice(0,10)`
+  // rolls over at 8pm Eastern / 5pm Pacific, so an evening payment was stamped
+  // TOMORROW — and on the last evening of a month that pushes the cash into the
+  // next month's column on /payments, understating the month that actually
+  // received it. See the timezone note in lib/payment-schedule.
+  const paymentDate = formatLocalDate(new Date())
   const { data, error } = await supabase
     .from('cash_flow_receivables')
     .update({
@@ -177,7 +215,7 @@ export async function markMilestoneReceived(
     })
     .eq('id', milestoneId)
     .select(
-      'id, project_id, milestone_label, milestone_pct, milestone_trigger, amount, status, expected_date, created_at, notes',
+      'id, project_id, milestone_label, milestone_pct, milestone_trigger, amount, status, expected_date, received_date, created_at, notes',
     )
     .single()
   if (error) {

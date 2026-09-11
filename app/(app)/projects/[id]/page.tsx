@@ -75,6 +75,7 @@ import {
   type BucketMargins,
 } from '@/lib/pricing'
 import { allocateRounded, allocationDrift } from '@/lib/allocate'
+import { todayStamp } from '@/lib/payments'
 import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   loadSubprojectActualHours,
@@ -2407,11 +2408,17 @@ export default function ProjectCoverPage() {
                     org_id: org.id,
                     project_id: projectId,
                     project_total: proj.priceTotal,
+                    // ⛔ `status` MUST travel. saveMilestones deletes only the
+                    // 'projected' rows, so without it every already-received
+                    // milestone was re-inserted as a fresh projected copy —
+                    // the project ended up scheduling more than 100% of its
+                    // value and /payments counted that money twice.
                     milestones: milestones.map((m) => ({
                       label: m.label,
                       pct: m.pct,
                       trigger: m.trigger,
                       expected_date: m.expected_date,
+                      status: m.status,
                     })),
                   })
                   setMilestonesSaving(false)
@@ -2425,14 +2432,20 @@ export default function ProjectCoverPage() {
                 }}
                 onReceived={async (id) => {
                   await markMilestoneReceived(id)
-                  // Optimistic local update — keep the list in place,
-                  // just flip status + stamp received_date so the pill
-                  // turns green immediately.
-                  const today = new Date().toISOString().slice(0, 10)
+                  // Optimistic local update — keep the list in place, just
+                  // flip status + stamp received_date so the pill turns green
+                  // immediately.
+                  // ⛔ received_date, NOT expected_date. This wrote the stamp
+                  // into the wrong field: `received_date` stayed null in local
+                  // state while a fabricated EXPECTED date went in beside it,
+                  // which a subsequent Save then persisted — a made-up forecast
+                  // date reaching the /payments board. And it used the UTC day,
+                  // which rolls over at 8pm Eastern.
+                  const today = todayStamp()
                   setMilestones((prev) =>
                     prev.map((m) =>
                       m.id === id
-                        ? { ...m, status: 'received', expected_date: m.expected_date || today }
+                        ? { ...m, status: 'received', received_date: m.received_date || today }
                         : m,
                     ),
                   )
@@ -3124,6 +3137,7 @@ function MilestoneBuilder({
       amount: Math.round((total * (slack > 0 ? slack : 0)) / 100),
       status: 'projected',
       expected_date: null,
+      received_date: null,
       sort_order: next.length,
     })
     onChange(next)
@@ -3163,6 +3177,7 @@ function MilestoneBuilder({
         amount: Math.round((total * t.pct) / 100),
         status: 'projected',
         expected_date: null,
+        received_date: null,
         sort_order: i,
       }))
     )
