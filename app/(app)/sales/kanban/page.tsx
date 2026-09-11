@@ -28,7 +28,8 @@ import { useConfirm } from '@/components/confirm-dialog'
 import NewProjectModal from '@/components/sales/NewProjectModal'
 import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
-import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus } from 'lucide-react'
+import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus, Search, X } from 'lucide-react'
+import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
 import ImportedBadge from '@/components/imported-badge'
 import { coverStageOf, COVER_STAGE_LABEL, STAGE_COLORS } from '@/components/project/StagePill'
 import type { ProjectStage } from '@/lib/types'
@@ -89,6 +90,7 @@ function KanbanInner() {
   const [noteBody, setNoteBody] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [newOpen, setNewOpen] = useState(false)
+  const [query, setQuery] = useState('')
 
   useEffect(() => {
     if (!org?.id) return
@@ -100,6 +102,10 @@ function KanbanInner() {
     })()
   }, [org?.id])
 
+  // Search filters ACROSS every column — the question "where is the Smith job?"
+  // is exactly the one you can't answer by eye on a five-column board.
+  // No debounce: this filters an array already in memory, so there's nothing to
+  // wait for and a delay would just feel like lag.
   const columns = useMemo(() => {
     const out: Record<SalesStage, SalesProject[]> = {
       new_lead: [],
@@ -108,9 +114,20 @@ function KanbanInner() {
       sold: [],
       lost: [],
     }
-    for (const p of projects) out[p.stage]?.push(p)
+    const q = normalizeQuery(query)
+    for (const p of projects) {
+      if (!matchesProjectSearch(p, q)) continue
+      out[p.stage]?.push(p)
+    }
     return out
-  }, [projects])
+  }, [projects, query])
+
+  /** Total across the board, so an empty result reads as "nothing matched"
+   *  rather than five empty columns that look like a broken page. */
+  const matchCount = useMemo(
+    () => SALES_STAGES.reduce((n, s) => n + columns[s].length, 0),
+    [columns],
+  )
 
   async function handleDrop(targetStage: SalesStage) {
     if (!dragId) return
@@ -175,14 +192,42 @@ function KanbanInner() {
               and opens the pre-production workflow.
             </p>
           </div>
+          {/* Same control, same wording as the projects dashboard — one search
+              box people learn once. */}
+          <div className="relative flex-1 min-w-[200px] max-w-[320px] ml-auto">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search projects or clients…"
+              className="w-full pl-9 pr-9 py-2 text-sm border border-[#E5E7EB] rounded-lg bg-white focus:outline-none focus:border-[#2563EB]"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[#9CA3AF] hover:text-[#111]"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           <button
             onClick={() => setNewOpen(true)}
             data-tour="kanban-new-project"
-            className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] transition-colors whitespace-nowrap"
           >
             <Plus className="w-4 h-4" /> New project
           </button>
         </div>
+
+        {/* An all-empty board is ambiguous — say which it is. */}
+        {query && matchCount === 0 && !loading && (
+          <div className="mb-3 text-sm text-[#6B7280]">
+            No projects match “{query}”.
+          </div>
+        )}
 
         {loading ? (
           <div className="text-sm text-[#9CA3AF] py-16 text-center">Loading…</div>

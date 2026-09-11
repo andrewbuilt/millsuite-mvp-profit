@@ -37,6 +37,7 @@ import { loadProjectActuals } from '@/lib/actual-hours'
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
+import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
 
 interface ProjectRow {
   id: string
@@ -241,15 +242,13 @@ export default function ProjectsPage() {
 
   // Filter (by bucket) + search (client + project name), client-side.
   const visible = useMemo(() => {
-    const q = debouncedQuery.trim().toLowerCase()
+    // Shared with the sales kanban (lib/project-search) so both boxes agree on
+    // what counts as a match.
+    const q = normalizeQuery(debouncedQuery)
     return projects.filter((p) => {
       const e = enriched[p.id]
       if (filter !== 'all' && (!e || e.bucket !== filter)) return false
-      if (q) {
-        const hay = `${p.name || ''} ${p.client_name || ''}`.toLowerCase()
-        if (!hay.includes(q)) return false
-      }
-      return true
+      return matchesProjectSearch(p, q)
     })
   }, [projects, enriched, filter, debouncedQuery])
 
