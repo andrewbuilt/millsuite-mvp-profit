@@ -2320,7 +2320,7 @@ export default function ProjectCoverPage() {
                     disabled={markingDeposit}
                     title={
                       qbMode
-                        ? 'Override the deposit gate (rare failsafe — QB payment forthcoming). No internal invoice is created.'
+                        ? 'Override the deposit gate — only when the money genuinely hasn’t arrived yet. If it HAS, log it on the payments board instead and this gate opens by itself.'
                         : 'Record the deposit on the contract invoice. Creates the invoice if needed.'
                     }
                     className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${
@@ -2336,6 +2336,22 @@ export default function ProjectCoverPage() {
                         ? 'Override: deposit forthcoming'
                         : 'Mark deposit received'}
                   </button>
+                )}
+                {/* ⛔ THE OVERRIDE IS THE FAILSAFE, NOT THE HAPPY PATH.
+                    Logging the real payment opens this gate by itself now
+                    (isDepositReceived reads the ledger), so the action that
+                    records what actually happened has to be at least as easy
+                    to find as the one that skips the check. Before the ledger,
+                    a QB org had no way to satisfy the gate at all and override
+                    was the ONLY route — which is why it reads as the default. */}
+                {stageCover === 'sold' && !depositReceived && (
+                  <Link
+                    href="/payments"
+                    title="Record the deposit that actually arrived. That opens this gate on its own — no override needed."
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0] transition-colors"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Log the deposit
+                  </Link>
                 )}
                 {stageCover === 'production' && (
                   <button

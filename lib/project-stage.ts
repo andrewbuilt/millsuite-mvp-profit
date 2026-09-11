@@ -11,19 +11,24 @@
 //   1. project.stage === 'sold'
 //   2. the project has ≥1 subproject and EVERY subproject's
 //      ready_for_scheduling flag is true (specs + drawings approved)
-//   3. the deposit is in — the project's contract invoice (client_invoices)
-//      has amount_received > 0. Both signals feed it: the QB watcher applies a
-//      real draw, and the manual paths (the "Mark deposit received" button and
-//      the milestone RECEIVED toggle) record a payment on the contract invoice
-//      via ensureContractInvoice + recordInvoicePayment — creating the invoice
-//      first when one doesn't exist yet (the bug that stranded projects in
-//      Pre-Production: the milestone toggle used to no-op with no invoice).
+//   3. the deposit is in. THREE signals now feed this, in order:
+//        a. projects.deposit_override — the manual failsafe.
+//        b. the PAYMENT LEDGER (project_payments, 099) has net money > 0.
+//        c. the contract invoice has amount_received > 0 (QB watcher, or an
+//           internal-mode org recording a payment).
+//      ⛔ (b) EXISTS BECAUSE (c) CAN NEVER FIRE FOR A QUICKBOOKS ORG. In QB
+//      mode nothing in this app writes client_invoices.amount_received — money
+//      is meant to arrive via the watcher — so a QB shop that had genuinely
+//      banked its deposit still saw "deposit forthcoming" and had to override
+//      the gate every single time. Built is a QB org, so that was every job.
+//      Andrew hit it on Bonzer with $51,630 recorded against the project.
 // ============================================================================
 
 import { supabase } from './supabase'
 import { recordProjectEvent } from './project-events'
 import { loadSubprojectStatusMap } from './subproject-status'
 import { seedAllocationsForProduction } from './schedule-seed'
+import { projectReceivedTotal } from './payments'
 import {
   ensureContractInvoice,
   findContractInvoice,
@@ -74,6 +79,19 @@ export async function isDepositReceived(projectId: string): Promise<boolean> {
     .eq('id', projectId)
     .maybeSingle()
   if ((p as { deposit_override?: boolean } | null)?.deposit_override) return true
+
+  // ⛔ THE LEDGER IS THE MOST DIRECT SIGNAL — it literally records cash
+  // arriving, with no dependence on an invoice existing here. Checked BEFORE
+  // the invoice because for a QuickBooks org the invoice check can never pass:
+  // nothing in this app writes amount_received in QB mode.
+  //
+  // "Any net money" matches the invoice rule it sits beside (amount_received
+  // > 0), rather than demanding the first draw be fully covered. A part-paid
+  // deposit that the shop is happy to start on shouldn't need an override, and
+  // the override is still there for the genuinely-forthcoming case.
+  // Net, so a refund that cancels the deposit closes the gate again.
+  if ((await projectReceivedTotal(projectId)) > 0) return true
+
   const inv = await findContractInvoice(projectId)
   if (!inv) return false
   return inv.total > 0 && inv.amount_received > 0

@@ -260,6 +260,31 @@ export async function reschedulePayment(
   }
 }
 
+/**
+ * Net cash received against one project — the sum of its ledger.
+ *
+ * Small and cheap on purpose: this is the DEPOSIT GATE's signal
+ * (`isDepositReceived`), which runs on every project-page load.
+ *
+ * Returns 0 when migration 099 isn't there, so the gate falls through to its
+ * older invoice check rather than throwing on a pre-099 database.
+ */
+export async function projectReceivedTotal(projectId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('project_payments')
+    .select('amount')
+    .eq('project_id', projectId)
+  if (error) {
+    if (!isMissingRelation(error)) console.error('projectReceivedTotal', error)
+    return 0
+  }
+  const sum = (data || []).reduce(
+    (s: number, r: { amount: number | null }) => s + (Number(r.amount) || 0),
+    0,
+  )
+  return Math.round(sum * 100) / 100
+}
+
 /** Today as a bare calendar day, for stamping `received_date`.
  *  ⛔ Not `new Date().toISOString().slice(0,10)` — that's the UTC day, so any
  *  shop west of Greenwich marking a payment received in the evening stamps
