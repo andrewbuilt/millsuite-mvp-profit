@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-11 · **Branch:** `main`
 
-**Left off:** wave 4 + Payments v2 both built and pushed; migrations `098` and `099` ✅ both on prod. **Next obvious step: Andrew's live pass — log a payment that doesn't match its draw** and watch the final draw absorb it. Then the last scoped item, **`/pm`**.
+**Left off:** wave 4 + Payments v2 built; migrations `098` and `099` ✅ on prod. **Andrew's first real payment found two bugs — both fixed (`634c0eb`)**: a phantom "$1" card from sub-dollar rounding, and dragging a card changing which draw counted as paid. **Next: re-check Murtagh Bar on the board**, then the last scoped item, **`/pm`**.
 
 ---
 
@@ -256,6 +256,12 @@ Partial, overpaid and out-of-order payments are just rows. **⛔ "MARK RECEIVED"
 - **QuickBooks: manual entry, no auto-matching.** Bookkeeping stays in QB. `qb_event_id` is a hook, not a feature.
 
 **Verified:** `scripts/verify-payment-ledger.mjs` — **500 fuzzed schedules** asserting the one invariant (`received + outstanding == contract total`, no draw ever negative) plus the named cases: odd amounts, overflow, out-of-order, CO up, CO down, a cut deep enough to walk backwards past a paid draw, overpayment-as-credit, refunds, cents. `scripts/verify-payments.mjs` still runs the calendar guard in three timezones.
+
+**⛔ TWO BUGS ANDREW HIT ON THE FIRST REAL PAYMENT — FIXED (`634c0eb`).** Murtagh Bar, an imported job. Both were reproduced before fixing, and both regression tests were confirmed to FAIL against the old code.
+1. **A PHANTOM "$1" CARD.** Contract **$26,227 — an ODD number**. Half is $13,113.50, but the deposit draw was stored **rounded to $13,114** at save time. The client paid the true half, leaving **$0.50** "outstanding" — which at a $0.005 tolerance read `partial` and rendered as a card saying **"$1"** with the badge "$13,114 of $13,114 in" (both numbers round to the same figure, so it looked self-contradicting). ⛔ **Draws are stored in WHOLE DOLLARS; contracts and real payments carry CENTS.** The comparison must match the resolution the money is DISPLAYED at, so **a draw owing under $1 is now SETTLED**. A genuine part-payment still reads partial — the tolerance is a dollar, not a licence to round away debt.
+2. **DRAGGING A CARD CHANGED WHICH DRAW WAS PAID.** `reconcileAll` sorted by `expectedDate` — *the exact field dragging writes* — so moving a card reordered the waterfall and the "paid" one jumped. Andrew: *"then changes when I move the new card."* ⛔ **Deposit-then-final is a property of the AGREEMENT; a forecast date is a guess about timing and must never decide which draw a payment settled.** Now ordered by the authored `sortOrder` (`order:N` in `notes`, as `rowToMilestone` reads it), created_at as tiebreak, and a row with no order sorts **last** so it can't hijack the deposit slot.
+- **`reconcileAll` MOVED to `lib/payment-ledger`** — it's pure, and the sort it owns is what broke. ⚠️ Testing `reconcileProject` alone passes trivially (it takes the array already ordered), so a regression test **must** go through `reconcileAll`.
+- ⚠️ **Rounded draws vs an odd contract is NORMAL, not rare.** Any contract that doesn't divide evenly by the percentages leaves sub-dollar residue. Expect it; don't "fix" it by rounding payments.
 
 **Andrew's live pass:** log a payment that DOESN'T match its draw and watch the final draw absorb it · a partial payment shows "X of Y in" · drag a draw between months · the project page shows ledger-only post-sale · foot a month's totals by hand.
 
