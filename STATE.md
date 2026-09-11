@@ -4,13 +4,17 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-09-04 · **Branch:** `main`
+**Last updated:** 2026-09-11 · **Branch:** `main`
+
+**Left off:** wave 4 is done and pushed (`973d9d0`). **Next obvious step: Andrew runs migration `098` on prod and does a live pass** (the deploy itself is safe to ship first — see CURRENT FOCUS). After that, `/payments`, then `/pm`.
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-09-04)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-09-11)
 
-**NEW 2026-09-04 (Cowork pass): "SMALL FIXES WAVE 4" + TWO DASHBOARDS scoped — BUILD NEXT, in order.** Wave 4 (items 1–8): six task-system upgrades (assigner shown · per-person Archive, no new page · links · done timestamps · custom tags · project chip → link; migration `098` for links+tags) · kanban search · subproject PRICE on the project page (rounding must sum exactly to the project total). Then **`/payments`** (upcoming draws by month, drag to reschedule, mark received, needed-vs-received totals — milestones already carry `expected_date` + status) and last **`/pm`** (per-viewer manager home for Kaylin: today's tasks · payments box · parser drop). Specs at the top of Now.
+**✅ 2026-09-11: SMALL FIXES WAVE 4 — ALL EIGHT ITEMS BUILT AND PUSHED** (`2707173` migration · `e171f16` task items 1–6 · `c782336` kanban search · `973d9d0` subproject price). tsc clean, production `next build` clean, tour targets PASS 57/44, four verification scripts pass.
+- **⛔ ANDREW OWES ONE THING: RUN MIGRATION `098` ON PROD.** SQL is in `db/migrations/098_task_links_tags.sql`. **The deploy is SAFE to ship BEFORE the migration** — probed prod 2026-09-11 (42703 confirmed), and the code degrades: tasks work, links and tags simply hide until the columns exist. After running it, re-probe with `node --env-file=.env.local scripts/verify-migration.mjs tasks:links,tags orgs:task_tags`.
+- **NEXT UP, unchanged:** **`/payments`** (upcoming draws by month, drag to reschedule, mark received, needed-vs-received totals) then **`/pm`** (per-viewer manager home for Kaylin). Both still NOT built; full specs in Now.
 
 **⛔ 2026-09-04: THE STALENESS BANNER WAS FIRING ON LINES THAT CANNOT BE RECOMPUTED — FIXED (`a951d97`).** Andrew: "pops up randomly… doesn't seem like it makes any sense." **`computeBreakdown` resolves every slot with `find() || null` and prices a null as ZERO**, so an id that stops resolving (archived material, deleted door type) doesn't error — the line recomputes far cheaper, trips the threshold, and flags a line nobody touched.
 - **⚠️ THE BANNER WAS THE SYMPTOM; THE HAZARD IS THE REFRESH.** "Update to latest rates" WRITES the recomputed numbers back, so refreshing one of these would have **banked the zero and deleted real material cost from a live estimate**. Same shape as the imported re-pricing bug.
@@ -162,23 +166,39 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 
 ## Now
 
-### Small fixes wave 4 — scoped 2026-09-04 (Cowork pass with Andrew). **Build 1–8 in order; then the two dashboard sections below. Migration `098` (items 3+5) before deploying those.**
+### Small fixes wave 4 — ✅ ALL EIGHT BUILT 2026-09-11. **Only blocker: migration `098` on prod (see CURRENT FOCUS). Then Andrew's live pass.**
 
-**1. Show who assigned a task.** `tasks.created_by` already stores it (093) — render "by {name}" on the task detail (and small on the card if it fits); resolve names through the roster like assignees.
+**⛔ MIGRATION `098` IS NOT ON PROD YET — AND THAT IS SAFE.** Probed 2026-09-11: `tasks.links`, `tasks.tags`, `orgs.task_tags` all 42703. **Deploy first if you like; nothing breaks.** PostgREST fails an ENTIRE select on one unknown column, so `lib/tasks` asks for the new columns optimistically, and on 42703/PGRST204 drops them for the session and retries — the task list degrades instead of coming back empty, and the UI hides the links/tags affordances rather than offering controls whose every save would throw. Re-probe after running it:
+`node --env-file=.env.local scripts/verify-migration.mjs tasks:links,tags orgs:task_tags`
 
-**2. Per-person task archive — collapsible, NO new page (Andrew's constraint: "without making another page").** Today Done hides after ~7 days. Change: completed tasks keep forever; the Done section becomes **"Archive," collapsed by default**, and it **respects the existing Mine/person filter** — person filter + Archive = that person's archive. Same treatment on the panel and `/tasks`. Newest-first; group by month if long.
+**1 ✅ Who added a task.** ⛔ **`created_by` IS A LOGIN ID (`users.id`); `assignee_ids` ARE ROSTER IDS (`orgs.team_members[].id`).** Two id spaces that look identical and fail SILENTLY when swapped. `users_select_self` (084) forbids the browser reading anyone else's `users` row, so the only client-side resolution is the roster's `user_id` bridge — that's `nameByUserId` in the provider, deliberately a **different map** from `nameById`. An unlinked login can't be named at all, so the line is omitted rather than printing "Unknown" on every task in a shop that hasn't done the /team linking pass.
+- **This bug was ALREADY SHIPPED and nobody had noticed:** the comment header looked an `author_user_id` up in the ROSTER map, never matched, and attributed **every comment in the system** to "Someone". Fixed in the same commit.
 
-**3. Links on tasks.** Migration `098`: `tasks.links` jsonb default '[]' (array of `{url, label?}`). Detail view: add/remove links, rendered as clickable rows (no favicon gold-plating). URLs pasted in comments auto-link (display-only regex).
+**2 ✅ Archive (no new page).** Completed tasks are kept forever. ⚠️ **`listTasks` IS OPEN-ONLY NOW** — completed rows no longer ride along with the list, because fetching a shop's whole history on every page load to render a *collapsed* section is absurd. `listArchivedTasks` loads on expand. Respects the person AND tag filters (that's the feature: person + Archive = that person's archive), groups by month past 12 rows, **capped at 500 and it says so when capped**.
 
-**4. Timestamp completed tasks.** `done_at` is already stored — display it ("Done Sep 4, 2:14 pm") in Archive rows and the detail. No schema change.
+**3 ✅ Links.** ⛔ **AN HREF IS EXECUTABLE.** `javascript:` in a task link is stored XSS against every manager who opens that task. `lib/task-links` is an **allowlist** (http/https/mailto/tel), not a blocklist, and strips the control + zero-width characters a browser ignores *before* testing the scheme — otherwise `java\nscript:` runs. Comment URLs auto-link **display-only**; the stored body is never rewritten. 38 cases in `scripts/verify-task-links.mjs`.
+- ⚠️ **One real bug came out of those tests:** the strip removed ` ` too, so the "this is prose, not a URL" guard ran *after* its own evidence was deleted and **"call Dave tomorrow" became `https://calldavetomorrow`**. Order is load-bearing; there's a comment saying so.
 
-**5. Custom tags on tasks.** Migration `098` (same file): `tasks.tags` jsonb default '[]' (array of tag NAMES) + `orgs.task_tags` jsonb registry (`[{name, color}]`) — create-tag inline from the task editor, small manage affordance for rename/recolor (rename does NOT rewrite existing tasks in v1 — tags are names, not ids; note it in the UI copy). Tag chips on cards + a tag filter row beside the person filter. ⛔ the `orgs` write goes through `updateOrgChecked`.
+**4 ✅ Done timestamps.** One formatter (`formatDoneAt`) so the archive row and the detail can't drift. Year printed only when it isn't the current one — an archive kept forever eventually holds two Septembers. ⚠️ The copy in `TaskRow` is defensive, not live (a TaskRow's `done_at` is always null now); `TaskArchive` is what actually renders it.
 
-**6. Project chip on the task card → link.** The chip already renders; make it navigate to the project (`stopPropagation` so it doesn't toggle the card).
+**5 ✅ Tags.** Inline create from the row, manage popover for rename/recolour, filter row beside the people. `orgs` write goes through `updateOrgChecked`. ⛔ **Tasks store tag NAMES — the registry is only the picker and the colour**, so a rename does NOT rewrite tasks already tagged; they keep the old name and fall back to neutral. The rename warning in the UI is not decoration.
 
-**7. Kanban search.** Port the projects dashboard's search (name + client) to `/sales/kanban`, filtering across all columns; empty columns still render their headers.
+**6 ✅ Project chip → link.** ⛔ **`stopPropagation` COULD NOT HAVE FIXED THIS.** The collapsed row was ONE `<button>` wrapping the title *and* the chips, and an `<a>` inside a `<button>` is invalid HTML. The title is now the expand affordance and the chip row is its sibling — which also makes the chip a **real anchor**, so cmd-click and middle-click open the job in a new tab.
 
-**8. Subproject price on the project page.** Sub cards show pre-margin COST while the project total is PRICE — inconsistent (Andrew: "it shows premargin but the project total is the correct price"). Show each sub's **price** (same margin math as the project total), with rounding allocated so sub prices **sum exactly** to the project total (largest-remainder). Keep cost as the secondary figure if it fits ("$12,400 · cost $8,060"). The subproject PAGE's cost panel stays cost-only — that page is explicitly cost-basis. ⚠️ Mind the new `quantity` scaling (097) — price derives from the already-scaled rollup.
+**7 ✅ Kanban search.** Filters across all columns; empty columns keep their headers; an all-empty board says "No projects match X". The predicate was **extracted to `lib/project-search` and the projects dashboard now reads it too** — a second inline copy is how "it finds it on one page but not the other" starts. No debounce (in-memory array; a delay would only feel like lag).
+
+**8 ✅ Subproject PRICE on the project page.** Cards priced their own buckets through `computeBucketedPrice`; cost kept as the quiet second figure, omitted when the two are equal.
+- ⛔ **THE MARGINS OBJECT IS THE PROJECT'S, NOT A FRESH ONE.** That is the whole reason an IMPORTED job stays frozen — the importer pins margins to 0, so price == cost. Re-deriving margins here would have been the **FOURTH** surface to re-price a frozen job.
+- **Why the sum works:** `computeBucketedPrice` is **linear per bucket** (`priceFromMargin` is `cost/(1-f)`), so exact per-sub prices already sum to the project price. Only whole-dollar *display* rounding breaks it. `lib/allocate` fixes exactly that with largest-remainder. **That linearity is ASSERTED, not assumed** — add a minimum, a cap or a tiered rate and `scripts/verify-subproject-price.mjs` fails loudly instead of the cards quietly drifting.
+- ⛔ **DISPLAY ONLY — never written back.** And when the parts genuinely don't sum to the whole (>$1 drift = something in the total belongs to no subproject) it **refuses to allocate and warns**, because forcing the sum would smear that amount invisibly across the cards. The subproject PAGE stays cost-only.
+- ⚠️ **Known asymmetry, pre-existing:** the QuickBooks seed lines still round each sub independently, so QB line prices can miss the project total by a dollar where the cards now can't.
+
+**⚠️ FOUR REAL BUGS CAME OUT OF THE REVIEW PASS, all fixed before commit — worth knowing because three were in the pre-098 fallback, which is the code path running RIGHT NOW:**
+- the "098 present?" flag flipped back to `true` on the BASE retry, so it **oscillated every refresh** — tags and links appeared and vanished on alternate saves;
+- gating the retry on the SHARED flag meant two concurrent queries raced and the loser **skipped its retry and returned an EMPTY TASK LIST** (reachable: the Archive toggle is clickable during the first load);
+- `createTask` had **no fallback at all** — its RETURNING clause names the new columns, so one stale flag left "New task" broken for the rest of the session;
+- two copies of the tag-filter hook raced over one localStorage key, so the drawer and `/tasks` showed **different filters** (the drawer is mounted app-wide and returns null *after* its hooks run, so both were live at once). It lives in the provider now.
+Also: a failed archive fetch no longer counts as loaded (it said "Nothing completed yet" and cached that forever), the archive resets on org change, and the "Manage tags" gear can now close its own popover.
 
 ### Upcoming payments dashboard — scoped 2026-09-04, NOT built. **Build after wave 4.**
 
