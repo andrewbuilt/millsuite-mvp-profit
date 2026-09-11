@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-11 · **Branch:** `main`
 
-**Left off:** wave 4 + Payments v2 built; migrations `098` and `099` ✅ on prod. **Andrew's first real payment found two bugs — both fixed (`634c0eb`)**: a phantom "$1" card from sub-dollar rounding, and dragging a card changing which draw counted as paid. Andrew confirmed the board works after that. **The deposit gate now opens off a recorded payment (`77ab790`)** — no more mandatory override on QB jobs. Then Leonard turned up missing — **sold jobs with no draw schedule were invisible (`a825fcc`)**; there's now a tray for them and the builder reappears so they can be set up. **⚠️ Andrew owes a pass setting up draws on Leonard ×3, Kinser and Gus Bus** (~$600k of contract value untracked). **Then the last scoped item, `/pm`.**
+**Left off:** wave 4 + Payments v2 built; migrations `098` and `099` ✅ on prod. **Andrew's first real payment found two bugs — both fixed (`634c0eb`)**: a phantom "$1" card from sub-dollar rounding, and dragging a card changing which draw counted as paid. Andrew confirmed the board works after that. **The deposit gate now opens off a recorded payment (`77ab790`)** — no more mandatory override on QB jobs. Then Leonard turned up missing — **sold jobs with no draw schedule were invisible (`a825fcc`)**; there's now a tray for them and the builder reappears so they can be set up. **⚠️ Andrew owes a pass setting up draws on Leonard ×3, Kinser and Gus Bus** (~$600k of contract value untracked). **✅ `/pm` BUILT (`fa14050`) — that was the last scoped item; nothing is queued.**
 
 ---
 
@@ -282,13 +282,25 @@ Partial, overpaid and out-of-order payments are just rows. **⛔ "MARK RECEIVED"
 
 **⚠️ Superseded:** the `saveMilestones` delete-and-re-insert race noted earlier is no longer worth its own pass for DATES (they're only edited on /payments now). The delete+insert still churns row ids on a pre-sale save, which is harmless today. Leave it.
 
-### Manager dashboard (`/pm`) — scoped 2026-09-04, NOT built. **Build LAST; the payments page it needs now EXISTS (`lib/payments` → `loadOrgPayments` + `buildPaymentsView`).**
+### Manager dashboard (`/pm`) — ✅ BUILT 2026-09-11 (`fa14050`). **No migration. Nothing blocking — Andrew's live pass.**
 
-**Andrew: "a project manager dashboard for Kaylin — we'll add more here later."** Built as a per-viewer manager home, not a Kaylin-only page (she's the first user; the page is generic): route **`/pm`**, role-gated owner/admin/manager, personal to the signed-in viewer.
-- **Today's tasks:** viewer's Mine ∩ Today (+ a Mine ∩ This Week count), reusing task components; "View all" → `/tasks`.
-- **Upcoming payments box:** this month's Needed/Received + the next few milestone cards, from the `/payments` data layer; links to `/payments`.
-- **Material-invoice parser drop:** reuse the main dashboard's parser dropzone component as-is.
-- Three cards, room to grow ("we'll add more here later"). Nav under Manage. **Don't change the RoleGate landing** — making it the manager's post-login home is a later call.
+**Andrew: "a project manager dashboard for Kaylin — we'll add more here later."** Built **generic**, not Kaylin-specific: every card is scoped to the signed-in viewer, so it's the same page for any manager. Nav: **"My day"** under Manage, ungated.
+- **Today** — the viewer's own Today bucket, rendered with **the real `TaskRow`**, not a lookalike. Same Mine fallback as the nav badge (a login with no roster row sees everything, so the misconfiguration is visible rather than an undiagnosable empty list). "View all" → `/tasks`.
+- **Money in** — this month's Needed / Received read from the **`/payments` data layer**, so the two can't disagree. Past due and No-date are their OWN labelled lines.
+- **Quick upload** — `components/invoice-parser` reused as-is (no props; it reads `useAuth` internally).
+
+**⛔ NO NEW ROLE CHECK, DELIBERATELY.** `RoleGate` already confines `member` to `/me`, so any route that isn't `/me` is owner/admin by construction; a second check is a second thing to keep in step. **The post-login landing is untouched.**
+- ⚠️ **The scope note said "owner/admin/manager" — THERE IS NO `manager` ROLE.** The app has **owner / admin / member**. Kaylin is an admin.
+
+**⛔ FOUR THINGS CAME OUT OF REVIEWING IT, ALL FIXED BEFORE COMMIT. The first is the one to remember:**
+1. **UNDATED DRAWS WERE BEING DROPPED — the same failure class as the Leonard bug fixed hours earlier, reproduced immediately in brand-new code.** `buildPaymentsView` PARTITIONS its result (month buckets / `overdue` / `unscheduled`); reading only `months[0]` silently loses real money owed. **⚠️ GENERAL RULE: when a function partitions rows, consuming one bucket is how rows disappear. Account for every bucket or say why not.**
+2. **Past-due money was folded into a figure labelled "September"**, which would have made this card disagree with `/payments` for the same month — contradicting the card's own reason for existing. Separate lines now, and every preview row SAYS whether it's past due / this month / undated (a gray date gives a manager no way to tell late from upcoming).
+3. **`led.missing` was ignored**, so Received rendered a confident **"$0" that was a lie rather than a zero**. Shows `—` + a note now.
+4. **`addTag` hardcoded gray.** The tag registry is **org-wide**, so a tag created from a /pm row would have been gray *everywhere, forever*. Matches the other two surfaces now.
+
+**Andrew's live pass:** the Today card should show only YOUR tasks and stay in step with `/tasks` (check a task off in one, reload the other) · Needed/Received should match `/payments` for this month · drop an invoice on Quick upload.
+
+**Room to grow** — Andrew's "we'll add more here later". Three cards in a 2/1 grid; add to the right-hand column.
 
 ### Subproject quantity ("QTY 4 of this cabinet") — ✅ BUILT 2026-09-04 (`39b4d67`); migration `097` ✅ ON PROD + VERIFIED. **Nothing blocking.**
 
