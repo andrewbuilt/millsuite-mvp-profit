@@ -98,6 +98,45 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
   return { rows, contractTotals, error: null }
 }
 
+/** A sold job, for spotting the ones with no draw schedule at all. */
+export interface SoldProjectRef {
+  id: string
+  name: string
+  clientName: string | null
+  contractTotal: number
+}
+
+/**
+ * Every sold-or-later project, whether or not it has any draws.
+ *
+ * ⛔ WHY THIS EXISTS. `loadOrgPayments` selects FROM `cash_flow_receivables`,
+ * so a project with no milestone rows produces no rows and simply cannot
+ * appear — the board can't tell "this job has no schedule" from "this job
+ * doesn't exist". Andrew: "i dont see any of the Leonard payments."
+ *
+ * Three sold jobs worth $426,032 were invisible, and the board's own
+ * "still owed across every sold job" line was quietly understating the book by
+ * more than it was reporting. A cash-flow tool that silently omits contracts
+ * is worse than one that shows nothing.
+ */
+export async function loadSoldProjects(orgId: string): Promise<SoldProjectRef[]> {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id, name, client_name, bid_total')
+    .eq('org_id', orgId)
+    .in('stage', POSTSOLD_STAGES)
+  if (error) {
+    console.error('loadSoldProjects', error)
+    return []
+  }
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    name: r.name || 'Untitled project',
+    clientName: r.client_name ?? null,
+    contractTotal: Number(r.bid_total) || 0,
+  }))
+}
+
 // ── The ledger (migration 099) ──────────────────────────────────────────────
 
 const LEDGER_COLUMNS = 'id, project_id, amount, payment_date, method, reference, notes'

@@ -26,7 +26,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, CalendarClock, Inbox, Plus, Trash2, X } from 'lucide-react'
+import { AlertTriangle, CalendarClock, FileQuestion, Inbox, Plus, Trash2, X } from 'lucide-react'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
 import {
@@ -36,6 +36,7 @@ import {
   deletePayment,
   loadOrgLedger,
   loadOrgPayments,
+  loadSoldProjects,
   logPayment,
   monthId,
   monthLabel,
@@ -49,6 +50,7 @@ import {
   type LedgerEntry,
   type MonthKey,
   type PaymentRow,
+  type SoldProjectRef,
 } from '@/lib/payments'
 
 /** How many months the board shows at once. Three is the horizon a shop plans
@@ -77,6 +79,7 @@ export default function PaymentsPage() {
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [totals, setTotals] = useState<Record<string, number>>({})
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
+  const [soldProjects, setSoldProjects] = useState<SoldProjectRef[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [ledgerMissing, setLedgerMissing] = useState(false)
@@ -91,7 +94,12 @@ export default function PaymentsPage() {
 
   const refresh = useCallback(async () => {
     if (!org?.id) return
-    const [sched, led] = await Promise.all([loadOrgPayments(org.id), loadOrgLedger(org.id)])
+    const [sched, led, sold] = await Promise.all([
+      loadOrgPayments(org.id),
+      loadOrgLedger(org.id),
+      loadSoldProjects(org.id),
+    ])
+    setSoldProjects(sold)
     setLoadError(sched.error || led.error)
     setLedgerMissing(led.missing)
     // Don't blank the board on a failed refresh — a failed drag would otherwise
@@ -127,20 +135,36 @@ export default function PaymentsPage() {
     [derived],
   )
 
-  /** Projects that can receive a payment: every sold job that has draws. */
-  const projectOptions = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const r of rows) m.set(r.projectId, r.projectName)
-    return [...m.entries()]
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [rows])
+  /** Every sold job can receive a payment — INCLUDING ones with no draw
+   *  schedule. Deriving this from the schedule meant a job with no draws
+   *  couldn't even be picked in the Log-a-payment modal. */
+  const projectOptions = useMemo(
+    () =>
+      [...soldProjects]
+        .map((p) => ({ id: p.id, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [soldProjects],
+  )
+
+  /**
+   * Sold jobs with NO draw schedule at all.
+   * ⛔ Surfaced, never silently omitted — the board reads FROM the schedule, so
+   * these contribute nothing to any total and would otherwise be invisible
+   * money. This is how $426k of Leonard work went missing.
+   */
+  const unscheduledProjects = useMemo(() => {
+    const withDraws = new Set(rows.map((r) => r.projectId))
+    return soldProjects
+      .filter((p) => !withDraws.has(p.id))
+      .sort((a, b) => b.contractTotal - a.contractTotal)
+  }, [rows, soldProjects])
 
   const projectNameById = useMemo(() => {
     const m = new Map<string, string>()
+    for (const p of soldProjects) m.set(p.id, p.name)
     for (const r of rows) m.set(r.projectId, r.projectName)
     return m
-  }, [rows])
+  }, [rows, soldProjects])
 
   async function run(id: string, fn: () => Promise<unknown>) {
     setBusyId(id)
@@ -254,7 +278,7 @@ export default function PaymentsPage() {
 
           {loading ? (
             <div className="text-sm text-[#9CA3AF] py-16 text-center">Loading payments…</div>
-          ) : rows.length === 0 && !loadError ? (
+          ) : rows.length === 0 && unscheduledProjects.length === 0 && !loadError ? (
             <div className="px-6 py-10 bg-white border border-dashed border-[#E5E7EB] rounded-xl text-center">
               <div className="text-sm text-[#374151] font-medium mb-1">
                 No draw payments yet.
@@ -266,6 +290,50 @@ export default function PaymentsPage() {
             </div>
           ) : (
             <>
+              {/* ⛔ Sold jobs with NO draw schedule. The board reads FROM the
+                  schedule, so these contribute to no total and would otherwise
+                  be invisible — which is exactly how three Leonard jobs worth
+                  $426k went missing from a cash-flow page. */}
+              {unscheduledProjects.length > 0 && (
+                <section className="mb-4 bg-white border border-[#FDE68A] rounded-xl overflow-hidden">
+                  <div className="px-4 py-2.5 bg-[#FFFBEB] border-b border-[#FDE68A] flex items-center gap-2 flex-wrap">
+                    <FileQuestion className="w-3.5 h-3.5 text-[#92400E]" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#92400E]">
+                      No payment schedule · {unscheduledProjects.length}
+                    </span>
+                    <span className="text-[11px] text-[#B45309]">
+                      sold, but no draws set up — none of this is tracked below
+                    </span>
+                    <span className="ml-auto text-[13px] font-mono tabular-nums font-semibold text-[#92400E]">
+                      {money(unscheduledProjects.reduce((s, p) => s + p.contractTotal, 0))}
+                    </span>
+                  </div>
+                  <div className="p-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5">
+                    {unscheduledProjects.map((p) => (
+                      <Link
+                        key={p.id}
+                        href={`/projects/${p.id}`}
+                        className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 hover:border-[#FDE68A] hover:bg-[#FFFBEB] transition-colors"
+                      >
+                        <div className="flex items-start gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[12.5px] font-medium text-[#111] truncate">
+                              {p.name}
+                            </div>
+                            <div className="text-[10.5px] text-[#6B7280] truncate">
+                              {p.clientName || 'No client'} · set up draws →
+                            </div>
+                          </div>
+                          <div className="text-[13px] font-semibold font-mono tabular-nums text-[#111] flex-shrink-0">
+                            {money(p.contractTotal)}
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {view.overdue.length > 0 && (
                 <section className="mb-4 bg-white border border-[#FECACA] rounded-xl overflow-hidden">
                   <div className="px-4 py-2.5 bg-[#FEF2F2] border-b border-[#FECACA] flex items-center gap-2">
@@ -392,8 +460,18 @@ export default function PaymentsPage() {
               </div>
 
               <div className="mt-4 text-[11px] text-[#9CA3AF]">
-                {money(outstandingTotal)} still owed across every sold job —
-                including months outside this window.
+                {money(outstandingTotal)} still owed across every sold job with
+                a schedule — including months outside this window.
+                {unscheduledProjects.length > 0 && (
+                  <>
+                    {' '}
+                    <span className="text-[#B45309]">
+                      Another{' '}
+                      {money(unscheduledProjects.reduce((s, p) => s + p.contractTotal, 0))}{' '}
+                      of contract value has no draws set up and isn’t counted.
+                    </span>
+                  </>
+                )}
               </div>
             </>
           )}

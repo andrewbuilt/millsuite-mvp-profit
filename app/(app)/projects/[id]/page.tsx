@@ -416,6 +416,8 @@ export default function ProjectCoverPage() {
   // below) + the in-flight flag for the manual Start production action.
   const [readyForProduction, setReadyForProduction] = useState(false)
   const [depositReceived, setDepositReceived] = useState(true)
+  /** Avoids a flash of the builder before the schedule has loaded. */
+  const [milestonesLoaded, setMilestonesLoaded] = useState(false)
   const [markingDeposit, setMarkingDeposit] = useState(false)
   const [startingProduction, setStartingProduction] = useState(false)
   const [newSubOpen, setNewSubOpen] = useState(false)
@@ -611,6 +613,7 @@ export default function ProjectCoverPage() {
     setDeptKeyById(deptKeyMap)
     setSubStatusMap(statuses)
     setMilestones(ms)
+    setMilestonesLoaded(true)
     setMilestonesDirty(false)
     setHistorical(
       (histData || []).map((h: any) => ({
@@ -2416,7 +2419,12 @@ export default function ProjectCoverPage() {
                   worthless after the sale… that can instead be a link to the
                   payments page, or show a timestamp of the payment we received
                   and the amount." */}
-              {!isPresold(project.stage) ? (
+              {/* ⛔ A SOLD JOB WITH NO SCHEDULE STILL NEEDS ONE. Locking the
+                  builder post-sale protects an agreed schedule — but when
+                  there ISN'T one there's nothing to protect, and hiding it
+                  left the job permanently untrackable with no way to fix it.
+                  Three Leonard jobs ($426k) were in exactly that state. */}
+              {!isPresold(project.stage) && (milestonesLoaded ? milestones.length > 0 : true) ? (
                 <ProjectPaymentLedger
                   projectId={projectId}
                   // bid_total is the CONTRACT — the number the client signed.
@@ -2424,6 +2432,14 @@ export default function ProjectCoverPage() {
                   contractTotal={Number(project.bid_total) || proj.priceTotal}
                 />
               ) : (
+              <>
+              {!isPresold(project.stage) && (
+                <div className="mt-4 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-[11.5px] text-[#92400E]">
+                  This job is sold but has no payment schedule, so none of its
+                  value shows on the payments board. Set the draws up here —
+                  after that this section becomes a read-only ledger.
+                </div>
+              )}
               <MilestoneBuilder
                 milestones={milestones}
                 total={proj.priceTotal}
@@ -2485,6 +2501,7 @@ export default function ProjectCoverPage() {
                 dirty={milestonesDirty}
                 saving={milestonesSaving}
               />
+              </>
               )}
 
               {/* Item 4 of post-sale-2: Client picker. Pre-sold = full
