@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-11 · **Branch:** `main`
 
-**Left off:** wave 4 done + `098` on prod; **Payments v2 BUILT and pushed (`b0eee04`)** — schedule and ledger separated. **Next obvious step: Andrew runs migration `099`, then a live pass** (log a payment that doesn't match its draw). Then the last scoped item, **`/pm`**.
+**Left off:** wave 4 + Payments v2 both built and pushed; migrations `098` and `099` ✅ both on prod. **Next obvious step: Andrew's live pass — log a payment that doesn't match its draw** and watch the final draw absorb it. Then the last scoped item, **`/pm`**.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **✅ 2026-09-11: SMALL FIXES WAVE 4 — ALL EIGHT ITEMS BUILT AND PUSHED** (`2707173` migration · `e171f16` task items 1–6 · `c782336` kanban search · `973d9d0` subproject price). tsc clean, production `next build` clean, tour targets PASS 57/44, four verification scripts pass.
 - **✅ MIGRATION `098` IS ON PROD AND VERIFIED** (2026-09-11, `verify-migration` reports both tables PASS and in the schema cache). Links and tags are live. **Nothing blocking — only Andrew's live pass.**
-- **✅ `/payments` BUILT — then REBUILT as "Payments v2" (`b0eee04`) after Andrew reframed it:** draws and actual cash are now separate (schedule + ledger), so a client paying an amount nobody projected is an ordinary row instead of the thing that broke Built OS. **⛔ NEEDS MIGRATION `099` ON PROD** (safe to deploy first — the page degrades with a banner). Along the way it turned up **four real bugs in existing money code**, including one that let a project schedule >100% of its value and one where change orders silently leave draws not summing to the total. **NEXT AND LAST: `/pm`** — still NOT built; spec in Now.
+- **✅ `/payments` BUILT — then REBUILT as "Payments v2" (`b0eee04`), and MIGRATION `099` IS ON PROD.** After Andrew reframed it: draws and actual cash are now separate (schedule + ledger), so a client paying an amount nobody projected is an ordinary row instead of the thing that broke Built OS. Along the way it turned up **four real bugs in existing money code**, including one that let a project schedule >100% of its value and one where change orders silently leave draws not summing to the total. **NEXT AND LAST: `/pm`** — still NOT built; spec in Now.
 
 **⛔ 2026-09-04: THE STALENESS BANNER WAS FIRING ON LINES THAT CANNOT BE RECOMPUTED — FIXED (`a951d97`).** Andrew: "pops up randomly… doesn't seem like it makes any sense." **`computeBreakdown` resolves every slot with `find() || null` and prices a null as ZERO**, so an id that stops resolving (archived material, deleted door type) doesn't error — the line recomputes far cheaper, trips the threshold, and flags a line nobody touched.
 - **⚠️ THE BANNER WAS THE SYMPTOM; THE HAZARD IS THE REFRESH.** "Update to latest rates" WRITES the recomputed numbers back, so refreshing one of these would have **banked the zero and deleted real material cost from a live estimate**. Same shape as the imported re-pricing bug.
@@ -226,9 +226,11 @@ Also: a failed archive fetch no longer counts as loaded (it said "Nothing comple
 
 **Andrew's live pass:** every unpaid draw appears exactly once · drag persists across reload · received moves from Needed to Received · **month totals foot by hand against 2–3 real projects** (the query is verified, the totals are not — that needs a signed-in session).
 
-### Payments v2 — ledger + schedule. **✅ BUILT 2026-09-11 (`b0eee04`). ⛔ MIGRATION `099` NOT YET ON PROD.** Then Andrew's live pass.
+### Payments v2 — ledger + schedule. **✅ BUILT 2026-09-11 (`b0eee04`); MIGRATION `099` ✅ ON PROD AND VERIFIED.** Nothing blocking — Andrew's live pass is all that's left.
 
-**⛔ ANDREW OWES: RUN MIGRATION `099`** (`db/migrations/099_project_payments.sql`). **Safe to deploy first** — `loadOrgLedger` detects the missing table and the page degrades to a schedule-only view with a banner saying why. Verify after: `node --env-file=.env.local scripts/verify-migration.mjs project_payments:id,org_id,project_id,amount,payment_date,method,reference,notes,qb_event_id`
+**✅ MIGRATION `099` RAN ON PROD 2026-09-11 AND IS VERIFIED** — all eleven columns of `project_payments` are in the schema cache. Logging payments is live.
+- ⚠️ **The missing-table fallback in `loadOrgLedger` STAYS.** It's dormant, not dead: it's what let this deploy ship before the migration, and it's the net any future ledger column will need. Don't "simplify" it away.
+- **RLS: `project_payments` is in `scripts/rls-audit.mjs` now, but reports "empty — no signal" until there's data.** ⚠️ **Re-run the audit after the first real payment** to confirm it's actually protected. (The policy is in the same `BEGIN…COMMIT` as the table, so the table existing proves it committed — but this table holds money and deserves the direct check.) The same pass confirmed wave 4's tables ARE protected: `tasks` 0 of 62 rows visible, `task_comments` 0 of 5.
 
 **THE STRUCTURAL FIX.** A milestone row was BOTH the plan and the payment record (`status='received'` + the PROJECTED amount), so a client who paid a different number had nowhere to put it. Andrew, on Built OS: *"when someone pays a different amount than what we're projecting… getting the math to link was not working for a while."* Now:
 ```
