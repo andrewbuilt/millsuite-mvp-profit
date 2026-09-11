@@ -10,6 +10,8 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-04)
 
+**NEW 2026-09-04 (Cowork pass): "SMALL FIXES WAVE 4" + TWO DASHBOARDS scoped — BUILD NEXT, in order.** Wave 4 (items 1–8): six task-system upgrades (assigner shown · per-person Archive, no new page · links · done timestamps · custom tags · project chip → link; migration `098` for links+tags) · kanban search · subproject PRICE on the project page (rounding must sum exactly to the project total). Then **`/payments`** (upcoming draws by month, drag to reschedule, mark received, needed-vs-received totals — milestones already carry `expected_date` + status) and last **`/pm`** (per-viewer manager home for Kaylin: today's tasks · payments box · parser drop). Specs at the top of Now.
+
 **⛔ 2026-09-04: THE STALENESS BANNER WAS FIRING ON LINES THAT CANNOT BE RECOMPUTED — FIXED (`a951d97`).** Andrew: "pops up randomly… doesn't seem like it makes any sense." **`computeBreakdown` resolves every slot with `find() || null` and prices a null as ZERO**, so an id that stops resolving (archived material, deleted door type) doesn't error — the line recomputes far cheaper, trips the threshold, and flags a line nobody touched.
 - **⚠️ THE BANNER WAS THE SYMPTOM; THE HAZARD IS THE REFRESH.** "Update to latest rates" WRITES the recomputed numbers back, so refreshing one of these would have **banked the zero and deleted real material cost from a live estimate**. Same shape as the imported re-pricing bug.
 - **`unresolvedSlotIds` (lib/composer) checks all nine id-bearing slots**; `checkLineStaleness` skips any line with an unresolved id and logs which. **Those lines aren't stale, they're UNRESOLVABLE — the fix is re-picking the slot, not recomputing.** Same guard for a door type or drawer style that resolves but is **uncalibrated**, which zeroes labour the same way (the breakdown already flagged it; nothing acted on the flag).
@@ -159,6 +161,40 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ---
 
 ## Now
+
+### Small fixes wave 4 — scoped 2026-09-04 (Cowork pass with Andrew). **Build 1–8 in order; then the two dashboard sections below. Migration `098` (items 3+5) before deploying those.**
+
+**1. Show who assigned a task.** `tasks.created_by` already stores it (093) — render "by {name}" on the task detail (and small on the card if it fits); resolve names through the roster like assignees.
+
+**2. Per-person task archive — collapsible, NO new page (Andrew's constraint: "without making another page").** Today Done hides after ~7 days. Change: completed tasks keep forever; the Done section becomes **"Archive," collapsed by default**, and it **respects the existing Mine/person filter** — person filter + Archive = that person's archive. Same treatment on the panel and `/tasks`. Newest-first; group by month if long.
+
+**3. Links on tasks.** Migration `098`: `tasks.links` jsonb default '[]' (array of `{url, label?}`). Detail view: add/remove links, rendered as clickable rows (no favicon gold-plating). URLs pasted in comments auto-link (display-only regex).
+
+**4. Timestamp completed tasks.** `done_at` is already stored — display it ("Done Sep 4, 2:14 pm") in Archive rows and the detail. No schema change.
+
+**5. Custom tags on tasks.** Migration `098` (same file): `tasks.tags` jsonb default '[]' (array of tag NAMES) + `orgs.task_tags` jsonb registry (`[{name, color}]`) — create-tag inline from the task editor, small manage affordance for rename/recolor (rename does NOT rewrite existing tasks in v1 — tags are names, not ids; note it in the UI copy). Tag chips on cards + a tag filter row beside the person filter. ⛔ the `orgs` write goes through `updateOrgChecked`.
+
+**6. Project chip on the task card → link.** The chip already renders; make it navigate to the project (`stopPropagation` so it doesn't toggle the card).
+
+**7. Kanban search.** Port the projects dashboard's search (name + client) to `/sales/kanban`, filtering across all columns; empty columns still render their headers.
+
+**8. Subproject price on the project page.** Sub cards show pre-margin COST while the project total is PRICE — inconsistent (Andrew: "it shows premargin but the project total is the correct price"). Show each sub's **price** (same margin math as the project total), with rounding allocated so sub prices **sum exactly** to the project total (largest-remainder). Keep cost as the secondary figure if it fits ("$12,400 · cost $8,060"). The subproject PAGE's cost panel stays cost-only — that page is explicitly cost-basis. ⚠️ Mind the new `quantity` scaling (097) — price derives from the already-scaled rollup.
+
+### Upcoming payments dashboard — scoped 2026-09-04, NOT built. **Build after wave 4.**
+
+**Andrew:** "automatically populates with the upcoming draw payments · drag the payment to another month · mark as received (connect to QB eventually) · total needed for the month · the math of what has come in this month."
+- **Data — likely NO migration:** `project_milestones` already has `amount`, `status` ('projected'|'invoiced'|'received'|'cancelled') and **`expected_date`**. Rows = every non-received, non-cancelled milestone on sold/production projects. No `expected_date` → an "Unscheduled" tray (capacity-page pattern). Check whether marking received records WHEN (`received_at` or similar) — if not, add it (small migration) because "came in this month" needs it.
+- **View:** new page **`/payments`** (Sales dropdown, beside Invoices, same `hasAccess` gating). Rolling month columns (◀ ▶ + Today, the /schedule feel): milestone cards (project · label · amount) per month + **"Needed this month"**; current month also shows **"Received this month"** + the delta.
+- **Drag between months** writes `expected_date` (preserve day-of-month when it had one). **Mark received** = the existing `markMilestoneReceived` path — ⚠️ read the PORTAL PAYMENTS trap in CURRENT FOCUS first: QB mode deliberately does not touch the invoice; for this cash view the milestone status IS the signal. QB auto-matching stays future — do not build it now.
+- Verify: every unpaid draw appears exactly once; drag persists across reload; received moves from Needed to Received; month totals foot by hand against 2–3 real projects.
+
+### Manager dashboard (`/pm`) — scoped 2026-09-04, NOT built. **Build LAST — needs the payments page.**
+
+**Andrew: "a project manager dashboard for Kaylin — we'll add more here later."** Built as a per-viewer manager home, not a Kaylin-only page (she's the first user; the page is generic): route **`/pm`**, role-gated owner/admin/manager, personal to the signed-in viewer.
+- **Today's tasks:** viewer's Mine ∩ Today (+ a Mine ∩ This Week count), reusing task components; "View all" → `/tasks`.
+- **Upcoming payments box:** this month's Needed/Received + the next few milestone cards, from the `/payments` data layer; links to `/payments`.
+- **Material-invoice parser drop:** reuse the main dashboard's parser dropzone component as-is.
+- Three cards, room to grow ("we'll add more here later"). Nav under Manage. **Don't change the RoleGate landing** — making it the manager's post-login home is a later call.
 
 ### Subproject quantity ("QTY 4 of this cabinet") — ✅ BUILT 2026-09-04 (`39b4d67`); migration `097` ✅ ON PROD + VERIFIED. **Nothing blocking.**
 
