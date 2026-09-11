@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-11 · **Branch:** `main`
 
-**Left off:** wave 4 + Payments v2 built; migrations `098` and `099` ✅ on prod. **Andrew's first real payment found two bugs — both fixed (`634c0eb`)**: a phantom "$1" card from sub-dollar rounding, and dragging a card changing which draw counted as paid. **Next: re-check Murtagh Bar on the board**, then the last scoped item, **`/pm`**.
+**Left off:** wave 4 + Payments v2 built; migrations `098` and `099` ✅ on prod. **Andrew's first real payment found two bugs — both fixed (`634c0eb`)**: a phantom "$1" card from sub-dollar rounding, and dragging a card changing which draw counted as paid. Andrew confirmed the board works after that. **The deposit gate now opens off a recorded payment (`77ab790`)** — no more mandatory override on QB jobs. **Next: the last scoped item, `/pm`.**
 
 ---
 
@@ -262,6 +262,14 @@ Partial, overpaid and out-of-order payments are just rows. **⛔ "MARK RECEIVED"
 2. **DRAGGING A CARD CHANGED WHICH DRAW WAS PAID.** `reconcileAll` sorted by `expectedDate` — *the exact field dragging writes* — so moving a card reordered the waterfall and the "paid" one jumped. Andrew: *"then changes when I move the new card."* ⛔ **Deposit-then-final is a property of the AGREEMENT; a forecast date is a guess about timing and must never decide which draw a payment settled.** Now ordered by the authored `sortOrder` (`order:N` in `notes`, as `rowToMilestone` reads it), created_at as tiebreak, and a row with no order sorts **last** so it can't hijack the deposit slot.
 - **`reconcileAll` MOVED to `lib/payment-ledger`** — it's pure, and the sort it owns is what broke. ⚠️ Testing `reconcileProject` alone passes trivially (it takes the array already ordered), so a regression test **must** go through `reconcileAll`.
 - ⚠️ **Rounded draws vs an odd contract is NORMAL, not rare.** Any contract that doesn't divide evenly by the percentages leaves sub-dollar residue. Expect it; don't "fix" it by rounding payments.
+
+**✅ THE DEPOSIT GATE NOW READS THE LEDGER (`77ab790`).** Andrew: *"lets see how to link the downpayment being recorded and the production gateway."* Bonzer had $51,630 recorded and still said "Override: deposit forthcoming".
+- **⛔ THE GATE WAS CHECKING SOMETHING A QB ORG CAN NEVER SATISFY.** `isDepositReceived` read `client_invoices.amount_received`, and **in QB mode nothing in this app writes that** (`markMilestoneReceived` deliberately returns early; money is meant to come from the watcher). **Built is a QB org, so the gate could not be satisfied on ANY job** — overriding was mandatory every time. That's why the override reads as the default: before the ledger it was the ONLY path.
+- **Order is now:** `deposit_override` → **ledger net > 0** → contract invoice `amount_received > 0`. The ledger sits second because it's the most direct signal and needs no invoice to exist. **Net**, so a refund that cancels the deposit closes the gate again.
+- **"Any net money" deliberately matches the invoice rule beside it**, rather than demanding the first draw be fully covered — a part-paid deposit the shop is happy to start on shouldn't need an override. ⚠️ Don't tighten this without asking; the override exists for the genuinely-forthcoming case.
+- Degrades cleanly pre-099 (`projectReceivedTotal` → 0 → falls through). Incidentally **faster** for the common case: a paid project returns after two queries and skips the contract-invoice lookup.
+- **Fixes all three consumers at once:** the projects-dashboard "Ready" badge, the project page, and pre-production.
+- UI: **"Log the deposit"** now sits beside the override, linking to `/payments` — recording what actually happened must be at least as findable as skipping the check.
 
 **Andrew's live pass:** log a payment that DOESN'T match its draw and watch the final draw absorb it · a partial payment shows "X of Y in" · drag a draw between months · the project page shows ledger-only post-sale · foot a month's totals by hand.
 
