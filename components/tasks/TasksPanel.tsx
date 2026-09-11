@@ -16,15 +16,15 @@
 //     the whole shop's list is one click away and the choice is remembered.
 // ============================================================================
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Check, ChevronDown, ChevronRight, Plus, Trash2, X } from 'lucide-react'
+import { Plus, Settings2, X } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import {
   BUCKET_LABEL,
   TASK_BUCKETS,
+  TASK_TAG_COLORS,
   createTask,
-  isRecentlyDone,
   setTaskDone,
   updateTask,
   type Task,
@@ -32,6 +32,10 @@ import {
 } from '@/lib/tasks'
 import { useTasks, type TaskProjectRef } from './TasksProvider'
 import { TaskRow, taskFirstName as firstName } from './TaskRow'
+import { TaskArchive } from './TaskArchive'
+import { TaskTagChip } from './TaskTagChip'
+import { TagManager } from './TagManager'
+import { matchesTagFilter } from './use-tag-filter'
 
 const FILTER_KEY = 'millsuite.tasks.filter'
 
@@ -48,6 +52,18 @@ export default function TasksPanel() {
     loading,
     refresh,
     myAssigneeId,
+    nameByUserId,
+    archive,
+    archiveLoaded,
+    archiveLoading,
+    archiveTruncated,
+    loadArchive,
+    taskTags,
+    tagFilter,
+    toggleTagFilter,
+    clearTagFilter,
+    saveTags,
+    extrasAvailable,
     panelOpen,
     closePanel,
     projectFilter,
@@ -58,7 +74,9 @@ export default function TasksPanel() {
   // no roster entry — it does NOT show an empty panel.
   const [filter, setFilter] = useState<Filter>('mine')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [doneOpen, setDoneOpen] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const [managingTags, setManagingTags] = useState(false)
+  const tagGearRef = useRef<HTMLButtonElement>(null)
   const [adding, setAdding] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newBucket, setNewBucket] = useState<TaskBucket>('today')
@@ -116,9 +134,14 @@ export default function TasksPanel() {
 
   // `myAssigneeId` comes from the provider (tasks are assigned to ROSTER ids,
   // so "Mine" hops signed-in login → team_members entry).
-  const visible = useMemo(() => {
-    return tasks.filter((t) => {
+  //
+  // Pulled out as one predicate because the ARCHIVE has to apply exactly the
+  // same rule — "person filter + Archive = that person's archive" is the
+  // feature, and two copies of this would be two chances to disagree.
+  const matches = useCallback(
+    (t: Task) => {
       if (projectFilter && t.project_id !== projectFilter) return false
+      if (!matchesTagFilter(t, tagFilter)) return false
       if (filter === 'all') return true
       // Mine before the roster has loaded, or for a login with no roster row,
       // shows EVERYTHING rather than nothing. Since Mine is now the landing
@@ -130,8 +153,12 @@ export default function TasksPanel() {
       const target = filter === 'mine' ? myAssigneeId : filter
       if (!target) return false
       return t.assignee_ids.includes(target)
-    })
-  }, [tasks, filter, projectFilter, myAssigneeId])
+    },
+    [filter, projectFilter, myAssigneeId, tagFilter],
+  )
+
+  const visible = useMemo(() => tasks.filter(matches), [tasks, matches])
+  const visibleArchive = useMemo(() => archive.filter(matches), [archive, matches])
 
   const byBucket = useMemo(() => {
     const out: Record<TaskBucket, Task[]> = {
@@ -140,16 +167,23 @@ export default function TasksPanel() {
       next_week: [],
       someday: [],
     }
-    for (const t of visible) {
-      if (t.done_at) continue
-      out[t.bucket].push(t)
-    }
+    // `tasks` holds only open rows now — completed work lives in the archive.
+    for (const t of visible) out[t.bucket].push(t)
     return out
   }, [visible])
 
-  const doneTasks = useMemo(
-    () => visible.filter((t) => t.done_at && isRecentlyDone(t)),
-    [visible],
+  /** Register a tag on the org and make it available everywhere. */
+  const addTag = useCallback(
+    async (name: string) => {
+      const exists = taskTags.some((t) => t.name.toLowerCase() === name.toLowerCase())
+      if (exists) return
+      // Give each new tag the next unused colour so they don't all come out
+      // gray and indistinguishable.
+      const used = new Set(taskTags.map((t) => t.color))
+      const color = TASK_TAG_COLORS.find((c) => !used.has(c.key))?.key ?? 'gray'
+      await saveTags([...taskTags, { name, color }])
+    },
+    [taskTags, saveTags],
   )
 
   async function run(fn: () => Promise<unknown>) {
@@ -275,6 +309,49 @@ export default function TasksPanel() {
               />
             ))}
         </div>
+
+        {/* Tag filter — beside the person filter, its own row so a shop with
+            eight tags doesn't push the people off screen. Hidden entirely
+            pre-098, when there are no tags to filter by. */}
+        {extrasAvailable && (taskTags.length > 0 || tagFilter.length > 0) && (
+          <div className="px-4 py-2 border-b border-[#F3F4F6] flex items-center gap-1.5 flex-wrap relative">
+            {taskTags.map((t) => {
+              const on = tagFilter.some((x) => x.toLowerCase() === t.name.toLowerCase())
+              return (
+                <button key={t.name} onClick={() => toggleTagFilter(t.name)}>
+                  <span className={on ? '' : 'opacity-40 grayscale'}>
+                    <TaskTagChip name={t.name} registry={taskTags} size="xs" />
+                  </span>
+                </button>
+              )
+            })}
+            {tagFilter.length > 0 && (
+              <button
+                onClick={clearTagFilter}
+                className="text-[10px] text-[#9CA3AF] hover:text-[#111] underline"
+              >
+                Clear
+              </button>
+            )}
+            <button
+              ref={tagGearRef}
+                  onClick={() => setManagingTags((v) => !v)}
+              aria-label="Manage tags"
+              title="Manage tags"
+              className="ml-auto p-1 rounded-md text-[#9CA3AF] hover:text-[#111] hover:bg-[#F3F4F6]"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+            </button>
+            {managingTags && (
+              <TagManager
+                tags={taskTags}
+                onSave={saveTags}
+                triggerRef={tagGearRef}
+                onClose={() => setManagingTags(false)}
+              />
+            )}
+          </div>
+        )}
 
         {error && (
           <div className="mx-4 mt-3 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
@@ -435,6 +512,10 @@ export default function TasksPanel() {
                         projects={projects}
                         assignees={pickable}
                         nameById={nameById}
+                        nameByUserId={nameByUserId}
+                        taskTags={taskTags}
+                        onAddTag={addTag}
+                        extrasAvailable={extrasAvailable}
                         expanded={expandedId === t.id}
                         onToggleExpand={() =>
                           setExpandedId((id) => (id === t.id ? null : t.id))
@@ -455,42 +536,22 @@ export default function TasksPanel() {
                 </section>
               ))}
 
-              {/* Done — collapsed, and only the last week's worth. Anything
-                  older is gone from view on purpose; a Done pile nobody reads
-                  is just clutter. */}
-              {doneTasks.length > 0 && (
-                <section className="mt-2 border-t border-[#F3F4F6] pt-3">
-                  <button
-                    onClick={() => setDoneOpen((v) => !v)}
-                    className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9CA3AF] hover:text-[#6B7280]"
-                  >
-                    {doneOpen ? (
-                      <ChevronDown className="w-3 h-3" />
-                    ) : (
-                      <ChevronRight className="w-3 h-3" />
-                    )}
-                    Done · {doneTasks.length}
-                  </button>
-                  {doneOpen &&
-                    doneTasks.map((t) => (
-                      <div
-                        key={t.id}
-                        className="flex items-center gap-2 py-1.5 text-[13px] text-[#9CA3AF]"
-                      >
-                        <button
-                          onClick={() =>
-                            void run(() => setTaskDone(t.id, false, user?.org_id))
-                          }
-                          title="Restore"
-                          className="w-4 h-4 rounded border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] flex items-center justify-center flex-shrink-0"
-                        >
-                          <Check className="w-3 h-3" />
-                        </button>
-                        <span className="line-through truncate">{t.title}</span>
-                      </div>
-                    ))}
-                </section>
-              )}
+              {/* Completed work — kept forever, loaded only when opened, and
+                  filtered by the same person/tag rules as the list above. */}
+              <TaskArchive
+                tasks={visibleArchive}
+                open={archiveOpen}
+                onToggle={() => {
+                  const next = !archiveOpen
+                  setArchiveOpen(next)
+                  if (next) void loadArchive()
+                }}
+                loading={archiveLoading}
+                loaded={archiveLoaded}
+                truncated={archiveTruncated}
+                onRestore={(t) => void run(() => setTaskDone(t.id, false, user?.org_id))}
+                taskTags={taskTags}
+              />
             </>
           )}
         </div>

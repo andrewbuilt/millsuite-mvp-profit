@@ -18,16 +18,23 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import { useTagFilterState } from './use-tag-filter'
 import { supabase } from '@/lib/supabase'
 import {
+  extrasReady,
+  listArchivedTasks,
   listAssignees,
+  listTaskTags,
   listTasks,
+  saveTaskTags,
   type Task,
   type TaskAssignee,
+  type TaskTag,
 } from '@/lib/tasks'
 
 /** Lightweight project reference for the chips + the project picker. */
@@ -55,6 +62,35 @@ interface TasksContextValue {
    *  their login isn't linked to a roster row. Computed once here because the
    *  badge, the panel and /tasks all need it and three copies would drift. */
   myAssigneeId: string | null
+  /** LOGIN id (users.id) → display name, for `created_by` and comment authors.
+   *  ⛔ A DIFFERENT MAP FROM the roster-id one the assignee chips use — see the
+   *  header of lib/tasks. Built from the roster because RLS forbids the browser
+   *  reading anyone else's `users` row; unlinked logins simply aren't in here
+   *  and their name is not knowable client-side. */
+  nameByUserId: Map<string, string>
+
+  /** Completed tasks. Empty until someone opens the Archive — see loadArchive. */
+  archive: Task[]
+  archiveLoaded: boolean
+  archiveLoading: boolean
+  /** True when there are more completed tasks than we loaded. */
+  archiveTruncated: boolean
+  /** Fetch the archive. Cheap to call repeatedly; only the first one queries
+   *  unless `force` is set. */
+  loadArchive: (force?: boolean) => Promise<void>
+
+  /** The org's tag registry (098). Empty pre-migration. */
+  taskTags: TaskTag[]
+  /** Selected tag names. Lives HERE, not in each surface — see the header of
+   *  use-tag-filter for what happened when it didn't. */
+  tagFilter: string[]
+  toggleTagFilter: (name: string) => void
+  clearTagFilter: () => void
+  /** Replace the registry. Goes through updateOrgChecked. */
+  saveTags: (tags: TaskTag[]) => Promise<void>
+  /** False once the database has told us migration 098 isn't there — the
+   *  links and tags affordances hide rather than throwing on every save. */
+  extrasAvailable: boolean
 
   panelOpen: boolean
   /** Opening with a projectId pre-filters the panel to that project. */
@@ -101,14 +137,96 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [panelOpen, setPanelOpen] = useState(false)
   const [projectFilter, setProjectFilter] = useState<string | null>(null)
+  const [archive, setArchive] = useState<Task[]>([])
+  const [archiveLoaded, setArchiveLoaded] = useState(false)
+  const [archiveLoading, setArchiveLoading] = useState(false)
+  const [archiveTruncated, setArchiveTruncated] = useState(false)
+  const [taskTags, setTaskTags] = useState<TaskTag[]>([])
+  const [extrasAvailable, setExtrasAvailable] = useState(true)
+  // ONE instance for the whole app. Both surfaces read it off the context.
+  const {
+    selected: tagFilter,
+    toggle: toggleTagFilter,
+    clear: clearTagFilter,
+  } = useTagFilterState()
+
+  // Mirrored in a ref so `refresh` and `loadArchive` keep a STABLE identity.
+  // Depending on the state directly would change `refresh` every time the
+  // archive opened, and the mount effect below depends on `refresh` — so
+  // opening the archive would silently re-fetch the project list too.
+  const archiveLoadedRef = useRef(false)
+
+  const pullArchive = useCallback(async (id: string) => {
+    const page = await listArchivedTasks(id)
+    // ⛔ A FAILED FETCH MUST NOT COUNT AS LOADED. Marking it loaded would make
+    // the panel say "Nothing completed yet" and then cache that forever —
+    // re-opening the section wouldn't retry, because loadArchive short-circuits
+    // on the ref. Leave it unloaded so the next open has another go.
+    if (page.failed) return
+    setArchive(page.tasks)
+    setArchiveTruncated(page.truncated)
+    archiveLoadedRef.current = true
+    setArchiveLoaded(true)
+  }, [])
+
+  /** Guards against two fetches racing — a click landing while `refresh` is
+   *  already pulling the archive would otherwise double-fetch and could apply
+   *  the results out of order. */
+  const archiveInFlight = useRef(false)
+
+  /** Fetch completed tasks. Deliberately NOT part of `refresh` — the archive
+   *  grows without bound and most sessions never open it. */
+  const loadArchive = useCallback(
+    async (force = false) => {
+      if (!orgId) return
+      if (archiveLoadedRef.current && !force) return
+      if (archiveInFlight.current) return
+      archiveInFlight.current = true
+      setArchiveLoading(true)
+      try {
+        await pullArchive(orgId)
+      } finally {
+        archiveInFlight.current = false
+        setArchiveLoading(false)
+      }
+    },
+    [orgId, pullArchive],
+  )
+
+  // Switching org (or signing out to a worker session) must not leave the
+  // previous shop's completed tasks on screen. With no orgId `refresh` returns
+  // early, so nothing else would ever clear them.
+  useEffect(() => {
+    archiveLoadedRef.current = false
+    archiveInFlight.current = false
+    setArchive([])
+    setArchiveLoaded(false)
+    setArchiveTruncated(false)
+    setTaskTags([])
+  }, [orgId])
 
   const refresh = useCallback(async () => {
     if (!orgId) return
     const [t, a] = await Promise.all([listTasks(orgId), listAssignees(orgId)])
     setTasks(t)
     setAssignees(a)
+    // listTasks probes for 098 — read the verdict once it has answered.
+    setExtrasAvailable(extrasReady())
     setLoading(false)
-  }, [orgId])
+    // Completing a task moves it OUT of `tasks` and INTO the archive. If the
+    // archive is already on screen it has to follow, or the task vanishes from
+    // both lists and looks deleted.
+    if (archiveLoadedRef.current) await pullArchive(orgId)
+  }, [orgId, pullArchive])
+
+  const saveTags = useCallback(
+    async (tags: TaskTag[]) => {
+      if (!orgId) return
+      await saveTaskTags(orgId, tags)
+      setTaskTags(await listTaskTags(orgId))
+    },
+    [orgId],
+  )
 
   useEffect(() => {
     if (!orgId) return
@@ -124,6 +242,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         .order('created_at', { ascending: false })
       setProjects((data || []) as TaskProjectRef[])
     })()
+    // Tag registry — its own isolated select, so a pre-098 org gets an empty
+    // list rather than a failed read.
+    void listTaskTags(orgId).then(setTaskTags)
   }, [orgId, refresh])
 
   const openCountByProject = useMemo(() => {
@@ -142,6 +263,31 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     () => assignees.find((a) => a.userId && a.userId === user?.id)?.id ?? null,
     [assignees, user?.id],
   )
+
+  /**
+   * LOGIN id → name, for "added by" and comment authors.
+   *
+   * ⛔ This is NOT the assignee map. Tasks carry two different kinds of id and
+   * mixing them up fails SILENTLY: the old comment header looked an
+   * `author_user_id` up in the roster-id map, never matched, and rendered
+   * "Someone" on every comment in the system.
+   *
+   * The roster is the only client-side source, because `users_select_self`
+   * (084) forbids reading another login's row from the browser. Someone whose
+   * login isn't linked on /team therefore CANNOT be named here — callers omit
+   * the line rather than printing "Unknown", which would be noise on every
+   * task in a shop that hasn't done the linking pass.
+   */
+  const nameByUserId = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const a of assignees) {
+      if (a.userId) m.set(a.userId, a.name)
+    }
+    // The signed-in user always resolves, even before /team links them —
+    // their own name is on the session.
+    if (user?.id && user.name && !m.has(user.id)) m.set(user.id, user.name)
+    return m
+  }, [assignees, user?.id, user?.name])
 
   /**
    * The nav badge: MY open tasks, not the org's.
@@ -181,6 +327,18 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       openCountByProject,
       openCount,
       myAssigneeId,
+      nameByUserId,
+      archive,
+      archiveLoaded,
+      archiveLoading,
+      archiveTruncated,
+      loadArchive,
+      taskTags,
+      tagFilter,
+      toggleTagFilter,
+      clearTagFilter,
+      saveTags,
+      extrasAvailable,
       panelOpen,
       openPanel,
       closePanel,
@@ -197,6 +355,18 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       openCountByProject,
       openCount,
       myAssigneeId,
+      nameByUserId,
+      archive,
+      archiveLoaded,
+      archiveLoading,
+      archiveTruncated,
+      loadArchive,
+      taskTags,
+      tagFilter,
+      toggleTagFilter,
+      clearTagFilter,
+      saveTags,
+      extrasAvailable,
       panelOpen,
       openPanel,
       closePanel,

@@ -12,26 +12,50 @@
 // one — two renderings of a task would drift the moment either changed.
 // ============================================================================
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
 import { useTasks } from '@/components/tasks/TasksProvider'
 import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
+import { TaskArchive } from '@/components/tasks/TaskArchive'
+import { TaskTagChip } from '@/components/tasks/TaskTagChip'
+import { TagManager } from '@/components/tasks/TagManager'
+import { matchesTagFilter } from '@/components/tasks/use-tag-filter'
 import {
   BUCKET_LABEL,
   TASK_BUCKETS,
+  TASK_TAG_COLORS,
   createTask,
-  isRecentlyDone,
   setTaskDone,
   updateTask,
   type Task,
   type TaskBucket,
 } from '@/lib/tasks'
-import { Check, Plus } from 'lucide-react'
+import { Plus, Settings2 } from 'lucide-react'
 
 export default function TasksPage() {
   const { user } = useAuth()
-  const { enabled, tasks, assignees, projects, loading, refresh, myAssigneeId } = useTasks()
+  const {
+    enabled,
+    tasks,
+    assignees,
+    projects,
+    loading,
+    refresh,
+    myAssigneeId,
+    nameByUserId,
+    archive,
+    archiveLoaded,
+    archiveLoading,
+    archiveTruncated,
+    loadArchive,
+    taskTags,
+    tagFilter,
+    toggleTagFilter,
+    clearTagFilter,
+    saveTags,
+    extrasAvailable,
+  } = useTasks()
 
   // Lands on Mine, matching the drawer. Falls back to showing everything when
   // the login has no roster row — see the panel's `visible` for why.
@@ -47,7 +71,9 @@ export default function TasksPage() {
   const [error, setError] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<TaskBucket | null>(null)
-  const [doneOpen, setDoneOpen] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const [managingTags, setManagingTags] = useState(false)
+  const tagGearRef = useRef<HTMLButtonElement>(null)
 
   const projectById = useMemo(() => {
     const m = new Map<string, { id: string; name: string }>()
@@ -66,16 +92,32 @@ export default function TasksPage() {
     return m
   }, [assignees])
 
-  const visible = useMemo(
-    () =>
-      tasks.filter((t) => {
-        if (filter === 'all') return true
-        if (filter === 'mine' && !myAssigneeId) return true
-        const target = filter === 'mine' ? myAssigneeId : filter
-        if (!target) return false
-        return t.assignee_ids.includes(target)
-      }),
-    [tasks, filter, myAssigneeId],
+  // One predicate, applied to the open list AND the archive — "person filter
+  // + Archive = that person's archive" is the feature, so they must agree.
+  const matches = useCallback(
+    (t: Task) => {
+      if (!matchesTagFilter(t, tagFilter)) return false
+      if (filter === 'all') return true
+      if (filter === 'mine' && !myAssigneeId) return true
+      const target = filter === 'mine' ? myAssigneeId : filter
+      if (!target) return false
+      return t.assignee_ids.includes(target)
+    },
+    [filter, myAssigneeId, tagFilter],
+  )
+
+  const visible = useMemo(() => tasks.filter(matches), [tasks, matches])
+  const visibleArchive = useMemo(() => archive.filter(matches), [archive, matches])
+
+  /** Register a tag on the org so it's offered everywhere. */
+  const addTag = useCallback(
+    async (name: string) => {
+      if (taskTags.some((t) => t.name.toLowerCase() === name.toLowerCase())) return
+      const used = new Set(taskTags.map((t) => t.color))
+      const color = TASK_TAG_COLORS.find((c) => !used.has(c.key))?.key ?? 'gray'
+      await saveTags([...taskTags, { name, color }])
+    },
+    [taskTags, saveTags],
   )
 
   const byBucket = useMemo(() => {
@@ -85,17 +127,10 @@ export default function TasksPage() {
       next_week: [],
       someday: [],
     }
-    for (const t of visible) {
-      if (t.done_at) continue
-      out[t.bucket].push(t)
-    }
+    // `tasks` holds only open rows now — completed work lives in the archive.
+    for (const t of visible) out[t.bucket].push(t)
     return out
   }, [visible])
-
-  const doneTasks = useMemo(
-    () => visible.filter((t) => t.done_at && isRecentlyDone(t)),
-    [visible],
-  )
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true)
@@ -171,6 +206,47 @@ export default function TasksPage() {
                   />
                 ))}
             </div>
+            {/* Tag filter — its own row beside the people, so a shop with
+                eight tags doesn't push the names off screen. */}
+            {extrasAvailable && (taskTags.length > 0 || tagFilter.length > 0) && (
+              <div className="flex items-center gap-1.5 flex-wrap mt-2 relative">
+                {taskTags.map((t) => {
+                  const on = tagFilter.some((x) => x.toLowerCase() === t.name.toLowerCase())
+                  return (
+                    <button key={t.name} onClick={() => toggleTagFilter(t.name)}>
+                      <span className={on ? '' : 'opacity-40 grayscale'}>
+                        <TaskTagChip name={t.name} registry={taskTags} />
+                      </span>
+                    </button>
+                  )
+                })}
+                {tagFilter.length > 0 && (
+                  <button
+                    onClick={clearTagFilter}
+                    className="text-[11px] text-[#9CA3AF] hover:text-[#111] underline"
+                  >
+                    Clear
+                  </button>
+                )}
+                <button
+                  ref={tagGearRef}
+                  onClick={() => setManagingTags((v) => !v)}
+                  aria-label="Manage tags"
+                  title="Manage tags"
+                  className="p-1 rounded-md text-[#9CA3AF] hover:text-[#111] hover:bg-[#F3F4F6]"
+                >
+                  <Settings2 className="w-3.5 h-3.5" />
+                </button>
+                {managingTags && (
+                  <TagManager
+                    tags={taskTags}
+                    onSave={saveTags}
+                    triggerRef={tagGearRef}
+                    onClose={() => setManagingTags(false)}
+                  />
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -213,6 +289,10 @@ export default function TasksPage() {
                       projects={projects}
                       assignees={pickable}
                       nameById={nameById}
+                      nameByUserId={nameByUserId}
+                      taskTags={taskTags}
+                      onAddTag={addTag}
+                      extrasAvailable={extrasAvailable}
                       expanded={expandedId === t.id}
                       onToggleExpand={() =>
                         setExpandedId((id) => (id === t.id ? null : t.id))
@@ -318,35 +398,21 @@ export default function TasksPage() {
             </div>
           )}
 
-          {doneTasks.length > 0 && (
-            <div className="mt-6 bg-white border border-[#E5E7EB] rounded-xl p-3">
-              <button
-                onClick={() => setDoneOpen((v) => !v)}
-                className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9CA3AF] hover:text-[#6B7280]"
-              >
-                Done · {doneTasks.length} {doneOpen ? '▾' : '▸'}
-              </button>
-              {doneOpen && (
-                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-x-4">
-                  {doneTasks.map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex items-center gap-2 py-1.5 text-[13px] text-[#9CA3AF]"
-                    >
-                      <button
-                        onClick={() => void run(() => setTaskDone(t.id, false, user?.org_id))}
-                        title="Restore"
-                        className="w-4 h-4 rounded border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] flex items-center justify-center flex-shrink-0"
-                      >
-                        <Check className="w-3 h-3" />
-                      </button>
-                      <span className="line-through truncate">{t.title}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <TaskArchive
+            variant="page"
+            tasks={visibleArchive}
+            open={archiveOpen}
+            onToggle={() => {
+              const next = !archiveOpen
+              setArchiveOpen(next)
+              if (next) void loadArchive()
+            }}
+            loading={archiveLoading}
+            loaded={archiveLoaded}
+            truncated={archiveTruncated}
+            onRestore={(t) => void run(() => setTaskDone(t.id, false, user?.org_id))}
+            taskTags={taskTags}
+          />
         </div>
       </div>
     </PlanGate>

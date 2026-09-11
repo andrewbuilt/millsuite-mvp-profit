@@ -1,5 +1,5 @@
 // ============================================================================
-// lib/tasks.ts — the shared action list (Task system v1, migration 093)
+// lib/tasks.ts — the shared action list (Task system v1, migrations 093 + 098)
 // ============================================================================
 // Replaces the "BUILT Master Action List" sheet. Read the migration header for
 // why the shape is what it is; the short version:
@@ -16,9 +16,20 @@
 // treats zero rows as failure: PostgREST answers `{ error: null }` for an
 // update that matched nothing, so without the guard an RLS-blocked write looks
 // exactly like success. Same pattern as `updateProjectName`.
+//
+// ── TWO NAME SPACES, AND THEY ARE NOT INTERCHANGEABLE ──────────────────────
+// ⛔ `assignee_ids` holds ROSTER ids (`orgs.team_members[].id`).
+// ⛔ `created_by` and `task_comments.author_user_id` hold LOGIN ids (users.id).
+// Resolving either one means going through the roster, because RLS
+// (`users_select_self`, migration 084) lets the browser read only its OWN
+// users row — there is no client-side way to look up another login's name.
+// `TaskAssignee.userId` is the bridge, and `nameByUserId` below is built from
+// it. A creator with no roster row simply can't be named, and the UI omits the
+// line rather than printing "Unknown".
 // ============================================================================
 
 import { supabase } from './supabase'
+import { updateOrgChecked } from './org-write'
 
 export const TASK_BUCKETS = ['today', 'this_week', 'next_week', 'someday'] as const
 export type TaskBucket = (typeof TASK_BUCKETS)[number]
@@ -30,10 +41,43 @@ export const BUCKET_LABEL: Record<TaskBucket, string> = {
   someday: 'Someday',
 }
 
-/** How long a completed task stays visible in the collapsed Done section.
- *  Long enough to undo a mistake, short enough that Done never becomes a
- *  graveyard nobody reads. */
-export const DONE_VISIBLE_DAYS = 7
+/**
+ * "Sep 4, 2:14 pm" — when a task was completed.
+ *
+ * One formatter so the Archive row and the detail panel can't drift. The year
+ * appears only when it ISN'T the current one: an archive that keeps work
+ * forever will eventually hold two Septembers, and "Sep 4" alone stops being
+ * an answer.
+ */
+export function formatDoneAt(iso: string | null, now = new Date()): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const sameYear = d.getFullYear() === now.getFullYear()
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+/** "September 2026" — the Archive's month group headings. */
+export function archiveMonthLabel(iso: string | null): string {
+  if (!iso) return 'Undated'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return 'Undated'
+  return d.toLocaleString(undefined, { month: 'long', year: 'numeric' })
+}
+
+/** A reference link on a task — the drawing, the quote, the order
+ *  confirmation. These used to get pasted into the sheet's Notes column where
+ *  they weren't clickable and the next note overwrote them. */
+export interface TaskLink {
+  url: string
+  label?: string
+}
 
 export interface Task {
   id: string
@@ -47,6 +91,10 @@ export interface Task {
   sort_order: number
   created_at: string
   updated_at: string
+  /** Migration 098. Empty on any org that hasn't run it — see `extrasReady`. */
+  links: TaskLink[]
+  /** Migration 098. Tag NAMES, not ids — see the registry note below. */
+  tags: string[]
 }
 
 export interface TaskComment {
@@ -80,8 +128,96 @@ export interface TaskAssignee {
   tasksEnabled: boolean
 }
 
-const TASK_COLUMNS =
+// ── Migration 098 tolerance ────────────────────────────────────────────────
+// PostgREST fails an ENTIRE select on one unknown column, so naming `links`
+// and `tags` in the column list would 42703 the whole task list on a database
+// that hasn't run 098 — the panel would come up empty rather than degraded.
+// Same hazard the 095 columns have, handled the same way in spirit: ask for
+// them, and if the database says they don't exist, stop asking for the rest of
+// the session and carry on without them.
+//
+// Optimistic on purpose: assume present until proven otherwise, so the normal
+// case costs one query and a freshly-migrated database heals on the next page
+// load. `extrasReady()` tells the UI whether to offer links/tags at all —
+// writing to a column that isn't there would just throw at the operator.
+
+const TASK_COLUMNS_BASE =
   'id, org_id, project_id, title, bucket, assignee_ids, done_at, created_by, sort_order, created_at, updated_at'
+const TASK_COLUMNS_098 = `${TASK_COLUMNS_BASE}, links, tags`
+
+/** null = not probed yet, true = 098 present, false = pre-098. */
+let extras: boolean | null = null
+
+/** False only once a query has actually come back 42703. The UI hides the
+ *  links and tags affordances when this is false. */
+export function extrasReady(): boolean {
+  return extras !== false
+}
+
+function taskColumns(): string {
+  return extras === false ? TASK_COLUMNS_BASE : TASK_COLUMNS_098
+}
+
+/**
+ * True when this PostgREST error means "that column isn't there".
+ *
+ * ⚠️ READS AND WRITES FAIL DIFFERENTLY, which is easy to get half-right:
+ *   · SELECT with an unknown column → Postgres 42703, "column tasks.links
+ *     does not exist" (verified against prod, 2026-09-11).
+ *   · INSERT/UPDATE → PostgREST PGRST204, "Could not find the 'links' column
+ *     of 'tasks' in the schema cache" — which contains neither the 42703 code
+ *     nor the phrase "does not exist".
+ * Matching only the read case would leave every save throwing a raw PostgREST
+ * message at the operator instead of a sentence about the migration.
+ *
+ * Deliberately NOT a loose /does not exist/ match: that also catches a missing
+ * TABLE and a bad relationship, and quietly deciding "no 098" because of an
+ * unrelated failure would hide the real error.
+ */
+function isUnknownColumn(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  const code = error.code || ''
+  if (code === '42703' || code === 'PGRST204') return true
+  const msg = error.message || ''
+  return /column .* does not exist/i.test(msg) || /could not find the .* column/i.test(msg)
+}
+
+function normalizeLinks(raw: unknown): TaskLink[] {
+  if (!Array.isArray(raw)) return []
+  const out: TaskLink[] = []
+  for (const r of raw) {
+    // Tolerate a bare string as well as {url,label} — a hand-edited row or an
+    // older shape shouldn't blank the whole list.
+    if (typeof r === 'string') {
+      if (r.trim()) out.push({ url: r.trim() })
+      continue
+    }
+    const url = typeof (r as any)?.url === 'string' ? (r as any).url.trim() : ''
+    if (!url) continue
+    const label =
+      typeof (r as any)?.label === 'string' && (r as any).label.trim()
+        ? (r as any).label.trim()
+        : undefined
+    out.push(label ? { url, label } : { url })
+  }
+  return out
+}
+
+function normalizeTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const r of raw) {
+    if (typeof r !== 'string') continue
+    const name = r.trim()
+    if (!name) continue
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(name)
+  }
+  return out
+}
 
 function normalizeTask(r: any): Task {
   return {
@@ -100,38 +236,192 @@ function normalizeTask(r: any): Task {
     sort_order: Number(r.sort_order) || 0,
     created_at: r.created_at,
     updated_at: r.updated_at,
+    // Absent pre-098 — an empty array reads as "no links, no tags", which is
+    // exactly right and needs no special case anywhere downstream.
+    links: normalizeLinks(r.links),
+    tags: normalizeTags(r.tags),
   }
 }
 
-/** True when a completed task is still recent enough to show in Done. */
-export function isRecentlyDone(t: Task, now = Date.now()): boolean {
-  if (!t.done_at) return false
-  const age = now - new Date(t.done_at).getTime()
-  return age <= DONE_VISIBLE_DAYS * 24 * 60 * 60 * 1000
+// ── Tag registry (orgs.task_tags, migration 098) ───────────────────────────
+//
+// ⛔ TASKS STORE TAG NAMES, NOT IDS. This registry exists for the picker and
+// the colour only. Renaming a tag here therefore does NOT rewrite the tasks
+// already carrying the old name — they keep it and render in the neutral
+// fallback colour. Deliberate v1 tradeoff (see migration 098); the rename UI
+// says so out loud, because a silent partial rename is the kind of thing
+// someone discovers three weeks later.
+
+export interface TaskTag {
+  name: string
+  /** A key from TASK_TAG_COLORS. Unknown/missing → the neutral swatch. */
+  color: string
+}
+
+export const TASK_TAG_COLORS = [
+  { key: 'gray', bg: '#F3F4F6', fg: '#4B5563', dot: '#9CA3AF' },
+  { key: 'blue', bg: '#EFF6FF', fg: '#1E40AF', dot: '#3B82F6' },
+  { key: 'green', bg: '#ECFDF5', fg: '#065F46', dot: '#10B981' },
+  { key: 'amber', bg: '#FFFBEB', fg: '#92400E', dot: '#F59E0B' },
+  { key: 'red', bg: '#FEF2F2', fg: '#991B1B', dot: '#EF4444' },
+  { key: 'purple', bg: '#F5F3FF', fg: '#5B21B6', dot: '#8B5CF6' },
+] as const
+
+export type TaskTagColorKey = (typeof TASK_TAG_COLORS)[number]['key']
+
+/** The swatch for a colour key. Falls back to neutral for an unknown key —
+ *  and for a tag whose registry entry was renamed out from under it. */
+export function tagSwatch(color: string | undefined) {
+  return TASK_TAG_COLORS.find((c) => c.key === color) ?? TASK_TAG_COLORS[0]
+}
+
+function normalizeTagRegistry(raw: unknown): TaskTag[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const out: TaskTag[] = []
+  for (const r of raw) {
+    const name = typeof (r as any)?.name === 'string' ? (r as any).name.trim() : ''
+    if (!name) continue
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    const color = typeof (r as any)?.color === 'string' ? (r as any).color : 'gray'
+    out.push({ name, color })
+  }
+  return out
+}
+
+/**
+ * The org's tag registry. Read in an ISOLATED select — folding `task_tags`
+ * into any shared org read would 42703 that entire read on a pre-098
+ * database, which is how a settings card or a whole page goes blank.
+ */
+export async function listTaskTags(orgId: string): Promise<TaskTag[]> {
+  const { data, error } = await supabase
+    .from('orgs')
+    .select('task_tags')
+    .eq('id', orgId)
+    .maybeSingle()
+  if (error) {
+    // Pre-098 is a normal state, not a failure — no tags yet.
+    if (!isUnknownColumn(error)) console.error('listTaskTags', error)
+    return []
+  }
+  return normalizeTagRegistry((data as { task_tags?: unknown } | null)?.task_tags)
+}
+
+/** Replace the registry. ⛔ Goes through `updateOrgChecked`: `orgs` has no
+ *  browser UPDATE policy pattern to trust, and a zero-row update reports
+ *  success. */
+export async function saveTaskTags(orgId: string, tags: TaskTag[]): Promise<void> {
+  await updateOrgChecked(orgId, { task_tags: normalizeTagRegistry(tags) })
 }
 
 // ── Reads ──
 
 /**
- * Every task for the org — open ones plus anything completed recently enough
- * to still show under Done. Deliberately one query with no server-side
- * filtering by bucket or assignee: a shop's list is a few dozen rows, the
- * panel filters in the client, and this way switching Mine/All costs nothing.
+ * Every OPEN task for the org.
+ *
+ * ⚠️ Completed tasks are NOT here any more. They used to ride along for a
+ * week (`done_at >= cutoff`) so a collapsed Done section could show them, but
+ * the Archive keeps completed work forever and loading a shop's entire
+ * history on every page load to render a collapsed section would be absurd.
+ * `listArchivedTasks` fetches it on demand instead. Anything that needs a
+ * completed task must ask for it.
  */
 export async function listTasks(orgId: string): Promise<Task[]> {
-  const cutoff = new Date(Date.now() - DONE_VISIBLE_DAYS * 24 * 60 * 60 * 1000).toISOString()
-  const { data, error } = await supabase
-    .from('tasks')
-    .select(TASK_COLUMNS)
-    .eq('org_id', orgId)
-    .or(`done_at.is.null,done_at.gte.${cutoff}`)
-    .order('sort_order', { ascending: true })
-    .order('created_at', { ascending: true })
+  const run = (cols: string) =>
+    supabase
+      .from('tasks')
+      .select(cols)
+      .eq('org_id', orgId)
+      .is('done_at', null)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
+
+  // ⛔ DECIDE FROM THE COLUMNS *THIS* CALL ASKED FOR, never from the shared
+  // flag. Two earlier bugs lived here:
+  //   · `else if (!error) extras = true` also fired for the BASE retry, so on
+  //     a pre-098 database the flag flip-flopped every refresh — the Tags and
+  //     Links sections appeared and vanished on alternate saves, and every
+  //     other load wasted a failing round trip.
+  //   · Gating the retry on `extras !== false` meant that with two task
+  //     queries in flight, the second one saw the flag the first had just set,
+  //     SKIPPED ITS OWN RETRY and returned an EMPTY LIST. Reachable: the
+  //     Archive toggle is clickable while the first load is still running.
+  const cols = taskColumns()
+  let { data, error } = await run(cols)
+  if (error && cols !== TASK_COLUMNS_BASE && isUnknownColumn(error)) {
+    console.warn(
+      'listTasks: migration 098 (tasks.links / tasks.tags) has not been run — ' +
+        'links and tags are unavailable until it is.',
+    )
+    extras = false
+    ;({ data, error } = await run(TASK_COLUMNS_BASE))
+  } else if (!error && cols !== TASK_COLUMNS_BASE) {
+    extras = true
+  }
+
   if (error) {
     console.error('listTasks', error)
     return []
   }
-  return (data || []).map(normalizeTask)
+  return ((data || []) as any[]).map(normalizeTask)
+}
+
+/** How many completed tasks the Archive will load at once. High enough that a
+ *  shop will not hit it for years, low enough to bound the query. If it IS
+ *  hit, the UI says so — a silently truncated archive reads as lost work. */
+export const ARCHIVE_PAGE_SIZE = 500
+
+export interface ArchivePage {
+  tasks: Task[]
+  /** True when the archive is longer than we loaded. Surfaced in the UI. */
+  truncated: boolean
+  /** True when the fetch FAILED. Without this, a failed archive read is
+   *  indistinguishable from an empty one and the panel confidently says
+   *  "Nothing completed yet" — then caches that as loaded and never retries. */
+  failed: boolean
+}
+
+/**
+ * Completed tasks, newest first. Loaded only when someone opens the Archive.
+ *
+ * Not filtered by person here: the Mine/person filter is a client-side
+ * concern everywhere else in this system, and a shop's archive is small
+ * enough that one fetch serves every filter without a round trip per chip.
+ */
+export async function listArchivedTasks(orgId: string): Promise<ArchivePage> {
+  const run = (cols: string) =>
+    supabase
+      .from('tasks')
+      .select(cols)
+      .eq('org_id', orgId)
+      .not('done_at', 'is', null)
+      .order('done_at', { ascending: false })
+      // One extra row is the cheapest possible "is there more?" probe.
+      .limit(ARCHIVE_PAGE_SIZE + 1)
+
+  // Same per-call rule as listTasks — see the long note there.
+  const cols = taskColumns()
+  let { data, error } = await run(cols)
+  if (error && cols !== TASK_COLUMNS_BASE && isUnknownColumn(error)) {
+    extras = false
+    ;({ data, error } = await run(TASK_COLUMNS_BASE))
+  } else if (!error && cols !== TASK_COLUMNS_BASE) {
+    extras = true
+  }
+
+  if (error) {
+    console.error('listArchivedTasks', error)
+    return { tasks: [], truncated: false, failed: true }
+  }
+  const rows = (data || []) as any[]
+  return {
+    tasks: rows.slice(0, ARCHIVE_PAGE_SIZE).map(normalizeTask),
+    truncated: rows.length > ARCHIVE_PAGE_SIZE,
+    failed: false,
+  }
 }
 
 /** Open-task count per project id — drives the project page's "Tasks · N"
@@ -213,25 +503,40 @@ export async function createTask(input: {
   bucket?: TaskBucket
   projectId?: string | null
   assigneeIds?: string[]
+  tags?: string[]
   createdBy?: string | null
 }): Promise<Task> {
   const title = input.title.trim()
   if (!title) throw new Error('A task needs a title.')
-  const { data, error } = await supabase
-    .from('tasks')
-    .insert({
-      org_id: input.orgId,
-      title,
-      bucket: input.bucket ?? 'today',
-      project_id: input.projectId ?? null,
-      assignee_ids: input.assigneeIds ?? [],
-      created_by: input.createdBy ?? null,
-      // New rows sort to the top of their bucket — a task you just typed is
-      // the one you're thinking about.
-      sort_order: -Date.now(),
-    })
-    .select(TASK_COLUMNS)
-    .single()
+  const row: Record<string, unknown> = {
+    org_id: input.orgId,
+    title,
+    bucket: input.bucket ?? 'today',
+    project_id: input.projectId ?? null,
+    assignee_ids: input.assigneeIds ?? [],
+    created_by: input.createdBy ?? null,
+    // New rows sort to the top of their bucket — a task you just typed is
+    // the one you're thinking about.
+    sort_order: -Date.now(),
+  }
+  // Only name 098's columns when they exist, or the insert itself 42703s.
+  if (extrasReady() && input.tags?.length) row.tags = normalizeTags(input.tags)
+
+  // ⚠️ The RETURNING clause names the 098 columns too, so a create can fail on
+  // a pre-098 database even when the INSERT itself is fine. This had no
+  // fallback and no friendly message, which meant one stale flag left "New
+  // task" permanently broken for the session.
+  const attempt = (cols: string, body: Record<string, unknown>) =>
+    supabase.from('tasks').insert(body).select(cols).single()
+
+  const cols = taskColumns()
+  let { data, error } = await attempt(cols, row)
+  if (error && cols !== TASK_COLUMNS_BASE && isUnknownColumn(error)) {
+    extras = false
+    const { tags: _dropped, ...base } = row
+    ;({ data, error } = await attempt(TASK_COLUMNS_BASE, base))
+  }
+
   if (error || !data) {
     console.error('createTask', error)
     throw new Error(error?.message || 'Could not create the task.')
@@ -241,13 +546,20 @@ export async function createTask(input: {
 
 export async function updateTask(
   taskId: string,
-  patch: Partial<Pick<Task, 'title' | 'bucket' | 'project_id' | 'assignee_ids' | 'sort_order' | 'done_at'>>,
+  patch: Partial<
+    Pick<
+      Task,
+      'title' | 'bucket' | 'project_id' | 'assignee_ids' | 'sort_order' | 'done_at' | 'links' | 'tags'
+    >
+  >,
   orgId?: string,
 ): Promise<void> {
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const k of ['title', 'bucket', 'project_id', 'assignee_ids', 'sort_order', 'done_at'] as const) {
     if (patch[k] !== undefined) update[k] = patch[k]
   }
+  if (patch.links !== undefined) update.links = normalizeLinks(patch.links)
+  if (patch.tags !== undefined) update.tags = normalizeTags(patch.tags)
   if (typeof update.title === 'string') {
     const t = (update.title as string).trim()
     if (!t) throw new Error('A task needs a title.')
@@ -258,13 +570,17 @@ export async function updateTask(
   const { data, error } = await q.select('id')
   if (error) {
     console.error('updateTask', error)
+    if (isUnknownColumn(error) && (patch.links !== undefined || patch.tags !== undefined)) {
+      extras = false
+      throw new Error('Links and tags need migration 098. Run it, then reload.')
+    }
     throw new Error(error.message || 'Could not save the task.')
   }
   if (!data || data.length === 0) throw new Error('Could not save the task.')
 }
 
 /** Flip completion. Passing `done: false` clears the stamp, which is what
- *  restores a row out of Done. */
+ *  restores a row out of the Archive. */
 export async function setTaskDone(taskId: string, done: boolean, orgId?: string): Promise<void> {
   await updateTask(taskId, { done_at: done ? new Date().toISOString() : null }, orgId)
 }
