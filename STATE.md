@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-11 · **Branch:** `main`
 
-**Left off:** wave 4 + Payments v2 built; migrations `098` and `099` ✅ on prod. **Andrew's first real payment found two bugs — both fixed (`634c0eb`)**: a phantom "$1" card from sub-dollar rounding, and dragging a card changing which draw counted as paid. Andrew confirmed the board works after that. **The deposit gate now opens off a recorded payment (`77ab790`)** — no more mandatory override on QB jobs. Then Leonard turned up missing — **sold jobs with no draw schedule were invisible (`a825fcc`)**; there's now a tray for them and the builder reappears so they can be set up. **⚠️ Andrew owes a pass setting up draws on Leonard ×3, Kinser and Gus Bus** (~$600k of contract value untracked). **✅ `/pm` BUILT (`fa14050`) — that was the last scoped item; nothing is queued.**
+**Left off:** wave 4 + Payments v2 built; migrations `098` and `099` ✅ on prod. **Andrew's first real payment found two bugs — both fixed (`634c0eb`)**: a phantom "$1" card from sub-dollar rounding, and dragging a card changing which draw counted as paid. Andrew confirmed the board works after that. **The deposit gate now opens off a recorded payment (`77ab790`)** — no more mandatory override on QB jobs. Then Leonard turned up missing — **sold jobs with no draw schedule were invisible (`a825fcc`)**; there's now a tray for them and the builder reappears so they can be set up. **⚠️ Andrew owes a pass setting up draws on Leonard ×3, Kinser and Gus Bus** (~$600k of contract value untracked). **✅ `/pm` BUILT (`fa14050`)** — the last scoped item; nothing is queued. **⚠️ Andrew's login isn't linked to his roster row, so "Mine" shows everyone everywhere — the UI now says so (`209b347`), but the fix is a `/team` visit.**
 
 ---
 
@@ -297,6 +297,11 @@ Partial, overpaid and out-of-order payments are just rows. **⛔ "MARK RECEIVED"
 2. **Past-due money was folded into a figure labelled "September"**, which would have made this card disagree with `/payments` for the same month — contradicting the card's own reason for existing. Separate lines now, and every preview row SAYS whether it's past due / this month / undated (a gray date gives a manager no way to tell late from upcoming).
 3. **`led.missing` was ignored**, so Received rendered a confident **"$0" that was a lie rather than a zero**. Shows `—` + a note now.
 4. **`addTag` hardcoded gray.** The tag registry is **org-wide**, so a tag created from a /pm row would have been gray *everywhere, forever*. Matches the other two surfaces now.
+
+**⚠️ ANDREW'S LOGIN ISN'T LINKED TO HIS ROSTER ROW — that's DATA, not a bug, but the UI was hiding it (`209b347`).** He reported /pm "bringing in tasks for everyone, not just me."
+- **`myAssigneeId` bridges login → `orgs.team_members`, and it's only written when someone links that person on /team.** Until then nothing can be assigned to you, so the documented fallback shows **everyone** — deliberately, because a permanent empty list under your own name is undiagnosable.
+- **⛔ A SILENT FALLBACK IS ONLY DEFENSIBLE WHILE IT'S VISIBLE.** It wasn't, so a list of Kaylin's and Hunter's work sat under the heading "Andrew's day" looking like a bug. **/pm** now shows an "everyone" chip + a banner with a link to /team; **/tasks** had the same gap under its "Mine" chip and got the same note; the drawer already said "Everyone's list". All three agree now. **Behaviour is unchanged — it just stops pretending.**
+- **⛔ ANDREW STILL OWES THE ACTUAL FIX: link his login to his roster row on `/team`.** Same visit as the "Gets tasks" trimming pass. Until then Mine = everyone, everywhere.
 
 **Andrew's live pass:** the Today card should show only YOUR tasks and stay in step with `/tasks` (check a task off in one, reload the other) · Needed/Received should match `/payments` for this month · drop an invoice on Quick upload.
 
