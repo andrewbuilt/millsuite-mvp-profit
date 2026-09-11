@@ -71,6 +71,9 @@ const NAV: GroupSpec[] = [
     label: 'Manage', // no href → not clickable; the label opens the dropdown
     tour: 'nav-manage',
     children: [
+      // Personal manager home. Ungated like Tasks — it's a view of work you
+      // already have access to, not a feature.
+      { href: '/pm', label: 'My day' },
       { href: '/tasks', label: 'Tasks' },
       { href: '/reports', label: 'Reports', feature: 'outcomes' },
       { href: '/suggestions', label: 'Suggestions', feature: 'rate-book' },
