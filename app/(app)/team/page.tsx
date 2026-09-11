@@ -544,6 +544,37 @@ function TeamContent() {
     announce('ms:worker-login-created')
   }
 
+  /**
+   * Point a roster row at a login that ALREADY EXISTS.
+   *
+   * ⛔ The missing half of the bridge. `createLogin` mints a NEW account, so
+   * the commonest case had no path at all: the OWNER, who signs up first and
+   * builds the roster afterwards. Their roster row stayed unlinked forever,
+   * and `myAssigneeId` (login → roster row) stayed null — so "Mine" in the
+   * task system silently meant "everyone" for them, everywhere.
+   */
+  async function linkLogin(member: TeamMember, userId: string) {
+    const json = await callAdminUsers({ action: 'link_login', user_id: userId })
+    if (json.user_id) {
+      setRoles((prev) => ({ ...prev, [json.user_id]: json.role || 'member' }))
+    }
+    const next = team.map((m) =>
+      m.id === member.id
+        ? { ...m, user_id: json.user_id, email: json.email || m.email }
+        : m,
+    )
+    await persistTeamNow(next)
+  }
+
+  /** Org logins, for the link picker. Service-role only: the browser can read
+   *  just its OWN users row (`users_select_self`, 084). */
+  async function listLogins() {
+    const json = (await callAdminUsers({ action: 'list_logins' })) as unknown as {
+      logins?: Array<{ id: string; name: string | null; email: string | null; role: string | null }>
+    }
+    return json.logins || []
+  }
+
   async function resetPassword(member: TeamMember, password: string) {
     if (!member.user_id) return
     await callAdminUsers({ action: 'reset_password', user_id: member.user_id, password })
@@ -983,6 +1014,13 @@ function TeamContent() {
                   onCreate={(email, password, role) =>
                     createLogin(member, email, password, role)
                   }
+                  onLink={(userId) => linkLogin(member, userId)}
+                  listLogins={listLogins}
+                  // Logins already claimed by another roster row — offering
+                  // one twice would silently move it off the first person.
+                  takenUserIds={team
+                    .filter((m) => m.id !== member.id && m.user_id)
+                    .map((m) => m.user_id as string)}
                   onReset={(password) => resetPassword(member, password)}
                   onRemove={() => removeLogin(member)}
                   onSetRole={(role) => setMemberRole(member, role)}
@@ -1491,6 +1529,9 @@ function AccountControls({
   role,
   canAssignRoles,
   onCreate,
+  onLink,
+  listLogins,
+  takenUserIds,
   onReset,
   onRemove,
   onSetRole,
@@ -1498,6 +1539,11 @@ function AccountControls({
   member: TeamMember
   /** Role of this member's login, or null when they have no login. */
   role: string | null
+  /** Point this roster row at an EXISTING login. */
+  onLink: (userId: string) => Promise<void>
+  listLogins: () => Promise<Array<{ id: string; name: string | null; email: string | null; role: string | null }>>
+  /** Logins already claimed by another roster row. */
+  takenUserIds: string[]
   /** Only the owner may promote/demote — the API enforces it too. */
   canAssignRoles: boolean
   onCreate: (email: string, password: string, role: 'admin' | 'member') => Promise<void>
@@ -1506,7 +1552,12 @@ function AccountControls({
   onSetRole: (role: 'admin' | 'member') => Promise<void>
 }) {
   const linked = !!member.user_id
-  const [mode, setMode] = useState<null | 'create' | 'reset'>(null)
+  const [mode, setMode] = useState<null | 'create' | 'reset' | 'link'>(null)
+  const [logins, setLogins] = useState<
+    Array<{ id: string; name: string | null; email: string | null; role: string | null }>
+  >([])
+  const [pickedUserId, setPickedUserId] = useState('')
+  const [loadingLogins, setLoadingLogins] = useState(false)
   const [email, setEmail] = useState(member.email ?? '')
   const [password, setPassword] = useState('')
   const [newRole, setNewRole] = useState<'admin' | 'member'>('member')
@@ -1583,16 +1634,36 @@ function AccountControls({
           {okMsg && <span className="text-[#065F46]">· {okMsg}</span>}
         </div>
         <div className="flex items-center gap-2">
-          {!linked && mode !== 'create' && (
-            <button
-              onClick={() => {
-                setMode('create')
-                setPassword(generatePassword())
-              }}
-              className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
-            >
-              Create login
-            </button>
+          {!linked && mode === null && (
+            <>
+              {/* ⛔ THE OWNER'S CASE. They already have a login — offering only
+                  "Create login" meant the one person who most needs the bridge
+                  could never make it, and their tasks silently read as
+                  everyone's. */}
+              <button
+                onClick={() => {
+                  setMode('link')
+                  setErr(null)
+                  setLoadingLogins(true)
+                  void listLogins()
+                    .then(setLogins)
+                    .catch((e) => setErr(e instanceof Error ? e.message : 'Could not load logins.'))
+                    .finally(() => setLoadingLogins(false))
+                }}
+                className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+              >
+                Link existing
+              </button>
+              <button
+                onClick={() => {
+                  setMode('create')
+                  setPassword(generatePassword())
+                }}
+                className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+              >
+                Create login
+              </button>
+            </>
           )}
           {/* The owner's own login isn't managed from the roster — the API
               refuses it, so don't offer buttons that can only fail. */}
@@ -1649,7 +1720,73 @@ function AccountControls({
         </div>
       )}
 
-      {mode && (
+      {mode === 'link' && (
+        <div className="mt-2 flex flex-col gap-2">
+          {loadingLogins ? (
+            <span className="text-xs text-[#9CA3AF] italic">Loading logins…</span>
+          ) : (
+            <>
+              <select
+                value={pickedUserId}
+                onChange={(e) => setPickedUserId(e.target.value)}
+                className="px-2.5 py-1.5 text-sm border border-[#E5E7EB] rounded-lg bg-white focus:outline-none focus:border-[#2563EB]"
+              >
+                <option value="">Which login is {member.name}?</option>
+                {logins
+                  // A login already on another roster row would be silently
+                  // moved off that person if offered here.
+                  .filter((l) => !takenUserIds.includes(l.id))
+                  .map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name || l.email || l.id}
+                      {l.email ? ` · ${l.email}` : ''}
+                      {l.role ? ` · ${ROLE_LABEL[l.role] ?? l.role}` : ''}
+                    </option>
+                  ))}
+              </select>
+              <span className="text-[10.5px] text-[#9CA3AF] leading-snug">
+                Connects this person to an account that already exists. Changes
+                nothing about their access — it just makes tasks assigned to
+                them show up as theirs.
+              </span>
+            </>
+          )}
+          {err && <span className="text-xs text-[#DC2626]">{err}</span>}
+          <div className="flex items-center gap-2">
+            <button
+              disabled={busy || !pickedUserId}
+              onClick={async () => {
+                setBusy(true)
+                setErr(null)
+                try {
+                  await onLink(pickedUserId)
+                  setMode(null)
+                  setPickedUserId('')
+                } catch (e) {
+                  setErr(e instanceof Error ? e.message : 'Could not link that login.')
+                } finally {
+                  setBusy(false)
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg bg-[#2563EB] text-white text-xs font-medium hover:bg-[#1D4ED8] disabled:opacity-50"
+            >
+              {busy ? 'Linking…' : 'Link login'}
+            </button>
+            <button
+              onClick={() => {
+                setMode(null)
+                setPickedUserId('')
+                setErr(null)
+              }}
+              className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[#374151] text-xs hover:bg-[#F9FAFB]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode && mode !== 'link' && (
         <div className="mt-2 flex flex-col gap-2">
           {mode === 'create' && (
             <input

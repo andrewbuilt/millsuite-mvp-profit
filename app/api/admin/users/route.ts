@@ -270,5 +270,54 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true })
   }
 
+  // ── Linking an EXISTING login to a roster row ────────────────────────────
+  //
+  // ⛔ WHY THIS EXISTS. Every other action here CREATES a login. There was no
+  // way to point a roster row at a login that already existed — which left the
+  // single most common case unreachable: the OWNER. They sign up first, build
+  // the roster afterwards, and the two are never connected. Andrew hit it on
+  // /pm ("its bringing in tasks for everyone, not just me") because
+  // `myAssigneeId` resolves login → roster row and his was null, so nothing
+  // could ever be "his" anywhere in the task system.
+  //
+  // create_login couldn't fix it either: it mints a NEW auth user, and its
+  // role argument is admin|member, so using it on the owner's own row would
+  // have produced a second, weaker account.
+
+  if (action === 'list_logins') {
+    // Candidates for linking. The browser CANNOT read this itself —
+    // `users_select_self` (084) limits it to its own row — which is exactly
+    // why the picker has to come from the service role.
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .select('id, name, email, role')
+      .eq('org_id', orgId)
+      .order('name')
+    if (error) {
+      return NextResponse.json({ error: 'Could not load logins' }, { status: 500 })
+    }
+    return NextResponse.json({ logins: data || [] })
+  }
+
+  if (action === 'link_login') {
+    const userId = String(body.user_id || '')
+    const target = await resolveOrgUser(userId, orgId)
+    if (!target) {
+      return NextResponse.json({ error: 'Login not found' }, { status: 404 })
+    }
+    // ⛔ NO AUTHORITY CHECK BEYOND ORG MEMBERSHIP, DELIBERATELY, AND IT IS SAFE:
+    // linking grants NOTHING. It writes team_members[].user_id, which decides
+    // whose name a task shows under — it does not touch roles, passwords or
+    // access. `checkAuthorityOver` guards privilege changes; borrowing it here
+    // would block an admin from linking the owner, which is the main case.
+    // The caller is already owner-or-admin in this org (requireOwnerOrAdmin),
+    // and resolveOrgUser pins the target to the SAME org.
+    return NextResponse.json({
+      user_id: target.id,
+      email: target.email ?? null,
+      role: target.role ?? null,
+    })
+  }
+
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
 }
