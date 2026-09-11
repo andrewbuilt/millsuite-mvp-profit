@@ -74,6 +74,7 @@ import {
   type CostBuckets,
   type BucketMargins,
 } from '@/lib/pricing'
+import { allocateRounded, allocationDrift } from '@/lib/allocate'
 import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   loadSubprojectActualHours,
@@ -943,6 +944,67 @@ export default function ProjectCoverPage() {
     return acc
   }, [cards, subActuals, deptKeyById, margins])
 
+  /**
+   * Each subproject's PRICE, in whole dollars, guaranteed to sum to the
+   * project total.
+   *
+   * The cards used to show pre-margin COST while the header showed PRICE, so a
+   * project read as though its parts didn't add up to its total — Andrew:
+   * "it shows premargin but the project total is the correct price".
+   *
+   * ⛔ THE MARGINS OBJECT IS THE PROJECT'S, NOT A FRESH ONE. That is what keeps
+   * an IMPORTED job frozen: the importer pins its margins to 0, so price ==
+   * cost and these cards keep showing the number Built quoted. Re-deriving
+   * margins here would be the fourth surface to re-price a frozen job.
+   *
+   * ⛔ install prefill rides in the install bucket, exactly as the project
+   * total folds it in above — it is NOT scaled by `quantity` (097), and it is
+   * not part of `rollup`'s own buckets.
+   */
+  const subPriceById = useMemo(() => {
+    const out: Record<string, number> = {}
+    if (cards.length === 0) return out
+
+    // Same bucket mapping the project total uses, one subproject at a time.
+    const exact = cards.map(({ rollup, installPrefillCost }) =>
+      computeBucketedPrice(
+        {
+          laborCost: rollup.laborCost,
+          materialCost: rollup.materialCost,
+          hardwareCost: rollup.hardwareCost,
+          consumablesCost: rollup.consumablesCost,
+          installCost: rollup.installCost + installPrefillCost,
+          optionsCost: rollup.optionsCost,
+          customCost: rollup.customCost,
+        },
+        margins,
+      ).priceTotal,
+    )
+
+    // computeBucketedPrice is linear per bucket, so these MUST already sum to
+    // the project price bar rounding. If they don't, something is in the total
+    // that belongs to no subproject — and forcing the sum would smear that
+    // amount invisibly across the cards instead of showing it. Say so and
+    // leave the numbers honest.
+    const drift = allocationDrift(exact, proj.priceTotal)
+    if (drift > 1) {
+      console.warn(
+        `subproject prices are $${drift.toFixed(2)} away from the project total — ` +
+          'not allocating. Something in the total belongs to no subproject.',
+      )
+      cards.forEach(({ sub }, i) => {
+        out[sub.id] = Math.round(exact[i])
+      })
+      return out
+    }
+
+    const allocated = allocateRounded(exact, proj.priceTotal)
+    cards.forEach(({ sub }, i) => {
+      out[sub.id] = allocated[i]
+    })
+    return out
+  }, [cards, margins, proj.priceTotal])
+
   // Item 6 + dashboard fix: keep projects.bid_total in sync with the live
   // priceTotal so every list surface that reads it (sales card, kanban,
   // /projects card, dashboard report, pre-prod header) stays current. We
@@ -1524,7 +1586,17 @@ export default function ProjectCoverPage() {
               {cards.map(({ sub, rollup, lineCount, finishSpecCount, installPrefillCost }, index) => {
                 const install = isInstallSub(sub)
                 const canReorder = isPresold(project.stage) && cards.length > 1
+                // COST — still shown, as the quiet second figure, because a
+                // shop reads these cards to sanity-check what a box costs to
+                // build. The headline is now the PRICE.
                 const subTotalWithInstall = rollup.total + installPrefillCost
+                // PRICE — allocated so the cards sum to the project total.
+                // Falls back to cost only before the memo has an entry (a sub
+                // added mid-render), never silently to a marked-up guess.
+                const subPrice = subPriceById[sub.id] ?? subTotalWithInstall
+                // With no margin (an imported job, or a shop running at cost)
+                // the two are the same number and printing both is noise.
+                const priceDiffersFromCost = Math.abs(subPrice - subTotalWithInstall) >= 1
                 // Item 3 of post-sale-2: badge depends on stage + live
                 // approval-status readiness, not the legacy
                 // subprojects.ready_for_production column.
@@ -1681,9 +1753,21 @@ export default function ProjectCoverPage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-[18px] font-semibold text-[#111] font-mono tabular-nums">
-                          {money(subTotalWithInstall)}
+                        <div
+                          className="text-[18px] font-semibold text-[#111] font-mono tabular-nums"
+                          title={
+                            priceDiffersFromCost
+                              ? `Price ${money(subPrice)} · cost ${money(subTotalWithInstall)}`
+                              : undefined
+                          }
+                        >
+                          {money(subPrice)}
                         </div>
+                        {priceDiffersFromCost && (
+                          <div className="text-[10px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
+                            cost {money(subTotalWithInstall)}
+                          </div>
+                        )}
                         {installPrefillCost > 0 && (
                           <div className="text-[10px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
                             + {money(installPrefillCost)} install
