@@ -51,6 +51,9 @@ const NAV: GroupSpec[] = [
       { href: '/estimates', label: 'Estimates', feature: 'sales' },
       { href: '/change-orders', label: 'Change orders', feature: 'sales' },
       { href: '/invoices', label: 'Invoices', feature: 'invoices' },
+      // Beside Invoices and behind the same gate: both are "money owed", and a
+      // shop without invoicing has no draw schedule worth looking at either.
+      { href: '/payments', label: 'Payments', feature: 'invoices' },
       { href: '/clients', label: 'Clients', feature: 'sales' },
     ],
   },
