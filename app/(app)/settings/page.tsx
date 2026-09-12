@@ -1128,7 +1128,7 @@ export default function SettingsPage() {
         {/* Sales goal (101). Sits under Project defaults because the two get
             confused otherwise: those margins price a JOB, these percentages
             describe where the SHOP's revenue goes. */}
-        <SalesGoalCard orgId={org?.id} />
+        <SalesGoalCard orgId={org?.id} consumableMarkupPct={org?.consumable_markup_pct ?? 0} />
 
         {/* Subscription / Billing */}
         <BillingSection />

@@ -337,6 +337,9 @@ export default function PaymentsPage() {
                 monthlyFixed: goalSettings.fixedMonthlyOverride ?? derivedFixed,
                 materialPct: goalSettings.materialPct,
                 profitPct: goalSettings.profitPct,
+                // Consumables are derived from material × this, matching how
+                // a job is priced. See lib/sales-goal.
+                consumableMarkupPct: org?.consumable_markup_pct ?? 0,
                 // Payroll is owner-only in the database, so an admin's
                 // derived fixed cost is overhead alone. Pinning an override
                 // is what makes the goal shareable.

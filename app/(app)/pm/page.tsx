@@ -109,7 +109,7 @@ export default function PmPage() {
             <ProjectsAtRiskCard orgId={org?.id} shopRate={org?.shop_rate ?? 0} />
           </div>
           <div className="space-y-4">
-            {canSeePayments && <MoneyInCard orgId={org?.id} role={user?.role} />}
+            {canSeePayments && <MoneyInCard orgId={org?.id} role={user?.role} markupPct={org?.consumable_markup_pct ?? 0} />}
             {canSeePayments && <ReceivablesCard orgId={org?.id} />}
             <QuickUploadCard />
           </div>
@@ -386,11 +386,14 @@ interface PreviewRow {
 function MoneyInCard({
   orgId,
   role,
+  markupPct,
 }: {
   orgId: string | undefined
   /** Decides whether the derived fixed cost is trustworthy — payroll is
    *  owner-only in the database. See GoalInputs.fixedIsKnown. */
   role: string | undefined
+  /** `orgs.consumable_markup_pct` — the goal derives consumables from it. */
+  markupPct: number
 }) {
   const [preview, setPreview] = useState<PreviewRow[]>([])
   const [received, setReceived] = useState(0)
@@ -426,6 +429,7 @@ function MoneyInCard({
           monthlyFixed: settings.fixedMonthlyOverride ?? derivedFixed,
           materialPct: settings.materialPct,
           profitPct: settings.profitPct,
+          consumableMarkupPct: markupPct,
           // See the note in GoalInputs: payroll is owner-only, so an admin's
           // derived figure is overhead alone and the goal would read low.
           fixedIsKnown: settings.fixedMonthlyOverride != null || role === 'owner',
@@ -435,7 +439,7 @@ function MoneyInCard({
     return () => {
       alive = false
     }
-  }, [orgId, role])
+  }, [orgId, role, markupPct])
 
   useEffect(() => {
     if (!orgId) return

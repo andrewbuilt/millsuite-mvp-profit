@@ -14,6 +14,30 @@
 // per-job margins, and it does not compare bookings to the goal. "Just a
 // target to aim for." A thermostat, not an accounting system.
 //
+// ⛔ CONSUMABLES ARE DERIVED, NOT TYPED — ANDREW'S CALL, 2026-09-12.
+//
+//     goal = monthlyFixed / (1 − materialPct − materialPct×markup − profitPct)
+//
+// The app prices a JOB four ways (labour / material / consumables / margin),
+// so a three-way revenue split was short a destination: a 7%-of-revenue
+// consumable spend moves an $80,000 goal to $93,023. The fix adds NO fourth
+// setting. Consumables in this app are already a function of material —
+// `consumablesCost = materialCost × consumableMarkupPct` (lib/change-orders)
+// — so the goal applies the SAME relationship to the revenue split. One
+// input stays one input; the shop never has to estimate a consumables share.
+//
+//   · `materialPct` is MATERIAL ONLY here. ⛔ Do not widen it to "everything
+//     bought" — the markup is applied on top, so a materialPct that already
+//     included consumables would charge for them twice.
+//   · An org with a 0 markup gets exactly the old number, so this cannot
+//     move a goal that was already set up unless consumables really apply.
+//   · ⚠️ THE DOUBLE-COUNT TO WATCH IS IN OVERHEAD, not here.
+//     `DEFAULT_OVERHEAD_CATEGORIES` ships 'Shop consumables' and 'Tools'.
+//     Money in those AND recovered through the markup is paid for twice —
+//     once in `monthlyFixed`, once in the divisor — and the goal reads HIGH.
+//     The settings card names the offending categories. It deliberately does
+//     NOT silently exclude them: which side is right is the shop's call.
+//
 // ⛔ PERCENTS, NOT FRACTIONS, ON THE WAY IN. The columns store 0-100 to match
 // `profit_margin_pct`. Getting that wrong is a 100× error in a revenue
 // target, so the conversion happens exactly once — here.
@@ -29,6 +53,16 @@ export interface GoalInputs {
   materialPct: number | null
   /** Percent of revenue, 0-100. Null = not set up. */
   profitPct: number | null
+  /**
+   * The org's consumable markup as a PERCENT of material cost
+   * (`orgs.consumable_markup_pct`; pricing defaults it to 10). Consumables
+   * are derived from this rather than asked for — see the header.
+   *
+   * Omitted ⇒ 0, which reproduces the pre-2026-09-12 goal exactly. That
+   * default is deliberate: a missing markup must not silently inflate a
+   * target someone is planning against.
+   */
+  consumableMarkupPct?: number | null
   /**
    * ⛔ CAN THIS VIEWER SEE THE REAL FIXED COST? Team compensation is
    * owner-only at the DATABASE level (`team_compensation_owner_only`, 087),
@@ -65,6 +99,9 @@ export interface Goal {
   monthlyFixed: number
   materialPct: number
   profitPct: number
+  /** Consumables as a percent of REVENUE — `materialPct × markup`. Shown on
+   *  the settings card so the derivation is legible rather than magic. */
+  consumablesPct: number
 }
 
 /**
@@ -81,6 +118,17 @@ export function computeGoal(inputs: GoalInputs): Goal {
   const materialPct = Number(inputs.materialPct ?? NaN)
   const profitPct = Number(inputs.profitPct ?? NaN)
   const monthlyFixed = Number(inputs.monthlyFixed) || 0
+  // Defaults to 0, NOT to pricing's 10. A caller that forgets to pass the
+  // markup gets the old, smaller goal rather than a silently inflated one.
+  const markupRaw = Number(inputs.consumableMarkupPct ?? 0)
+  const markup = Number.isFinite(markupRaw) && markupRaw > 0 ? markupRaw : 0
+
+  // Consumables ride on MATERIAL, exactly as they do when pricing a job:
+  // consumablesCost = materialCost × markup.
+  const consumablesPct =
+    Number.isFinite(materialPct) && materialPct > 0
+      ? +((materialPct * markup) / 100).toFixed(4)
+      : 0
 
   const base: Goal = {
     status: 'unset',
@@ -88,6 +136,7 @@ export function computeGoal(inputs: GoalInputs): Goal {
     monthlyFixed,
     materialPct: Number.isFinite(materialPct) ? materialPct : 0,
     profitPct: Number.isFinite(profitPct) ? profitPct : 0,
+    consumablesPct,
   }
 
   // Either percentage missing ⇒ not set up. Zero IS a legitimate value (a
@@ -101,7 +150,11 @@ export function computeGoal(inputs: GoalInputs): Goal {
   // runs away to infinity" is gibberish, and that's what the impossible copy
   // said when a stored value was negative.
   if (materialPct < 0 || profitPct < 0) return { ...base, status: 'negative' }
-  if (materialPct + profitPct >= MAX_COMBINED_PCT) {
+  // ⛔ THE CAP MUST INCLUDE THE DERIVED CONSUMABLES. Checking only material +
+  // profit would let the three together reach 100% through the back door —
+  // 60% material with a 40% markup is 24 more points, and the divisor goes
+  // to zero without a single input looking unreasonable.
+  if (materialPct + consumablesPct + profitPct >= MAX_COMBINED_PCT) {
     return { ...base, status: 'impossible' }
   }
   // ⛔ BEFORE `no_fixed`: a blind viewer's fixed cost may be a plausible
@@ -110,7 +163,7 @@ export function computeGoal(inputs: GoalInputs): Goal {
   if (inputs.fixedIsKnown === false) return { ...base, status: 'blind' }
   if (monthlyFixed <= 0) return { ...base, status: 'no_fixed' }
 
-  const divisor = 1 - (materialPct + profitPct) / 100
+  const divisor = 1 - (materialPct + consumablesPct + profitPct) / 100
   return {
     ...base,
     status: 'ok',

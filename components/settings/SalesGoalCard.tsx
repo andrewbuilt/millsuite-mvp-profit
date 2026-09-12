@@ -50,7 +50,15 @@ function toNum(v: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-export default function SalesGoalCard({ orgId }: { orgId: string | undefined }) {
+export default function SalesGoalCard({
+  orgId,
+  consumableMarkupPct,
+}: {
+  orgId: string | undefined
+  /** `orgs.consumable_markup_pct`. Consumables in the goal are derived from
+   *  it rather than asked for — see the header of lib/sales-goal. */
+  consumableMarkupPct: number
+}) {
   const [material, setMaterial] = useState('')
   const [profit, setProfit] = useState('')
   const [override, setOverride] = useState('')
@@ -58,6 +66,9 @@ export default function SalesGoalCard({ orgId }: { orgId: string | undefined }) 
   const [suggested, setSuggested] = useState<number | null>(null)
   const [sampleCount, setSampleCount] = useState(0)
   const [considered, setConsidered] = useState(0)
+  /** Overhead categories that also live inside the material+consumables
+   *  percentage. Non-empty ⇒ the goal is double-counting them. */
+  const [overlapCategories, setOverlapCategories] = useState<string[]>([])
   const [loaded, setLoaded] = useState(false)
   const [missing, setMissing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -98,6 +109,22 @@ export default function SalesGoalCard({ orgId }: { orgId: string | undefined }) 
           ? deriveMonthlyFixed(sumOverheadAnnual(setup.overhead), sumTeamAnnualComp(setup.team))
           : 0,
       )
+
+      // ⛔ THE ONE HAZARD IN FOLDING CONSUMABLES INTO THE MATERIAL %. If the
+      // shop also carries a consumables line in OVERHEAD, that money is in
+      // `monthlyFixed` AND in the percentage, and the goal reads high. Named
+      // categories, not a guess: these are the two that ship in
+      // DEFAULT_OVERHEAD_CATEGORIES.
+      if (setup) {
+        const doubled = Object.entries(setup.overhead || {})
+          .filter(([name, input]) => {
+            const n = name.toLowerCase()
+            const hasMoney = (Number(input?.amount) || 0) > 0
+            return hasMoney && (n.includes('consumable') || n.includes('tool'))
+          })
+          .map(([name]) => name)
+        setOverlapCategories(doubled)
+      }
       setSuggested(suggestMaterialPct(samples.samples))
       setSampleCount(samples.samples.length)
       setConsidered(samples.considered)
@@ -136,6 +163,7 @@ export default function SalesGoalCard({ orgId }: { orgId: string | undefined }) 
     monthlyFixed,
     materialPct: toNum(material),
     profitPct: toNum(profit),
+    consumableMarkupPct,
   })
 
   const inputClass =
@@ -190,6 +218,17 @@ export default function SalesGoalCard({ orgId }: { orgId: string | undefined }) 
             <label className="text-sm text-[#6B7280]">
               Material share of revenue
               <span className="block text-[11px] text-[#9CA3AF] leading-snug mt-0.5">
+                {/* ⛔ MATERIAL ONLY. Consumables are added on top from the
+                    markup — widening this to "everything bought" would
+                    charge for them twice. */}
+                {preview.consumablesPct > 0 && (
+                  <span className="block mb-0.5 text-[#6B7280]">
+                    Consumables add{' '}
+                    <strong>{preview.consumablesPct.toFixed(1)}%</strong> on top
+                    automatically ({material || 0}% × your {consumableMarkupPct}%
+                    markup) — no need to include them here.
+                  </span>
+                )}
                 {suggested != null ? (
                   <>
                     {/* ⛔ SAY WHAT WAS ACTUALLY MEASURED. This read "your last
@@ -257,7 +296,11 @@ export default function SalesGoalCard({ orgId }: { orgId: string | undefined }) 
                 Monthly goal:{' '}
                 <strong className="font-mono tabular-nums">{money(preview.amount)}</strong>
                 <span className="block text-[11px] text-[#9CA3AF] mt-0.5 font-mono">
-                  {money(monthlyFixed)} ÷ (1 − {preview.materialPct}% − {preview.profitPct}%)
+                  {money(monthlyFixed)} ÷ (1 − {preview.materialPct}%
+                  {preview.consumablesPct > 0
+                    ? ` − ${preview.consumablesPct.toFixed(1)}%`
+                    : ''}{' '}
+                  − {preview.profitPct}%)
                 </span>
               </div>
             ) : preview.status === 'negative' ? (
@@ -282,6 +325,20 @@ export default function SalesGoalCard({ orgId }: { orgId: string | undefined }) 
               </div>
             )}
           </div>
+
+          {/* Shown regardless of whether a goal is set up — it's a statement
+              about the INPUTS, and it's the reason the goal would read high. */}
+          {overlapCategories.length > 0 && (
+            <div className="mt-3 text-[12px] text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-md px-3 py-2 leading-snug">
+              <strong>Counted twice:</strong> {overlapCategories.join(' and ')}{' '}
+              {overlapCategories.length === 1 ? 'is' : 'are'} in your monthly
+              overhead above, and consumables are also inside the percentage
+              below — so the goal asks you to cover them from both sides and
+              comes out high. Either drop{' '}
+              {overlapCategories.length === 1 ? 'that line' : 'those lines'} from
+              overhead, or keep the percentage to material only.
+            </div>
+          )}
 
           {error && (
             <div className="mt-3 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">

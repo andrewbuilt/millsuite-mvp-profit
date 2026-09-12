@@ -229,6 +229,8 @@ export default function GoalBanner({
             : `${Math.floor(p.pct)}% of target · ${money(goal.amount - received)} to go`}
         </span>
         <span className="hidden sm:inline">
+          {/* "material" here means material + consumables — everything bought
+              for jobs. See the header of lib/sales-goal. */}
           {money(goal.monthlyFixed)}/mo fixed at {goal.materialPct}% material ·{' '}
           {goal.profitPct}% profit
         </span>

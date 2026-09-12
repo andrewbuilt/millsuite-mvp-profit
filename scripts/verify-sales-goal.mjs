@@ -114,6 +114,75 @@ function check(name, got, want) {
   } else pass++
 }
 
+// ── ⛔ Consumables, DERIVED from material × markup ─────────────────────────
+// Andrew's call 2026-09-12. The app prices a job four ways; the goal split
+// was three. No fourth setting — consumables already ride on material
+// (`consumablesCost = materialCost × markup`), so the goal does the same.
+{
+  // STATE's worked example: $40k fixed, 30% material, 20% profit ⇒ $80,000
+  // with no consumables. A 7-point consumable share ⇒ ~$93,023. Seven points
+  // of a 30% material share is a 23.333% markup.
+  const without = computeGoal({ monthlyFixed: 40000, materialPct: 30, profitPct: 20 })
+  check('no markup ⇒ the old number', without.amount, 80000)
+  check('and no consumables line', without.consumablesPct, 0)
+
+  const with7 = computeGoal({
+    monthlyFixed: 40000,
+    materialPct: 30,
+    profitPct: 20,
+    consumableMarkupPct: 23.3333,
+  })
+  check('7 points of consumables', with7.consumablesPct, 7)
+  check('the worked example reproduces', with7.amount, 93023.26)
+
+  // ⛔ The acceptance criterion from the spec: 0 markup must not move a goal
+  // that was already set up.
+  const zero = computeGoal({
+    monthlyFixed: 40000, materialPct: 30, profitPct: 20, consumableMarkupPct: 0,
+  })
+  check('0% markup is unchanged', zero.amount, 80000)
+
+  // A missing markup defaults to 0, NOT to pricing's 10 — a caller that
+  // forgets must not silently inflate the target.
+  check('omitted markup ⇒ unchanged', without.amount, zero.amount)
+
+  // The app's default markup is 10%: 30% material ⇒ 3 points.
+  const ten = computeGoal({
+    monthlyFixed: 40000, materialPct: 30, profitPct: 20, consumableMarkupPct: 10,
+  })
+  check('10% markup ⇒ 3 points', ten.consumablesPct, 3)
+  check('10% markup goal', ten.amount, +(40000 / 0.47).toFixed(2))
+
+  // Consumables ride on MATERIAL, so 0% material means 0 consumables even
+  // with a markup set.
+  const noMaterial = computeGoal({
+    monthlyFixed: 40000, materialPct: 0, profitPct: 20, consumableMarkupPct: 25,
+  })
+  check('no material ⇒ no consumables', noMaterial.consumablesPct, 0)
+  check('no material goal', noMaterial.amount, 50000)
+}
+
+// ── ⛔ The cap must include the DERIVED points ─────────────────────────────
+// Otherwise three inputs that each look reasonable can drive the divisor to
+// zero through the back door.
+{
+  // 60% material + 20% profit = 80, under the cap. But a 40% markup adds 24
+  // more points ⇒ 104 total.
+  const sneaky = computeGoal({
+    monthlyFixed: 40000, materialPct: 60, profitPct: 20, consumableMarkupPct: 40,
+  })
+  check('derived points count toward the cap', sneaky.status, 'impossible')
+
+  // Without the markup the very same inputs are fine — proving the guard is
+  // reacting to the derivation, not to the raw inputs.
+  const fine = computeGoal({ monthlyFixed: 40000, materialPct: 60, profitPct: 20 })
+  check('same inputs, no markup ⇒ ok', fine.status, 'ok')
+  if (sneaky.status === fine.status) {
+    fail++
+    console.log('  ❌ the cap ignores derived consumables — no teeth')
+  } else pass++
+}
+
 // ── ⛔ The blind viewer ────────────────────────────────────────────────────
 // Team comp is owner-only in the database, so a manager's derived fixed cost
 // is overhead ALONE — a plausible, smaller, entirely wrong number. Measured
