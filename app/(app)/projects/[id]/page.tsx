@@ -79,6 +79,7 @@ import { todayStamp } from '@/lib/payments'
 import { ProjectPaymentLedger } from '@/components/project/ProjectPaymentLedger'
 import type { LaborDept } from '@/lib/rate-book-seed'
 import {
+  loadProjectActuals,
   loadSubprojectActualHours,
   fmtActualHours,
   type SubActualsMap,
@@ -383,10 +384,34 @@ export default function ProjectCoverPage() {
   // Phase 8: actuals come from time_entries and are surfaced next to every
   // estimated-hours number on this page.
   const [subActuals, setSubActuals] = useState<SubActualsMap>({})
+  /** ALL time clocked to this project, including hours with no subproject
+   *  picked. ⛔ Not the sum of `subActuals` — see the load site. */
+  const [projectActualMinutes, setProjectActualMinutes] = useState(0)
+  /** The same total, split by department id. Feeds the Hours section so it
+   *  can't disagree with the progress bar above it. */
+  const [projectActualByDeptId, setProjectActualByDeptId] = useState<Record<string, number>>({})
   // Map department_id → canonical LaborDept key (by matching on departments.name).
   // Needed because hoursByDept is keyed by LaborDept but time_entries.department_id
   // is a UUID. Falls back to null for custom / unmapped departments.
   const [deptKeyById, setDeptKeyById] = useState<Record<string, LaborDept>>({})
+
+  /**
+   * Department id → LaborDept key, over the PROJECT's actuals.
+   *
+   * ⚠️ The rows won't always add up to the total, and that's honest rather
+   * than broken: time clocked with no department picked belongs to no row.
+   * The totals line carries it. Same rule the subproject path already used
+   * (`actualUnmappedMinutes`).
+   */
+  const projectActualByDept = useMemo(() => {
+    const out = { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 }
+    for (const [deptId, mins] of Object.entries(projectActualByDeptId)) {
+      const key = deptKeyById[deptId]
+      if (key) out[key] += mins
+    }
+    return out
+  }, [projectActualByDeptId, deptKeyById])
+
   const [loading, setLoading] = useState(true)
   const [historicalOpen, setHistoricalOpen] = useState(false)
   const [qbLines, setQbLines] = useState<QbLine[]>([])
@@ -548,6 +573,17 @@ export default function ProjectCoverPage() {
     const actuals = subIds.length > 0
       ? await loadSubprojectActualHours(subIds)
       : ({} as SubActualsMap)
+
+    // ⛔ THE PROJECT'S TOTAL, SEPARATELY, AND IT IS NOT THE SUM OF THE SUBS.
+    // `loadSubprojectActualHours` filters `.in('subproject_id', …)` and skips
+    // any row whose subproject_id is null — but clocking in only requires a
+    // PROJECT (`/time` gates its button on `timerProjectId` alone, and the
+    // insert writes `subproject_id: timerSubprojectId || null`). So every
+    // hour logged without picking a sub was invisible to this page, and the
+    // production progress bar it feeds sat at 0% while time was being
+    // tracked. /projects has always used this loader and shown the bigger
+    // number, so the two pages disagreed.
+    const projActuals = await loadProjectActuals(projectId)
     const deptKeyMap: Record<string, LaborDept> = {}
     for (const d of (deptRes.data || []) as Array<{ id: string; name: string }>) {
       const n = (d.name || '').toLowerCase()
@@ -610,6 +646,8 @@ export default function ProjectCoverPage() {
     setProject(projRes.data as Project)
     setCards(cardData)
     setSubActuals(actuals)
+    setProjectActualMinutes(projActuals.totalMinutes)
+    setProjectActualByDeptId(projActuals.byDeptMinutes)
     setDeptKeyById(deptKeyMap)
     setSubStatusMap(statuses)
     setMilestones(ms)
@@ -1525,7 +1563,14 @@ export default function ProjectCoverPage() {
       <StageStrip
         stage={project.stage}
         soldGateMet={readyForProduction}
-        production={{ actualMinutes: proj.actualMinutes, estimatedHours: proj.totalHours }}
+        // ⛔ projectActualMinutes, NOT proj.actualMinutes. The latter is the
+        // sum over subprojects and silently excludes any hour clocked without
+        // a subproject — which is allowed, so the bar read 0% on a job with
+        // real time against it.
+        production={{
+          actualMinutes: projectActualMinutes,
+          estimatedHours: proj.totalHours,
+        }}
       />
       <AttentionStrip
         projectId={projectId}
@@ -2404,11 +2449,16 @@ export default function ProjectCoverPage() {
                   actual with thresholded %, plus a totals line. Empty
                   state routes the operator to the time clock pre-filled
                   with this project. */}
+              {/* ⛔ PROJECT-LEVEL ACTUALS, matching the progress bar in the
+                  strip. Both used to read the subproject-summed figure, which
+                  drops any hour clocked without a subproject — so a job with
+                  real time against it showed zero in both places. Feeding the
+                  two from one source is what keeps them from disagreeing. */}
               <ProjectHoursSection
                 est={proj.hoursByDept}
-                actualMinutes={proj.actualByDept}
+                actualMinutes={projectActualByDept}
                 totalEst={proj.totalHours}
-                totalActualMinutes={proj.actualMinutes}
+                totalActualMinutes={projectActualMinutes}
                 projectId={projectId}
               />
 

@@ -57,6 +57,16 @@ export default function StageStrip({
   const pct = showProgress ? (actualHours / estHours) * 100 : 0
   const over = pct > 100
 
+  /**
+   * ⛔ "NO ESTIMATE" AND "NOTHING TRACKED YET" LOOKED IDENTICAL — both drew a
+   * plain gray connector — and that ambiguity is what made this read as
+   * broken. Andrew: "it seems like the production status isnt working… i
+   * thought we built this already." It was built; it had nothing to say and
+   * no way to say it. An unestimated job in production now gets its own
+   * tooltip so the two states can be told apart by hovering.
+   */
+  const unestimated = cover === 'production' && estHours <= 0
+
   return (
     /* data-tour: the sell-it guide's intro and closer both point at this
        strip — the "where is my job in its life" view. */
@@ -143,6 +153,14 @@ export default function StageStrip({
                     className={
                       'flex-1 h-[2px] ' +
                       (i < currentIdx ? 'bg-[#059669]' : 'bg-[#E5E7EB]')
+                    }
+                    // Only on the Production connector, and only when there's
+                    // no estimate — otherwise every gray line in the app
+                    // sprouts a tooltip about hours.
+                    title={
+                      unestimated && i === currentIdx
+                        ? 'No estimated hours on this job, so there’s nothing to measure tracked time against. The bar fills once the estimate has labor hours.'
+                        : undefined
                     }
                   />
                 ))}
