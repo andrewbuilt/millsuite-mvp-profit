@@ -12,6 +12,8 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-12)
 
+**NEW 2026-09-12 (Cowork pass): "HOME CONSOLIDATION + SALES GOAL" scoped — BUILD NEXT (after migration `100` is run).** (1) AI shop report → /reports · (2) `/dashboard` RETIRED, My Day (`/pm`) becomes the home — logo + post-setup landing point there, the setup checklist and welcome-offer MIGRATE with it (⚠️ Bam's onboarding runs through this; tour hooks + copy must survive, `check-tour-targets` required) · (3) the payments page's "Needed" becomes a real monthly cash goal: `fixed ÷ (1 − material% − profit%)`, fixed DERIVED from shop-rate setup, material% settable with a learned suggestion, profit% assumed; goal vs received with the draw sum demoted to "Scheduled draws". **Migration `101`.** Specs = "Home consolidation + sales goal" in Now.
+
 **⛔ 2026-09-12: `time_entries` + `project_month_allocations` ARE OPEN TO THE PUBLIC ANON KEY. MIGRATION `100` IS WRITTEN AND NOT YET RUN — this is the only thing blocking anything.** No login, every org, demonstrated with a live anon-key read (1 + 13 rows). **083 skipped them because they were EMPTY at the time and the audit scores an empty table as "no signal" — the exact caveat already written against `project_payments`, now proven real twice.** No code ships with the migration; run it, then `node scripts/rls-audit.mjs` must exit 0 with both tables ✅ BLOCKED and a **nonzero** row count. Detail under "RLS security audit".
 
 **✅ 2026-09-11: SMALL FIXES WAVE 4 — ALL EIGHT ITEMS BUILT AND PUSHED** (`2707173` migration · `e171f16` task items 1–6 · `c782336` kanban search · `973d9d0` subproject price). tsc clean, production `next build` clean, tour targets PASS 57/44, four verification scripts pass.
@@ -167,6 +169,26 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ---
 
 ## Now
+
+### Home consolidation + sales goal — scoped 2026-09-12 (Cowork pass with Andrew). **Build in order: 1 → 2 → 3. Migration `101` (item 3) before deploying it.**
+
+**1. Move the AI shop report to `/reports`.** It lives on the old dashboard; it belongs with the other reports. Move the component/entry, leave a nothing behind. Small.
+
+**2. Retire `/dashboard`; My Day (`/pm`) becomes THE home (Andrew's call, with the onboarding migrated).** The logo currently links to `/dashboard` — Andrew: "delete the dash that is linked to the logo and make that the my day page."
+   - **Everything the dashboard does that still matters MOVES to `/pm`:** the "Getting set up" checklist (owner-only card) · the Welcome-tour auto-offer surface · anything else load-bearing found in the audit (AR summary / outlook — check what Andrew's team actually uses; the parser drop is already on /pm; the AI report leaves in item 1).
+   - **Routing:** logo → `/pm` · `/dashboard` → redirect to `/pm` (links and habits exist) · the post-setup landing (`e44f189` sent fresh owners to /dashboard for the checklist + welcome offer) now lands on `/pm` — **the checklist and offer must already be there or a fresh owner meets a blank page.** `/pm` drops any manager-only gating quirks: it's the home for every full-app role now (workers stay on `/me`).
+   - **⚠️ TOURS: the welcome tour and the guides system touch the dashboard** (auto-offer surface, checklist, possibly `data-tour` hooks/step copy naming "dashboard"). Grep the tour scripts, migrate hooks with the components, re-run `check-tour-targets`, and re-read the welcome script's copy — a step that says "your dashboard" pointing at My Day needs its words updated. **Bam's onboarding runs through this — it cannot break.**
+   - Verify: fresh-owner flow end-to-end on a test org (wizard → lands on /pm → checklist + welcome offer appear → tours run) AND Andrew's daily flow (logo → My Day with tasks/payments/parser).
+
+**3. Sales goal — "Needed" on `/payments` becomes a real monthly target (Andrew's model, decisions locked 2026-09-12).** Today "needed" sums scheduled draws — "just adding up what is brought in, makes no sense." Replace with a cash goal: **every dollar received splits into overhead, material (COGS) and profit**, so the month's revenue target is what covers fixed costs at those percentages.
+   - **The math:** `goal = monthlyFixed ÷ (1 − materialPct − profitPct)`. Division guard: matPct + profitPct ≥ ~90% → show an error state, never Infinity.
+   - **Fixed costs — DERIVED, not typed (Andrew's call):** monthly overhead + salaries from the existing shop-rate setup (overhead categories + team compensation — labor is salary, i.e. fixed; `sumBillableHoursYear`'s inputs and the owner-only comp table already hold this). Settings shows the derived figure + an optional manual override (`goal_fixed_monthly_override`).
+   - **Material % — settable with a LEARNED suggestion:** setting `goal_material_pct`; beside it, "your last N sold jobs averaged X%" computed from sold projects' material cost ÷ price (the rollups already know both). v1 suggests, never auto-applies.
+   - **Profit % — assumed (`goal_profit_pct`):** Andrew: "we don't really know profit until the end of the job. It would need to be assumed for now." Blended, org-wide — per-job margin variation is deliberately ignored (his "blended rate" question, answered yes: it's a thermostat, not a P&L).
+   - **Migration `101`:** `orgs.goal_material_pct` + `orgs.goal_profit_pct` + `orgs.goal_fixed_monthly_override`, all nullable numeric; unset → the goal UI shows a "set up your goal" nudge instead of a wrong number. ⛔ `orgs` writes via `updateOrgChecked`; isolated selects (pre-101 safety).
+   - **`/payments` display (goal basis = CASH RECEIVED, Andrew's call):** headline becomes **Goal $X · Received $Y · progress bar** (red/amber/green); the old draw sum stays as a secondary line renamed **"Scheduled draws"** (it's the plan for reaching the goal, not the definition of need). `/pm`'s payments box mirrors the same three numbers.
+   - **Explicitly NOT this feature:** bookings-vs-goal (offered, Andrew chose cash-only), per-job margin blending, anything replacing the P&L ("just a target to aim for").
+   - Verify with Andrew's real numbers: derived fixed matches what he expects from shop-rate setup; a hand-computed goal for one month matches; recording a payment moves the bar.
 
 ### Small fixes wave 4 — ✅ ALL EIGHT BUILT 2026-09-11. **Only blocker: migration `098` on prod (see CURRENT FOCUS). Then Andrew's live pass.**
 
