@@ -39,6 +39,7 @@ import {
   type TeamMember,
 } from '@/lib/shop-rate-setup'
 import BillingSection from '@/components/billing-section'
+import SalesGoalCard from '@/components/settings/SalesGoalCard'
 
 const inputClass =
   'w-32 text-right px-3 py-2 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors'
@@ -1123,6 +1124,11 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+        {/* Sales goal (101). Sits under Project defaults because the two get
+            confused otherwise: those margins price a JOB, these percentages
+            describe where the SHOP's revenue goes. */}
+        <SalesGoalCard orgId={org?.id} />
 
         {/* Subscription / Billing */}
         <BillingSection />

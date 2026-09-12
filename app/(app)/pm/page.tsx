@@ -48,6 +48,13 @@ import ProjectsAtRiskCard from '@/components/pm/ProjectsAtRiskCard'
 import ReceivablesCard from '@/components/pm/ReceivablesCard'
 import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
+import { computeGoal, deriveMonthlyFixed, goalProgress, type Goal } from '@/lib/sales-goal'
+import { loadGoalSettings } from '@/lib/sales-goal-data'
+import {
+  loadShopRateSetup,
+  sumOverheadAnnual,
+  sumTeamAnnualComp,
+} from '@/lib/shop-rate-setup'
 import { useTasks } from '@/components/tasks/TasksProvider'
 import { TaskRow } from '@/components/tasks/TaskRow'
 import { BUCKET_LABEL, TASK_TAG_COLORS, type Task } from '@/lib/tasks'
@@ -102,7 +109,7 @@ export default function PmPage() {
             <ProjectsAtRiskCard orgId={org?.id} shopRate={org?.shop_rate ?? 0} />
           </div>
           <div className="space-y-4">
-            {canSeePayments && <MoneyInCard orgId={org?.id} />}
+            {canSeePayments && <MoneyInCard orgId={org?.id} role={user?.role} />}
             {canSeePayments && <ReceivablesCard orgId={org?.id} />}
             <QuickUploadCard />
           </div>
@@ -376,7 +383,15 @@ interface PreviewRow {
   kind: PreviewKind
 }
 
-function MoneyInCard({ orgId }: { orgId: string | undefined }) {
+function MoneyInCard({
+  orgId,
+  role,
+}: {
+  orgId: string | undefined
+  /** Decides whether the derived fixed cost is trustworthy — payroll is
+   *  owner-only in the database. See GoalInputs.fixedIsKnown. */
+  role: string | undefined
+}) {
   const [preview, setPreview] = useState<PreviewRow[]>([])
   const [received, setReceived] = useState(0)
   const [needed, setNeeded] = useState(0)
@@ -386,6 +401,41 @@ function MoneyInCard({ orgId }: { orgId: string | undefined }) {
   const [failed, setFailed] = useState(false)
   const [ledgerMissing, setLedgerMissing] = useState(false)
   const [month] = useState(() => currentMonth())
+  const [goal, setGoal] = useState<Goal>(() =>
+    computeGoal({ monthlyFixed: 0, materialPct: null, profitPct: null }),
+  )
+
+  // The monthly target (101). Loaded separately from the payment data because
+  // it's a different concern and a pre-101 database must degrade to "no goal"
+  // rather than failing the whole card.
+  useEffect(() => {
+    if (!orgId) return
+    let alive = true
+    void (async () => {
+      // loadShopRateSetup throws (.single()); loadGoalSettings doesn't.
+      // Pairing them in a Promise.all made the robust one hostage to the
+      // fragile one, so they're settled separately.
+      const settings = await loadGoalSettings(orgId).catch(() => null)
+      const setup = await loadShopRateSetup(orgId).catch(() => null)
+      if (!alive || !settings) return
+      const derivedFixed = setup
+        ? deriveMonthlyFixed(sumOverheadAnnual(setup.overhead), sumTeamAnnualComp(setup.team))
+        : 0
+      setGoal(
+        computeGoal({
+          monthlyFixed: settings.fixedMonthlyOverride ?? derivedFixed,
+          materialPct: settings.materialPct,
+          profitPct: settings.profitPct,
+          // See the note in GoalInputs: payroll is owner-only, so an admin's
+          // derived figure is overhead alone and the goal would read low.
+          fixedIsKnown: settings.fixedMonthlyOverride != null || role === 'owner',
+        }),
+      )
+    })()
+    return () => {
+      alive = false
+    }
+  }, [orgId, role])
 
   useEffect(() => {
     if (!orgId) return
@@ -458,11 +508,18 @@ function MoneyInCard({ orgId }: { orgId: string | undefined }) {
         <>
           <div className="px-4 sm:px-5 py-3 grid grid-cols-2 gap-3">
             <div>
+              {/* ⛔ "GOAL" ONLY WHEN THERE IS ONE. Andrew on the old figure:
+                  summing the scheduled draws is "just adding up what is
+                  brought in, makes no sense." With a goal set up, this is the
+                  target; without one it's still the draw sum, and it says so
+                  rather than calling a plan a target. Same numbers, same
+                  labels as the banner on /payments — the two read the same
+                  month from the same layer, so they can't drift. */}
               <div className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
-                Needed
+                {goal.status === 'ok' ? 'Goal' : 'Scheduled'}
               </div>
               <div className="text-[17px] font-semibold text-[#111] font-mono tabular-nums mt-0.5">
-                {money(needed)}
+                {money(goal.status === 'ok' ? goal.amount : needed)}
               </div>
             </div>
             <div>
@@ -474,6 +531,35 @@ function MoneyInCard({ orgId }: { orgId: string | undefined }) {
               </div>
             </div>
           </div>
+
+          {/* Progress toward the goal. Hidden without one — a bar with no
+              target is just a coloured rectangle. Also hidden when the ledger
+              is missing, because then `received` isn't a real zero. */}
+          {goal.status === 'ok' && !ledgerMissing && (
+            <div className="px-4 sm:px-5 pb-3">
+              {(() => {
+                const p = goalProgress(received, goal.amount)
+                const color =
+                  p.tone === 'green' ? '#059669' : p.tone === 'amber' ? '#D97706' : '#DC2626'
+                return (
+                  <>
+                    <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${p.width}%`, background: color }}
+                      />
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-[10.5px] text-[#9CA3AF]">
+                      <span>{Math.round(p.pct)}% of goal</span>
+                      <span className="font-mono tabular-nums">
+                        {money(needed)} scheduled
+                      </span>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          )}
 
           {/* Migration 099 absent ⇒ "Received $0" would be a lie, not a zero. */}
           {ledgerMissing && (

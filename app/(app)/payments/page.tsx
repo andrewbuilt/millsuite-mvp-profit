@@ -28,7 +28,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, CalendarClock, FileQuestion, Inbox, Plus, Trash2, X } from 'lucide-react'
 import PlanGate from '@/components/plan-gate'
+import GoalBanner from '@/components/payments/GoalBanner'
 import { useAuth } from '@/lib/auth-context'
+import { deriveMonthlyFixed } from '@/lib/sales-goal'
+import { loadGoalSettings, type GoalSettings } from '@/lib/sales-goal-data'
+import {
+  loadShopRateSetup,
+  sumOverheadAnnual,
+  sumTeamAnnualComp,
+} from '@/lib/shop-rate-setup'
 import {
   addMonths,
   buildPaymentsView,
@@ -123,6 +131,45 @@ export default function PaymentsPage() {
 
   /** Schedule × ledger → what's actually still owed on each draw. */
   const derived = useMemo(() => reconcileAll(rows, ledger, totals), [rows, ledger, totals])
+
+  /**
+   * THIS month, regardless of where the pager is.
+   *
+   * ⛔ Built from its own one-month view, not picked out of `view.months` —
+   * paging three months forward would otherwise leave the goal with no bucket
+   * to read and the banner would vanish exactly when someone is planning
+   * ahead. `buildPaymentsView` partitions its input, so asking it for one
+   * month is the honest way to get one month.
+   */
+  const thisMonthBucket = useMemo(
+    () => buildPaymentsView(derived, ledger, [today], today).months[0] ?? null,
+    [derived, ledger, today],
+  )
+
+  /** Goal settings + the derived fixed cost behind them (migration 101). */
+  const [goalSettings, setGoalSettings] = useState<GoalSettings | null>(null)
+  const [derivedFixed, setDerivedFixed] = useState(0)
+  useEffect(() => {
+    if (!org?.id) return
+    let cancelled = false
+    ;(async () => {
+      // ⛔ loadShopRateSetup THROWS (it uses .single()). Unguarded, one
+      // transient failure left the goal permanently 'unset' behind an
+      // unhandled rejection.
+      const settings = await loadGoalSettings(org.id).catch(() => null)
+      const setup = await loadShopRateSetup(org.id).catch(() => null)
+      if (cancelled) return
+      setGoalSettings(settings)
+      setDerivedFixed(
+        setup
+          ? deriveMonthlyFixed(sumOverheadAnnual(setup.overhead), sumTeamAnnualComp(setup.team))
+          : 0,
+      )
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [org?.id])
 
   const view = useMemo(
     () => buildPaymentsView(derived, ledger, months, today),
@@ -274,6 +321,39 @@ export default function PaymentsPage() {
             <div className="mb-4 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
               {error || `Couldn’t load payments: ${loadError}`}
             </div>
+          )}
+
+          {/* ⛔ THE GOAL IS ALWAYS THIS MONTH, never the paged month. The
+              pager walks the FORECAST back and forth; a target that moved
+              with it would silently answer a different question than the one
+              the header appears to ask. `view.months[0]` is the paged window's
+              first month, so it is deliberately not used here. */}
+          {/* `goalSettings !== null` gates the render: without it a configured
+              org flashed "Set a monthly goal" for a beat while the settings
+              were still loading. */}
+          {!loading && thisMonthBucket && goalSettings && (
+            <GoalBanner
+              inputs={{
+                monthlyFixed: goalSettings.fixedMonthlyOverride ?? derivedFixed,
+                materialPct: goalSettings.materialPct,
+                profitPct: goalSettings.profitPct,
+                // Payroll is owner-only in the database, so an admin's
+                // derived fixed cost is overhead alone. Pinning an override
+                // is what makes the goal shareable.
+                fixedIsKnown:
+                  goalSettings.fixedMonthlyOverride != null || user?.role === 'owner',
+              }}
+              received={thisMonthBucket.receivedTotal}
+              scheduled={thisMonthBucket.needed}
+              monthLabel={monthLabel(today)}
+              missing={goalSettings.missing}
+              // ⛔ WITHOUT THIS THE BANNER INVENTED A ZERO. Pre-099 there is
+              // no ledger, so `received` is 0 because nothing can be recorded
+              // — not because nothing came in. /pm already refused to show a
+              // figure in that state; this made the two disagree.
+              ledgerMissing={ledgerMissing}
+              canConfigure={user?.role === 'owner'}
+            />
           )}
 
           {loading ? (
