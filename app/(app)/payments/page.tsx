@@ -48,6 +48,7 @@ import {
   logPayment,
   monthId,
   monthLabel,
+  monthLabelShort,
   parseLocalDate,
   reconcileAll,
   reschedulePayment,
@@ -266,44 +267,17 @@ export default function PaymentsPage() {
         <div className="p-6 max-w-[1200px] mx-auto">
           <div className="flex items-center gap-3 mb-1 flex-wrap">
             <h1 className="text-[20px] font-semibold text-[#111]">Payments</h1>
+            {/* ⛔ THE MONTH PAGER IS NOT HERE ANY MORE. Andrew: "the arrows
+                are at the top of the page and i have to scroll up to advance
+                to the next month." It now sits directly above the month
+                columns AND sticks there — see MonthPager below. */}
             <div className="flex items-center gap-1 ml-auto">
               <button
                 onClick={() => setPayFor({ projectId: '', projectName: '', amount: 0 })}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#059669] text-white text-[12px] font-medium hover:bg-[#047857] mr-1"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#059669] text-white text-[12px] font-medium hover:bg-[#047857]"
               >
                 <Plus className="w-3.5 h-3.5" /> Log a payment
               </button>
-              <button
-                onClick={() => setMonthOffset((o) => o - 1)}
-                title="Back a month"
-                className="px-2.5 py-1 rounded-md border border-[#E5E7EB] bg-white text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
-              >
-                ◀
-              </button>
-              <button
-                onClick={() => setMonthOffset(0)}
-                disabled={monthOffset === 0}
-                title="Jump back to this month"
-                className={`px-3 py-1 rounded-md border text-[11px] ${
-                  monthOffset === 0
-                    ? 'border-[#E5E7EB] bg-[#F9FAFB] text-[#9CA3AF] cursor-default'
-                    : 'border-[#E5E7EB] bg-white text-[#374151] hover:bg-[#F9FAFB]'
-                }`}
-              >
-                Today
-              </button>
-              <button
-                onClick={() => setMonthOffset((o) => o + 1)}
-                title="Forward a month"
-                className="px-2.5 py-1 rounded-md border border-[#E5E7EB] bg-white text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
-              >
-                ▶
-              </button>
-              {pagerLabel && (
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-[#EFF6FF] text-[#1E40AF] border border-[#BFDBFE] ml-1">
-                  {pagerLabel}
-                </span>
-              )}
             </div>
           </div>
           <p className="text-xs text-[#6B7280] mb-5">
@@ -458,10 +432,75 @@ export default function PaymentsPage() {
                 </section>
               )}
 
+              {/* ⛔ STICKY, AND THAT IS THE POINT — not merely "moved down".
+                  September's column is taller than the viewport, so a pager
+                  that merely sat above the grid would still be scrolled off
+                  by the time you wanted it. `top-14` clears the app nav
+                  (h-14); raising the nav means raising this. */}
+              <div className="sticky top-14 z-20 -mx-6 px-6 py-2 mb-3 bg-[#FAFAFA]/95 backdrop-blur-sm border-b border-[#E5E7EB] flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setMonthOffset((o) => o - 1)}
+                  aria-label="Back a month"
+                  title="Back a month"
+                  className="px-2.5 py-1 rounded-md border border-[#E5E7EB] bg-white text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
+                >
+                  ◀
+                </button>
+                {/* "Sep – Nov 2026", not "September 2026 – November 2026" —
+                    the full form is 30 characters of chrome on a bar whose
+                    job is to stay out of the way. The year repeats only when
+                    the window actually straddles one. */}
+                <span className="text-[12px] font-semibold text-[#111] tabular-nums min-w-[120px] text-center">
+                  {(() => {
+                    const first = view.months[0].key
+                    const last = view.months[view.months.length - 1].key
+                    return first.year === last.year
+                      ? `${monthLabelShort(first)} – ${monthLabelShort(last)} ${last.year}`
+                      : `${monthLabelShort(first)} ${first.year} – ${monthLabelShort(last)} ${last.year}`
+                  })()}
+                </span>
+                <button
+                  onClick={() => setMonthOffset((o) => o + 1)}
+                  aria-label="Forward a month"
+                  title="Forward a month"
+                  className="px-2.5 py-1 rounded-md border border-[#E5E7EB] bg-white text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
+                >
+                  ▶
+                </button>
+                <button
+                  onClick={() => setMonthOffset(0)}
+                  disabled={monthOffset === 0}
+                  title="Jump back to this month"
+                  className={`px-3 py-1 rounded-md border text-[11px] ${
+                    monthOffset === 0
+                      ? 'border-[#E5E7EB] bg-[#F9FAFB] text-[#9CA3AF] cursor-default'
+                      : 'border-[#E5E7EB] bg-white text-[#374151] hover:bg-[#F9FAFB]'
+                  }`}
+                >
+                  Today
+                </button>
+                {pagerLabel && (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-[#EFF6FF] text-[#1E40AF] border border-[#BFDBFE]">
+                    {pagerLabel}
+                  </span>
+                )}
+                {/* ⚠️ The goal banner above always reads THIS month, never the
+                    paged one — so say so once you've paged away, or the two
+                    numbers look like they disagree. */}
+                {monthOffset !== 0 && (
+                  <span className="text-[11px] text-[#9CA3AF] ml-auto">
+                    Goal above still shows {monthLabel(today)}
+                  </span>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
                 {view.months.map((b) => {
                   const id = monthId(b.key)
                   const isNow = sameMonth(b.key, today)
+                  // Strictly AHEAD of this month. `isNow` is deliberately not
+                  // future: money can land in the month you're standing in.
+                  const isFuture = monthId(b.key) > monthId(today)
                   const isOver = dragOver === id
                   return (
                     <section
@@ -495,22 +534,40 @@ export default function PaymentsPage() {
                             </span>
                           )}
                         </div>
-                        <div className="mt-1.5 flex items-baseline gap-1.5">
-                          <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
-                            Needed
-                          </span>
-                          <span className="text-[15px] font-semibold text-[#111] font-mono tabular-nums">
-                            {money(b.needed)}
-                          </span>
-                        </div>
-                        {b.receivedTotal !== 0 && (
-                          <div className="mt-0.5 flex items-baseline gap-1.5">
+                        {/* ⛔ ONE NUMBER, AND "NEEDED" IS NOT ITS NAME.
+                            Andrew: "the 'needed' on the month card doesnt make
+                            sense." It summed the scheduled draws — which is
+                            the very definition the sales goal replaced, so the
+                            page was using one word for two different things
+                            (the goal banner says "needed" meaning the target).
+                            A month that has happened shows what LANDED; a
+                            month ahead has nothing to have landed, so it shows
+                            what's PLANNED. */}
+                        {isFuture ? (
+                          <div className="mt-1.5 flex items-baseline gap-1.5">
+                            <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
+                              Scheduled
+                            </span>
+                            <span className="text-[15px] font-semibold text-[#111] font-mono tabular-nums">
+                              {money(b.needed)}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 flex items-baseline gap-1.5">
                             <span className="text-[10px] uppercase tracking-wider text-[#059669] font-semibold">
                               Received
                             </span>
-                            <span className="text-[13px] font-semibold text-[#059669] font-mono tabular-nums">
+                            <span className="text-[15px] font-semibold text-[#059669] font-mono tabular-nums">
                               {money(b.receivedTotal)}
                             </span>
+                            {/* Still owed in a month that's already here —
+                                dropping it silently would hide the gap
+                                between what was planned and what came in. */}
+                            {b.needed > 0 && (
+                              <span className="text-[11px] text-[#9CA3AF] font-mono tabular-nums">
+                                · {money(b.needed)} still scheduled
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
