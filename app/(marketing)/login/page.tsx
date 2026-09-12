@@ -32,7 +32,7 @@ export default function LoginPage() {
 
       if (authError) throw authError
 
-      router.push('/dashboard')
+      router.push('/pm')
     } catch (err: any) {
       setError(err.message || 'Invalid email or password')
     } finally {

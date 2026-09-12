@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'MillSuite — Project Profit Tracker',
     short_name: 'MillSuite',
     description: 'Know your numbers. Every project, every dollar.',
-    start_url: '/dashboard',
+    start_url: '/pm',
     display: 'standalone',
     background_color: '#F9FAFB',
     theme_color: '#111111',

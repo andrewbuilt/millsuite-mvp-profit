@@ -16,7 +16,7 @@ import {
 //
 // On success, Stripe webhook (/api/stripe-webhook) handles the
 // checkout.session.completed event and flips the org to active. The
-// success_url just lands the user on /dashboard?welcome=true.
+// success_url just lands the user on /pm?welcome=true.
 //
 // Required env vars:
 //   STRIPE_SECRET_KEY
@@ -214,7 +214,7 @@ export async function POST(req: NextRequest) {
       // creates a fresh customer and the webhook captures the ID.
       ...(customerIdToUse ? { customer: customerIdToUse } : {}),
       allow_promotion_codes: true,
-      success_url: `${origin}/dashboard?welcome=true&session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${origin}/pm?welcome=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/settings?canceled=1`,
     })
 

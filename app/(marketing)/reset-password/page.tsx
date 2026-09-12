@@ -15,7 +15,7 @@
 // session to appear rather than reading the URL ourselves.
 //
 // After a successful change the user is already signed in, so route them the
-// way RoleGate would: workers to /me, everyone else to /dashboard.
+// way RoleGate would: workers to /me, everyone else to /pm (the home).
 // ============================================================================
 
 import { useEffect, useState } from 'react'
@@ -92,7 +92,7 @@ export default function ResetPasswordPage() {
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    let landing = '/dashboard'
+    let landing = '/pm'
     if (user) {
       const { data: row } = await supabase
         .from('users')

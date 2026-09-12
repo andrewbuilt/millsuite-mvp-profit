@@ -116,12 +116,14 @@ export default function TopNav() {
   return (
     <nav className="bg-white border-b border-[#E5E7EB] sticky top-0 z-50">
       <div className="px-4 sm:px-6 flex items-center gap-4 h-14">
-        {/* Brand → Dashboard */}
+        {/* Brand → home. Andrew, 2026-09-12: "delete the dash that is linked
+            to the logo and make that the my day page." Workers have no /pm —
+            RoleGate confines them to /me. */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <Link
-            href={isMember ? '/me' : '/dashboard'}
+            href={isMember ? '/me' : '/pm'}
             className="flex items-center gap-2 text-base font-semibold tracking-tight text-[#111] rounded-lg px-1.5 py-1 hover:bg-[#F9FAFB] transition-colors"
-            aria-label="Dashboard"
+            aria-label="Home"
           >
             {org?.logo_url ? (
               // eslint-disable-next-line @next/next/no-img-element

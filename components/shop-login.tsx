@@ -21,7 +21,7 @@ export default function ShopLogin({ variant }: { variant: 'manager' | 'employee'
   const params = useParams()
   const router = useRouter()
   const shop = params.shop as string
-  const landing = variant === 'employee' ? '/me' : '/dashboard'
+  const landing = variant === 'employee' ? '/me' : '/pm'
 
   const [orgName, setOrgName] = useState<string | null>(null)
   const [orgLogo, setOrgLogo] = useState<string | null>(null)

@@ -135,7 +135,7 @@ export default function LandingPage() {
                 <div className="w-3 h-3 rounded-full bg-[#FF5F56]" />
                 <div className="w-3 h-3 rounded-full bg-[#FFBD2E]" />
                 <div className="w-3 h-3 rounded-full bg-[#27C93F]" />
-                <span className="text-xs text-[#9CA3AF] ml-2">millsuite.com/dashboard</span>
+                <span className="text-xs text-[#9CA3AF] ml-2">millsuite.com/pm</span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 {[

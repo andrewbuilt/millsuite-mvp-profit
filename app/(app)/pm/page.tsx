@@ -1,25 +1,39 @@
 'use client'
 
 // ============================================================================
-// /pm — the manager's home. Personal to whoever is signed in.
+// /pm — THE HOME PAGE. Personal to whoever is signed in.
 // ============================================================================
 // Andrew: "a project manager dashboard for Kaylin — we'll add more here later."
+// Then, 2026-09-12: "delete the dash that is linked to the logo and make that
+// the my day page." /dashboard is now a redirect; this is where the logo, the
+// login, the PWA and the setup wizard all land.
 //
 // Built GENERIC, not Kaylin-specific: everything on it is scoped to the signed-
 // in viewer, so it's the same page for any manager. She's just the first user.
 //
 // ⛔ ROLE GATING IS ALREADY DONE, AND DELIBERATELY NOT REPEATED HERE. RoleGate
 // confines `member` to /me, so any route that isn't /me is owner/admin by
-// construction. (The scope note said "owner/admin/manager"; there IS no
-// manager role in this app — it's owner / admin / member. Kaylin is an admin.) Adding a second check here would be a second thing to keep
-// in step. ⛔ The post-login LANDING is untouched — making this a manager's
-// home page is a separate call (see the scope note).
+// construction. (There IS no manager role in this app — it's owner / admin /
+// member. Kaylin is an admin.) Adding a second check would be a second thing
+// to keep in step.
 //
-// Three cards, room to grow:
+// ⛔ THIS IS ALSO A FIRST-RUN SCREEN NOW, which is a different job from being
+// a daily driver, and the two pull in opposite directions. A brand-new shop
+// has no tasks, no payments, no projects and no roster — so every card says
+// "nothing", and anything that reads as a WARNING in that state (see
+// `showUnlinkedNotice`) lands on someone who has done nothing wrong yet.
+// Before adding a card, ask what it says on day one.
+//
+// Cards, room to grow:
+//   · Getting set up — owner-only checklist, moved with the rest of onboarding
 //   · Today — the viewer's own Today bucket, using the real TaskRow so it can't
 //     drift from /tasks and the drawer.
-//   · Money in — this month's needed vs received, from the /payments layer.
-//   · Quick upload — the dashboard's invoice parser, reused as-is.
+//   · Watch list — jobs over budget or over hours (was "Projects at risk")
+//   · Money in — this month's scheduled draws vs cash received
+//   · Invoiced — AR aging, reconciled against the ledger. NOT the same number
+//     as Money in, deliberately: one is the plan, the other is what's been
+//     billed. See the header of components/pm/ReceivablesCard.
+//   · Quick upload — the invoice parser
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -27,6 +41,11 @@ import Link from 'next/link'
 import { ArrowUpRight, CheckCircle2, Receipt } from 'lucide-react'
 import PlanGate from '@/components/plan-gate'
 import InvoiceParser from '@/components/invoice-parser'
+import SetupChecklist from '@/components/onboarding/SetupChecklist'
+import { WELCOME_TOAST_EVENT, WELCOME_TOAST_KEY } from '@/lib/welcome-toast'
+import FirstProjectPrompt from '@/components/pm/FirstProjectPrompt'
+import ProjectsAtRiskCard from '@/components/pm/ProjectsAtRiskCard'
+import ReceivablesCard from '@/components/pm/ReceivablesCard'
 import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
 import { useTasks } from '@/components/tasks/TasksProvider'
@@ -69,17 +88,80 @@ export default function PmPage() {
           drop an invoice.
         </p>
 
+        {/* ⛔ ONBOARDING LIVES HERE NOW. A fresh owner is sent to this page
+            straight out of the setup wizard; if the checklist and the welcome
+            toast hadn't come with it, they'd land on an empty task list with
+            no idea what to do next. Bam's onboarding runs through this. */}
+        <WelcomeToast />
+        <SetupChecklist />
+        <FirstProjectPrompt orgId={org?.id} plan={org?.plan} />
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-4">
             <TodayCard />
+            <ProjectsAtRiskCard orgId={org?.id} shopRate={org?.shop_rate ?? 0} />
           </div>
           <div className="space-y-4">
             {canSeePayments && <MoneyInCard orgId={org?.id} />}
+            {canSeePayments && <ReceivablesCard orgId={org?.id} />}
             <QuickUploadCard />
           </div>
         </div>
       </div>
     </PlanGate>
+  )
+}
+
+// ── Welcome toast ───────────────────────────────────────────────────────────
+
+/**
+ * One-shot "you're set up" toast, set by WelcomeOverlay on the final
+ * walkthrough save and cleared as it renders so a later visit doesn't re-show
+ * it. Moved from /dashboard with the rest of onboarding.
+ */
+function WelcomeToast() {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    const check = () => {
+      if (window.localStorage.getItem(WELCOME_TOAST_KEY) !== '1') return
+      window.localStorage.removeItem(WELCOME_TOAST_KEY)
+      setVisible(true)
+      timer = setTimeout(() => setVisible(false), 6000)
+    }
+
+    check()
+    // ⛔ THE MOUNT CHECK ALONE NEVER FIRED FOR THE PERSON IT'S FOR. Signup
+    // lands on /pm, the overlay finishes ON TOP of an already-mounted /pm and
+    // calls router.push('/pm') — same route segment, so React re-renders
+    // rather than remounting and a []-deps effect never runs again. The toast
+    // then ambushed them on some later navigation instead. The overlay now
+    // announces, and we listen. (The old /dashboard had the identical bug.)
+    window.addEventListener(WELCOME_TOAST_EVENT, check)
+    return () => {
+      window.removeEventListener(WELCOME_TOAST_EVENT, check)
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
+
+  if (!visible) return null
+  return (
+    <div className="mb-4 flex items-start gap-2.5 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl px-4 py-3">
+      <CheckCircle2 className="w-4 h-4 text-[#059669] flex-shrink-0 mt-0.5" />
+      <div className="text-[12.5px] text-[#065F46] leading-snug flex-1">
+        <strong>You’re set up.</strong> This is your home from here on — what’s
+        due today, what’s owed, and anything running hot.
+      </div>
+      <button
+        onClick={() => setVisible(false)}
+        className="text-[#065F46] hover:text-[#064E3B] text-xs flex-shrink-0"
+      >
+        Dismiss
+      </button>
+    </div>
   )
 }
 
@@ -136,8 +218,17 @@ function TodayCard() {
    * ⚠️ But the fallback has to SAY SO. It didn't, and Andrew reasonably read
    * a list of Kaylin's and Hunter's work under his own name as a bug. A
    * silent fallback is only defensible while it's visible.
+   *
+   * ⛔ EXCEPT ON DAY ONE. A brand-new shop has an EMPTY ROSTER — building it
+   * is item 4 of the setup checklist — so `myAssigneeId` is null for every
+   * fresh owner by definition. Since /pm became the page they land on out of
+   * the setup wizard, an unconditional warning meant their very first screen
+   * opened with "your login isn't linked to a team member yet" sitting under
+   * "Four things to make it yours", for a shop with no team and no tasks.
+   * With nobody on the roster there is nothing to link TO, so the notice
+   * isn't actionable — it's just alarming. It appears once a roster exists.
    */
-  const unlinked = !myAssigneeId
+  const showUnlinkedNotice = !myAssigneeId && assignees.length > 0
 
   /** Mine — or everyone, when this login isn't on the roster (see above). */
   const mine = useCallback(
@@ -190,7 +281,7 @@ function TodayCard() {
             {BUCKET_LABEL.today}
           </span>
           <span className="text-xs text-[#D1D5DB]">{today.length}</span>
-          {unlinked && (
+          {showUnlinkedNotice && (
             <span className="text-[9.5px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#FFFBEB] text-[#92400E] whitespace-nowrap">
               everyone
             </span>
@@ -202,7 +293,7 @@ function TodayCard() {
       </div>
 
       {/* ⛔ Never let the fallback pass for "your tasks". */}
-      {unlinked && !loading && (
+      {showUnlinkedNotice && !loading && (
         <div className="mx-4 mt-3 text-[11.5px] text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-md px-3 py-2 leading-snug">
           Showing <strong>everyone’s</strong> tasks — your login isn’t linked to
           a team member yet, so nothing can be assigned to you.{' '}
@@ -225,7 +316,7 @@ function TodayCard() {
         ) : today.length === 0 ? (
           <div className="px-2 py-8 text-center">
             <div className="text-sm text-[#374151] font-medium">
-              {unlinked ? 'Nothing in Today.' : 'Nothing due today.'}
+              {showUnlinkedNotice ? 'Nothing in Today.' : 'Nothing due today.'}
             </div>
             <div className="text-xs text-[#9CA3AF] mt-1">
               {weekCount > 0

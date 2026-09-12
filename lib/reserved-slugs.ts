@@ -37,6 +37,16 @@ export const RESERVED_SLUGS = new Set([
   'guides',
   'invoices',
   'me',
+  // ⛔ ADDED 2026-09-12, AND THEY WERE ALL MISSING. `payments`, `pm` and
+  // `tasks` are the three routes built in the last few days and none of them
+  // was reserved. auth-context treats ANY unreserved first segment as a shop
+  // login path, which makes it PUBLIC — so /pm, /payments and /tasks never
+  // redirected a logged-out visitor to /login (RLS still refused the data, so
+  // this was a broken door rather than an open one), and a shop could have
+  // been handed the slug "pm". Making /pm the app's home turned that from
+  // untidy into load-bearing. ⚠️ NEW APP ROUTE ⇒ ADD IT HERE.
+  'payments',
+  'pm',
   'projects',
   'qb-reconciliation',
   'rate-book',
@@ -45,6 +55,7 @@ export const RESERVED_SLUGS = new Set([
   'schedule',
   'settings',
   'suggestions',
+  'tasks',
   'team',
   'time',
   // Held back so they stay available rather than being claimed by a shop.

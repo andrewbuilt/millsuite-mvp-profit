@@ -167,7 +167,7 @@ Quick tour of the parts of MillSuite that Profit shops tend to underuse:
 
 **2. Project outcomes** (/reports → Shop Grade). Letter grade A-F based on margin and utilization. A quick health check that updates every time you mark a project complete.
 
-**3. AI shop report** (/dashboard). Click "Generate report." Claude reads your data and tells you what's working and what isn't. You get one per month on Profit.
+**3. AI shop report** (/reports). Click "Generate report." Claude reads your data and tells you what's working and what isn't. You get one per month on Profit.
 
 **4. Invoice parsing** (/invoices). Drag a vendor PDF onto an estimate line and it pulls the cost. Saves typing.
 

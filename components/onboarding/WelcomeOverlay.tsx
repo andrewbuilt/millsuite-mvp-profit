@@ -34,8 +34,8 @@ import { useAuth } from '@/lib/auth-context'
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus'
 import ShopRateWalkthrough from '@/components/walkthroughs/ShopRateWalkthrough'
 import BaseCabinetWalkthrough from '@/components/walkthroughs/BaseCabinetWalkthrough'
+import { announceWelcomeComplete } from '@/lib/welcome-toast'
 
-const DASHBOARD_TOAST_KEY = 'millsuite.welcomeJustCompleted'
 
 export default function WelcomeOverlay() {
   const { user, org, refreshOrg } = useAuth()
@@ -104,26 +104,26 @@ export default function WelcomeOverlay() {
             orgId={org.id}
             onComplete={async () => {
               setToast('Base cabinet calibrated. Slab door style ready to use.')
-              // Stash a one-shot flag the dashboard reads on its next mount
-              // so the user gets a final completion toast there. Cleared
-              // by the dashboard after rendering. (Toast still fires if
-              // the user navigates back to /dashboard later.)
-              if (typeof window !== 'undefined') {
-                window.localStorage.setItem(DASHBOARD_TOAST_KEY, '1')
-              }
+              // Stash a one-shot flag AND announce it. The flag alone is not
+              // enough: /pm is usually already mounted underneath this
+              // overlay, and the push below doesn't remount it. See
+              // lib/welcome-toast.
+              announceWelcomeComplete()
               // AWAIT the stamp before navigating. onboarded_at is what the
               // tour provider waits on to offer the Welcome walkthrough, and
               // firing the redirect alongside an unfinished write meant the
               // provider could re-read a still-null value on arrival and stay
               // quiet until the next navigation.
               await complete()
-              // Land on /dashboard (Andrew, 2026-08-13). This used to go to
-              // /sales, because a brand-new dashboard was empty rollups and
-              // people thought the app wasn't doing anything. That reason is
-              // gone: the dashboard now carries the "Getting set up" checklist
-              // and is where the Welcome walkthrough offers itself, so it's the
-              // one screen that tells a new owner what to do next.
-              router.push('/dashboard')
+              // ⛔ THIS MUST LAND WHEREVER THE CHECKLIST IS. It went to
+              // /sales once, and a brand-new owner met empty rollups and
+              // concluded the app did nothing; it then went to /dashboard
+              // because that's where the "Getting set up" checklist lived.
+              // /dashboard was retired 2026-09-12 and the checklist moved to
+              // /pm with it — so this follows the checklist, not the page
+              // name. Move one without the other and a fresh owner lands on
+              // a screen with nothing telling them what to do next.
+              router.push('/pm')
             }}
             onCancel={() => advance('shop_rate')}
           />

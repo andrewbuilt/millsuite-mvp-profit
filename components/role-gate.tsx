@@ -31,7 +31,7 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
 
     // Settings is owner-only (compensation lives there); bounce admins.
     if (user.role !== 'owner' && pathname.startsWith('/settings')) {
-      router.replace('/dashboard')
+      router.replace('/pm')
     }
   }, [user, loading, pathname, router])
 

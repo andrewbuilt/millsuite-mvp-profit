@@ -99,12 +99,12 @@ export default function SignupPage() {
       // 'trialing' with access for 30 days, so skip Stripe Checkout and go
       // straight into the app. They convert later from Settings → Billing.
       if (setup.trial) {
-        window.location.href = '/dashboard?welcome=true'
+        window.location.href = '/pm?welcome=true'
         return
       }
 
       // 3b. Paid tiers — hand off to Stripe Checkout. On success, Stripe
-      // redirects to /dashboard?welcome=true; the webhook will have flipped
+      // redirects to /pm?welcome=true; the webhook will have flipped
       // plan_status to 'active' by then. On cancel → /settings?canceled=1,
       // where they hit the BillingGate since plan_status is still 'pending'.
       const checkoutRes = await fetch('/api/checkout', {
