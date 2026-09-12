@@ -107,6 +107,11 @@ function TeamContent() {
   const [roles, setRoles] = useState<Record<string, string>>({})
   const [callerRole, setCallerRole] = useState<string>('member')
   const isOwner = callerRole === 'owner'
+  // Does any roster row hold MY login? This is the exact question
+  // `myAssigneeId` asks (TasksProvider), phrased the same way — login id →
+  // roster row, never the reverse and never by name or email. False here and
+  // "Mine" is everyone's, everywhere.
+  const myLoginUnclaimed = !!user?.id && !team.some((m) => m.user_id === user.id)
   const [savingRate, setSavingRate] = useState(false)
   const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
   // Shop-rate extras (chunk C).
@@ -582,10 +587,15 @@ function TeamContent() {
 
   async function removeLogin(member: TeamMember) {
     if (!member.user_id) return
+    // ⛔ THIS DELETES THE ACCOUNT. The API's `unlink` action calls
+    // auth.admin.deleteUser and drops the users row — it is not a detach. The
+    // old copy ("will lose access to the worker app") read like a permissions
+    // change, which is a bad thing to be wrong about next to a red button.
+    // To point a row at a different login, use Change login instead.
     const ok = await confirm({
-      title: 'Remove login?',
-      message: `${member.name || 'This member'} will lose access to the worker app. Their roster entry and time entries stay.`,
-      confirmLabel: 'Remove login',
+      title: 'Delete this login?',
+      message: `${member.name || 'This member'}'s account is deleted for good — the email can't sign in again and the password is gone. Their roster entry, hours and time entries stay. If you only need to point this row at a different account, cancel and use "Change login".`,
+      confirmLabel: 'Delete login',
       variant: 'danger',
     })
     if (!ok) return
@@ -795,6 +805,25 @@ function TeamContent() {
               </button>
             )}
           </div>
+
+          {/* ⛔ THE DEAD END. /pm and /tasks say "link it on Team" when the
+              signed-in login holds no roster row. Andrew followed that, found
+              his row reading a healthy "Login active", and had nowhere to go —
+              because the row was bridged to a DIFFERENT login (a second,
+              manager-role account) and nothing on this page said so. A row
+              being linked says nothing about it being linked to YOU. */}
+          {loaded && myLoginUnclaimed && (
+            <div className="mb-3 text-[12px] text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-xl px-3.5 py-2.5 leading-snug">
+              <strong>Your login isn’t on any row here.</strong> You’re signed in
+              as {user?.email || 'this account'}
+              {callerRole === 'owner' ? ' (the owner)' : ''} — so nothing can be
+              assigned to you, and “Mine” on Tasks and PM quietly shows
+              everyone’s instead. Find your own row below and use{' '}
+              <strong>Link existing</strong> (or <strong>Change login</strong>{' '}
+              if it’s already pointed at a different account) to pick this
+              login.
+            </div>
+          )}
 
           {addingMember && (
             <div data-tour="team-member-form" className="flex gap-2 mb-3">
@@ -1010,6 +1039,7 @@ function TeamContent() {
                 <AccountControls
                   member={member}
                   role={member.user_id ? roles[member.user_id] ?? 'member' : null}
+                  isMe={!!member.user_id && member.user_id === user?.id}
                   canAssignRoles={isOwner}
                   onCreate={(email, password, role) =>
                     createLogin(member, email, password, role)
@@ -1527,6 +1557,7 @@ const ROLE_HINT: Record<string, string> = {
 function AccountControls({
   member,
   role,
+  isMe,
   canAssignRoles,
   onCreate,
   onLink,
@@ -1539,6 +1570,9 @@ function AccountControls({
   member: TeamMember
   /** Role of this member's login, or null when they have no login. */
   role: string | null
+  /** True when this row holds the SIGNED-IN login — i.e. the row that makes
+   *  "Mine" mean this person. Exactly one row should have it. */
+  isMe: boolean
   /** Point this roster row at an EXISTING login. */
   onLink: (userId: string) => Promise<void>
   listLogins: () => Promise<Array<{ id: string; name: string | null; email: string | null; role: string | null }>>
@@ -1573,6 +1607,20 @@ function AccountControls({
     setMode(null)
     setPassword('')
     setErr(null)
+  }
+
+  /** Open the login picker. Shared by "Link existing" (no login yet) and
+   *  "Change login" (pointed at the wrong one) — the only difference is the
+   *  wording, so one code path loads the list. */
+  function openLinkPicker() {
+    setMode('link')
+    setErr(null)
+    setPickedUserId('')
+    setLoadingLogins(true)
+    void listLogins()
+      .then(setLogins)
+      .catch((e) => setErr(e instanceof Error ? e.message : 'Could not load logins.'))
+      .finally(() => setLoadingLogins(false))
   }
 
   async function submit() {
@@ -1617,6 +1665,14 @@ function AccountControls({
             className={`w-1.5 h-1.5 rounded-full ${linked ? 'bg-[#10B981]' : 'bg-[#D1D5DB]'}`}
           />
           <span className="text-[#6B7280]">{linked ? 'Login active' : 'No login'}</span>
+          {/* ⛔ "Login active" is NOT "this is you". A row linked to somebody
+              else's account looks identical, which is precisely how the owner's
+              row read healthy while nothing could be assigned to him. */}
+          {isMe && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-[#D1FAE5] text-[#065F46]">
+              You
+            </span>
+          )}
           {linked && role && (
             <span
               title={ROLE_HINT[role]}
@@ -1641,15 +1697,7 @@ function AccountControls({
                   could never make it, and their tasks silently read as
                   everyone's. */}
               <button
-                onClick={() => {
-                  setMode('link')
-                  setErr(null)
-                  setLoadingLogins(true)
-                  void listLogins()
-                    .then(setLogins)
-                    .catch((e) => setErr(e instanceof Error ? e.message : 'Could not load logins.'))
-                    .finally(() => setLoadingLogins(false))
-                }}
+                onClick={openLinkPicker}
                 className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
               >
                 Link existing
@@ -1664,6 +1712,22 @@ function AccountControls({
                 Create login
               </button>
             </>
+          )}
+          {/* ⛔ RE-POINTING A ROW USED TO REQUIRE DELETING AN ACCOUNT. The only
+              other exit from a linked row is "Remove", and that action does NOT
+              merely unbridge — it deletes the auth user AND the users row. A
+              row linked to the wrong login is a bookkeeping mistake, not a
+              reason to destroy a login whose id is stamped on tasks and
+              comments. This re-points team_members[].user_id and touches
+              nothing else. Shown on the owner's row too: the API's link path
+              has no authority check to trip. */}
+          {linked && mode === null && (
+            <button
+              onClick={openLinkPicker}
+              className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+            >
+              Change login
+            </button>
           )}
           {/* The owner's own login isn't managed from the roster — the API
               refuses it, so don't offer buttons that can only fail. */}
@@ -1680,14 +1744,19 @@ function AccountControls({
               </button>
               <button
                 onClick={onRemove}
+                title="Deletes the account for good. To re-point this row, use Change login."
                 className="text-xs text-[#DC2626] hover:text-[#B91C1C] font-medium"
               >
-                Remove
+                Delete login
               </button>
             </>
           )}
           {linked && isOwnerRow && (
-            <span className="text-[11px] text-[#9CA3AF]">This is you — the shop owner</span>
+            <span className="text-[11px] text-[#9CA3AF]">
+              {/* An admin looking at the owner's row is not looking at
+                  themselves — the old copy said "This is you" to everyone. */}
+              {isMe ? 'This is you — the shop owner' : 'The shop owner’s account'}
+            </span>
           )}
         </div>
       </div>
@@ -1734,20 +1803,23 @@ function AccountControls({
                 <option value="">Which login is {member.name}?</option>
                 {logins
                   // A login already on another roster row would be silently
-                  // moved off that person if offered here.
+                  // moved off that person if offered here. The row's OWN login
+                  // is not in `takenUserIds` — it stays listed, marked, so the
+                  // list never looks like it's missing the obvious account.
                   .filter((l) => !takenUserIds.includes(l.id))
                   .map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.name || l.email || l.id}
                       {l.email ? ` · ${l.email}` : ''}
                       {l.role ? ` · ${ROLE_LABEL[l.role] ?? l.role}` : ''}
+                      {l.id === member.user_id ? ' · linked now' : ''}
                     </option>
                   ))}
               </select>
               <span className="text-[10.5px] text-[#9CA3AF] leading-snug">
                 Connects this person to an account that already exists. Changes
-                nothing about their access — it just makes tasks assigned to
-                them show up as theirs.
+                nothing about their access, and deletes nothing — it just makes
+                tasks assigned to them show up as theirs.
               </span>
             </>
           )}
