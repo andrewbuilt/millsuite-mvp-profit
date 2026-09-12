@@ -21,6 +21,7 @@ import CompletedProjects from './components/CompletedProjects'
 import OutlookSection from './components/OutlookSection'
 import KpiCard from './components/KpiCard'
 import DiagnosticDrawer from './components/DiagnosticDrawer'
+import AiShopReport from './components/AiShopReport'
 import { loadPracticeProjectIds } from '@/lib/practice'
 
 // ── Period selector ──
@@ -238,6 +239,10 @@ export default function ReportsPage() {
 
           {/* ═══ DIVIDER ═══ */}
           <div className="border-t border-[#E5E7EB]" />
+
+          {/* Moved off /dashboard 2026-09-12. Sits between what happened and
+              what's coming because it narrates both. */}
+          <AiShopReport />
 
           {/* ═══ BOTTOM HALF: What's coming ═══ */}
           <OutlookSection

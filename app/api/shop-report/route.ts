@@ -1,10 +1,32 @@
+// ============================================================================
+// /api/shop-report — the AI shop summary behind the button on /reports.
+// ============================================================================
+// ⛔ THIS ROUTE HAD NO AUTHENTICATION AT ALL until 2026-09-12. It read
+// `org_id` FROM THE REQUEST BODY and handed that org's projects, time
+// entries, invoices, shop-rate settings and name to Claude with the SERVICE
+// ROLE — which bypasses RLS, so migration 100 does nothing for it. Anyone who
+// could obtain or guess an org UUID could POST it here and get back a written
+// narrative of another shop's business: pipeline, bid values, margins, hours.
+// Textbook IDOR, and worse than a raw table read because the answer arrives
+// pre-summarised.
+//
+// ⛔ THE FIX IS THE RULE: THE ORG COMES FROM THE TOKEN, NEVER FROM THE BODY.
+// `resolveApiCaller` verifies the Bearer token and resolves it to a user +
+// org; we report on THAT org. The body's org_id is now ignored entirely
+// rather than validated — there is no legitimate reason for a caller to name
+// a different org, so accepting the field at all would just be a hole waiting
+// to be re-opened by someone "fixing" a mismatch error.
+// ============================================================================
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { resolveApiCaller, unauthorized } from '@/lib/api-auth'
 
 export async function POST(req: NextRequest) {
   try {
-    const { org_id } = await req.json()
-    if (!org_id) return NextResponse.json({ error: 'org_id required' }, { status: 400 })
+    const caller = await resolveApiCaller(req)
+    if (!caller) return unauthorized()
+    const org_id = caller.orgId
 
     const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
     if (!ANTHROPIC_API_KEY) return NextResponse.json({ error: 'AI not configured' }, { status: 500 })
