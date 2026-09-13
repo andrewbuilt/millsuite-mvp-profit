@@ -140,7 +140,7 @@ import { isReadyForProduction, startProduction, forceStartProduction, isDepositR
 
 // ── Types ──
 
-import { isPostsold, isPresold, type ProjectStage } from '@/lib/types'
+import { isPresold, type ProjectStage } from '@/lib/types'
 import StageStrip from '@/components/project/StageStrip'
 import StagePill, {
   coverStageOf,
@@ -150,7 +150,6 @@ import StagePill, {
 } from '@/components/project/StagePill'
 import ProjectTaskButton from '@/components/tasks/ProjectTaskButton'
 import TimelineDrawer from '@/components/project/TimelineDrawer'
-import BomSection from '@/components/project/BomSection'
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
@@ -2462,31 +2461,6 @@ export default function ProjectCoverPage() {
                 totalActualMinutes={projectActualMinutes}
                 projectId={projectId}
               />
-
-              {/* ⛔ POST-SALE ONLY, AND THAT'S THE POINT. This parses the
-                  APPROVED drawing set — the one the client signed off. Offer
-                  it on a job still being bid and someone will draft a
-                  purchasing list from drawings that are about to change, then
-                  order against it. `isPresold` is the same gate the payment
-                  ledger uses for the same reason: before the sale, nothing
-                  here is final.
-
-                  ⛔ `isPostsold`, NOT `!isPresold`. Those are different sets:
-                  'lost' is in NEITHER, so the negation let a dead job offer a
-                  "Parse drawings" button — which burns a daily parse-cap slot
-                  and a paid API call to draft a shopping list for work that
-                  will never be built. The payment ledger two blocks down uses
-                  the negation too, but that's a read-only view; this one
-                  spends something. */}
-              {isPostsold(project.stage) && (
-                <div className="mt-4">
-                  <BomSection
-                    orgId={org?.id}
-                    projectId={projectId}
-                    projectName={project.name}
-                  />
-                </div>
-              )}
 
               {/* ⛔ PRE-SALE: compose the schedule. POST-SALE: a READ-ONLY
                   ledger + a link, because the schedule is locked once the job
