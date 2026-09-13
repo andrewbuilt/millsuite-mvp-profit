@@ -55,6 +55,7 @@ export const RESERVED_SLUGS = new Set([
   'schedule',
   'settings',
   'suggestions',
+  'supplies',
   'tasks',
   'team',
   'time',

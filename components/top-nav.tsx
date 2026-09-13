@@ -6,7 +6,8 @@
 // Text-only (no icons). Three groups:
 //   Sales ▾    → /sales (click), dropdown: Kanban · Invoices · Clients
 //   Projects ▾ → /projects (click), dropdown: Schedule · Capacity
-//   Manage ▾   → (not a link) dropdown: Reports · Suggestions · Rate book · Team · Time
+//   Manage ▾   → (not a link) dropdown: My day · Tasks · Reports · Suggestions ·
+//                Rate book · Supplies · Team · Time · Guides
 // Click-the-parent / hover-the-chevron: Sales & Projects labels are real links;
 // Manage's label is the dropdown trigger (no parent route). Hover opens the menu
 // for pointer users; the chevron is the touch/keyboard escape. Gating mirrors
@@ -78,6 +79,10 @@ const NAV: GroupSpec[] = [
       { href: '/reports', label: 'Reports', feature: 'outcomes' },
       { href: '/suggestions', label: 'Suggestions', feature: 'rate-book' },
       { href: '/rate-book', label: 'Rate book', feature: 'rate-book' },
+      // Ungated: it's an address book, not a priced feature. Deliberately NOT
+      // next to the rate book in meaning — that prices jobs, this just says
+      // where to buy things. See migration 102.
+      { href: '/supplies', label: 'Supplies' },
       { href: '/team', label: 'Team', feature: 'team' },
       { href: '/time', label: 'Time' },
       // Ungated on purpose: the walkthroughs are how someone learns the app,
