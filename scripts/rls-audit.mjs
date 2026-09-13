@@ -27,7 +27,7 @@ const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_RO
 
 const TABLES = `orgs users clients contacts projects subprojects estimate_lines change_orders
 client_invoices client_invoice_line_items client_invoice_payments cash_flow_receivables
-project_payments tasks task_comments
+project_payments tasks task_comments supply_items bom_items
 departments time_entries pto_requests pto_policies capacity_overrides
 project_month_allocations rate_book_items rate_book_categories rate_book_finish_breakdown
 materials door_types door_type_materials door_type_material_finishes cabinet_features
@@ -36,9 +36,58 @@ shop_rate_settings migration_id_map qbo_items_cache subproject_approval_status
 approval_items drawing_revisions project_documents suggestions project_outcomes
 estimate_line_options item_revisions parse_call_log holidays department_members
 project_milestones milestone_templates rate_book_options door_type_finishes
-shop_rate_snapshots qbo_tokens change_order_lines`
+shop_rate_snapshots qbo_tokens change_order_lines
+comments department_allocations finish_samples item_suggestions labor_rates
+lead_subprojects leads led_types material_pricing onboarding_progress
+onboarding_stashed_baselines po_line_items portal_timeline project_events
+project_learnings project_notes project_photos purchase_orders qb_connections
+qb_events rate_adjustment_proposals rate_book_carcass_materials
+rate_book_ext_materials rate_book_item_history rate_book_item_options
+rate_book_material_variants selection_history selections shop_labor_rates
+spec_library_items stripe_events team_compensation vendor_materials vendors`
   .split(/\s+/)
   .filter(Boolean)
+
+// ============================================================================
+// ⛔ THE LIST ABOVE IS HAND-MAINTAINED, AND IT HAS ROTTED BEFORE.
+// ============================================================================
+// This script takes NO arguments — `node rls-audit.mjs some_table` silently
+// ignores them and audits the hardcoded list. So a table that never gets
+// added here is never checked, and its absence looks exactly like a pass.
+//
+// That is the same shape as the bug migration 100 fixed: `time_entries` and
+// `project_month_allocations` sat unprotected for a month because nothing
+// forced anyone to look at them. Relying on "remember to add it" has now
+// failed twice.
+//
+// So: read every table the migrations create, and refuse to report a clean
+// audit while any of them is unlisted. Filesystem-derived, like
+// verify-reserved-slugs, so it cannot drift from what actually ships.
+// ============================================================================
+const migrationDir = path.join(process.cwd(), 'db', 'migrations')
+const created = new Set()
+for (const f of fs.readdirSync(migrationDir).filter((n) => n.endsWith('.sql'))) {
+  const sql = fs
+    .readFileSync(path.join(migrationDir, f), 'utf8')
+    // ⚠️ Strip comments FIRST. Migration 046's prose says "...in addition to
+    // the CREATE TABLE so a half-baked prior run can't..." and a naive match
+    // dutifully reported a table called `so`. One bogus name in a security
+    // report is enough to make someone stop reading the real ones.
+    .replace(/--[^\n]*/g, '')
+  for (const m of sql.matchAll(
+    /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:public\.)?([a-z0-9_]+)\s*\(/gi,
+  )) {
+    created.add(m[1].toLowerCase())
+  }
+}
+const unlisted = [...created].filter((t) => !TABLES.includes(t)).sort()
+if (unlisted.length > 0) {
+  console.log('❌ TABLES CREATED BY A MIGRATION BUT NEVER AUDITED:\n')
+  for (const t of unlisted) console.log(`   ${t}`)
+  console.log('\nAdd them to TABLES in this script. Until you do, nobody is')
+  console.log('checking whether they are readable with the public key.')
+  process.exit(1)
+}
 
 const exposed = []
 const guarded = []
