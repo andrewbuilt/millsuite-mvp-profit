@@ -12,6 +12,8 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-12)
 
+**NEW 2026-09-12 (Cowork pass): "SUPPLIES DIRECTORY + BOM PARSER" scoped — BUILD NEXT, in order.** (1) **`/supplies`** (Manage): the where-do-we-buy-this list — name · link · vendor · vendor info · notes, inline edit, plain search, filters deliberately deferred; migration `102`; ⚠️ add the slug to `RESERVED_SLUGS`. (2) **BOM parser on the project**: drop the approved drawing set → draft purchasing list (sheet counts by material/thickness · specialty hardware · drawers · callouts), **counts only — NOT a cut list**; editable + saved (`bom_items`, migration `103`); re-parse appends/flags, never overwrites edits; reuses the existing `/api/parse-drawings` pipeline + parse gating. Specs at the top of Now.
+
 **✅ 2026-09-12: "HOME CONSOLIDATION + SALES GOAL" — ALL THREE BUILT, PUSHED, AND MIGRATION `101` IS ON PROD + VERIFIED.** **✅ AND THE CONSUMABLES GAP IS NOW BUILT TOO (`c70f8d3`) — derived from material × markup, no fourth setting. Nothing left to build here.** See the "MODEL GAP RESOLVED" bullet under item 3 in Now, which also carries the ⚠️ overhead double-count check Andrew owes, and the reason a manager sees no goal unless the monthly fixed cost is pinned. The scoped version follows, kept for the record: (1) AI shop report → /reports · (2) `/dashboard` RETIRED, My Day (`/pm`) becomes the home — logo + post-setup landing point there, the setup checklist and welcome-offer MIGRATE with it (⚠️ Bam's onboarding runs through this; tour hooks + copy must survive, `check-tour-targets` required) · (3) the payments page's "Needed" becomes a real monthly cash goal: `fixed ÷ (1 − material% − profit%)`, fixed DERIVED from shop-rate setup, material% settable with a learned suggestion, profit% assumed; goal vs received with the draw sum demoted to "Scheduled draws". **Migration `101`.** Specs = "Home consolidation + sales goal" in Now.
 
 **✅ 2026-09-12: PAYMENTS BOARD — TWO FIXES FROM ANDREW'S LIVE LOOK (`406a2fe`).**
@@ -180,6 +182,22 @@ _Migration `062_pto.sql` **run on prod 2026-07-17** (verified: `pto_requests`/`p
 ---
 
 ## Now
+
+### Supplies directory + BOM parser — scoped 2026-09-12 (Cowork pass with Andrew). **Build 1 then 2. Migrations `102` (supplies) and `103` (BOM).**
+
+**1. Supplies directory — where we buy the stuff we buy rarely.** Andrew: "some things we only buy every few months and we have to dig around to figure out where to get it. Keep it simple for now, filters later."
+   - **Migration `102_supply_items.sql`:** `supply_items` — `id` · `org_id` · `name` text · `url` text NULL · `vendor` text NULL · `vendor_info` text NULL (phone/rep/account #, freeform) · `notes` text NULL · `active` bool · timestamps; org FOR-ALL RLS (the `projects` pattern — every full-app role can add/edit; Kaylin does the ordering).
+   - **Page: Manage → Supplies** (`/supplies`; ⚠️ **add to `RESERVED_SLUGS` — `verify-reserved-slugs` will fail until you do**). Simple list: name (linked when `url` set, external-link icon), vendor, vendor info, notes; inline add/edit/archive; a plain text search across all fields. **No categories/filters in v1 — deliberately deferred (Andrew), leave a comment where they'd go.**
+   - Verify: add a real item ("PSA sandpaper rolls · Klingspor"), link opens in a new tab, search finds it by vendor, tour targets unaffected.
+
+**2. BOM parser — approved drawings in, purchasing list out. All three calls are Andrew's (2026-09-12): lives ON THE PROJECT · COUNTS ONLY · editable + saved.**
+   - **What it is:** on the project (pre-production area, near drawings): drop the APPROVED drawing set → parser returns a draft **bill of materials for purchasing**: sheet goods with counts by material/thickness · specialty hardware with counts · drawer boxes count (+ sizes when stated) · notable callouts (LEDs, glass, specialty items). **Explicitly NOT a cut list** — no nesting, no part dimensions; that's a different product and out of scope.
+   - **Infrastructure — reuse, don't rebuild:** the estimate drawing parser (`/api/parse-drawings`, Claude API, plan-gated parse limits) already reads these documents; this is a second extraction prompt/output shape on the same pipeline, same usage gating.
+   - **Migration `103_bom.sql`:** `bom_items` — `id` · `org_id` · `project_id` FK cascade · `category` text ('sheet_good'|'hardware'|'drawer'|'other') · `name` · `spec` text NULL (thickness/material/size) · `qty` numeric · `unit` text ('sheets'|'ea'|'pr'|'lf'…) · `source` ('parsed'|'manual') · `checked_off` bool (purchasing workflow) · `notes` · timestamps; org RLS.
+   - **Editable table, saved with the job:** parser DRAFTS rows (`source='parsed'`); Andrew's team corrects counts, adds missed items (`manual`). **Re-parse appends new finds and flags count differences — it never overwrites or deletes edited rows** (the task-system merge-allowlist lesson applies). Printable / copyable for ordering.
+   - **Trust posture in the UI:** counts are parser estimates until a human checks them — say so on the draft rows; the check-off column is the human pass.
+   - **Nice tie-in, cheap version only:** if a hardware row's name matches a `supply_items` row (simple contains match), show the vendor link beside it. No new schema, display only — don't build a linking system.
+   - Verify: parse a real approved set (Kennedy or Forsythe) → counts sanity-checked by Andrew against what the shop actually ordered; edit survives re-parse; a second parse of the same set doesn't duplicate rows.
 
 ### Home consolidation + sales goal — ✅ **ALL THREE BUILT 2026-09-12** (`3a90266` item 1 · `5b0f2b3` item 2 · `76cfda4` item 3); **migration `101` ✅ ON PROD AND VERIFIED. Nothing blocking — only Andrew's setup pass + one open question.** tsc clean, production build clean, tour targets PASS 57/44, three verification scripts pass (44 + 30 + 28 checks).
 
