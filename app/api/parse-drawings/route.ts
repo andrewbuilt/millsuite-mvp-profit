@@ -249,13 +249,91 @@ Pay close attention to:
 
 Return the same JSON shape as text-extracted PDFs.`
 
+// ============================================================================
+// BOM MODE — a second extraction over the same pipeline.
+// ============================================================================
+// Andrew, 2026-09-12: drop the APPROVED set, get a purchasing list back.
+// Everything around the prompt is shared deliberately — auth, the daily cap,
+// the storage read, the base64 hand-off, the 429/529 retry, the call log.
+// A second route would have been a second place for the cap to be forgotten.
+//
+// ⛔ COUNTS ONLY. NOT A CUT LIST. The prompt says so repeatedly because that
+// is the boundary most likely to erode: a model asked for a millwork takeoff
+// will happily start volunteering part sizes, and each one makes this look
+// more like a cut list than it is. See migration 103.
+const BOM_SYSTEM_PROMPT = `You are a purchasing manager at a custom cabinet / millwork shop, reading an APPROVED drawing set to work out what to BUY.
+
+## WHAT YOU ARE PRODUCING
+
+A shopping list. Counts of things to order. Nothing else.
+
+## ⛔ WHAT YOU ARE NOT PRODUCING
+
+You are NOT producing a cut list. Do NOT output part dimensions, panel sizes, cut sizes, nesting, yield, grain direction, or any per-piece breakdown. If you catch yourself listing the width and height of a part, stop — that is the wrong document.
+
+Sizes are allowed ONLY where the size is part of what you order: a drawer slide length ("21in"), a sheet size ("4x8"), a hinge type. Never a part dimension derived from a cabinet.
+
+## CATEGORIES — use exactly one of these strings
+
+- "sheet_good"  plywood, MDF, veneer core, melamine, solid stock sold in sheets
+- "hardware"    slides, hinges, pulls, brackets, fasteners, specialty hardware
+- "drawer"      drawer boxes (count them; include a size in \`spec\` only when the drawings state one)
+- "other"       LEDs, glass, stone, appliances, specialty callouts worth ordering
+
+## FIELDS PER ITEM
+
+- category: one of the four above
+- name: what you would say to the supplier. "3/4 white oak veneer core", "Blum 21in soft-close undermount slide"
+- spec: thickness / material / size / finish when the drawings state it, else null. Do NOT invent one.
+- qty: a NUMBER. Your best count from the drawings.
+- unit: "sheets" | "ea" | "pr" | "lf" | "sf" | "set"
+- notes: where you saw it, or why you are unsure. Short.
+
+## COUNTING
+
+Count what the drawings actually show. Where a count is genuinely ambiguous, give your best estimate and SAY SO in notes — a human checks every line before ordering. Do not pad, and do not silently round up "to be safe": someone is going to buy this.
+
+If the set does not support a count for something, still list the item with your best guess and a note. An item missing from the list is worse than an item flagged as uncertain, because nobody goes looking for what isn't there.
+
+## OUTPUT
+
+Return ONLY valid JSON, no prose, no code fences:
+
+{"items":[{"category":"sheet_good","name":"3/4 white oak veneer core","spec":"4x8","qty":12,"unit":"sheets","notes":"elevations A2-A4"}]}`
+
+const BOM_USER_PROMPT = `Read this approved drawing set and return the purchasing list as JSON in the shape described. Counts only — no part dimensions, no cut list. Return only the JSON object.`
+
+// ⛔ BOM MODE NEEDS ITS OWN SCANNED ADDENDUM. The estimate one ends with
+// "Return the same JSON shape as text-extracted PDFs" and tells the model to
+// read title blocks and room layouts — appended to the BOM prompt it
+// contradicts it outright, and an approved set is very often a scan (that's
+// what "approved" tends to mean: printed, signed, scanned). The model would
+// return estimate-shaped items, which carry no `qty` at all, and every one of
+// them would land in the purchasing list at a count of zero.
+const BOM_SCANNED_SUFFIX = `
+
+This PDF appears to be scanned (no extractable text layer). Use the VISUAL
+content to build the same purchasing list.
+
+Look at:
+- Elevations and sections, for cabinet runs and drawer banks
+- Any schedule or legend listing hardware, finishes or specialty items
+- Notes pages calling out glass, LEDs, stone or appliances
+
+Counts only. Do NOT return part dimensions or a cut list. Return the same JSON
+shape described above — an object with an "items" array.`
+
 async function callClaude(
   base64: string,
   apiKey: string,
-  opts: { isScanned?: boolean } = {},
+  opts: { isScanned?: boolean; mode?: 'estimate' | 'bom' } = {},
   retries = 1,
 ): Promise<any> {
-  const userPrompt = opts.isScanned ? USER_PROMPT + SCANNED_PROMPT_SUFFIX : USER_PROMPT
+  const isBom = opts.mode === 'bom'
+  const systemPrompt = isBom ? BOM_SYSTEM_PROMPT : SYSTEM_PROMPT
+  const baseUser = isBom ? BOM_USER_PROMPT : USER_PROMPT
+  const scannedSuffix = isBom ? BOM_SCANNED_SUFFIX : SCANNED_PROMPT_SUFFIX
+  const userPrompt = opts.isScanned ? baseUser + scannedSuffix : baseUser
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -268,7 +346,7 @@ async function callClaude(
       model: 'claude-sonnet-4-6',
       max_tokens: 12000,
       temperature: 0,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [
         {
           role: 'user',
@@ -417,6 +495,11 @@ export async function POST(req: NextRequest) {
     // USER_PROMPT. Default false when omitted (back-compat for older
     // lib/pdf-parser versions).
     const isScanned = !!is_scanned
+    // 'bom' swaps the prompt pair and the response shape; everything else —
+    // auth, the daily cap, storage, retries, the call log — is shared. Any
+    // unrecognised value falls back to the estimate takeoff, so a typo can
+    // never silently produce the wrong document.
+    const mode: 'estimate' | 'bom' = body?.mode === 'bom' ? 'bom' : 'estimate'
     // keep_pdf opts the caller into permanent retention of the
     // uploaded PDF in the parse-drawings bucket so the project can
     // re-parse it later. Default false (cleanup runs) preserves the
@@ -492,7 +575,65 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const parsed = await callClaude(base64, apiKey, { isScanned })
+    const parsed = await callClaude(base64, apiKey, { isScanned, mode })
+
+    // ── BOM mode returns here ──────────────────────────────────────────────
+    // ⛔ EARLY RETURN, DELIBERATELY. Everything below normalises the ESTIMATE
+    // shape (rooms, product_key, slots, linear feet) and feeds the sales
+    // flow. Threading a second shape through it would put the takeoff — which
+    // seeds real estimate lines — one bad conditional away from a purchasing
+    // parse. Different shape, different exit.
+    if (mode === 'bom') {
+      const rawBom = Array.isArray(parsed.items) ? parsed.items : []
+      const bom = rawBom
+        .map((it: any) => ({
+          category:
+            it.category === 'sheet_good' ||
+            it.category === 'hardware' ||
+            it.category === 'drawer'
+              ? it.category
+              : 'other',
+          name: typeof it.name === 'string' ? it.name.trim() : '',
+          spec: typeof it.spec === 'string' && it.spec.trim() ? it.spec.trim() : null,
+          // ⛔ AN UNREADABLE COUNT AND A GENUINE ZERO MUST NOT LOOK THE SAME.
+          // Both used to store 0, so "the model didn't give us a number" was
+          // indistinguishable from "the drawings call for none of these" — on
+          // a line that goes straight into a PO. The item still survives (a
+          // missing line is worse than a flagged one), but it says so in its
+          // note, which is the only thing a human reads before ordering.
+          // Negative is clamped: never a real order, and the column refuses it.
+          qty: Math.max(0, Number.isFinite(Number(it.qty)) ? Number(it.qty) : 0),
+          unit: typeof it.unit === 'string' && it.unit.trim() ? it.unit.trim() : 'ea',
+          notes: (() => {
+            const own =
+              typeof it.notes === 'string' && it.notes.trim() ? it.notes.trim() : null
+            if (Number.isFinite(Number(it.qty))) return own
+            const warn = '⚠️ count unreadable — check the drawings'
+            return own ? `${warn} · ${own}` : warn
+          })(),
+        }))
+        .filter((it: { name: string }) => it.name.length > 0)
+
+      // ⛔ AWAITED, LIKE THE ESTIMATE PATH. Fire-and-forget looked harmless
+      // and wasn't: the platform can freeze the function the moment the
+      // response returns, so the `parse_call_log` insert may never land — and
+      // `readCapState` counts exactly those rows. A BOM parse would slip the
+      // daily cap and the response's own `used: +1` would be a claim about a
+      // write it didn't wait for.
+      await logParseCall(caller.orgId, caller.userId, callerFileName, 'success')
+
+      // The BOM branch returns before the shared cleanup below, so it does
+      // its own. Fire-and-forget is right HERE — an orphaned PDF is litter,
+      // not a correctness problem, and it must not delay the response.
+      if (!keepPdf && typeof storage_path === 'string' && storage_path.length > 0) {
+        void supabaseAdmin.storage
+          .from(BUCKET)
+          .remove([storage_path])
+          .catch(() => {})
+      }
+
+      return NextResponse.json({ bom, cap: capState.cap, used: capState.used + 1 })
+    }
 
     // Normalize the shape so the client can rely on it. Every rich sub-object
     // (features / material_specs / finish_specs) passes through as-is so the
