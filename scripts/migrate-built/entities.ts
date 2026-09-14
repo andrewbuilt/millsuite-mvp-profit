@@ -585,6 +585,17 @@ export async function migrateMilestones(ctx: Ctx): Promise<void> {
       console.warn(`    ! project ${j.builtId} milestones sum to ${sum}% (not 100)`)
     }
     // Clear prior projected receivables for this project, then insert fresh.
+    //
+    // ⛔ NEVER THE CHANGE-ORDER DRAWS (migration 106). An approved CO writes
+    // its own `status='projected'` receivable carrying `change_order_id`, and
+    // this delete targets exactly that status — so re-importing a job that has
+    // since had a change order approved in MillSuite would silently destroy
+    // the CO's line. Built knows nothing about it and can't re-insert it, and
+    // the payments board would go back to quietly inflating the final draw.
+    //
+    // The same guard is in `saveMilestones` (lib/milestones) for the same
+    // reason. Batia is the live example: sold, imported, and a re-import is
+    // exactly what its price drift needs.
     await ms
       .from('cash_flow_receivables')
       .delete()
@@ -592,6 +603,7 @@ export async function migrateMilestones(ctx: Ctx): Promise<void> {
       .eq('project_id', msProjectId)
       .eq('type', 'receivable')
       .eq('status', 'projected')
+      .is('change_order_id', null)
     const rows = list.map((m, idx) => ({
       org_id: orgId,
       project_id: msProjectId,
