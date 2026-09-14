@@ -162,3 +162,59 @@ export function rescheduleTo(row: PaymentRow, target: MonthKey): string {
 export function isOutstanding(r: PaymentRow): boolean {
   return r.status === 'projected' || r.status === 'invoiced'
 }
+
+// ── Where a change-order draw goes ──────────────────────────────────────────
+
+/** The bare shape `coDrawSlot` needs — a subset of what the database returns,
+ *  so the caller can pass rows straight from a `select`. */
+export interface ScheduleSlotRow {
+  notes: string | null
+  expected_date: string | null
+}
+
+export interface CoDrawSlot {
+  /** The N to encode as `order:N` in `notes`. */
+  order: number
+  /** Inherited from the last draw. Null is a legitimate answer. */
+  expectedDate: string | null
+}
+
+/**
+ * Decide where an approved change order's draw lands in an existing schedule.
+ *
+ * ⛔ IT MUST SORT LAST. `reconcileAll` waterfalls received money over the
+ * draws in sort order, so a CO row landing at the front would soak up payments
+ * that belong to earlier draws and mark them unpaid. Money attaching to the
+ * wrong draw is the exact bug that made dragging a card change which draw
+ * counted as paid (634c0eb).
+ *
+ * ⚠️ `sort_order` HAS NO COLUMN — it's encoded in `notes` as `order:N` and
+ * parsed back out with /order:(\d+)/. A hand-made schedule may have no markers
+ * at all, in which case the row count is the only ordering available.
+ *
+ * The date is inherited from the LAST draw: a change order is normally settled
+ * with completion, so this keeps the cash-flow forecast where it already was
+ * while making the line visible. Null in ⇒ null out — inventing a date would
+ * put money in a month nobody chose.
+ *
+ * Pure so scripts/verify-co-draw can pin it without a database.
+ */
+export function coDrawSlot(rows: ScheduleSlotRow[]): CoDrawSlot {
+  let maxOrder = -1
+  let expectedDate: string | null = null
+  for (const r of rows || []) {
+    const n = Number(/order:(\d+)/.exec(r.notes || '')?.[1] ?? NaN)
+    if (Number.isFinite(n) && n > maxOrder) {
+      maxOrder = n
+      expectedDate = r.expected_date ?? null
+    }
+  }
+  if (maxOrder < 0) {
+    // No order markers anywhere. Fall back to the count so the new row still
+    // lands after everything, and take the last row's date as the best guess.
+    maxOrder = (rows?.length ?? 0) - 1
+    const last = rows && rows.length > 0 ? rows[rows.length - 1] : null
+    expectedDate = last?.expected_date ?? null
+  }
+  return { order: maxOrder + 1, expectedDate }
+}

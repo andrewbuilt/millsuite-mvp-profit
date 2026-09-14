@@ -11,6 +11,7 @@
 import { supabase } from './supabase'
 import { recomputeProjectBidTotal } from './project-totals'
 import { createInvoice, appendInvoiceLine } from './invoices'
+import { coDrawSlot } from './payment-schedule'
 import {
   computeBucketedPrice,
   type BucketMargins,
@@ -530,6 +531,26 @@ export async function approveCo(coId: string, note?: string): Promise<void> {
   } catch (err) {
     console.error('approveCo: rolling CO invoice', err)
   }
+
+  // Step 5 — the DRAW SCHEDULE. The invoice above says what the client is
+  // billed; this says when the cash is expected. Payments v2 keeps those two
+  // separate on purpose, and until now only the invoice half moved on a CO —
+  // so the payments board silently grew the final draw instead. See
+  // appendCoDrawRow.
+  //
+  // ⚠️ Its own try/catch, deliberately: a schedule write that fails must not
+  // take down an approval that has already flipped state, applied the line and
+  // billed the invoice.
+  try {
+    const { data: coFull } = await supabase
+      .from('change_orders')
+      .select('*')
+      .eq('id', coId)
+      .maybeSingle()
+    if (coFull) await appendCoDrawRow(coFull as ChangeOrder)
+  } catch (err) {
+    console.error('approveCo: CO draw row', err)
+  }
 }
 
 /**
@@ -675,6 +696,99 @@ async function appendCoToRollingInvoice(co: ChangeOrder): Promise<void> {
     .from('change_orders')
     .update({ co_invoice_id: inv.id })
     .eq('id', co.id)
+}
+
+/**
+ * Append an approved change order to the project's DRAW SCHEDULE.
+ *
+ * ⛔ WHY THIS EXISTS. `approveCo` grows `projects.bid_total` and wrote nothing
+ * to `cash_flow_receivables`, so `reconcileProject` found the contract bigger
+ * than the stored draws and quietly did `last.scheduled += delta` — "the FINAL
+ * draw absorbs it whole". The total was right and the story was wrong: the
+ * client-facing final draw grew with no line explaining it, the stored rows
+ * stopped summing to the contract, and a CO approved after the final draw was
+ * PAID re-opened a settled draw. Now the change order is its own line.
+ *
+ * ⛔ PRICED, POSITIVE COs ONLY.
+ *   · $0 (free) COs never reach here — they go through `finalizeFreeCo`, and
+ *     there is nothing to collect anyway.
+ *   · CREDITS (negative) deliberately write NO row (Andrew, 2026-09-13). A
+ *     negative line on a client-facing payment schedule reads as a mistake,
+ *     and `reconcileProject`'s shrink-from-the-end branch already handles them
+ *     without letting a draw fall below what's been paid against it.
+ *
+ * Idempotent through the unique index on `change_order_id` (migration 106) —
+ * `approveCo` runs its steps as separate best-effort blocks and the card can be
+ * re-approved, so "write it twice" is a real path, not a hypothetical.
+ */
+async function appendCoDrawRow(co: ChangeOrder): Promise<void> {
+  const price = Number(co.client_price) || 0
+  if (price <= 0) return
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, org_id')
+    .eq('id', co.project_id)
+    .maybeSingle()
+  const orgId = (project as { org_id: string | null } | null)?.org_id
+  if (!orgId) {
+    console.error('appendCoDrawRow: no org for project', co.project_id)
+    return
+  }
+
+  // The project's existing draws, so the new row can sort last and inherit a
+  // sensible date. `cancelled` rows are excluded to match `loadOrgPayments`.
+  const { data: existing, error: readErr } = await supabase
+    .from('cash_flow_receivables')
+    .select('id, notes, expected_date')
+    .eq('project_id', co.project_id)
+    .eq('type', 'receivable')
+    .neq('status', 'cancelled')
+  if (readErr) {
+    console.error('appendCoDrawRow: could not read the schedule', readErr)
+    return
+  }
+
+  const rows = existing || []
+
+  // ⛔ NO SCHEDULE ⇒ NO ROW, AND THIS IS DELIBERATE (it also contradicts the
+  // first draft of the scope, which said "fall back to a month out"). A sold
+  // project with zero draws is listed in the "No payment schedule" tray on
+  // /payments, and that tray is driven by "has no rows". Writing a CO draw
+  // would take the project OUT of the tray while the rest of its contract is
+  // still unscheduled — hiding an untracked job to show one line. The tray
+  // already reports the project at its full `bid_total`, which now includes
+  // this CO, so the money is not lost: it's sitting in the right warning.
+  if (rows.length === 0) return
+
+  // ⛔ WHERE IT LANDS IS LOAD-BEARING — see `coDrawSlot`, which is pure and
+  // verified. Short version: it must sort LAST, because `reconcileAll`
+  // waterfalls received money over the draws in sort order and a CO row at the
+  // front would soak up payments belonging to earlier draws.
+  const slot = coDrawSlot(rows as Array<{ notes: string | null; expected_date: string | null }>)
+
+  const label = `CO-${String(co.co_number ?? 0).padStart(2, '0')} — ${co.title}`.slice(0, 200)
+
+  const { error } = await supabase.from('cash_flow_receivables').insert({
+    org_id: orgId,
+    project_id: co.project_id,
+    type: 'receivable',
+    status: 'projected',
+    milestone_label: label,
+    amount: price,
+    expected_date: slot.expectedDate,
+    notes: `order:${slot.order}`,
+    change_order_id: co.id,
+  })
+
+  if (error) {
+    // 23505 = the unique index did its job; the draw already exists. That's
+    // the idempotent path, not a failure.
+    if ((error as { code?: string }).code === '23505') return
+    // 42703/PGRST204 = migration 106 hasn't run. Log it rather than throwing:
+    // the CO itself is approved and the board still balances the old way.
+    console.error('appendCoDrawRow: insert failed', error)
+  }
 }
 
 export async function rejectCo(coId: string, note?: string): Promise<void> {
