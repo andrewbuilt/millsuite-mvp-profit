@@ -51,7 +51,7 @@ The "built by a shop owner" origin lands instantly with every prospect and shoul
 
 - **Andrew Watson** has run **Built LLC**, a custom millwork shop in **Tampa, FL**, for **14+ years**.
 - MillSuite was built to solve his own shop's problem first.
-- Real project data trained the AI estimator. *(Note: the brand currently uses both "$10M+ of real projects" and "$1.9M of project data → 97–99% accuracy" in different places — confirm the exact figures with Andrew before publishing.)*
+- The rate book ships pre-populated with generic starter rates so a shop can price on day one, then self-corrects from that shop's own actuals as jobs close. **There is no claim of a large proprietary training dataset or a stated accuracy percentage** — that framing ("$10M+ of real projects," "$1.9M of project data," "97–99% accuracy") was confirmed false by Andrew on 2026-09-14 and has been removed everywhere it appeared. It describes a mechanism the product doesn't have. Do not reintroduce it.
 
 Domain expertise *is* the product. The designer should treat "this was made by a guy who has stood on a shop floor for 14 years" as a primary trust signal, not a footnote.
 
@@ -141,7 +141,7 @@ The emotional arc the site should sell: **from dread to clarity.**
 
 ## 8. Plans & pricing
 
-Three per-seat tiers (source of truth is the product's feature-flags, not older docs). Internal plan keys in parentheses.
+**Provisional, do not publish specific figures.** Andrew is reworking the pricing structure as of 2026-09-14. The table below reflects the feature-flags at time of writing but the tiers, prices, and seat minimums are expected to change. Marketing copy should say "pricing coming soon" / link out without stating dollar amounts until this is finalized. Three per-seat tiers (source of truth is the product's feature-flags, not older docs). Internal plan keys in parentheses.
 
 | Tier | Price | Min seats | Promise | Headline unlocks |
 |---|---|---|---|---|
@@ -180,7 +180,7 @@ These come from real sales calls — the site copy and FAQ should answer them he
 - **Plainspoken, shop-floor direct.** Talk like a shop owner, not a SaaS marketer. Short, concrete, confident.
 - **Empathetic about the dread, optimistic about the fix.** Name the pit-in-your-stomach feeling, then offer clarity.
 - **Anti-hype about software.** This audience distrusts slick tools that don't work. Bust the myth that "software has to be ugly and complicated to work for manufacturing" — but earn it by looking credible, not flashy.
-- **Proof over adjectives.** "$10M of real projects," "built by a 14-year shop owner," "97–99% accurate" beat "powerful" and "seamless."
+- **Proof over adjectives.** "Built by a 14-year shop owner," "no card, 30-day trial," "self-corrects with every closed job" beat "powerful" and "seamless." Do not cite a training dataset size or an accuracy percentage — the product doesn't work that way (see §4).
 
 Avoid: enterprise jargon, generic startup language, anything that sounds like it was written by someone who's never been in a dusty shop.
 
@@ -219,4 +219,4 @@ Shop rate · rate book · confidence badge · composer · estimate line · freef
 
 ---
 
-*One flag to resolve before launch: the founder-story numbers ($10M+ vs $1.9M, and the 97–99% accuracy claim) appear inconsistently across current materials. Confirm the exact, defensible figures with Andrew so the new site states them once, consistently.*
+*Resolved 2026-09-14: the founder-story training-dataset numbers ($10M+ vs $1.9M, and the 97–99% accuracy claim) were confirmed false by Andrew and removed from this brief, the design codex, and the messaging-framework/content-strategy/storytelling brand-plugin skills. Do not reintroduce a dataset size or accuracy percentage claim. Also flagged: pricing (§8) is provisional and being reworked; don't treat it as final.*
