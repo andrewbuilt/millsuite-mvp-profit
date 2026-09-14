@@ -1,8 +1,8 @@
 {
-  "_readme": "Selective migration manifest (6c). decision: import | re-enter | skip. expected_* are Built-side checksums the script must verify after import (flag if bid_total or total hours drift). Written by Cowork 2026-07-24 from Andrew's 12-job list; source data audited (all have v4 spec lines + dept hours; jobs marked milestones:0 have no payment schedule in Built \u2014 Andrew records payments-to-date manually after import).",
+  "_readme": "Selective migration manifest (6c). decision: import | re-enter | skip. expected_* are Built-side checksums the script must verify after import (flag if bid_total or total hours drift). Written by Cowork 2026-07-24 from Andrew's 12-job list; source data audited (all have v4 spec lines + dept hours; jobs marked milestones:0 have no payment schedule in Built — Andrew records payments-to-date manually after import).",
   "built_shop_rate": 68.46,
   "built_consumables_pct": 10,
-  "_built_shop_rate_note": "Built's effective shop rate. Used as the labor rate for any imported job where Built recorded no locked_shop_rate, so imported labor cost reproduces Built exactly (verified: 148h x 68.46 = $10,132, 142h = $9,721, 166h = $11,364 on Leonard Lobby Bar). MillSuite's own org rate is NOT used for imports \u2014 it would silently reprice sold work.",
+  "_built_shop_rate_note": "Built's effective shop rate. Used as the labor rate for any imported job where Built recorded no locked_shop_rate, so imported labor cost reproduces Built exactly (verified: 148h x 68.46 = $10,132, 142h = $9,721, 166h = $11,364 on Leonard Lobby Bar). MillSuite's own org rate is NOT used for imports — it would silently reprice sold work.",
   "jobs": [
     {
       "entity": "project",
@@ -142,7 +142,67 @@
       "expected_price": 16099,
       "expected_hours": 126,
       "milestones": 3,
-      "_note": "Added 2026-09-03, wave-3 item 1. NOT the same job as the manual MillSuite card 'Brabson countertops' ($2,259, 50/50) \u2014 different scope, Andrew's call to keep both."
+      "_note": "Added 2026-09-03, wave-3 item 1. NOT the same job as the manual MillSuite card 'Brabson countertops' ($2,259, 50/50) — different scope, Andrew's call to keep both."
+    },
+    {
+      "entity": "lead",
+      "built_id": "50abb5e4-5561-4470-8975-a284a5d59f95",
+      "name": "BayCare Hospital Wesley Chapel - CDS",
+      "decision": "import",
+      "expected_price": 10425,
+      "expected_hours": 99,
+      "milestones": 2,
+      "_note": "Added 2026-09-13. ⚠️ MillSuite already has a HAND-ENTERED 'BayCare Hospital CDS Wall Slat Divider' ($3,690, new_lead). Andrew's call 2026-09-13: DIFFERENT JOBS — import alongside, keep both. Do not merge or delete the manual card."
+    },
+    {
+      "entity": "lead",
+      "built_id": "65fcf910-1c8f-430d-b528-0b7bfd3f2a7e",
+      "name": "SDI -2700 - CO - Main Laundry Cat Door",
+      "decision": "import",
+      "expected_price": 3347,
+      "expected_hours": 22,
+      "milestones": 4,
+      "_note": "Added 2026-09-13. One of five SDI 2700 change orders imported as separate projects (Andrew)."
+    },
+    {
+      "entity": "lead",
+      "built_id": "47baeaac-ad68-4542-82f7-c661cd6ed7fb",
+      "name": "SDI -2700 - CO - ID 318 Primed Doors and Casing",
+      "decision": "import",
+      "expected_price": 4279,
+      "expected_hours": 32,
+      "milestones": 4,
+      "_note": "Added 2026-09-13. One of five SDI 2700 change orders imported as separate projects (Andrew)."
+    },
+    {
+      "entity": "lead",
+      "built_id": "7f011164-bf8f-45a6-bd30-a73f6a66e9fc",
+      "name": "SDI - 2700 - CO - Temp Pedini Doors",
+      "decision": "import",
+      "expected_price": 3773,
+      "expected_hours": 32,
+      "milestones": 4,
+      "_note": "Added 2026-09-13. One of five SDI 2700 change orders imported as separate projects (Andrew)."
+    },
+    {
+      "entity": "lead",
+      "built_id": "c7d46239-d38c-4217-8612-8aad75863860",
+      "name": "SDI - 2700 - Open Change Orders",
+      "decision": "import",
+      "expected_price": 6668,
+      "expected_hours": 52,
+      "milestones": 3,
+      "_note": "Added 2026-09-13. ⚠️ OVERLAPS 'Open Change Orders All' (aaf78156) — see that entry."
+    },
+    {
+      "entity": "lead",
+      "built_id": "aaf78156-aff5-4cba-b52d-f362d2054e08",
+      "name": "SDI - 2700 - Open Change Orders All",
+      "decision": "import",
+      "expected_price": 17127,
+      "expected_hours": 140,
+      "milestones": 3,
+      "_note": "Added 2026-09-13. ⚠️ ALMOST CERTAINLY A ROLL-UP, AND IMPORTED ANYWAY ON ANDREW'S EXPLICIT CALL after the overlap was put to him. Evidence: it carries 14 subprojects where 'Open Change Orders' (c7d46239) has 5 and each named CO has 1 — so it spans more scope than the four individual COs being imported, which together hold 8 subs and sum to $18,067 against this $17,127. The SDI pipeline figure therefore double-counts by roughly $17k. IF THE SDI TOTAL EVER LOOKS TOO HIGH, THIS IS WHY."
     }
   ]
 }
