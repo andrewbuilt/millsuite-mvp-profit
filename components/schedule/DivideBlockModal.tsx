@@ -18,11 +18,20 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
-
-interface SplitRow {
-  startDate: string  // ISO yyyy-mm-dd, Monday of the week
-  hours: string      // string while editing so the user can clear the field
-}
+// ⛔ The splitting RULES live in lib/divide-block, which is pure and verified.
+// Don't reimplement them here — the sum-to-total invariant is what the Save
+// gate depends on.
+import {
+  addDays,
+  applyFirstDate,
+  evenSplit,
+  isCustomEdit,
+  resizeRows as resizeSplitRows,
+  splitIsValid,
+  MAX_SPLITS,
+  MIN_SPLITS,
+  type SplitRow,
+} from '@/lib/divide-block'
 
 interface Props {
   blockId: string
@@ -38,34 +47,6 @@ interface Props {
   onSave: (splits: Array<{ scheduledDate: string; hours: number }>) => Promise<void>
 }
 
-const MIN_SPLITS = 2
-const MAX_SPLITS = 6
-
-function addDays(iso: string, days: number): string {
-  const d = new Date(iso + 'T12:00:00')
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-
-function defaultSplits(count: number, total: number, weekStartIso: string): SplitRow[] {
-  // Default each split to total/N rounded to 0.5; stuff any rounding
-  // remainder into the last row so the live sum matches on first render
-  // and the operator can save without retyping.
-  const base = Math.round((total / count) * 2) / 2
-  const rows: SplitRow[] = []
-  let remaining = total
-  for (let i = 0; i < count; i++) {
-    const isLast = i === count - 1
-    const slice = isLast ? remaining : base
-    rows.push({
-      startDate: addDays(weekStartIso, i * 7),
-      hours: String(slice),
-    })
-    remaining = +(remaining - slice).toFixed(2)
-  }
-  return rows
-}
-
 export default function DivideBlockModal({
   blockId,
   deptName,
@@ -78,19 +59,60 @@ export default function DivideBlockModal({
   onSave,
 }: Props) {
   const [splitCount, setSplitCount] = useState(2)
+  const [countText, setCountText] = useState('2')
   const [rows, setRows] = useState<SplitRow[]>(() =>
-    defaultSplits(2, totalHours, initialWeekStartIso),
+    evenSplit(2, totalHours, initialWeekStartIso),
   )
+  /**
+   * ⛔ CUSTOM MODE — THE OPERATOR HAS TOUCHED A ROW, SO NOTHING AUTOMATIC MAY
+   * OVERWRITE IT. Before this, changing the count regenerated every row from
+   * scratch and silently discarded hand-typed dates and hours. A dialog that
+   * throws away typing the moment you adjust something else is the kind of
+   * thing people learn to distrust, and then stop using.
+   *
+   * Set by editing ANY row's hours, or any date other than the first — the
+   * first date is the auto-fill handle, not an edit (see `setFirstDate`).
+   */
+  const [custom, setCustom] = useState(false)
 
-  // When the count dropdown changes, regenerate defaults — the operator
-  // explicitly picked a new split count, so blowing away their per-row
-  // edits is the expected behavior. Re-running defaultSplits also keeps
-  // the sum at the total without forcing them to retype.
+  // Re-seed only while the operator hasn't taken over. `custom` is
+  // deliberately NOT in the deps: flipping it must not trigger a re-seed that
+  // wipes the very edit that set it.
   useEffect(() => {
-    setRows(defaultSplits(splitCount, totalHours, initialWeekStartIso))
+    if (custom) return
+    setRows(evenSplit(splitCount, totalHours, initialWeekStartIso))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [splitCount, totalHours, initialWeekStartIso])
 
+  function applyCount(n: number) {
+    const clamped = Math.max(MIN_SPLITS, Math.min(MAX_SPLITS, n))
+    setSplitCount(clamped)
+    if (custom) setRows((prev) => resizeSplitRows(prev, clamped, initialWeekStartIso))
+  }
+
+  /** Throw away the edits and spread evenly again. Explicit, never automatic. */
+  function reSplitEvenly() {
+    setCustom(false)
+    setRows(evenSplit(splitCount, totalHours, initialWeekStartIso))
+  }
+
+  /**
+   * The first row's date is the auto-fill handle: moving it walks the rest
+   * forward a week at a time. That's the common case — "this whole run starts
+   * a fortnight later" — and doing it by hand across a dozen rows is exactly
+   * the tedium the typed week count just made possible.
+   *
+   * ⛔ In custom mode it moves ONLY row 1. The operator has placed the others
+   * deliberately; dragging them along would undo that.
+   */
+  function setFirstDate(iso: string) {
+    setRows((prev) => applyFirstDate(prev, iso, custom))
+  }
+
   function patchRow(i: number, patch: Partial<SplitRow>) {
+    // Any hours edit, or a date on a row other than the first, is the
+    // operator taking over.
+    if (isCustomEdit(i, patch)) setCustom(true)
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
   }
 
@@ -99,9 +121,10 @@ export default function DivideBlockModal({
     [rows],
   )
   const matches = Math.abs(sum - totalHours) < 0.001
-  const allDatesSet = rows.every((r) => r.startDate)
-  const allHoursPositive = rows.every((r) => (Number(r.hours) || 0) > 0)
-  const canSave = matches && allDatesSet && allHoursPositive && !saving
+  // ⛔ THE SUM CHECK STAYS THE GATE, in custom mode too. Custom means "don't
+  // overwrite what I typed", not "don't check it" — a split that doesn't foot
+  // silently loses or invents scheduled hours on save.
+  const canSave = splitIsValid(rows, totalHours) && !saving
 
   async function handleSave() {
     if (!canSave) return
@@ -219,27 +242,81 @@ export default function DivideBlockModal({
             }}
           >
             Split across
-            <select
-              value={splitCount}
-              onChange={(e) => setSplitCount(parseInt(e.target.value, 10))}
+            {/* ⛔ TYPED, NOT A DROPDOWN. The old select topped out at 6 and a
+                long run genuinely needs more. Kept as free text while editing
+                so the field can be cleared and retyped — committing on every
+                keystroke made "12" pass through "1" and collapse the rows. */}
+            <input
+              type="number"
+              min={MIN_SPLITS}
+              max={MAX_SPLITS}
+              step={1}
+              value={countText}
+              onChange={(e) => setCountText(e.target.value.replace(/[^0-9]/g, ''))}
+              onBlur={() => {
+                const n = parseInt(countText, 10)
+                if (!Number.isFinite(n)) {
+                  setCountText(String(splitCount))
+                  return
+                }
+                const clamped = Math.max(MIN_SPLITS, Math.min(MAX_SPLITS, n))
+                setCountText(String(clamped))
+                applyCount(clamped)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+              }}
               style={{
+                width: 56,
                 fontSize: 12,
                 padding: '4px 8px',
                 border: '1px solid #E5E7EB',
                 borderRadius: 4,
                 background: '#FFF',
+                textAlign: 'right',
+                fontFamily: "'SF Mono', monospace",
+              }}
+            />
+            weeks
+            <span style={{ fontSize: 10.5, color: '#9CA3AF' }}>max {MAX_SPLITS}</span>
+          </label>
+
+          {custom && (
+            <div
+              style={{
+                fontSize: 11,
+                color: '#92400E',
+                background: '#FFFBEB',
+                border: '1px solid #FDE68A',
+                borderRadius: 6,
+                padding: '6px 9px',
+                marginBottom: 10,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
               }}
             >
-              {Array.from({ length: MAX_SPLITS - MIN_SPLITS + 1 }, (_, i) => MIN_SPLITS + i).map(
-                (n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ),
-              )}
-            </select>
-            weeks
-          </label>
+              <span>
+                Custom split — your dates and hours are kept as typed.
+              </span>
+              <button
+                onClick={reSplitEvenly}
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  padding: 0,
+                  fontSize: 11,
+                  color: '#92400E',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Split evenly again
+              </button>
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {rows.map((row, i) => (
@@ -269,7 +346,16 @@ export default function DivideBlockModal({
                   <input
                     type="date"
                     value={row.startDate}
-                    onChange={(e) => patchRow(i, { startDate: e.target.value })}
+                    onChange={(e) =>
+                      i === 0
+                        ? setFirstDate(e.target.value)
+                        : patchRow(i, { startDate: e.target.value })
+                    }
+                    title={
+                      i === 0 && !custom
+                        ? 'Moving the first week shifts the rest along with it'
+                        : undefined
+                    }
                     style={{
                       flex: 1,
                       fontSize: 12,
