@@ -35,10 +35,11 @@
       "entity": "project",
       "built_id": "98225b92-a23d-4dff-855d-d133ed2e4a16",
       "name": "Jabal - Mountain Millwork",
-      "decision": "import",
+      "decision": "skip",
       "expected_price": 34276,
       "expected_hours": 148,
-      "milestones": 0
+      "milestones": 0,
+      "_note": "SKIPPED 2026-09-13 — Andrew: \"I dont need anything from Jabal imported.\" ⚠️ Kept as skip rather than deleted so the entry can't be mistaken for an oversight later. NOTE: 'Mountain Millwork' ($34,276) and 'Coffee - Kneewall' ($22,165) were ALREADY imported in an earlier round and still exist in MillSuite — both at stage 'lost', so they sit out of the pipeline. 'Jabal - Change Orders' imported as an EMPTY SHELL ($0, no lines) and is why --verify-only reports it as drifted. Skipping stops any re-import; it does not remove the existing rows."
     },
     {
       "entity": "project",
@@ -62,10 +63,11 @@
       "entity": "project",
       "built_id": "5e160c73-9db8-4b23-a87c-ceb9512f99ac",
       "name": "Jabal Coffee - Kneewall",
-      "decision": "import",
+      "decision": "skip",
       "expected_price": 22165,
       "expected_hours": 126,
-      "milestones": 3
+      "milestones": 3,
+      "_note": "SKIPPED 2026-09-13 — Andrew: \"I dont need anything from Jabal imported.\" ⚠️ Kept as skip rather than deleted so the entry can't be mistaken for an oversight later. NOTE: 'Mountain Millwork' ($34,276) and 'Coffee - Kneewall' ($22,165) were ALREADY imported in an earlier round and still exist in MillSuite — both at stage 'lost', so they sit out of the pipeline. 'Jabal - Change Orders' imported as an EMPTY SHELL ($0, no lines) and is why --verify-only reports it as drifted. Skipping stops any re-import; it does not remove the existing rows."
     },
     {
       "entity": "lead",
@@ -100,10 +102,11 @@
       "entity": "lead",
       "built_id": "28efaf64-dbb6-49c4-b918-b2d733cbc964",
       "name": "Jabal - Change Orders",
-      "decision": "import",
+      "decision": "skip",
       "expected_price": 4890,
       "expected_hours": 34,
-      "milestones": 2
+      "milestones": 2,
+      "_note": "SKIPPED 2026-09-13 — Andrew: \"I dont need anything from Jabal imported.\" ⚠️ Kept as skip rather than deleted so the entry can't be mistaken for an oversight later. NOTE: 'Mountain Millwork' ($34,276) and 'Coffee - Kneewall' ($22,165) were ALREADY imported in an earlier round and still exist in MillSuite — both at stage 'lost', so they sit out of the pipeline. 'Jabal - Change Orders' imported as an EMPTY SHELL ($0, no lines) and is why --verify-only reports it as drifted. Skipping stops any re-import; it does not remove the existing rows."
     },
     {
       "entity": "lead",
