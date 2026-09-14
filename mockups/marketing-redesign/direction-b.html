@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MillSuite · Direction B: Modern Craft SaaS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,560;1,9..144,400;1,9..144,500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@500,700,800&f[]=general-sans@400,500,600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FBF9F4;
+    --panel:#FFFFFF;
+    --wash:#F3EEE4;
+    --ink:#26211B;
+    --ink-soft:#6E6459;
+    --line:#E2DACB;
+    --red:#C8402A; /* carpenter pencil red */
+    --display:"Cabinet Grotesk", -apple-system, sans-serif;
+    --sans:"General Sans", -apple-system, sans-serif;
+    --serif:"Fraunces", Georgia, serif;
+    --mono:"IBM Plex Mono", ui-monospace, monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  img{display:block;max-width:100%}
+  a{color:inherit}
+  .wrap{max-width:1220px;margin:0 auto;padding:0 36px}
+  .mono{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+
+  nav{position:sticky;top:0;background:var(--paper);border-bottom:1px solid var(--line);z-index:10}
+  .nav-in{display:flex;align-items:center;justify-content:space-between;height:68px}
+  .wordmark{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:-.02em;text-decoration:none;display:flex;align-items:center;gap:9px}
+  .mark{width:14px;height:14px;background:var(--red)}
+  .nav-links{display:flex;gap:26px;align-items:center}
+  .nav-links a{font-size:15px;font-weight:500;text-decoration:none;color:var(--ink-soft)}
+  .nav-links a:hover{color:var(--ink)}
+  .nav-cta{background:var(--ink);color:var(--paper)!important;padding:10px 20px;border-radius:2px;font-weight:600}
+  .nav-cta:hover{background:var(--red)}
+
+  .hero{padding:96px 0 72px;border-bottom:1px solid var(--line)}
+  .eyebrow{display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);margin-bottom:26px}
+  .eyebrow::before{content:"";width:22px;height:2px;background:var(--red)}
+  h1{font-family:var(--display);font-weight:800;font-size:clamp(42px,5.8vw,76px);line-height:1.0;letter-spacing:-.028em;max-width:13em}
+  h1 .q{font-family:var(--serif);font-weight:400;font-style:italic;letter-spacing:-.01em;color:var(--red)}
+  .hero-sub{margin-top:28px;font-size:19px;color:var(--ink-soft);max-width:33em}
+  .hero-sub b{color:var(--ink);font-weight:600}
+  .cta-row{margin-top:36px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .btn{font-family:var(--sans);font-weight:600;font-size:16px;text-decoration:none;padding:14px 26px;border-radius:2px}
+  .btn-solid{background:var(--ink);color:var(--paper)}
+  .btn-solid:hover{background:var(--red)}
+  .btn-line{border:1.5px solid var(--ink)}
+  .btn-line:hover{background:var(--wash)}
+  .cta-note{width:100%;font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+
+  /* hero product strip: photo + UI */
+  .hero-panel{margin-top:64px;display:grid;grid-template-columns:5fr 7fr;border:1px solid var(--ink);background:var(--panel)}
+  .hero-panel .photo{border-right:1px solid var(--ink);min-height:100%}
+  .hero-panel .photo img{width:100%;height:100%;object-fit:cover}
+  .ui{padding:26px 28px}
+  .ui-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:18px}
+  .ui-title{font-family:var(--display);font-weight:700;font-size:18px}
+  .pill{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--line);padding:4px 10px;color:var(--ink-soft)}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .kpi{border:1px solid var(--line);padding:14px}
+  .kpi .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+  .kpi .n{font-family:var(--mono);font-weight:500;font-size:22px;margin-top:6px}
+  .kpi .n.good{color:#3D6B35}
+  .kpi .n.bad{color:var(--red)}
+  .bars{margin-top:18px}
+  .bar-row{display:grid;grid-template-columns:150px 1fr 90px;gap:14px;align-items:center;padding:9px 0;border-bottom:1px dotted var(--line);font-size:14px}
+  .bar-row:last-child{border-bottom:0}
+  .bar-row .lbl{font-weight:500}
+  .track{height:12px;background:var(--wash);position:relative}
+  .fill{position:absolute;inset:0 auto 0 0;background:var(--ink)}
+  .fill.over{background:var(--red)}
+  .est-tick{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink-soft)}
+  .bar-row .val{font-family:var(--mono);font-size:12px;text-align:right;color:var(--ink-soft)}
+  .ui-foot{margin-top:16px;font-family:var(--serif);font-style:italic;font-size:15px;color:var(--ink-soft)}
+  .ui-foot b{color:var(--red);font-style:normal;font-family:var(--sans);font-weight:600}
+
+  section{padding:96px 0}
+  .sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:24px;margin-bottom:48px;flex-wrap:wrap}
+  h2{font-family:var(--display);font-weight:800;font-size:clamp(30px,3.8vw,48px);line-height:1.05;letter-spacing:-.025em;max-width:16em}
+  h2 .q{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--red)}
+  .idx{font-family:var(--mono);font-size:13px;color:var(--ink-soft);letter-spacing:.12em}
+
+  /* three-up value props, ruled not carded */
+  .props{display:grid;grid-template-columns:repeat(3,1fr);border-top:1.5px solid var(--ink)}
+  .prop{padding:28px 28px 34px 0;border-bottom:1px solid var(--line)}
+  .prop+.prop{padding-left:28px;border-left:1px solid var(--line)}
+  .prop .num{font-family:var(--mono);font-size:12px;color:var(--red);letter-spacing:.12em}
+  .prop h3{font-family:var(--display);font-weight:700;font-size:22px;margin:12px 0 10px;letter-spacing:-.01em}
+  .prop p{font-size:15px;color:var(--ink-soft)}
+
+  /* photo strip */
+  .strip{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--ink);border:1px solid var(--ink);margin-top:72px}
+  .strip figure{position:relative;background:var(--ink)}
+  .strip img{width:100%;height:320px;object-fit:cover}
+  .strip figcaption{position:absolute;left:0;right:0;bottom:0;padding:10px 14px;background:rgba(38,33,27,.82);color:#EFE9DD;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase}
+
+  .wash-sec{background:var(--wash);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+
+  /* founder */
+  .founder{display:grid;grid-template-columns:6fr 6fr;gap:64px;align-items:center}
+  .founder-photo{border:1px solid var(--ink)}
+  .founder-photo img{width:100%;height:520px;object-fit:cover}
+  .founder-photo figcaption{padding:12px 16px;border-top:1px solid var(--ink);font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);background:var(--panel)}
+  .founder h2{margin-bottom:22px}
+  .founder p{color:var(--ink-soft);max-width:32em}
+  .founder p+p{margin-top:1.1em}
+  .founder p b{color:var(--ink)}
+  .founder .serif-pull{font-family:var(--serif);font-style:italic;font-size:22px;color:var(--ink);line-height:1.45}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);margin-top:30px;border:1px solid var(--ink);background:var(--panel)}
+  .stat{padding:18px 20px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:0}
+  .stat .n{font-family:var(--display);font-weight:800;font-size:28px;letter-spacing:-.02em}
+  .stat .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin-top:4px}
+
+  /* quotes */
+  .quote-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--ink);border:1px solid var(--ink)}
+  .quote-cell{background:var(--panel);padding:44px 40px}
+  .quote-cell blockquote{font-family:var(--serif);font-size:26px;line-height:1.35;font-weight:400}
+  .quote-cell blockquote .hl{background:linear-gradient(transparent 62%, rgba(200,64,42,.22) 62%)}
+  .quote-cell .attr{margin-top:20px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+
+  /* answers */
+  .qa{border-top:1.5px solid var(--ink)}
+  .qa-row{display:grid;grid-template-columns:5fr 7fr;gap:40px;padding:26px 0;border-bottom:1px solid var(--line)}
+  .qa-row h5{font-family:var(--display);font-weight:700;font-size:20px;letter-spacing:-.01em}
+  .qa-row p{color:var(--ink-soft);font-size:16px}
+  .qa-row p b{color:var(--ink)}
+
+  /* final */
+  .final{background:var(--ink);color:var(--paper);padding:110px 0}
+  .final h2{color:var(--paper);max-width:15em}
+  .final .q{color:var(--red)}
+  .final p{color:rgba(251,249,244,.65);margin-top:20px;max-width:32em}
+  .final .btn-solid{background:var(--red);color:#fff}
+  .final .btn-solid:hover{background:var(--paper);color:var(--ink)}
+  .final .btn-line{border-color:rgba(251,249,244,.5);color:var(--paper)}
+  .final .btn-line:hover{background:rgba(251,249,244,.08)}
+  .final .cta-note{color:rgba(251,249,244,.5)}
+
+  footer{padding:30px 0;border-top:1px solid var(--line);display:flex}
+  .foot-in{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;width:100%}
+
+  @media(max-width:960px){
+    .hero-panel{grid-template-columns:1fr}
+    .hero-panel .photo{border-right:0;border-bottom:1px solid var(--ink)}
+    .hero-panel .photo img{max-height:340px}
+    .props{grid-template-columns:1fr}
+    .prop+.prop{padding-left:0;border-left:0}
+    .kpis{grid-template-columns:1fr 1fr}
+    .strip{grid-template-columns:1fr}
+    .founder{grid-template-columns:1fr;gap:36px}
+    .founder-photo img{height:auto}
+    .quote-grid{grid-template-columns:1fr}
+    .qa-row{grid-template-columns:1fr;gap:8px}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="wordmark" href="#"><span class="mark"></span>MillSuite</a>
+    <div class="nav-links">
+      <a href="#">Product</a>
+      <a href="#">Pricing</a>
+      <a href="#">Log in</a>
+      <a class="nav-cta" href="#">Get started</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Profit clarity for custom shops</div>
+    <h1>You sold $2M in cabinets. <span class="q">Which jobs made money?</span></h1>
+    <p class="hero-sub">Most owners can't answer that until tax time, when it's too late to matter. MillSuite tracks actual hours and material against every bid, live, <b>and feeds what it learns back into your next estimate.</b></p>
+    <div class="cta-row">
+      <a class="btn btn-solid" href="#">See pricing</a>
+      <a class="btn btn-line" href="https://tools.millsuite.com">Calculate your shop rate, free</a>
+      <span class="cta-note">Per seat · three tiers · no sales call</span>
+    </div>
+
+    <div class="hero-panel">
+      <figure class="photo">
+        <img src="img/built-009.jpg" alt="Cutting parts on the sliding table saw at Built LLC">
+      </figure>
+      <div class="ui">
+        <div class="ui-head">
+          <span class="ui-title">Job 0214 · Walnut storefront</span>
+          <span class="pill">In production · Week 2 of 5</span>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><div class="k">Contract</div><div class="n">$48,500</div></div>
+          <div class="kpi"><div class="k">Margin, bid</div><div class="n">13.9%</div></div>
+          <div class="kpi"><div class="k">Margin, live</div><div class="n bad">10.8%</div></div>
+          <div class="kpi"><div class="k">Hours logged</div><div class="n">316</div></div>
+        </div>
+        <div class="bars">
+          <div class="bar-row">
+            <span class="lbl">Mill &amp; assembly</span>
+            <span class="track"><span class="fill" style="width:72%"></span><span class="est-tick" style="left:78%"></span></span>
+            <span class="val">148 / 190 hr</span>
+          </div>
+          <div class="bar-row">
+            <span class="lbl">Finish</span>
+            <span class="track"><span class="fill over" style="width:88%"></span><span class="est-tick" style="left:70%"></span></span>
+            <span class="val">62 / 50 hr</span>
+          </div>
+          <div class="bar-row">
+            <span class="lbl">Install</span>
+            <span class="track"><span class="fill" style="width:30%"></span><span class="est-tick" style="left:82%"></span></span>
+            <span class="val">21 / 70 hr</span>
+          </div>
+          <div class="bar-row">
+            <span class="lbl">Material</span>
+            <span class="track"><span class="fill over" style="width:84%"></span><span class="est-tick" style="left:76%"></span></span>
+            <span class="val">$17.9k / $16.4k</span>
+          </div>
+        </div>
+        <p class="ui-foot"><b>Finish is over.</b> Caught in week two, not at closeout. The change order went out the same day.</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>The numbers exist. <span class="q">They're just scattered.</span></h2>
+      <span class="idx">01 · The problem</span>
+    </div>
+    <div class="props">
+      <div class="prop">
+        <div class="num">01</div>
+        <h3>Your shop rate is a guess</h3>
+        <p>Most shops bill at a number somebody made up years ago. MillSuite derives your true hourly cost from real overhead, payroll, and billable hours, then keeps it current.</p>
+      </div>
+      <div class="prop">
+        <div class="num">02</div>
+        <h3>Losses surface at closeout</h3>
+        <p>By the time QuickBooks tells you a job went bad, the crew is two jobs down the road. Live actuals against the bid mean you catch the bleed while you can still act.</p>
+      </div>
+      <div class="prop">
+        <div class="num">03</div>
+        <h3>Estimates never learn</h3>
+        <p>Every finished job feeds actual hours and material back into your rate book. The next bid starts from evidence, not memory. No other tool closes this loop.</p>
+      </div>
+    </div>
+
+    <div class="strip">
+      <figure>
+        <img src="img/51ae5eb6-3a5c-4359-a0d2-64b1b85fefd3.jpg" alt="Routing a spline joint in a live-edge slab">
+        <figcaption>Built LLC · Slab work, router &amp; chisel</figcaption>
+      </figure>
+      <figure>
+        <img src="img/7-ichicoro-ane-built-shop-process-legs-in-a-line.jpg" alt="Powder-coated steel bases lined up for assembly">
+        <figcaption>Steel bases · batch of twelve, powder coated</figcaption>
+      </figure>
+      <figure>
+        <img src="img/azarelli-8.jpg" alt="Finished walnut and cane kitchen with brass hardware">
+        <figcaption>Delivered · Walnut, cane &amp; brass kitchen</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="wash-sec">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>Built on a shop floor, <span class="q">not in a boardroom.</span></h2>
+      <span class="idx">02 · Who&rsquo;s behind it</span>
+    </div>
+    <div class="founder">
+      <figure class="founder-photo">
+        <img src="img/8-built-ane-install-bar-other-matt-shelves.jpg" alt="Setting shelving on a steel and oak installation">
+        <figcaption>Install day · steel &amp; white oak, Tampa FL</figcaption>
+      </figure>
+      <div>
+        <p class="serif-pull">Fourteen years running Built LLC taught me one thing the hard way: a full schedule can still be a failing business.</p>
+        <p>Andrew Watson has run a custom millwork shop in Tampa since 2012. MillSuite started as the internal tool that kept Built profitable, <b>built between real deadlines, tested on real jobs, refined every time a bid missed.</b></p>
+        <p>The estimator is trained on the shop's own completed projects. That's why it's accurate, and why nothing else on the market works this way. Domain expertise isn't the marketing angle. It's the architecture.</p>
+        <div class="stats">
+          <div class="stat"><div class="n">14 yrs</div><div class="k">Running the shop</div></div>
+          <div class="stat"><div class="n">$1.9M</div><div class="k">Jobs behind the estimator</div></div>
+          <div class="stat"><div class="n">97 to 99%</div><div class="k">Estimate accuracy</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>What early shops <span class="q">actually said.</span></h2>
+      <span class="idx">03 · Proof</span>
+    </div>
+    <div class="quote-grid">
+      <div class="quote-cell">
+        <blockquote>&ldquo;The <span class="hl">most tailored option</span> we've seen.&rdquo;</blockquote>
+        <div class="attr">Sean McKusick · McKusick &amp; Co., corporate interiors</div>
+      </div>
+      <div class="quote-cell">
+        <blockquote>&ldquo;Very intuitive, and <span class="hl">better looking</span> than the $1,400-a-month system we're stuck implementing.&rdquo;</blockquote>
+        <div class="attr">Jason Zook · 5-person custom shop</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="wash-sec">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>Fair questions, <span class="q">straight answers.</span></h2>
+      <span class="idx">04 · Objections</span>
+    </div>
+    <div class="qa">
+      <div class="qa-row">
+        <h5>&ldquo;My guys won't track time.&rdquo;</h5>
+        <p>Pick the project, hit start. Two taps on their phone, same as clocking in. <b>If they can text, they can track.</b></p>
+      </div>
+      <div class="qa-row">
+        <h5>&ldquo;My shop is too unique for software.&rdquo;</h5>
+        <p>Shops from $1M to $50M all describe the same core problem: no one knows a job's real cost until it's done. <b>The work is unique. The problem isn't.</b></p>
+      </div>
+      <div class="qa-row">
+        <h5>&ldquo;What if you're small and you disappear?&rdquo;</h5>
+        <p>Founding shops get a data export guarantee and their own instance. <b>Your numbers stay yours, in a format you can open anywhere.</b></p>
+      </div>
+      <div class="qa-row">
+        <h5>&ldquo;If the data isn't perfect, why bother?&rdquo;</h5>
+        <p>Perfect data isn't the goal, directional data is. Track what you can. <b>Every job you close makes the next estimate smarter.</b></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <div class="eyebrow" style="color:var(--red)">Early access · ten founding shops</div>
+    <h2>Stop finding out at tax time. <span class="q">Know while it's running.</span></h2>
+    <p>Per-seat pricing, three tiers, no demo gauntlet. Start with the free shop rate calculator and see your real hourly cost in ten minutes.</p>
+    <div class="cta-row">
+      <a class="btn btn-solid" href="#">See pricing</a>
+      <a class="btn btn-line" href="https://tools.millsuite.com">Free shop rate calculator</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-in">
+    <span class="mono">MillSuite · Tampa, FL</span>
+    <span class="mono">Made in a working millwork shop</span>
+  </div>
+</footer>
+
+</body>
+</html>

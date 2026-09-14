@@ -80,6 +80,11 @@ for (const f of fs.readdirSync(migrationDir).filter((n) => n.endsWith('.sql'))) 
     created.add(m[1].toLowerCase())
   }
 }
+// ⚠️ A DROPPED TABLE STAYS ON THE LIST, deliberately. Migrations are
+// append-only, so 103 still says `CREATE TABLE bom_items` even though 105
+// dropped it — the scan therefore still demands it, and the audit reports
+// "no such table", which is accurate. Don't remove such an entry to silence
+// the check: if the create ever runs again, it needs to be audited again.
 const unlisted = [...created].filter((t) => !TABLES.includes(t)).sort()
 if (unlisted.length > 0) {
   console.log('❌ TABLES CREATED BY A MIGRATION BUT NEVER AUDITED:\n')

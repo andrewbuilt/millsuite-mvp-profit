@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MillSuite · Direction A: Warm Workshop Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,340;0,9..144,400;0,9..144,560;0,9..144,640;1,9..144,400;1,9..144,560&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FAF6EF;
+    --paper-deep:#F1E9DC;
+    --kraft:#E7D9C3;
+    --ink:#2B241D;
+    --ink-soft:#6B5F52;
+    --rule:#D8CCBA;
+    --crayon:#D9531E; /* lumber crayon orange */
+    --serif:"Fraunces", Georgia, serif;
+    --sans:"General Sans", -apple-system, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:auto}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:18px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  img{display:block;max-width:100%}
+  a{color:inherit}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 32px}
+  .mono{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+  .rule{border:0;border-top:1px solid var(--rule)}
+  .rule-heavy{border:0;border-top:2px solid var(--ink)}
+
+  /* nav */
+  nav{border-bottom:2px solid var(--ink);background:var(--paper)}
+  .nav-in{display:flex;align-items:baseline;justify-content:space-between;padding:22px 0}
+  .wordmark{font-family:var(--serif);font-weight:640;font-size:24px;letter-spacing:-.01em;text-decoration:none}
+  .wordmark span{color:var(--crayon)}
+  .nav-links{display:flex;gap:28px;align-items:baseline}
+  .nav-links a{font-size:15px;text-decoration:none;color:var(--ink-soft)}
+  .nav-links a:hover{color:var(--ink)}
+  .nav-cta{font-family:var(--mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--paper)!important;background:var(--ink);padding:10px 18px;text-decoration:none}
+  .nav-cta:hover{background:var(--crayon)}
+
+  /* hero */
+  .hero{padding:84px 0 0}
+  .hero-grid{display:grid;grid-template-columns:7fr 5fr;gap:56px;align-items:end}
+  .kicker{display:flex;align-items:center;gap:14px;margin-bottom:28px}
+  .kicker .line{width:56px;height:2px;background:var(--crayon)}
+  h1{font-family:var(--serif);font-weight:560;font-size:clamp(40px,5.4vw,68px);line-height:1.04;letter-spacing:-.015em}
+  h1 em{font-style:italic;color:var(--crayon)}
+  .hero-sub{margin-top:30px;font-size:19px;max-width:34em;color:var(--ink-soft)}
+  .hero-sub strong{color:var(--ink);font-weight:600}
+  .cta-row{margin-top:38px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+  .btn{font-family:var(--mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;padding:15px 26px;border:2px solid var(--ink)}
+  .btn-solid{background:var(--ink);color:var(--paper)}
+  .btn-solid:hover{background:var(--crayon);border-color:var(--crayon)}
+  .btn-ghost:hover{background:var(--paper-deep)}
+  .cta-note{width:100%;margin-top:6px;font-family:var(--mono);font-size:12px;color:var(--ink-soft);letter-spacing:.06em}
+  .hero-photo{position:relative}
+  .hero-photo img{border:1px solid var(--rule)}
+  .polaroid{background:#fff;padding:10px 10px 14px;box-shadow:0 1px 0 var(--rule)}
+  .tilt-l{transform:rotate(-1.4deg)}
+  .tilt-r{transform:rotate(1.1deg)}
+  .caption{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-top:12px}
+  .annotate{position:absolute;font-family:var(--serif);font-style:italic;font-size:17px;color:var(--crayon);transform:rotate(-3deg)}
+
+  /* chapters */
+  .chapter{padding:96px 0 0}
+  .ch-head{display:grid;grid-template-columns:160px 1fr;gap:32px;align-items:start;border-top:2px solid var(--ink);padding-top:26px}
+  .ch-num{font-family:var(--serif);font-weight:340;font-size:96px;line-height:.9;color:var(--crayon)}
+  h2{font-family:var(--serif);font-weight:560;font-size:clamp(30px,3.6vw,44px);line-height:1.12;letter-spacing:-.01em;max-width:18em}
+  .ch-body{margin-top:34px;display:grid;grid-template-columns:160px 1fr;gap:32px}
+  .ch-body .lead{grid-column:2;max-width:38em;font-size:19px}
+  .ch-body .lead p+p{margin-top:1.2em}
+  .ch-body .lead .big{font-family:var(--serif);font-size:24px;line-height:1.4;font-weight:400}
+
+  /* photo band */
+  .band{margin-top:64px;display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:28px;align-items:start}
+  .band figure:nth-child(2){margin-top:44px}
+  .band figure:nth-child(3){margin-top:-12px}
+
+  /* spec sheet */
+  .spec{margin-top:56px;background:#fff;border:2px solid var(--ink)}
+  .spec-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:18px 26px;border-bottom:2px solid var(--ink);flex-wrap:wrap}
+  .spec-title{font-family:var(--mono);font-size:13px;letter-spacing:.14em;text-transform:uppercase}
+  .spec-grid{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--rule)}
+  .spec-col{padding:26px;border-right:1px solid var(--rule)}
+  .spec-col:last-child{border-right:0}
+  .spec-col h4{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:14px}
+  .spec-row{display:flex;justify-content:space-between;font-family:var(--mono);font-size:14px;padding:7px 0;border-bottom:1px dotted var(--rule)}
+  .spec-row:last-child{border-bottom:0}
+  .spec-row .v{font-weight:500}
+  .spec-foot{display:grid;grid-template-columns:1fr 1fr 1fr}
+  .spec-kpi{padding:22px 26px;border-right:1px solid var(--rule)}
+  .spec-kpi:last-child{border-right:0}
+  .spec-kpi .k{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
+  .spec-kpi .n{font-family:var(--serif);font-size:40px;font-weight:560;line-height:1.1;margin-top:6px}
+  .n.red{color:var(--crayon)}
+  .spec-note{padding:14px 26px;border-top:2px solid var(--ink);font-family:var(--serif);font-style:italic;font-size:17px;background:var(--paper)}
+  .spec-note b{color:var(--crayon);font-style:normal;font-family:var(--sans);font-weight:600}
+  .swap-note{font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase}
+
+  /* loop diagram */
+  .loop-wrap{margin-top:56px;background:var(--paper-deep);border:1px solid var(--rule);padding:48px 24px}
+  .loop-wrap svg{display:block;margin:0 auto;max-width:820px;width:100%;height:auto}
+
+  /* founder */
+  .founder{margin-top:64px;display:grid;grid-template-columns:5fr 7fr;gap:56px;align-items:start}
+  .founder-photos{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .founder-photos figure:nth-child(2){margin-top:36px}
+  .letter{font-size:19px;max-width:36em}
+  .letter p+p{margin-top:1.2em}
+  .letter .salute{font-family:var(--serif);font-style:italic;font-size:22px}
+  .sig{margin-top:26px}
+  .sig .name{font-family:var(--serif);font-weight:560;font-size:22px}
+  .sig .role{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-top:4px}
+  .numbers-strip{margin-top:30px;display:flex;gap:0;border:1px solid var(--rule);background:#fff}
+  .numbers-strip div{flex:1;padding:16px 18px;border-right:1px solid var(--rule)}
+  .numbers-strip div:last-child{border-right:0}
+  .numbers-strip .n{font-family:var(--serif);font-weight:560;font-size:26px}
+  .numbers-strip .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin-top:2px}
+
+  /* quotes */
+  .quotes{margin-top:96px;background:var(--kraft);padding:84px 0}
+  blockquote{font-family:var(--serif);font-weight:400;font-size:clamp(26px,3vw,36px);line-height:1.3;max-width:24em}
+  blockquote em{font-style:italic;color:var(--crayon)}
+  .attr{margin-top:18px;font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+  .quote2{margin-top:56px;padding-top:56px;border-top:1px solid rgba(43,36,29,.25)}
+
+  /* answers */
+  .qa{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--rule)}
+  .qa-item{padding:30px 34px 30px 0;border-bottom:1px solid var(--rule)}
+  .qa-item:nth-child(even){padding-left:34px;border-left:1px solid var(--rule)}
+  .qa-item h5{font-family:var(--serif);font-size:22px;font-weight:560;margin-bottom:10px}
+  .qa-item p{font-size:16px;color:var(--ink-soft)}
+  .qa-item p b{color:var(--ink)}
+
+  /* final cta */
+  .final{margin-top:110px;background:var(--ink);color:var(--paper);padding:96px 0}
+  .final .mono{color:rgba(250,246,239,.6)}
+  .final h2{color:var(--paper);max-width:14em}
+  .final h2 em{font-style:italic;color:var(--crayon)}
+  .final .cta-row{margin-top:40px}
+  .final .btn{border-color:var(--paper);color:var(--paper)}
+  .final .btn-solid{background:var(--crayon);border-color:var(--crayon);color:#fff}
+  .final .btn-solid:hover{background:var(--paper);border-color:var(--paper);color:var(--ink)}
+  .final .cta-note{color:rgba(250,246,239,.55)}
+
+  footer{padding:34px 0;border-top:1px solid var(--rule)}
+  .foot-in{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+  @media(max-width:900px){
+    .hero-grid,.founder{grid-template-columns:1fr}
+    .ch-head,.ch-body{grid-template-columns:1fr}
+    .ch-body .lead{grid-column:1}
+    .ch-num{font-size:64px}
+    .band{grid-template-columns:1fr 1fr}
+    .band figure:first-child{grid-column:1/-1}
+    .spec-grid,.spec-foot{grid-template-columns:1fr}
+    .spec-col,.spec-kpi{border-right:0;border-bottom:1px solid var(--rule)}
+    .qa{grid-template-columns:1fr}
+    .qa-item:nth-child(even){padding-left:0;border-left:0}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="wordmark" href="#">MillSuite<span>.</span></a>
+    <div class="nav-links">
+      <a href="#">Pricing</a>
+      <a href="#">Log in</a>
+      <a class="nav-cta" href="#">Get started</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="kicker"><span class="line"></span><span class="mono">For custom millwork &amp; cabinet shops</span></div>
+      <h1>More sales at a loss kills a shop <em>twice as fast.</em></h1>
+      <p class="hero-sub">I ran a millwork shop for 14 years before I could say which jobs actually made money. MillSuite tracks your real costs against your bid while the job is still on the floor, <strong>then makes your next estimate sharper.</strong></p>
+      <div class="cta-row">
+        <a class="btn btn-solid" href="#">See pricing</a>
+        <a class="btn btn-ghost" href="https://tools.millsuite.com">Free shop rate calculator</a>
+        <span class="cta-note">Per seat. Three tiers. No sales call.</span>
+      </div>
+    </div>
+    <div class="hero-photo">
+      <figure class="polaroid tilt-r">
+        <img src="img/3-built-ane-install-lounge-matt-tight-action.jpg" alt="Setting a walnut door plumb on install day">
+        <figcaption class="caption">Built LLC, Tampa · Walnut, install day</figcaption>
+      </figure>
+      <span class="annotate" style="right:-8px;top:-34px">this is the easy part</span>
+    </div>
+  </div>
+</header>
+
+<section class="chapter">
+  <div class="wrap">
+    <div class="ch-head">
+      <div class="ch-num">01</div>
+      <h2>Busy shop. Full schedule. Negative bank account.</h2>
+    </div>
+    <div class="ch-body">
+      <div class="lead">
+        <p class="big">You can sell millions of dollars of cabinetry and still feel a pit in your stomach when you open the bank account.</p>
+        <p>The industry tells you the fix is more sales. It isn't. If you don't know what each job really costs, more sales just means losing money faster. The data to fix this already exists in your shop, in your hours, your material, your bids. It's just scattered across five tools that don't talk to each other.</p>
+      </div>
+    </div>
+    <div class="band">
+      <figure class="polaroid tilt-l">
+        <img src="img/built-interiors-19.jpg" alt="Two builders checking a plywood carcass in the shop">
+        <figcaption class="caption">The floor, mid-build · Tampa, FL</figcaption>
+      </figure>
+      <figure class="polaroid tilt-r">
+        <img src="img/built-010.jpg" alt="A wall of bar clamps, racked">
+        <figcaption class="caption">Clamp wall · every one paid for by a job</figcaption>
+      </figure>
+      <figure class="polaroid tilt-l">
+        <img src="img/dscf1607.jpg" alt="Chisel work on a walnut frame">
+        <figcaption class="caption">Fitting a joint · chisel, mallet, patience</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="chapter">
+  <div class="wrap">
+    <div class="ch-head">
+      <div class="ch-num">02</div>
+      <h2>Here's what a job looks like when you can actually see it.</h2>
+    </div>
+    <div class="ch-body">
+      <div class="lead">
+        <p>Nobody in this industry shows you real numbers, so here are some. Bid, actual hours, actual material, and what was left at the end. This is the view MillSuite gives you while the job is still running, when you can still do something about it.</p>
+      </div>
+    </div>
+
+    <div class="spec">
+      <div class="spec-head">
+        <span class="spec-title">Job 0214 · Walnut storefront &amp; wine wall</span>
+        <span class="swap-note">Sample figures for this mockup. Swap in a real Built LLC job before launch.</span>
+      </div>
+      <div class="spec-grid">
+        <div class="spec-col">
+          <h4>The bid</h4>
+          <div class="spec-row"><span>Contract</span><span class="v">$48,500</span></div>
+          <div class="spec-row"><span>Material, est.</span><span class="v">$16,400</span></div>
+          <div class="spec-row"><span>Hours, est.</span><span class="v">290 hr</span></div>
+          <div class="spec-row"><span>Shop rate</span><span class="v">$87.50/hr</span></div>
+        </div>
+        <div class="spec-col">
+          <h4>What actually happened</h4>
+          <div class="spec-row"><span>Material, actual</span><span class="v">$17,890</span></div>
+          <div class="spec-row"><span>Hours, actual</span><span class="v">316 hr</span></div>
+          <div class="spec-row"><span>Overrun caught</span><span class="v">Week 2 of 5</span></div>
+          <div class="spec-row"><span>Change order added</span><span class="v">+$2,300</span></div>
+        </div>
+        <div class="spec-col">
+          <h4>Where it landed</h4>
+          <div class="spec-row"><span>Profit, bid</span><span class="v">$6,725</span></div>
+          <div class="spec-row"><span>Profit, actual</span><span class="v">$5,260</span></div>
+          <div class="spec-row"><span>Veneer waste flagged</span><span class="v">Yes</span></div>
+          <div class="spec-row"><span>Rate book updated</span><span class="v">Automatic</span></div>
+        </div>
+      </div>
+      <div class="spec-foot">
+        <div class="spec-kpi"><div class="k">Margin, bid</div><div class="n">13.9%</div></div>
+        <div class="spec-kpi"><div class="k">Margin, actual</div><div class="n red">10.8%</div></div>
+        <div class="spec-kpi"><div class="k">Next estimate</div><div class="n">Sharper</div></div>
+      </div>
+      <div class="spec-note"><b>The point:</b> without live tracking, this job quietly loses three points of margin and nobody ever knows why. With it, the finish hours got a change order and the rate book learned.</div>
+    </div>
+  </div>
+</section>
+
+<section class="chapter">
+  <div class="wrap">
+    <div class="ch-head">
+      <div class="ch-num">03</div>
+      <h2>One loop, not a pile of features.</h2>
+    </div>
+    <div class="ch-body">
+      <div class="lead">
+        <p>Estimate from your rate book. Track hours and material as the job runs. Close it out. The actuals feed back into the rate book, so every job you finish makes the next estimate more accurate. No competitor has this loop. Most shops have never seen it.</p>
+      </div>
+    </div>
+    <div class="loop-wrap">
+      <svg viewBox="0 0 820 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The MillSuite learning loop drawn as a shop drawing">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#2B241D"/>
+          </marker>
+          <marker id="arrO" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#D9531E"/>
+          </marker>
+        </defs>
+        <!-- dashed guide circle -->
+        <ellipse cx="410" cy="230" rx="300" ry="160" fill="none" stroke="#C9BBA4" stroke-width="1" stroke-dasharray="3 6"/>
+        <!-- nodes -->
+        <g font-family="'IBM Plex Mono', monospace" font-size="13" letter-spacing="2">
+          <g>
+            <rect x="330" y="28" width="160" height="44" fill="#FAF6EF" stroke="#2B241D" stroke-width="2"/>
+            <text x="410" y="55" text-anchor="middle" fill="#2B241D">1 · ESTIMATE</text>
+          </g>
+          <g>
+            <rect x="640" y="150" width="150" height="44" fill="#FAF6EF" stroke="#2B241D" stroke-width="2"/>
+            <text x="715" y="177" text-anchor="middle" fill="#2B241D">2 · TRACK</text>
+          </g>
+          <g>
+            <rect x="560" y="360" width="150" height="44" fill="#FAF6EF" stroke="#2B241D" stroke-width="2"/>
+            <text x="635" y="387" text-anchor="middle" fill="#2B241D">3 · CLOSE</text>
+          </g>
+          <g>
+            <rect x="110" y="360" width="150" height="44" fill="#2B241D" stroke="#2B241D" stroke-width="2"/>
+            <text x="185" y="387" text-anchor="middle" fill="#FAF6EF">4 · LEARN</text>
+          </g>
+          <g>
+            <rect x="30" y="150" width="170" height="44" fill="#FAF6EF" stroke="#2B241D" stroke-width="2"/>
+            <text x="115" y="177" text-anchor="middle" fill="#2B241D">5 · RATE BOOK</text>
+          </g>
+        </g>
+        <!-- arrows -->
+        <g stroke="#2B241D" stroke-width="2" fill="none">
+          <path d="M500 60 C 610 75, 690 100, 712 142" marker-end="url(#arr)"/>
+          <path d="M712 202 C 700 265, 680 315, 648 352" marker-end="url(#arr)"/>
+          <path d="M552 382 L 272 382" marker-end="url(#arr)"/>
+          <path d="M148 352 C 118 310, 105 255, 110 202" marker-end="url(#arr)"/>
+        </g>
+        <path d="M120 142 C 150 90, 240 62, 320 52" stroke="#D9531E" stroke-width="3" fill="none" marker-end="url(#arrO)"/>
+        <!-- annotations -->
+        <g font-family="'Fraunces', serif" font-style="italic" font-size="17" fill="#6B5F52">
+          <text x="595" y="105">hours + material, live</text>
+          <text x="330" y="415">actuals vs. bid, no guessing</text>
+        </g>
+        <text x="150" y="80" font-family="'Fraunces', serif" font-style="italic" font-size="18" fill="#D9531E" transform="rotate(-4 150 80)">the part nobody else has</text>
+        <!-- dimension line flourish -->
+        <g stroke="#6B5F52" stroke-width="1">
+          <line x1="330" y1="16" x2="490" y2="16"/>
+          <line x1="330" y1="11" x2="330" y2="21"/>
+          <line x1="490" y1="11" x2="490" y2="21"/>
+        </g>
+        <text x="410" y="12" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6B5F52" letter-spacing="1">EVERY JOB</text>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<section class="chapter">
+  <div class="wrap">
+    <div class="ch-head">
+      <div class="ch-num">04</div>
+      <h2>Built inside a working shop. Not a software company.</h2>
+    </div>
+    <div class="founder">
+      <div class="founder-photos">
+        <figure class="polaroid tilt-l">
+          <img src="img/2-built-ane-install-lounge-matt-squared.jpg" alt="Checking a walnut panel against oak shelving on site">
+          <figcaption class="caption">Site check · walnut against oak</figcaption>
+        </figure>
+        <figure class="polaroid tilt-r">
+          <img src="img/built-015.jpg" alt="Spraying finish in the Built LLC booth">
+          <figcaption class="caption">The booth · finish day</figcaption>
+        </figure>
+      </div>
+      <div class="letter">
+        <p class="salute">I'm not going to tell you I understand your shop. I'm going to show you mine.</p>
+        <p>I've run Built LLC, a custom millwork shop in Tampa, since 2012. Fourteen people at its peak. We sold plenty and still had months where payroll was a coin flip, because I couldn't tell which jobs were carrying us and which were quietly bleeding.</p>
+        <p>I tried the spreadsheets, the generic project tools, the enterprise systems that cost $1,400 a month and take seven months to set up. Nothing fit how a real shop runs. So I built the thing I needed, on my own floor, with my own jobs. Then I trained its estimator on our actual project data until it stopped guessing.</p>
+        <p>MillSuite isn't a pivot or a portfolio company. It's the tool my shop runs on, and now yours can too.</p>
+        <div class="sig">
+          <div class="name">Andrew Watson</div>
+          <div class="role">Owner, Built LLC · Founder, MillSuite</div>
+        </div>
+        <div class="numbers-strip">
+          <div><div class="n">14 yrs</div><div class="k">On the floor</div></div>
+          <div><div class="n">$1.9M</div><div class="k">Project data in the estimator</div></div>
+          <div><div class="n">97 to 99%</div><div class="k">Estimate accuracy</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="quotes">
+  <div class="wrap">
+    <blockquote>&ldquo;The most <em>tailored</em> option we've seen.&rdquo;</blockquote>
+    <div class="attr">Sean McKusick · McKusick &amp; Co., corporate interiors</div>
+    <div class="quote2">
+      <blockquote>&ldquo;Very intuitive, and better looking than the $1,400-a-month system we're stuck implementing.&rdquo;</blockquote>
+      <div class="attr">Jason Zook · 5-person custom shop</div>
+    </div>
+  </div>
+</section>
+
+<section class="chapter">
+  <div class="wrap">
+    <div class="ch-head">
+      <div class="ch-num">05</div>
+      <h2>Straight answers to the fair questions.</h2>
+    </div>
+    <div class="qa">
+      <div class="qa-item">
+        <h5>&ldquo;My guys won't track time.&rdquo;</h5>
+        <p>Pick the project, hit start. It's as hard as clocking in, because that's all it is. <b>Native mobile app, two taps.</b></p>
+      </div>
+      <div class="qa-item">
+        <h5>&ldquo;My shop is too unique.&rdquo;</h5>
+        <p>We've talked to shops from $1M to $50M. Different work, same core problem: <b>nobody knows the real cost of a job until it's over.</b></p>
+      </div>
+      <div class="qa-item">
+        <h5>&ldquo;What if you're small and you disappear?&rdquo;</h5>
+        <p>Fair. Early shops get a data export guarantee and their own instance. <b>Your numbers are yours, always, in a format you can open.</b></p>
+      </div>
+      <div class="qa-item">
+        <h5>&ldquo;If the data isn't perfect, why bother?&rdquo;</h5>
+        <p>Perfect isn't the goal. Directional beats blind. <b>Every tracked job makes the next estimate better.</b> That compounds.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <div class="kicker"><span class="line"></span><span class="mono">Early access · ten founding shops</span></div>
+    <h2>We love making things. Let's also make sure we're <em>making money.</em></h2>
+    <div class="cta-row">
+      <a class="btn btn-solid" href="#">See pricing</a>
+      <a class="btn" href="https://tools.millsuite.com">Try the free shop rate calculator</a>
+      <span class="cta-note">Per seat. Three tiers. No sales call. Cancel whenever.</span>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-in">
+    <span class="mono">MillSuite · Tampa, FL</span>
+    <span class="mono">Built by a shop, for shops</span>
+  </div>
+</footer>
+
+</body>
+</html>
