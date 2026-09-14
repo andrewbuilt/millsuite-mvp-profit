@@ -208,7 +208,12 @@ export function WeekTab({
     const m: Record<string, number> = {}
     for (const e of entries) {
       if (!e.started_at) continue
-      const key = e.started_at.slice(0, 10)
+      // ⛔ LOCAL DAY, NOT `.slice(0, 10)`. `started_at` is a timestamptz, so
+      // slicing the ISO string takes the UTC date — an entry clocked at 8pm
+      // Eastern buckets into TOMORROW, and Friday evening's hours land on a
+      // Saturday the week view doesn't even render, so they vanish. Same trap
+      // as payments and received_date.
+      const key = isoDate(new Date(e.started_at))
       m[key] = (m[key] || 0) + (e.duration_minutes || 0)
     }
     return m

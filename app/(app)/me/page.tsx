@@ -32,6 +32,7 @@ import {
   type PtoPolicy,
 } from '@/lib/pto'
 import { supabase } from '@/lib/supabase'
+import { fmtActualHours } from '@/lib/actual-hours'
 
 // The four tab bodies live in components/me/tabs.tsx — see the note there for
 // why they can't sit in this file. Tracked time renders through the shared
@@ -69,7 +70,11 @@ export default function MePage() {
 
   const refresh = useCallback(async () => {
     if (!orgId || !userId) return
-    const weekEndISO = isoDate(weekDays[4])
+    // ⛔ THE FETCH RUNS MON..SUNDAY, THE VIEW RENDERS MON..FRI. The week tab
+    // only draws `weekDays` (5), so the extra rows are harmless there — but
+    // the hours banner has to count Saturday and Sunday work, or someone who
+    // came in at the weekend sees their hours disappear from their own total.
+    const weekEndISO = isoDate(new Date(weekStart.getTime() + 6 * 86400000))
     const [member, act, today, wk, rec, sched, ptoReqs] = await Promise.all([
       loadMyMember(orgId, userId),
       loadActiveEntry(userId),
@@ -173,7 +178,13 @@ export default function MePage() {
 
   return (
     <div className="max-w-md mx-auto px-4 pt-6 pb-24">
-      <h1 className="text-xl font-semibold tracking-tight mb-4">Hi {firstName}</h1>
+      <h1 className="text-xl font-semibold tracking-tight mb-3">Hi {firstName}</h1>
+
+      <WeekHoursBar
+        minutes={weekEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0)}
+        targetHours={Number(me.hours_per_week) > 0 ? Number(me.hours_per_week) : 40}
+        liveMinutes={active && active.started_at ? Math.max(0, Math.floor((now - new Date(active.started_at).getTime()) / 60000)) : 0}
+      />
 
       {tab === 'today' && (
         <TodayTab
@@ -209,6 +220,68 @@ export default function MePage() {
       )}
 
       <BottomTabs tab={tab} setTab={setTab} clockedIn={!!active} />
+    </div>
+  )
+}
+
+// ── Week hours banner ───────────────────────────────────────────────────────
+
+/**
+ * Hours logged this week against the member's own weekly hours.
+ *
+ * ⛔ PLAIN `hours_per_week`, NOT PTO-ADJUSTED (scoped explicitly). Capacity
+ * already computes a PTO-aware week, and folding that in here would make the
+ * bar move for reasons the person reading it didn't cause — a target that
+ * shrinks because you booked a day off reads as the app losing your hours.
+ * 40 is the fallback when the roster has no per-person figure, which is what
+ * Andrew asked for ("vs 40 hours") without hardcoding it for everyone.
+ *
+ * ⚠️ COUNTS THE RUNNING CLOCK. `weekEntries` only has closed entries — an
+ * open shift has no `duration_minutes` yet — so a worker four hours into the
+ * day would watch the bar sit still all morning and conclude it was broken.
+ * `liveMinutes` is the in-progress shift, recomputed from the page's `now`
+ * tick, which is why this fills as time tracks.
+ */
+function WeekHoursBar({
+  minutes,
+  targetHours,
+  liveMinutes,
+}: {
+  minutes: number
+  targetHours: number
+  liveMinutes: number
+}) {
+  const total = minutes + liveMinutes
+  const targetMinutes = Math.max(1, Math.round(targetHours * 60))
+  const pct = (total / targetMinutes) * 100
+  const width = Math.max(0, Math.min(100, pct))
+  const over = pct > 100
+  // Green once the week is made; amber on the way; there is no "bad" here —
+  // this is someone's own timesheet, not a performance score.
+  const color = over ? '#2563EB' : pct >= 100 ? '#059669' : '#D97706'
+
+  return (
+    <div className="mb-4 rounded-xl border border-[#E5E7EB] bg-white px-3.5 py-3">
+      <div className="flex items-baseline justify-between gap-2 mb-1.5">
+        <span className="text-[11px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
+          This week
+        </span>
+        <span className="text-[12.5px] font-mono tabular-nums text-[#374151]">
+          <strong className="text-[#111]">{fmtActualHours(total)}</strong>
+          <span className="text-[#9CA3AF]"> of {targetHours}h</span>
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-[#F3F4F6] overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${width}%`, background: color }}
+        />
+      </div>
+      {liveMinutes > 0 && (
+        <div className="mt-1 text-[10.5px] text-[#9CA3AF]">
+          includes {fmtActualHours(liveMinutes)} still running
+        </div>
+      )}
     </div>
   )
 }
