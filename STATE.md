@@ -10,7 +10,19 @@
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-09-13)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-09-14)
+
+**NEW 2026-09-14 (Cowork pass): "TIME + SCHEDULE BATCH" scoped — BUILD NEXT, in order. No migrations expected.**
+
+**1. `/time` build-out.** (a) **Every entry shows WHO tracked it** — the row already knows its member; render the name (resolve via roster like everywhere else). (b) **Search + filters:** search by project and team member (dropdowns or typeahead over the org's own lists), a date field, and one-click chips **Today · This week · Last week** (weeks = the schedule's Monday convention). Client-side filtering is fine at shop scale. Keep the manual-entry form as is.
+
+**2. `/me` weekly banner bar.** A bar at the top of the worker app: **hours logged this week vs the member's `hours_per_week`** (defaults 40 — Andrew said "vs 40 hours"; per-person is the same thing without hardcoding, and PTO-adjusted weeks already exist in capacity, DON'T fold that in — plain hours_per_week). Fills live as time tracks (it already recomputes on clock events); label like "26h 40m of 40h". Match the /me visual language; mind the 375px pass from wave 3.
+
+**3. Schedule "Divide block" modal — three edits (Andrew's screenshot):**
+   - **Weeks becomes a typed number** (the dropdown caps too low) — any positive integer within sanity (cap ~52, validate), split recalculates.
+   - **Consecutive auto-fill from row #1:** changing the FIRST starting week re-fills the following rows consecutively (each +7 days) **by default**.
+   - **Custom mode:** hand-editing any individual row's date or hours flips the modal to custom — auto-even and auto-fill stop overwriting the edited values (re-evening on a later "weeks" change may reset with a confirm). The existing **Sum check row stays the gate** — Save disabled unless it foots.
+   - ⚠️ This writes through the same allocation paths as the board — respect the ABSOLUTE/VIEW week coordinate split (the CURRENT FOCUS block on two coordinate systems) and don't touch `weekIndexToDate`'s origin.
 
 **✅ 2026-09-13: BUILT-OS IMPORT ROUND DONE — 6 JOBS IN, ALL CHECKSUM-CLEAN** (`fdd4fc5` manifest · `b90d40a` Jabal skip). Andrew asked for three; **running `lookup.ts` first (read-only) showed that none of the three was what it looked like**, which is exactly why that script exists.
 - **Imported, each matching Built EXACTLY on price + hours, frozen at Built's own per-sub prices:** BayCare Hospital Wesley Chapel - CDS **$10,425/99h** · SDI Cat Door **$3,347/22h** · SDI ID 318 Primed Doors and Casing **$4,279/32h** · SDI Temp Pedini Doors **$3,773/32h** · SDI Open Change Orders **$6,668/52h** · SDI Open Change Orders All **$17,127/140h**.
