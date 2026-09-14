@@ -1,10 +1,18 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import {
+  EMPTY_TIME_FILTER,
+  isFilterActive,
+  isoDate,
+  matchesTimeFilter,
+  type TimeFilter,
+  type TimeRangeChip,
+} from '@/lib/time-filters'
 import { triggerPhaseAdvance, triggerProjectRollup } from '@/lib/phase-client'
 import { useAuth } from '@/lib/auth-context'
-import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen, Download } from 'lucide-react'
+import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen, Download, Search } from 'lucide-react'
 import { fmtActualHours } from '@/lib/actual-hours'
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -29,6 +37,11 @@ interface Department {
 
 interface TimeEntry {
   id: string
+  /** The LOGIN that tracked it (users.id). ⛔ NOT a roster id — resolve it
+   *  through `orgs.team_members[].user_id` to get a name. The browser cannot
+   *  read another login's `users` row (users_select_self, 084), so a
+   *  `users(name)` join comes back NULL for everyone but the viewer. */
+  user_id: string | null
   project_id: string
   subproject_id: string | null
   department_id: string | null
@@ -93,6 +106,13 @@ export default function TimePage() {
   const [subprojectsMap, setSubprojectsMap] = useState<Record<string, Subproject[]>>({})
   const [departments, setDepartments] = useState<Department[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
+  // ⛔ THE ROSTER IS HOW A NAME IS RESOLVED. `time_entries.user_id` is a LOGIN
+  // id, and `users_select_self` (084) stops the browser reading anyone else's
+  // users row — a `users(name)` join returns null for every entry but your
+  // own. `orgs.team_members[].user_id` is the only client-side bridge, which
+  // is the same rule the task system follows for `created_by`.
+  const [roster, setRoster] = useState<Array<{ id: string; name: string; userId: string | null }>>([])
+  const [filter, setFilter] = useState<TimeFilter>(EMPTY_TIME_FILTER)
   const [loading, setLoading] = useState(true)
 
   // Timer state
@@ -165,18 +185,93 @@ export default function TimePage() {
   // ── Fetch recent time entries ─────────────────────────────────────
   const fetchEntries = useCallback(async () => {
     if (!org?.id) return
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    // ⛔ 30 DAYS, NOT 7. The "Last week" chip reaches up to 13 days back, so a
+    // 7-day fetch made that filter silently return nothing — the filter would
+    // have looked broken when the data simply wasn't loaded. Filtering is
+    // client-side at shop scale, so the window has to cover the widest chip.
+    const windowStart = new Date()
+    windowStart.setDate(windowStart.getDate() - 30)
 
     const { data } = await supabase
       .from('time_entries')
       .select('*, project:projects(id, name, stage), subproject:subprojects(id, project_id, name), department:departments(id, name)')
       .eq('org_id', org.id)
-      .gte('created_at', sevenDaysAgo.toISOString())
+      .gte('created_at', windowStart.toISOString())
       .order('created_at', { ascending: false })
 
     if (data) setEntries(data as TimeEntry[])
   }, [])
+
+  // ── Roster, for resolving who tracked each entry ──────────────────
+  useEffect(() => {
+    if (!org?.id) return
+    let alive = true
+    void (async () => {
+      const { data } = await supabase
+        .from('orgs')
+        .select('team_members')
+        .eq('id', org.id)
+        .maybeSingle()
+      if (!alive) return
+      const raw = (data as { team_members?: unknown } | null)?.team_members
+      const rows = Array.isArray(raw) ? raw : []
+      setRoster(
+        rows
+          .map((m: any) => ({
+            id: String(m?.id ?? ''),
+            name: String(m?.name ?? '').trim(),
+            userId: m?.user_id ? String(m.user_id) : null,
+          }))
+          .filter((m) => m.id && m.name)
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      )
+    })()
+    return () => {
+      alive = false
+    }
+  }, [org?.id])
+
+  /** LOGIN id → roster member. The bridge; see the `roster` declaration. */
+  const memberByUserId = useMemo(() => {
+    const m = new Map<string, { id: string; name: string }>()
+    for (const r of roster) if (r.userId) m.set(r.userId, { id: r.id, name: r.name })
+    return m
+  }, [roster])
+
+  /** The entry's LOCAL calendar day. ⛔ `started_at` when present — that's when
+   *  the work happened; `created_at` is when the row was written, and a manual
+   *  entry for last Tuesday is created today. Filtering on the wrong one puts
+   *  back-dated hours in the wrong week. */
+  const entryDay = useCallback((e: TimeEntry) => {
+    const src = e.started_at || e.created_at
+    return isoDate(new Date(src))
+  }, [])
+
+  const visibleEntries = useMemo(() => {
+    if (!isFilterActive(filter)) return entries
+    return entries.filter((e) => {
+      const member = e.user_id ? memberByUserId.get(e.user_id) : undefined
+      const haystack = [
+        (e.project as any)?.name,
+        (e.subproject as any)?.name,
+        (e.department as any)?.name,
+        e.notes,
+        member?.name,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return matchesTimeFilter(
+        {
+          projectId: e.project_id ?? null,
+          memberId: member?.id ?? null,
+          day: entryDay(e),
+          haystack,
+        },
+        filter,
+      )
+    })
+  }, [entries, filter, memberByUserId, entryDay])
 
   // ── Restore timer from localStorage ───────────────────────────────
   useEffect(() => {
@@ -352,7 +447,7 @@ export default function TimePage() {
   const btnPrimary =
     'px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-xl hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
 
-  const grouped = groupByDate(entries)
+  const grouped = groupByDate(visibleEntries)
   const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
   const projectName = projects.find(p => p.id === timerProjectId)?.name
   const timerSubs = subprojectsMap[timerProjectId] || []
@@ -483,7 +578,14 @@ export default function TimePage() {
               ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
               const { data, error } = await supabase
                 .from('time_entries')
-                .select('*, project:projects(name), subproject:subprojects(name), user:users(name, email)')
+                // ⛔ NO `user:users(...)` JOIN. `users_select_self` (084) lets
+                // the browser read only its OWN users row, and PostgREST
+                // returns an RLS-denied embed as NULL rather than an error —
+                // so this export's User column was BLANK for every entry but
+                // the exporter's own, silently, on a file that goes to
+                // payroll. Resolved through the roster instead, exactly like
+                // the on-screen rows.
+                .select('*, project:projects(name), subproject:subprojects(name)')
                 .eq('org_id', org.id)
                 .gte('created_at', ninetyDaysAgo.toISOString())
                 .order('created_at', { ascending: false })
@@ -501,7 +603,7 @@ export default function TimePage() {
                 const date = e.started_at ? new Date(e.started_at) : new Date(e.created_at)
                 return [
                   date.toISOString().slice(0, 10),
-                  e.user?.name || e.user?.email || '',
+                  (e.user_id ? memberByUserId.get(e.user_id)?.name : '') || '',
                   e.project?.name || '',
                   e.subproject?.name || '',
                   ((e.duration_minutes || 0) / 60).toFixed(2),
@@ -723,12 +825,38 @@ export default function TimePage() {
 
         {/* ────────── HISTORY SECTION ────────── */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-6">
-          <h2 className="text-sm font-semibold text-[#6B7280] uppercase tracking-wider mb-5">Last 7 Days</h2>
+          <div className="flex items-baseline justify-between gap-3 mb-4 flex-wrap">
+            <h2 className="text-sm font-semibold text-[#6B7280] uppercase tracking-wider">
+              {isFilterActive(filter) ? 'Filtered' : 'Last 30 days'}
+            </h2>
+            {isFilterActive(filter) && (
+              <span className="text-[11.5px] text-[#9CA3AF]">
+                {visibleEntries.length} of {entries.length} entries ·{' '}
+                <button
+                  onClick={() => setFilter(EMPTY_TIME_FILTER)}
+                  className="text-[#2563EB] hover:underline"
+                >
+                  clear
+                </button>
+              </span>
+            )}
+          </div>
+
+          <TimeFilterBar
+            filter={filter}
+            setFilter={setFilter}
+            projects={projects}
+            roster={roster}
+          />
 
           {loading ? (
             <p className="text-sm text-[#9CA3AF] text-center py-8">Loading...</p>
-          ) : entries.length === 0 ? (
-            <p className="text-sm text-[#9CA3AF] text-center py-8">No time entries yet. Start the timer or log hours manually.</p>
+          ) : visibleEntries.length === 0 ? (
+            <p className="text-sm text-[#9CA3AF] text-center py-8">
+              {isFilterActive(filter)
+                ? 'Nothing matches those filters.'
+                : 'No time entries yet. Start the timer or log hours manually.'}
+            </p>
           ) : (
             <div className="space-y-6">
               {sortedDates.map(date => {
@@ -764,9 +892,34 @@ export default function TimePage() {
                                 </span>
                               )}
                             </div>
-                            {entry.notes && (
-                              <div className="text-xs text-[#9CA3AF] truncate mt-0.5">{entry.notes}</div>
-                            )}
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              {/* ⛔ WHO TRACKED IT — via the roster bridge, not
+                                  a users join (RLS returns null for everyone
+                                  but the viewer). An unlinked login can't be
+                                  named at all, so it says so rather than
+                                  printing "Unknown" on every row in a shop
+                                  that hasn't done the linking pass. */}
+                              {(() => {
+                                const who = entry.user_id
+                                  ? memberByUserId.get(entry.user_id)
+                                  : undefined
+                                return (
+                                  <span
+                                    className={`text-[11px] px-1.5 py-0.5 rounded ${
+                                      who
+                                        ? 'bg-[#EFF6FF] text-[#1D4ED8]'
+                                        : 'bg-[#F3F4F6] text-[#9CA3AF] italic'
+                                    }`}
+                                    title={who ? undefined : 'This login isn’t linked to a team member on /team'}
+                                  >
+                                    {who?.name ?? 'unlinked login'}
+                                  </span>
+                                )
+                              })()}
+                              {entry.notes && (
+                                <span className="text-xs text-[#9CA3AF] truncate">{entry.notes}</span>
+                              )}
+                            </div>
                           </div>
 
                           {/* Hours (editable) */}
@@ -835,5 +988,105 @@ export default function TimePage() {
         </div>
       </div>
     </>
+  )
+}
+
+// ── Filter bar ──────────────────────────────────────────────────────────────
+
+/**
+ * Search + filters over the loaded entries.
+ *
+ * ⛔ CLIENT-SIDE ON PURPOSE (scoped): a shop's month of time fits in memory,
+ * and filtering in the browser keeps the list instant. The tradeoff is that
+ * the FETCH WINDOW bounds what any filter can find — `fetchEntries` pulls 30
+ * days, which is why "Last week" works. Widen one and widen the other.
+ *
+ * ⚠️ The dropdowns list the ORG's own projects and roster, not the distinct
+ * values present in the entries. Picking someone who logged nothing should
+ * return "nothing matches" — that's an answer. A list built from the entries
+ * would silently hide the people you most want to check on.
+ */
+function TimeFilterBar({
+  filter,
+  setFilter,
+  projects,
+  roster,
+}: {
+  filter: TimeFilter
+  setFilter: (f: TimeFilter) => void
+  projects: Project[]
+  roster: Array<{ id: string; name: string; userId: string | null }>
+}) {
+  const field =
+    'px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-lg bg-white focus:outline-none focus:border-[#2563EB]'
+
+  const chip = (value: TimeRangeChip, label: string) => {
+    const on = filter.chip === value
+    return (
+      <button
+        key={label}
+        // Clicking the active chip clears it — a filter you can't switch off
+        // without hunting for a reset is a trap.
+        onClick={() => setFilter({ ...filter, chip: on ? null : value })}
+        className={`px-2.5 py-1.5 rounded-lg border text-[12px] transition-colors ${
+          on
+            ? 'border-[#2563EB] bg-[#EFF6FF] text-[#1D4ED8] font-medium'
+            : 'border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F9FAFB]'
+        }`}
+      >
+        {label}
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 mb-5 flex-wrap">
+      <div className="relative flex-1 min-w-[200px]">
+        <Search className="w-3.5 h-3.5 text-[#9CA3AF] absolute left-2.5 top-1/2 -translate-y-1/2" />
+        <input
+          value={filter.text}
+          onChange={(e) => setFilter({ ...filter, text: e.target.value })}
+          placeholder="Search project, person, notes…"
+          className={`${field} w-full pl-8`}
+        />
+      </div>
+
+      <select
+        value={filter.projectId}
+        onChange={(e) => setFilter({ ...filter, projectId: e.target.value })}
+        className={field}
+      >
+        <option value="">All projects</option>
+        {projects.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+
+      <select
+        value={filter.memberId}
+        onChange={(e) => setFilter({ ...filter, memberId: e.target.value })}
+        className={field}
+      >
+        <option value="">Everyone</option>
+        {roster.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.name}
+          </option>
+        ))}
+      </select>
+
+      <input
+        type="date"
+        value={filter.date}
+        onChange={(e) => setFilter({ ...filter, date: e.target.value })}
+        className={field}
+      />
+
+      {chip('today', 'Today')}
+      {chip('this_week', 'This week')}
+      {chip('last_week', 'Last week')}
+    </div>
   )
 }

@@ -200,17 +200,10 @@ export async function deleteEntry(id: string): Promise<void> {
   if (error) throw error
 }
 
-// ── Week helpers (Mon–Fri) ──
-
-export function mondayOf(d: Date): Date {
-  const x = new Date(d)
-  const dow = x.getDay() // 0 Sun … 6 Sat
-  const diff = dow === 0 ? -6 : 1 - dow
-  x.setDate(x.getDate() + diff)
-  x.setHours(0, 0, 0, 0)
-  return x
-}
-
-export function isoDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
+// ── Week helpers ──
+//
+// ⛔ THESE MOVED TO lib/time-filters AND ARE RE-EXPORTED HERE. They're pure,
+// but this module builds a Supabase client at import time, so nothing could
+// test them from a script while they lived here. Every existing call site
+// (/me, components/me/tabs) keeps working through the re-export.
+export { mondayOf, isoDate } from './time-filters'
