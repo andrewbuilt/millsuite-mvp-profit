@@ -76,7 +76,8 @@
       "decision": "import",
       "expected_price": 160139,
       "expected_hours": 761,
-      "milestones": 3
+      "milestones": 3,
+      "_note": "⛔ DRIFTS FROM BUILT ON PURPOSE — LEAVE IT. MillSuite holds $140,518 / 642h; Built says $160,139 / 761h. Andrew, 2026-09-13, told plainly what the gap was: DON'T TOUCH. So --verify-only will keep flagging this job, and that flag is EXPECTED, not a task. ⚠️ Do NOT re-import to 'fix' it: the job is SOLD and its draw schedule was built off the $140,518 figure (three rows in the No-date tray summing to exactly that), and a re-import deletes and re-inserts a project's projected receivables. Note also that Built's own per-sub prices sum to $148,457 against its $160,139 contract, so Built isn't internally consistent either — MillSuite currently matches neither number."
     },
     {
       "entity": "lead",
@@ -125,7 +126,7 @@
       "expected_price": 33430,
       "expected_hours": 210,
       "milestones": 3,
-      "_note": "Added 2026-08-07. Built status 'scheduling'. The converted sold LEAD (bacbd35f-...) for the same job must NOT also import - project row only."
+      "_note": "⛔ IMPORTED AS AN EMPTY SHELL AND LEFT THAT WAY — $0 / 0h against Built's $33,430 / 210h. Andrew, 2026-09-13: DON'T TOUCH. --verify-only will keep flagging it; that is expected. ⚠️ Separately, MillSuite has a MANUAL card 'Colquhoun Desks and Night Stands' ($0, new_lead) which is not this row — re-importing would land alongside it, not merge."
     },
     {
       "entity": "lead",
