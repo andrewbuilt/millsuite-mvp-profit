@@ -30,19 +30,14 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { announce } from '@/lib/tour-events'
 import { useConfirm } from '@/components/confirm-dialog'
-import { Trash2, ArrowRight, Cake, ChevronRight, Clock, Search } from 'lucide-react'
+import { Trash2, ArrowRight, ChevronRight, Search } from 'lucide-react'
 import { mondayOf, weekBar } from '@/lib/time-filters'
 import { fmtActualHours } from '@/lib/actual-hours'
 import Link from 'next/link'
 import HolidaysAndPtoSection from '@/components/team/HolidaysAndPtoSection'
 import {
   saveTeamMembersMerged,
-  saveShopRate,
   makeTeamMember,
-  computeDerivedShopRate,
-  sumOverheadAnnual,
-  sumTeamAnnualComp,
-  sumBillableHoursYear,
   type TeamMember,
   type OverheadInputs,
   type BillableHoursInputs,
@@ -83,7 +78,7 @@ export default function TeamPage() {
 }
 
 function TeamContent() {
-  const { org, user, refreshOrg } = useAuth()
+  const { org, user } = useAuth()
   const { confirm, alert: showAlert } = useConfirm()
   const [departments, setDepartments] = useState<Department[]>([])
   const [team, setTeam] = useState<TeamMember[]>([])
@@ -98,7 +93,6 @@ function TeamContent() {
     weeks_per_year: 48,
     utilization_pct: 70,
   })
-  const [shopRate, setShopRate] = useState(0)
   const [loaded, setLoaded] = useState(false)
   // Owner-only: compensation figures. Server-authoritative (the /api/team/setup
   // route strips comp for non-owners) + a secure default of false.
@@ -107,6 +101,8 @@ function TeamContent() {
    *  the point is to stop the page being twenty stacked edit panes. */
   const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null)
   const [rosterSearch, setRosterSearch] = useState('')
+  /** Departments collapse (Andrew, 2026-09-15). Set up once, rarely touched. */
+  const [deptsOpen, setDeptsOpen] = useState(false)
   /** roster member id → minutes logged since Monday. Drives the collapsed
    *  week bar and the "tracked this week" link. */
   const [weekMinutesByMember, setWeekMinutesByMember] = useState<Record<string, number>>({})
@@ -121,8 +117,6 @@ function TeamContent() {
   // roster row, never the reverse and never by name or email. False here and
   // "Mine" is everyone's, everywhere.
   const myLoginUnclaimed = !!user?.id && !team.some((m) => m.user_id === user.id)
-  const [savingRate, setSavingRate] = useState(false)
-  const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
   // Shop-rate extras (chunk C).
 
   const [newDeptName, setNewDeptName] = useState('')
@@ -161,7 +155,6 @@ function TeamContent() {
       setTeam(setup.team || [])
       setOverhead(setup.overhead || {})
       setBillable(setup.billable)
-      setShopRate(setup.shopRate || 0)
       setCanSeeComp(!!setup.canSeeComp)
       setRoles(setup.roles || {})
       setCallerRole(setup.callerRole || 'member')
@@ -318,6 +311,12 @@ function TeamContent() {
     // session should get their bar without a reload.
   }, [orgId, loaded, team])
 
+  /** ⛔ ALWAYS OPEN WHILE THERE ARE NO DEPARTMENTS. Capacity and the schedule
+   *  both read dept assignments, so a new shop hiding the empty list behind a
+   *  chevron hides the thing that makes them work — and the "add your first
+   *  department" prompt can't prompt from inside a collapsed section. */
+  const deptsShown = deptsOpen || departments.length === 0
+
   /** Requests still waiting on a decision, oldest first — the banner queue. */
   const pendingPto = useMemo(
     () =>
@@ -339,10 +338,6 @@ function TeamContent() {
     })
   }, [team, rosterSearch, departments])
 
-  const derivedRate = useMemo(
-    () => computeDerivedShopRate(overhead, team, billable),
-    [overhead, team, billable],
-  )
   // ⛔ THE MARGIN-ALERT QUERY MOVED TO /reports WITH THE CARD (item 2). It
   // loaded every active project plus its dept hours — N parallel calls — on
   // every /team render, and after the relocation nothing on this page read the
@@ -469,52 +464,10 @@ function TeamContent() {
     return team.filter((m) => (m.dept_assignments || []).includes(deptId))
   }
 
-  // ── Save derived rate as the org's shop rate + snapshot (chunk C) ──
-  async function promoteDerivedRate() {
-    if (!org?.id || derivedRate <= 0) return
-    setSavingRate(true)
-    // Round to cents, same as Settings' saveDerivedRate. Writing the raw
-    // float stored things like 82.07932692307692, which then never quite
-    // matched anything comparing against a displayed two-decimal rate.
-    const rate = Math.round(derivedRate * 100) / 100
-    try {
-      await saveShopRate(org.id, rate)
-      // refreshOrg is the whole point: `orgs.shop_rate` is read app-wide via
-      // the auth context (rate book, composer, capacity, project rollups).
-      // Without this the save landed in the database but every other page —
-      // and Settings' own "current rate" — kept showing the OLD number until
-      // a hard reload. That's the "shop rate on /team not updating" report.
-      await refreshOrg()
-      setShopRate(rate)
-      setRateSavedAt(Date.now())
-      setTimeout(() => setRateSavedAt((prev) => (prev && Date.now() - prev > 2400 ? null : prev)), 2600)
-    } catch (e) {
-      console.error('promoteDerivedRate', e)
-      await showAlert({
-        title: 'Could not save the shop rate',
-        message: e instanceof Error ? e.message : 'The rate was not saved. Try again.',
-      })
-      setSavingRate(false)
-      return
-    }
-    // Snapshot the inputs behind this rate (uses the existing 001 columns).
-    // Non-fatal: the rate is already saved, so a snapshot failure must not
-    // read as "the save failed".
-    try {
-      await supabase.from('shop_rate_snapshots').insert({
-        org_id: org.id,
-        effective_rate: rate,
-        overhead_monthly: sumOverheadAnnual(overhead) / 12,
-        labor_cost_monthly: sumTeamAnnualComp(team) / 12,
-        billable_hours_monthly: sumBillableHoursYear(team, billable) / 12,
-        utilization_pct: billable.utilization_pct,
-      })
-    } catch (e) {
-      console.warn('shop rate snapshot', e)
-    } finally {
-      setSavingRate(false)
-    }
-  }
+  // ⛔ THE PROMOTE-RATE PATH MOVED TO /reports WITH THE LADDER. It lived here
+  // because the ladder did; once that left, this was a money write with no
+  // button attached. `reports/page.tsx#promoteRate` is the one that runs now,
+  // and it snapshots the same inputs.
 
   // ── Accounts (chunk A2) — the one explicit bridge to a login ──
   async function callAdminUsers(body: Record<string, unknown>) {
@@ -661,9 +614,6 @@ function TeamContent() {
     )
   }
 
-  const rateDriftCents = Math.abs(derivedRate - shopRate)
-  const showRateBanner = derivedRate > 0 && rateDriftCents > 0.01
-
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-6">
@@ -721,59 +671,55 @@ function TeamContent() {
         </div>
       )}
 
-      {/* Shop rate + comp are owner-only (money). Admins/managers see the
-          roster, departments, and time-off without any dollar figures. */}
-      {canSeeComp && showRateBanner && (
-        <div className="mb-5 px-4 py-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl flex items-center justify-between gap-3 flex-wrap">
-          <div className="text-sm text-[#92400E]">
-            Shop rate may have changed: current{' '}
-            <span className="font-mono font-semibold">${shopRate.toFixed(2)}/hr</span> · derived{' '}
-            <span className="font-mono font-semibold">${derivedRate.toFixed(2)}/hr</span>.
-          </div>
-          <button
-            onClick={promoteDerivedRate}
-            disabled={savingRate}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-60"
-          >
-            {savingRate ? 'Saving…' : 'Save as my shop rate'}
-          </button>
-        </div>
-      )}
-      {canSeeComp && rateSavedAt && !showRateBanner && (
-        <div className="mb-5 px-4 py-3 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl text-sm text-[#065F46]">
-          Shop rate saved at <span className="font-mono">${shopRate.toFixed(2)}/hr</span>.
-        </div>
-      )}
-
-      {/* ⛔ THE MARGIN LADDER + MARGIN ALERTS MOVED TO /reports (item 2).
-          Andrew: "those should live somewhere else." They're financial
-          monitoring, not roster management. Nothing was deleted — the
-          component is `reports/components/MarginsCard`, and it took its
-          owner-only gate with it. The rate-drift banner above STAYS here,
-          because this is the page whose edits cause the drift. */}
-      {canSeeComp && (
-        <div className="mb-5">
-          <Link
-            href="/reports"
-            className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
-          >
-            Shop rate ladder + margin alerts moved to Reports{' '}
-            <ArrowRight className="w-3 h-3" />
-          </Link>
-        </div>
-      )}
+      {/* ⛔ SHOP RATE IS GONE FROM THIS PAGE ENTIRELY (Andrew, 2026-09-15:
+          "remove the shop rate header altogether and the link below to the
+          rate ladder"). The drift banner, the saved-rate confirmation, the
+          promote button and the pointer to the ladder all went with it.
+          ⚠️ The rate is still DERIVED from what this page edits — the roster
+          and hours/week — it's just read and promoted on /reports now, where
+          the ladder and the margin alerts live. */}
 
       {/* Departments + team roster. Open to managers since 087: salary moved
           out of team_members into the owner-only team_compensation table, so
           there's no longer any money in this block to hide. The shop-rate
           panel above stays owner-only — that IS money. */}
       {(
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Departments */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* ⛔ ORDERED, NOT REORDERED IN THE DOM. Andrew wants the roster on the
+            LEFT and departments on the right; `lg:order-*` does that without
+            moving two large blocks past each other, which is exactly the edit
+            that breaks a 1,900-line JSX tree.
+            ⚠️ On MOBILE the order is unchanged (departments first) because a
+            single column reads top-to-bottom — and the roster is long, so
+            putting it first would bury departments under twenty rows. */}
+        {/* Departments — plus the time-off policy and holidays below it */}
+        <div className="lg:order-2 space-y-6">
         <div>
+          {/* ⛔ COLLAPSIBLE, AND COLLAPSED BY DEFAULT ONCE THEY EXIST.
+              Departments are set up once and then rarely touched — but they
+              sat open above the roster taking a third of the page forever.
+              ⚠️ Opens automatically while the list is EMPTY: a collapsed
+              empty section on a new shop hides the very thing capacity needs,
+              and "Add your first department" can't prompt from behind a
+              chevron. */}
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-[#111]">Departments</h2>
-            {!addingDept && (
+            <button
+              onClick={() => setDeptsOpen((v) => !v)}
+              className="flex items-center gap-1.5 group"
+            >
+              <ChevronRight
+                className={`w-3.5 h-3.5 text-[#9CA3AF] transition-transform ${
+                  deptsShown ? 'rotate-90' : ''
+                }`}
+              />
+              <h2 className="text-sm font-semibold text-[#111] group-hover:text-[#2563EB]">
+                Departments
+              </h2>
+              {!deptsShown && departments.length > 0 && (
+                <span className="text-[11px] text-[#9CA3AF]">{departments.length}</span>
+              )}
+            </button>
+            {!addingDept && deptsShown && (
               <button
                 onClick={() => setAddingDept(true)}
                 className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
@@ -782,6 +728,9 @@ function TeamContent() {
               </button>
             )}
           </div>
+
+          {deptsShown && (
+          <>
 
           {addingDept && (
             <div className="flex gap-2 mb-3">
@@ -858,9 +807,34 @@ function TeamContent() {
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
 
-        {/* Team Members */}
+        {/* ⛔ TIME OFF AND HOLIDAYS LIVE HERE NOW, not full-width below the
+            fold. They're reference material you consult, not work you come to
+            this page to do — and down there nobody scrolled to them, which is
+            the same reason the pending-PTO queue had to become a banner. */}
+        {ptoReady && (
+          <PtoSection
+            requests={ptoRequests}
+            policy={ptoPolicy}
+            team={team}
+            todayISO={todayISO}
+            onApprove={approveRequest}
+            onDeny={denyRequest}
+            onDelete={removeRequest}
+            onSaveBands={updatePolicyBands}
+          />
+        )}
+
+        {/* Company holidays + manual PTO (moved here from owner-only Settings
+            so managers can run time-off). Visible to all /team viewers. */}
+        {org?.id && <HolidaysAndPtoSection orgId={org.id} team={team} />}
+        </div>
+
+        {/* Team Members — the left column on desktop */}
+        <div className="lg:order-1">
         {/* data-tour hooks: the team guide's intro (section), add flow
             (button + inline form), and roster steps (list). The form hook
             only exists while the form is open, so it doubles as the
@@ -1023,14 +997,13 @@ function TeamContent() {
 
                 {expanded && (
                 <>
-                <div className="flex items-center justify-between mb-2 mt-3">
-                  {/* Controlled — see FieldInput for why. */}
-                  <input
-                    type="text"
-                    value={member.name}
-                    onChange={(e) => patchMember(member.id, { name: e.target.value })}
-                    className="text-sm font-medium text-[#111] bg-transparent outline-none focus:bg-[#F9FAFB] rounded px-1 -mx-1"
-                  />
+                {/* ⛔ THE NAME IS NOT REPEATED. It was an h-sized input here
+                    AND the header line above — Andrew: "the name shows twice".
+                    It's now a field in the grid below with the others, and the
+                    collapsed header stays the one place it's displayed.
+                    Active + delete are ROW actions, so they sit on this line
+                    rather than floating beside a second copy of the name. */}
+                <div className="flex items-center justify-end gap-2 mb-3 mt-3">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() =>
@@ -1124,6 +1097,12 @@ function TeamContent() {
                     the shop-rate denominator and per-dept capacity. */}
                 <div className="grid grid-cols-2 gap-x-3 gap-y-2 mb-3">
                   <FieldInput
+                    label="Name"
+                    value={member.name}
+                    placeholder="Full name"
+                    onCommit={(v) => patchMember(member.id, { name: v })}
+                  />
+                  <FieldInput
                     label="Title"
                     value={member.title ?? ''}
                     placeholder="e.g. Lead installer"
@@ -1161,6 +1140,16 @@ function TeamContent() {
                     value={member.start_date ?? ''}
                     onCommit={(v) => patchMember(member.id, { start_date: v || null })}
                   />
+                  {/* ⛔ A FIELD, NOT A FOOTER WIDGET. It was a labelled date
+                      input floating in the bottom-right corner next to a link.
+                      ⚠️ Nothing derives from it — `start_date` above is the
+                      one the PTO tenure bands read. */}
+                  <FieldInput
+                    label="Birthday"
+                    type="date"
+                    value={member.birthday ?? ''}
+                    onCommit={(v) => patchMember(member.id, { birthday: v || null })}
+                  />
                 </div>
 
                 {departments.length > 0 && (
@@ -1185,11 +1174,36 @@ function TeamContent() {
                   </div>
                 )}
 
-                {ptoReady && ptoPolicy && (
-                  <PtoBalanceLine
-                    balance={computeBalance(member, ptoPolicy, ptoRequests, todayISO)}
-                  />
-                )}
+                {/* ⛔ THE TWO ACTIVITY READOUTS SIT TOGETHER. Time off and
+                    hours tracked answer the same question — what has this
+                    person actually done — and splitting them put one mid-card
+                    and the other in a footer with a date picker.
+                    ⚠️ The link reuses /time's OWN `?member=` filter, so it
+                    opens the real filtered timesheet rather than a second,
+                    near-identical listing that would drift from it. */}
+                <div className="mt-3 pt-3 border-t border-[#F3F4F6] space-y-2">
+                  {ptoReady && ptoPolicy && (
+                    <PtoBalanceLine
+                      balance={computeBalance(member, ptoPolicy, ptoRequests, todayISO)}
+                      flush
+                    />
+                  )}
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-[#6B7280]">Tracked this week</span>
+                    <Link
+                      href={`/time?member=${encodeURIComponent(member.id)}`}
+                      className="inline-flex items-center gap-1 text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+                    >
+                      {/* ⚠️ "0h tracked this week" renders as "Oh tracked this
+                          week" at a glance — Andrew read it that way on the
+                          live page. Say it in words when there's nothing. */}
+                      {(weekMinutesByMember[member.id] || 0) > 0
+                        ? fmtActualHours(weekMinutesByMember[member.id])
+                        : 'Nothing yet'}
+                      <ArrowRight className="w-3 h-3" />
+                    </Link>
+                  </div>
+                </div>
 
                 <AccountControls
                   member={member}
@@ -1211,37 +1225,6 @@ function TeamContent() {
                   onSetRole={(role) => setMemberRole(member, role)}
                 />
 
-                {/* ⛔ THE TIME LINK REUSES /time's OWN FILTER STATE. That page
-                    reads `?member=` into the memberId filter that shipped with
-                    the time batch — so this opens the real filtered view
-                    rather than a second, near-identical listing that would
-                    drift from it. The id is the ROSTER id, which is what
-                    `matchesTimeFilter` compares against. */}
-                <div className="mt-3 pt-3 border-t border-[#F3F4F6] flex items-center justify-between gap-2 flex-wrap">
-                  <Link
-                    href={`/time?member=${encodeURIComponent(member.id)}`}
-                    className="inline-flex items-center gap-1 text-[11.5px] text-[#2563EB] hover:text-[#1D4ED8] font-medium"
-                  >
-                    <Clock className="w-3 h-3" />
-                    {fmtActualHours(weekMinutesByMember[member.id] || 0)} tracked this week
-                    <ArrowRight className="w-3 h-3" />
-                  </Link>
-                  {/* Birthday. Jsonb, so no migration — but it had to be added
-                      to `normalizeTeamMembers`, which is an allowlist that
-                      silently drops anything it doesn't name. */}
-                  <label className="flex items-center gap-1.5 text-[11px] text-[#9CA3AF]">
-                    <Cake className="w-3 h-3" />
-                    Birthday
-                    <input
-                      type="date"
-                      value={member.birthday || ''}
-                      onChange={(e) =>
-                        patchMember(member.id, { birthday: e.target.value || null })
-                      }
-                      className="px-1.5 py-1 text-[11.5px] text-[#374151] border border-[#E5E7EB] rounded outline-none focus:border-[#2563EB]"
-                    />
-                  </label>
-                </div>
                 </>
                 )}
               </div>
@@ -1262,36 +1245,11 @@ function TeamContent() {
             )}
           </div>
 
-          {team.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-[#F3F4F6]">
-              <Link
-                href="/settings"
-                className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
-              >
-                View in Shop Rate Calculator <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-          )}
+        </div>
         </div>
       </div>
       )}
 
-      {ptoReady && (
-        <PtoSection
-          requests={ptoRequests}
-          policy={ptoPolicy}
-          team={team}
-          todayISO={todayISO}
-          onApprove={approveRequest}
-          onDeny={denyRequest}
-          onDelete={removeRequest}
-          onSaveBands={updatePolicyBands}
-        />
-      )}
-
-      {/* Company holidays + manual PTO (moved here from owner-only Settings so
-          managers can run time-off). Visible to all /team viewers. */}
-      {org?.id && <HolidaysAndPtoSection orgId={org.id} team={team} />}
     </div>
   )
 }
@@ -1299,12 +1257,16 @@ function TeamContent() {
 // Compact per-member PTO balance line + mini bar.
 function PtoBalanceLine({
   balance,
+  flush,
 }: {
   balance: { allowed: number; used: number; pending: number; remaining: number }
+  /** Drop the divider + top margin — the caller already drew one. Without
+   *  this the grouped activity block gets two rules stacked on each other. */
+  flush?: boolean
 }) {
   const pct = balance.allowed > 0 ? Math.min(100, (balance.used / balance.allowed) * 100) : 0
   return (
-    <div className="mt-3 pt-3 border-t border-[#F3F4F6]">
+    <div className={flush ? '' : 'mt-3 pt-3 border-t border-[#F3F4F6]'}>
       <div className="flex items-center justify-between text-[11px] text-[#6B7280] mb-1">
         <span>Time off</span>
         <span className="font-mono tabular-nums">
@@ -1685,6 +1647,8 @@ function AccountControls({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
+  /** Account chores (change/reset/delete) stay folded away until asked for. */
+  const [showAccountActions, setShowAccountActions] = useState(false)
 
   // The owner's own row is managed by nobody — no promote, no demote, no
   // password reset from here.
@@ -1760,7 +1724,13 @@ function AccountControls({
               You
             </span>
           )}
-          {linked && role && (
+          {/* ⛔ NOT WHEN THE ACCESS TOGGLE IS SHOWN. Andrew: "two manager
+              signs" — this badge said MANAGER and the Worker/Manager switch
+              below said it again, three inches apart. The badge is for
+              READERS who can't change the role (managers looking at the
+              roster, and the owner's own row); the switch is the same fact for
+              people who can. Exactly one of them renders. */}
+          {linked && role && !(canAssignRoles && !isOwnerRow) && (
             <span
               title={ROLE_HINT[role]}
               className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
@@ -1808,7 +1778,7 @@ function AccountControls({
               comments. This re-points team_members[].user_id and touches
               nothing else. Shown on the owner's row too: the API's link path
               has no authority check to trip. */}
-          {linked && mode === null && (
+          {linked && mode === null && (isOwnerRow || showAccountActions) && (
             <button
               onClick={openLinkPicker}
               className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
@@ -1818,24 +1788,47 @@ function AccountControls({
           )}
           {/* The owner's own login isn't managed from the roster — the API
               refuses it, so don't offer buttons that can only fail. */}
+          {/* ⛔ BEHIND ONE CONTROL. Andrew: "buttons everywhere" — a linked
+              row showed Change login · Reset password · Delete login, three
+              blue links of equal weight, on every card, forever. These are
+              rare account chores and one of them is destructive, so they sit
+              behind a toggle instead of competing with the fields you actually
+              came to edit. */}
           {linked && !isOwnerRow && mode !== 'reset' && (
             <>
-              <button
-                onClick={() => {
-                  setMode('reset')
-                  setPassword(generatePassword())
-                }}
-                className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
-              >
-                Reset password
-              </button>
-              <button
-                onClick={onRemove}
-                title="Deletes the account for good. To re-point this row, use Change login."
-                className="text-xs text-[#DC2626] hover:text-[#B91C1C] font-medium"
-              >
-                Delete login
-              </button>
+              {!showAccountActions ? (
+                <button
+                  onClick={() => setShowAccountActions(true)}
+                  className="text-xs text-[#9CA3AF] hover:text-[#2563EB]"
+                >
+                  Manage
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setMode('reset')
+                      setPassword(generatePassword())
+                    }}
+                    className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+                  >
+                    Reset password
+                  </button>
+                  <button
+                    onClick={onRemove}
+                    title="Deletes the account for good. To re-point this row, use Change login."
+                    className="text-xs text-[#DC2626] hover:text-[#B91C1C] font-medium"
+                  >
+                    Delete login
+                  </button>
+                  <button
+                    onClick={() => setShowAccountActions(false)}
+                    className="text-xs text-[#9CA3AF] hover:text-[#111]"
+                  >
+                    Done
+                  </button>
+                </>
+              )}
             </>
           )}
           {linked && isOwnerRow && (
@@ -1851,7 +1844,7 @@ function AccountControls({
       {/* Role switch (item 5). Owner-only, never on the owner's own row. */}
       {linked && canAssignRoles && !isOwnerRow && (
         <div className="mt-2 flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-[#9CA3AF]">Access</span>
+          <span className="text-[11px] text-[#6B7280]">Access</span>
           <div className="inline-flex rounded-lg border border-[#E5E7EB] overflow-hidden">
             {(['member', 'admin'] as const).map((r) => {
               const active = (role ?? 'member') === r
@@ -1872,7 +1865,6 @@ function AccountControls({
               )
             })}
           </div>
-          <span className="text-[10px] text-[#9CA3AF]">{ROLE_HINT[role ?? 'member']}</span>
         </div>
       )}
 

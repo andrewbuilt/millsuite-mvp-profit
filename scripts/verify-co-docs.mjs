@@ -397,6 +397,13 @@ function walk(dir) {
     if (!/\.(ts|tsx|mjs)$/.test(entry.name)) continue
     const rel = full.split(path.sep).join('/')
     if (ALLOWED.has(rel)) continue
+    // ⚠️ HAND-RUN READ-ONLY DIAGNOSTICS ARE NOT AN APP SURFACE. An
+    // `inspect-*` script runs from a terminal with the service role, prints to
+    // stdout and ships to no browser — it cannot leak a draft into the
+    // contract total, the schedule or the portal, which is what this guard
+    // exists to prevent. Everything under lib/, app/ and components/ is still
+    // checked; this is a category exemption, not a hole.
+    if (/^scripts\/inspect-[\w-]+\.mjs$/.test(rel)) continue
     const src = fs.readFileSync(full, 'utf8')
     // The query form only — a type import or a comment mentioning the table
     // is not a data path.
