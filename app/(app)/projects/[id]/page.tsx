@@ -52,6 +52,7 @@ import {
   Copy,
   Wrench,
   GripVertical,
+  FilePlus2,
   Mail,
   Check,
 } from 'lucide-react'
@@ -139,6 +140,21 @@ import {
 } from '@/lib/subproject-status'
 import ClientPicker from '@/components/project/ClientPicker'
 import NewSubprojectModal from '@/components/project/NewSubprojectModal'
+import CoDraftPanel from '@/components/project/CoDraftPanel'
+import NewScopeDraftModal from '@/components/project/NewScopeDraftModal'
+import {
+  acceptDoc,
+  addNewScopeDraft,
+  addRemoval,
+  deleteCoDocItem,
+  ensureOpenDoc,
+  loadCoDocsWithItems,
+  loadProjectPricing,
+  priceAddition,
+  updateNewScopeDraft,
+  voidCoDoc,
+} from '@/lib/co-docs'
+import { coLabel, type AddSubDraft, type CoDoc, type CoDocItem } from '@/lib/co-doc-math'
 import { useConfirm } from '@/components/confirm-dialog'
 import { isReadyForProduction, startProduction, forceStartProduction, isDepositReceived, markDepositReceived } from '@/lib/project-stage'
 
@@ -377,6 +393,23 @@ export default function ProjectCoverPage() {
 
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
   const [coListOpen, setCoListOpen] = useState(false)
+
+  // ── Change orders v2 (migration 107) ──────────────────────────────────────
+  // ⛔ THE ONE DELIBERATE OPT-IN. A draft is not a `subprojects` row, so it is
+  // invisible to every other read on this page — which is exactly why it can't
+  // leak into bid_total, the schedule, capacity, pre-production, the portal or
+  // QuickBooks. The cost of that safety is this: the ONE place that should see
+  // drafts has to ask for them explicitly. It does, here.
+  const [coDoc, setCoDoc] = useState<CoDoc | null>(null)
+  const [coItems, setCoItems] = useState<CoDocItem[]>([])
+  // ⚠️ `coV2Busy`, because `coBusy` below is v1's and holds a CO id, not a
+  // boolean. Two change-order systems coexist until v1's authoring retires.
+  const [coV2Busy, setCoV2Busy] = useState(false)
+  const [coError, setCoError] = useState<string | null>(null)
+  const [scopeDraftFor, setScopeDraftFor] = useState<{ item: CoDocItem | null } | null>(null)
+  const [coPricing, setCoPricing] = useState<Awaited<
+    ReturnType<typeof loadProjectPricing>
+  > | null>(null)
   // Rename: the project name is set once in NewProjectModal and had no edit
   // path. Pencil on the h1 swaps it for an input — Enter or the check saves,
   // Escape or blur-with-no-change backs out.
@@ -739,6 +772,70 @@ export default function ProjectCoverPage() {
   useEffect(() => {
     refreshCOs()
   }, [refreshCOs])
+
+  // ── CO v2: the open doc + its drafts ──────────────────────────────────────
+  const refreshCoDocs = useCallback(async () => {
+    const docs = await loadCoDocsWithItems(projectId)
+    const open = docs.find((d) => d.doc.status === 'open') || null
+    setCoDoc(open?.doc ?? null)
+    setCoItems(open?.items ?? [])
+  }, [projectId])
+  useEffect(() => {
+    void refreshCoDocs()
+  }, [refreshCoDocs])
+
+  // Pricing context for the draft modal. Loaded once per project: the modal
+  // prices on every keystroke and must not hit the database to do it.
+  useEffect(() => {
+    let alive = true
+    void loadProjectPricing(projectId).then((p) => {
+      if (alive) setCoPricing(p)
+    })
+    return () => {
+      alive = false
+    }
+  }, [projectId])
+
+  /**
+   * Run a change-order mutation, then reload.
+   *
+   * ⚠️ RELOADS THE PROJECT TOO, not just the doc. Acceptance materialises
+   * subprojects and moves `bid_total`; refreshing only the CO panel would
+   * leave the cards and the header showing the pre-acceptance job while the
+   * panel said it was applied.
+   */
+  const runCo = useCallback(
+    async (fn: () => Promise<string | null>) => {
+      if (coV2Busy) return
+      setCoV2Busy(true)
+      setCoError(null)
+      try {
+        const err = await fn()
+        if (err) setCoError(err)
+      } catch (e) {
+        setCoError(e instanceof Error ? e.message : 'Something went wrong.')
+      } finally {
+        await refreshCoDocs()
+        reload()
+        setCoV2Busy(false)
+      }
+    },
+    [coV2Busy, refreshCoDocs, reload],
+  )
+
+  const subNameById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const c of cards) m.set(c.sub.id, c.sub.name)
+    return m
+  }, [cards])
+
+  /** subproject id → what the OPEN change order does to it. Drives the card
+   *  highlight; empty when there's no open doc, which is the common case. */
+  const coTouch = useMemo(() => {
+    const m = new Map<string, CoDocItem['kind']>()
+    for (const i of coItems) if (i.subproject_id) m.set(i.subproject_id, i.kind)
+    return m
+  }, [coItems])
 
   const [coBusy, setCoBusy] = useState<string | null>(null)
   async function handleCoAction(co: ChangeOrder, action: 'send' | 'accept' | 'decline' | 'delete' | 'pdf') {
@@ -1743,10 +1840,19 @@ export default function ProjectCoverPage() {
                     )}
                     <Link
                       href={`/projects/${projectId}/subprojects/${sub.id}`}
-                      className={`flex-1 min-w-0 block bg-white border rounded-xl px-5 py-4 transition-all hover:border-[#2563EB] hover:shadow-sm ${
-                        install
-                          ? 'border-dashed border-[#D1D5DB]'
-                          : 'border-[#E5E7EB]'
+                      className={`flex-1 min-w-0 block border rounded-xl px-5 py-4 transition-all hover:shadow-sm ${
+                        // ⛔ THE DRAFT STATES, ON THE REAL CARD. A sub the open
+                        // change order touches is flagged where the operator is
+                        // already looking — not only inside the CO panel — so
+                        // "this goes away if the client signs" reads straight
+                        // off the scope list.
+                        coTouch.get(sub.id) === 'remove_sub'
+                          ? 'bg-[#FEF2F2] border-2 border-dashed border-[#FCA5A5] hover:border-[#EF4444]'
+                          : coTouch.has(sub.id)
+                            ? 'bg-[#FFFBEB] border-2 border-dashed border-[#FCD34D] hover:border-[#F59E0B]'
+                            : install
+                              ? 'bg-white border-dashed border-[#D1D5DB] hover:border-[#2563EB]'
+                              : 'bg-white border-[#E5E7EB] hover:border-[#2563EB]'
                       }`}
                     >
                     <div className="grid grid-cols-[1fr_auto] gap-5 items-center">
@@ -1896,6 +2002,47 @@ export default function ProjectCoverPage() {
                       </div>
                     </div>
                     </Link>
+                    {/* ⛔ REMOVING SCOPE IS A CHANGE ORDER, NOT A DELETE. The
+                        sub keeps existing — it may hold tracked hours — and is
+                        only flagged; acceptance is what applies it. Outside the
+                        Link so clicking it doesn't navigate. */}
+                    {coDoc && !install && (
+                      <button
+                        onClick={() => {
+                          const already = coItems.find((i) => i.subproject_id === sub.id)
+                          if (already) {
+                            void runCo(async () =>
+                              (await deleteCoDocItem(already.id))
+                                ? null
+                                : 'Could not take that off the change order.',
+                            )
+                            return
+                          }
+                          void runCo(async () =>
+                            (await addRemoval({
+                              orgId: org!.id,
+                              doc: coDoc,
+                              subprojectId: sub.id,
+                            }))
+                              ? null
+                              : 'Could not add that removal — is it already on the change order?',
+                          )
+                        }}
+                        disabled={coV2Busy}
+                        title={
+                          coTouch.has(sub.id)
+                            ? `Take this off ${coLabel(coDoc)}`
+                            : `Remove this scope in ${coLabel(coDoc)}`
+                        }
+                        className={`flex-shrink-0 px-2 rounded-lg border text-[10px] font-medium transition-colors disabled:opacity-40 ${
+                          coTouch.get(sub.id) === 'remove_sub'
+                            ? 'border-[#FCA5A5] bg-[#FEF2F2] text-[#B91C1C]'
+                            : 'border-[#E5E7EB] bg-white text-[#9CA3AF] hover:text-[#B91C1C] hover:border-[#FCA5A5]'
+                        }`}
+                      >
+                        {coTouch.get(sub.id) === 'remove_sub' ? 'Undo' : 'Remove in CO'}
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -1928,7 +2075,84 @@ export default function ProjectCoverPage() {
               )}
             </div>
 
-            {/* Change orders (v2). Created from a subproject header; listed here
+            {/* ⛔ THE OPEN CHANGE ORDER AND ITS DRAFTS, ON THE PROJECT PAGE.
+                Andrew's condition for storing drafts as payloads rather than
+                flagged subprojects: they must still READ as highlighted subs
+                here while staying inert everywhere else. This panel is the one
+                deliberate opt-in that makes them visible; nothing else on this
+                page — or in the other 60 `from('subprojects')` call sites —
+                can see them at all. */}
+            {coError && (
+              <div className="mt-4 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-xs text-[#B91C1C]">
+                {coError}
+              </div>
+            )}
+            {!isPresold(project.stage) && (
+              <>
+                {coDoc ? (
+                  <CoDraftPanel
+                    doc={coDoc}
+                    items={coItems}
+                    subNameById={subNameById}
+                    busy={coV2Busy}
+                    onAddScope={() => setScopeDraftFor({ item: null })}
+                    onEditDraft={(item) => setScopeDraftFor({ item })}
+                    onRemoveItem={(item) =>
+                      void runCo(async () =>
+                        (await deleteCoDocItem(item.id))
+                          ? null
+                          : 'Could not take that off the change order.',
+                      )
+                    }
+                    onVoid={() =>
+                      void runCo(async () =>
+                        (await voidCoDoc(coDoc.id)) ? null : 'Could not void this change order.',
+                      )
+                    }
+                    onAccept={() =>
+                      void runCo(async () => {
+                        const res = await acceptDoc({
+                          doc: coDoc,
+                          items: coItems,
+                          acceptedBy: user?.id ?? null,
+                        })
+                        if (!res.ok) return res.reason
+                        // ⛔ DRIFT IS REPORTED, NEVER SWALLOWED. If the contract
+                        // moved by something other than what the client agreed
+                        // to, say so — the usual cause is an imported job whose
+                        // pricing rule differs from the quote's.
+                        if (Math.abs(res.drift) >= 1) {
+                          return `Accepted, but the contract moved by ${money(
+                            res.moved,
+                          )} while the change order was priced at ${money(
+                            res.agreed,
+                          )} — a ${money(Math.abs(res.drift))} difference worth checking.`
+                        }
+                        return null
+                      })
+                    }
+                  />
+                ) : (
+                  <button
+                    onClick={() =>
+                      void runCo(async () => {
+                        if (!org?.id) return 'No organisation.'
+                        const doc = await ensureOpenDoc(org.id, projectId)
+                        if (!doc) return 'Could not start a change order.'
+                        return null
+                      })
+                    }
+                    disabled={coV2Busy}
+                    className="mt-6 w-full border border-dashed border-[#DDD6FE] rounded-xl px-4 py-3 text-center text-[12.5px] text-[#7C3AED] hover:bg-[#FAF5FF] transition-colors disabled:opacity-50"
+                  >
+                    <FilePlus2 className="w-3.5 h-3.5 inline mr-1" />
+                    Start a change order
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* Change orders (v1). Created from a subproject header; listed here
                 so the project view shows scope changes + the additive total. */}
             {changeOrders.length > 0 && (
               <div className="mt-6 bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
@@ -2777,6 +3001,38 @@ export default function ProjectCoverPage() {
           orgId={org.id}
           orgConsumablePct={org.consumable_markup_pct ?? null}
           onClose={() => setNewSubOpen(false)}
+        />
+      )}
+
+      {/* Compose new scope for the open change order. Prices through the real
+          composer; writes a jsonb draft, never a subproject. */}
+      {scopeDraftFor && coDoc && org?.id && (
+        <NewScopeDraftModal
+          projectId={projectId}
+          orgId={org.id}
+          orgConsumablePct={org.consumable_markup_pct ?? null}
+          coLabel={coLabel(coDoc)}
+          initial={
+            scopeDraftFor.item ? (scopeDraftFor.item.draft as AddSubDraft) : null
+          }
+          saving={coV2Busy}
+          // ⚠️ The SAME function the item stores its price with, so the number
+          // in the modal is the number on the change order — not a preview
+          // computed a second way that can disagree.
+          priceOf={(d) =>
+            coPricing ? priceAddition(coPricing, d.lines, d.defaults) : 0
+          }
+          onCancel={() => setScopeDraftFor(null)}
+          onSave={async (d) => {
+            const item = scopeDraftFor.item
+            await runCo(async () => {
+              const ok = item
+                ? await updateNewScopeDraft({ item, projectId, draft: d })
+                : !!(await addNewScopeDraft({ orgId: org.id, doc: coDoc, draft: d }))
+              return ok ? null : 'Could not save that scope.'
+            })
+            setScopeDraftFor(null)
+          }}
         />
       )}
 

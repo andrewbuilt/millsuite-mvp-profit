@@ -192,5 +192,56 @@ check('notes come off the slots', row.notes, 'CO scope')
 check('stamped as corrected', row.composer_hours_corrected, true)
 check('product_key round-trips for edit', row.product_key, 'base')
 
+// ── The inertness guard ─────────────────────────────────────────────────────
+console.log('\ndrafts have exactly one data path')
+// ⛔ THIS IS ANDREW'S CONDITION, ENFORCED RATHER THAN PROMISED.
+//
+// He blessed storing drafts as jsonb instead of flagged subprojects on one
+// condition: they render as highlighted subs on the project page AND stay
+// inert to bid_total, schedule, capacity and pre-production until acceptance.
+//
+// The inert half holds because a draft is NOT a `subprojects` row — the ~60
+// places that read that table cannot see it, and none of them had to remember
+// anything. That safety lasts exactly as long as `co_doc_items` has one
+// reader. The day someone adds a second query somewhere, the doc-status filter
+// becomes a thing to remember again, and "remember to filter in N places" is
+// the failure this design exists to avoid.
+//
+// So: read the filesystem and refuse to pass if the tables are queried
+// anywhere but the data layer. Same shape as verify-reserved-slugs and the
+// CREATE TABLE scan in rls-audit — derived, so it cannot drift from what ships.
+import fs from 'fs'
+import path from 'path'
+
+const ALLOWED = new Set(['lib/co-docs.ts'])
+const roots = ['lib', 'app', 'components', 'scripts']
+const offenders = []
+
+function walk(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      walk(full)
+      continue
+    }
+    if (!/\.(ts|tsx|mjs)$/.test(entry.name)) continue
+    const rel = full.split(path.sep).join('/')
+    if (ALLOWED.has(rel)) continue
+    const src = fs.readFileSync(full, 'utf8')
+    // The query form only — a type import or a comment mentioning the table
+    // is not a data path.
+    if (/from\(\s*['"`]co_doc(s|_items)['"`]\s*\)/.test(src)) offenders.push(rel)
+  }
+}
+for (const r of roots) if (fs.existsSync(r)) walk(r)
+
+check('co_docs / co_doc_items are queried in lib/co-docs.ts only', offenders, [])
+if (offenders.length > 0) {
+  console.log(
+    '\n   ⛔ A draft is only invisible to the rest of the app while it has ONE\n' +
+      '   reader. Route this through lib/co-docs instead of querying directly.',
+  )
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

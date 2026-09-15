@@ -93,8 +93,31 @@ import DrawerStyleWalkthrough, {
 import FinishWalkthrough from '@/components/walkthroughs/FinishWalkthrough'
 import SolidWoodTopWalkthrough from '@/components/walkthroughs/SolidWoodTopWalkthrough'
 
+/**
+ * ⛔ DRAFT MODE — the composer WITHOUT a subproject to save into.
+ *
+ * Change orders v2 prices new scope with the real composer before anything
+ * exists to attach it to: a CO draft is a jsonb payload on `co_doc_items` and
+ * only becomes a subproject when the client accepts (see 107's header for why
+ * it isn't a flagged row). So the composer has to be able to hand its work
+ * back instead of writing it.
+ *
+ * Everything else — the picker, the slots, the rate book, the breakdown — is
+ * untouched. `onComposed` receives exactly what `saveComposerLine` would have
+ * persisted, so a drafted line and a saved line are the same object.
+ */
+export interface ComposerDraftMode {
+  /** Called instead of saveComposerLine/updateComposerLine. */
+  onComposed: (draft: ComposerDraft, breakdown: ComposerBreakdown, rb: ComposerRateBook) => void
+  /** Hydrate in edit mode from a payload rather than an estimate_lines row. */
+  editing?: ComposerDraft | null
+  /** consumables/waste for the draft sub; there's no row to read them from. */
+  defaults?: ComposerDefaults | null
+}
+
 interface Props {
-  subprojectId: string
+  /** ⚠️ NULL in draft mode — there is no subproject yet. */
+  subprojectId: string | null
   orgId: string
   /** Current org.consumable_markup_pct — used for the "no subproject
    *  defaults row yet" fallback. */
@@ -110,6 +133,8 @@ interface Props {
    *  product picker, and the save button persists via
    *  updateComposerLine instead of saveComposerLine. (Issue 19) */
   editingLineId?: string | null
+  /** Present = compose without persisting. See ComposerDraftMode. */
+  draftMode?: ComposerDraftMode
   onLineSaved: () => void
   onCancel: () => void
 }
@@ -149,10 +174,12 @@ export default function AddLineComposer({
   orgConsumablePct,
   hasExistingLinesInSubproject,
   editingLineId,
+  draftMode,
   onLineSaved,
   onCancel,
 }: Props) {
-  const isEditMode = !!editingLineId
+  // In draft mode "editing" means an in-memory payload, not a row id.
+  const isEditMode = !!editingLineId || !!draftMode?.editing
   // ── Data load ──
   const [rateBook, setRateBook] = useState<ComposerRateBook | null>(null)
   const [defaults, setDefaults] = useState<ComposerDefaults | null>(null)
@@ -169,12 +196,28 @@ export default function AddLineComposer({
         const [rb, lu, sd] = await Promise.all([
           loadComposerRateBook(orgId),
           loadLastUsedByProduct(orgId),
-          loadSubprojectDefaults(subprojectId),
+          // ⚠️ No subproject in draft mode, so nothing to read defaults from.
+          subprojectId ? loadSubprojectDefaults(subprojectId) : Promise.resolve(null),
         ])
         if (cancelled) return
         setRateBook(withPrefinishedSentinel(rb))
         setLastUsed(lu)
-        setDefaults(sd ?? initialSubprojectDefaults(orgConsumablePct))
+        setDefaults(
+          draftMode?.defaults ?? sd ?? initialSubprojectDefaults(orgConsumablePct),
+        )
+
+        // ⛔ DRAFT EDIT HYDRATES FROM THE PAYLOAD, not from estimate_lines —
+        // a CO draft line has no row to select. Same shape either way, so the
+        // composer below can't tell the difference.
+        if (draftMode?.editing) {
+          setDraft({
+            productId: draftMode.editing.productId,
+            qty: draftMode.editing.qty,
+            slots: { ...emptySlots(), ...draftMode.editing.slots },
+          })
+          setView('composer')
+          return
+        }
 
         // Edit mode (Issue 19): hydrate qty + slots from the existing
         // estimate_lines row, skip the product picker, drop into the
@@ -523,6 +566,10 @@ export default function AddLineComposer({
   // Persist the % edit on blur (cheap; doesn't block typing).
   async function persistDefaults() {
     if (!defaults) return
+    // Draft mode has nowhere to persist to — the % lives in the draft payload
+    // and is written when the change order is accepted. The breakdown already
+    // reflects the in-memory value either way.
+    if (!subprojectId) return
     try {
       await saveSubprojectDefaults(subprojectId, defaults)
     } catch (err) {
@@ -540,6 +587,21 @@ export default function AddLineComposer({
     setSaving(true)
     setSaveError(null)
     try {
+      // ⛔ DRAFT MODE HANDS THE WORK BACK AND WRITES NOTHING. A change order's
+      // new scope must not exist as a row until the client accepts it — see
+      // migration 107. `composerLineRow` turns this into the same payload the
+      // insert below would have used, so the quoted price and the price after
+      // acceptance are one computation.
+      if (draftMode) {
+        draftMode.onComposed(draft, breakdown, rateBook)
+        await saveLastUsedForProduct(orgId, draft.productId, {
+          qty: draft.qty,
+          slots: { ...draft.slots },
+        })
+        resetState()
+        onLineSaved()
+        return
+      }
       if (editingLineId) {
         await updateComposerLine({
           lineId: editingLineId,
@@ -548,6 +610,10 @@ export default function AddLineComposer({
           rateBook,
         })
       } else {
+        // Unreachable without a subproject: `draftMode` returned above, and
+        // every other caller passes a real id. Narrowed rather than asserted
+        // so a future third mode can't slip a null into an insert.
+        if (!subprojectId) throw new Error('No subproject to save this line to.')
         await saveComposerLine({ subprojectId, draft, breakdown, rateBook })
         // Creates only — the first-job lesson waits on the line actually
         // landing, not on the Add line click (lib/tour-events).

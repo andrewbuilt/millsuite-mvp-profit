@@ -547,6 +547,16 @@ export async function acceptDoc(input: {
   // ── 1. Materialise the additions ──
   for (const item of items) {
     if (item.kind !== 'add_sub') continue
+    // ⛔ ALREADY MATERIALISED — SKIP IT. Acceptance is not a transaction
+    // (PostgREST gives us no way to make it one), so a run that creates two of
+    // three subprojects and then fails leaves the doc OPEN and re-acceptable.
+    // Without this, the retry builds the first two a second time and the
+    // client is charged once for scope that exists twice. The stamp below is
+    // what makes the retry safe.
+    if (item.subproject_id) {
+      created.push(item.subproject_id)
+      continue
+    }
     const draft = item.draft as AddSubDraft
     const subId = await materialiseDraft(p.orgId, doc.project_id, draft)
     if (!subId) return fail(`Could not create "${draft.name}". Nothing was changed.`)
