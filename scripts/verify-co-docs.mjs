@@ -338,7 +338,22 @@ import path from 'path'
 //     the anon client and relies on it. ⛔ So that route carries its own org
 //     check against `co_docs.org_id`, and that check IS the security — there
 //     is no policy behind it. Read it before adding anything beside it.
-const ALLOWED = new Set(['lib/co-docs.ts', 'app/api/co-docs/[id]/pdf/route.ts'])
+const ALLOWED = new Set([
+  'lib/co-docs.ts',
+  'app/api/co-docs/[id]/pdf/route.ts',
+  // ⛔ THE PORTAL READ. Service-role, public-safe, reachable by anyone with a
+  // token — it cannot go through lib/co-docs (browser client, RLS). It is also
+  // THE most dangerous reader in the tree: an open doc is the shop composing,
+  // so a read without the `sent_at` gate shows a client scope that is still
+  // moving and invites them to sign it. The gate is asserted separately below.
+  'lib/client-portal.ts',
+  'app/api/portal/[token]/sign-co-doc/route.ts',
+  // ⛔ CANNOT ROUTE THROUGH lib/co-docs — that imports `createInvoice` FROM
+  // here, so asking would be a circular import. It reads exactly one column,
+  // `qbo_invoice_id`, to keep a change order's invoice from being mistaken for
+  // the contract invoice.
+  'lib/invoices.ts',
+])
 const roots = ['lib', 'app', 'components', 'scripts']
 const offenders = []
 
@@ -365,6 +380,42 @@ if (offenders.length > 0) {
   console.log(
     '\n   ⛔ A draft is only invisible to the rest of the app while it has ONE\n' +
       '   reader. Route this through lib/co-docs instead of querying directly.',
+  )
+}
+
+// ⛔ THE SHARPER HALF: THE PORTAL MUST NEVER SHOW AN UNSENT DOC.
+//
+// The allowlist above only asks "who reads this". The question that actually
+// costs something is "does the CLIENT-FACING reader carry the gate". An open
+// doc is the shop composing — drafts appearing and vanishing, prices moving —
+// and a portal read without `sent_at` puts that in front of the client with a
+// signature box under it.
+//
+// So: every query of `co_docs` in the portal read model must filter on
+// `sent_at`. This is asserted on the text rather than the behaviour, which is
+// crude — but the failure it guards is one nobody would notice in review, and
+// a crude check that fires beats an elegant one that doesn't exist.
+const portalSrc = fs.readFileSync('lib/client-portal.ts', 'utf8')
+const portalReadsDocs = /from\(\s*['"`]co_docs['"`]\s*\)/.test(portalSrc)
+// ⚠️ IT MUST MATCH A FILTER, NOT THE COLUMN NAME. The first version of this
+// check looked for `sent_at` anywhere after the `from()` — and passed with the
+// gate deleted, because `sent_at` also appears in the SELECT list. That is the
+// same "a check that cannot fail looks exactly like a check that passes" bug
+// this file exists to prevent, written into the guard itself. Verified by
+// deleting the filter and watching it go red.
+const portalGatesOnSent =
+  /from\(\s*['"`]co_docs['"`]\s*\)[\s\S]{0,400}?\.(?:not|is|gt)\(\s*['"`]sent_at['"`]/.test(
+    portalSrc,
+  )
+check(
+  'the portal read gates change order docs on sent_at',
+  !portalReadsDocs || portalGatesOnSent,
+  true,
+)
+if (portalReadsDocs && !portalGatesOnSent) {
+  console.log(
+    '\n   ⛔ An OPEN doc is the shop still composing. Showing one in the portal\n' +
+      '   asks the client to sign scope that is still moving.',
   )
 }
 

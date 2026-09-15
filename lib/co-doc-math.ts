@@ -37,6 +37,13 @@ export interface CoDoc {
   pdf_url: string | null
   qbo_invoice_id: string | null
   created_at: string
+  /** Migration 110. Non-null = the client can see it in the portal. Optional
+   *  on the type so a pre-110 read still satisfies it. */
+  sent_at?: string | null
+  /** The COUNTERSIGNED copy — distinct from `pdf_url`, which is the document
+   *  as accepted. Writing one over the other destroys the blank-signature PDF
+   *  the shop already emailed. */
+  signed_pdf_url?: string | null
 }
 
 /**

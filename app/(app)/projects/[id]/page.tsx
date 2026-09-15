@@ -149,6 +149,7 @@ import {
 
   priceContractLinesIndividually,
   saveEditDraft,
+  sendCoDocToClient,
   addRemoval,
   deleteCoDocItem,
   ensureOpenDoc,
@@ -2187,6 +2188,13 @@ export default function ProjectCoverPage() {
                     onVoid={() =>
                       void runCo(async () =>
                         (await voidCoDoc(coDoc.id)) ? null : 'Could not void this change order.',
+                      )
+                    }
+                    onSend={() =>
+                      void runCo(async () =>
+                        (await sendCoDocToClient(coDoc.id))
+                          ? null
+                          : 'Could not send this to the client — has migration 110 run?',
                       )
                     }
                     onPdf={() => {

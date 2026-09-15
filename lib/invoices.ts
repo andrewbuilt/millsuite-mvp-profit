@@ -416,12 +416,31 @@ export async function createInvoice(args: {
 export async function findContractInvoice(projectId: string): Promise<Invoice | null> {
   const active = (await loadInvoicesForProject(projectId)).filter((i) => i.status !== 'void')
   if (active.length === 0) return null
-  const { data: cos } = await supabase
-    .from('change_orders')
-    .select('co_invoice_id')
-    .eq('project_id', projectId)
-    .not('co_invoice_id', 'is', null)
-  const coIds = new Set(((cos as { co_invoice_id: string | null }[] | null) || []).map((c) => c.co_invoice_id))
+  // ⛔ BOTH CHANGE-ORDER SYSTEMS RAISE INVOICES NOW. v1 links its rolling
+  // invoice through `change_orders.co_invoice_id`; a v2 document links its own
+  // through `co_docs.qbo_invoice_id`. Excluding only v1's means that on a
+  // project whose FIRST invoice is a change order's — a job where the contract
+  // invoice hasn't been raised yet — the change order gets mistaken for the
+  // contract, and `ensureContractInvoice` then appends contract lines to it.
+  const [cosRes, docsRes] = await Promise.all([
+    supabase
+      .from('change_orders')
+      .select('co_invoice_id')
+      .eq('project_id', projectId)
+      .not('co_invoice_id', 'is', null),
+    supabase
+      .from('co_docs')
+      .select('qbo_invoice_id')
+      .eq('project_id', projectId)
+      .not('qbo_invoice_id', 'is', null),
+  ])
+  const coIds = new Set(
+    ((cosRes.data as { co_invoice_id: string | null }[] | null) || []).map((c) => c.co_invoice_id),
+  )
+  // Tolerant of a pre-107 database: no table, no v2 invoices to exclude.
+  for (const d of (docsRes.data as { qbo_invoice_id: string | null }[] | null) || []) {
+    coIds.add(d.qbo_invoice_id)
+  }
   return active.find((i) => !coIds.has(i.id)) ?? null
 }
 

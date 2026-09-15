@@ -43,11 +43,24 @@ export function SignChangeOrder({
     if (!canSign) return
     setState('saving')
     try {
-      const res = await fetch(`/api/portal/${encodeURIComponent(token)}/sign-change-order`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, changeOrderId: co.id, name: name.trim() }),
-      })
+      // ⛔ TWO SYSTEMS, TWO ENDPOINTS, ONE UI. `kind` says whether this is a v1
+      // `change_orders` row or a v2 `co_docs` document. They render identically
+      // on purpose — the client shouldn't have to know the shop changed how it
+      // writes change orders — but they are different tables, and the wrong
+      // endpoint would 404 on an id that plainly exists.
+      const isDoc = co.kind === 'doc'
+      const res = await fetch(
+        `/api/portal/${encodeURIComponent(token)}/${isDoc ? 'sign-co-doc' : 'sign-change-order'}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            isDoc
+              ? { projectId, docId: co.id, name: name.trim() }
+              : { projectId, changeOrderId: co.id, name: name.trim() },
+          ),
+        },
+      )
       if (!res.ok) throw new Error(String(res.status))
       const body = (await res.json()) as { signedName: string; signedAt: string }
       setSigned({ name: body.signedName, stamp: body.signedAt })

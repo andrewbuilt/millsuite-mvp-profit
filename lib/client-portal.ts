@@ -118,6 +118,11 @@ export interface PortalChangeOrder {
   signedAt: string | null
   /** True when it's sitting with the client, unsigned — the one signable state. */
   awaitingSignature: boolean
+  /** ⛔ WHICH SYSTEM IT CAME FROM, so the portal posts to the right endpoint.
+   *  'co' = v1 `change_orders`; 'doc' = a v2 `co_docs` document. The two are
+   *  rendered identically on purpose — the client should not have to know the
+   *  shop changed how it writes change orders. */
+  kind: 'co' | 'doc'
 }
 
 export interface PortalDocument {
@@ -374,11 +379,24 @@ async function loadSignals(p: RawProject): Promise<ProjectSignals> {
       .eq('project_id', p.id)
       .not('co_invoice_id', 'is', null),
   ])
+  // ⛔ v2 DOCUMENTS RAISE THEIR OWN INVOICES TOO (`co_docs.qbo_invoice_id`).
+  // Excluding only v1's would let a change order be shown to the CLIENT as
+  // their contract invoice on a job whose contract invoice hasn't been raised
+  // yet. Same fix as lib/invoices.findContractInvoice — this is its
+  // service-role twin, and the two have to agree.
+  const { data: coDocInv } = await supabaseAdmin
+    .from('co_docs')
+    .select('qbo_invoice_id')
+    .eq('project_id', p.id)
+    .not('qbo_invoice_id', 'is', null)
   const coIds = new Set(
     (((coInvRes.data as { co_invoice_id: string | null }[] | null) || []).map((c) => c.co_invoice_id) || []).filter(
       Boolean,
     ),
   )
+  for (const d of (coDocInv as { qbo_invoice_id: string | null }[] | null) || []) {
+    if (d.qbo_invoice_id) coIds.add(d.qbo_invoice_id)
+  }
   const invoices = ((invRes.data as { id: string; total: number | null; amount_received: number | null }[] | null) || [])
   const contract = invoices.find((i) => !coIds.has(i.id)) ?? null
 
@@ -492,7 +510,11 @@ export async function loadPortalProject(token: string, projectId: string): Promi
   const [photos, approvals, changeOrders, documents, payments, schedule] = await Promise.all([
     loadPhotos(p.id),
     loadApprovals(sig.subprojectIds),
-    loadChangeOrders(p.id),
+    // Both systems, merged and sorted by number — v1 history and v2 documents
+    // coexist until v1 authoring retires.
+    Promise.all([loadChangeOrders(p.id), loadCoDocs(p.id)]).then(([a, b]) =>
+      [...a, ...b].sort((x, y) => x.number.localeCompare(y.number)),
+    ),
     loadDocuments(p, sig.subprojectIds),
     loadPayments(p, sig),
     loadScheduleDates(sig.subprojectIds),
@@ -682,6 +704,92 @@ async function loadChangeOrders(projectId: string): Promise<PortalChangeOrder[]>
       signedName: r.signed_name,
       signedAt: r.signed_at,
       awaitingSignature: r.state === 'sent_to_client',
+      kind: 'co' as const,
+    }
+  })
+}
+
+/**
+ * Change order DOCUMENTS (v2) the client is meant to see.
+ *
+ * ⛔ `sent_at` IS THE GATE, AND IT IS THE WHOLE SAFETY STORY. A doc's status
+ * is open | accepted | void, and "open" means the shop is still composing it —
+ * drafts appear and disappear, prices move, an abandoned click leaves an empty
+ * one. Showing every open doc would show the client the shop thinking out loud
+ * and invite them to sign a document still being written. v1 gated on
+ * `state='sent_to_client'`; this is the same gate as a timestamp (110).
+ *
+ * ⚠️ Tolerant of a pre-107/110 database: no table or no column means no v2
+ * docs to show, which is exactly right for a shop that hasn't migrated yet.
+ */
+async function loadCoDocs(projectId: string): Promise<PortalChangeOrder[]> {
+  const { data, error } = await supabaseAdmin
+    .from('co_docs')
+    .select('id, number, title, status, sent_at, signed_name, signed_at, accepted_at')
+    .eq('project_id', projectId)
+    .not('sent_at', 'is', null)
+    .in('status', ['open', 'accepted'])
+    .order('number', { ascending: true })
+  if (error || !data) return []
+
+  const docs = data as Array<Record<string, any>>
+  if (docs.length === 0) return []
+
+  const { data: itemRows } = await supabaseAdmin
+    .from('co_doc_items')
+    .select('doc_id, kind, description, draft, delta_amount, subproject_id, sort_order')
+    .in(
+      'doc_id',
+      docs.map((d) => d.id),
+    )
+    .order('sort_order', { ascending: true })
+
+  // Removals are named after the subproject they remove — the draft payload
+  // has no name for them, because the name lives on the real row.
+  const subIds = ((itemRows as any[]) || []).map((i) => i.subproject_id).filter(Boolean)
+  const subNames = new Map<string, string>()
+  if (subIds.length > 0) {
+    const { data: subs } = await supabaseAdmin
+      .from('subprojects')
+      .select('id, name')
+      .in('id', subIds)
+    for (const s of (subs || []) as any[]) subNames.set(s.id, s.name)
+  }
+
+  const byDoc = new Map<string, any[]>()
+  for (const i of ((itemRows as any[]) || [])) {
+    if (!byDoc.has(i.doc_id)) byDoc.set(i.doc_id, [])
+    byDoc.get(i.doc_id)!.push(i)
+  }
+
+  return docs.map((d) => {
+    const items = byDoc.get(d.id) || []
+    return {
+      id: d.id,
+      number: `CO-${String(d.number ?? 0).padStart(2, '0')}`,
+      title: d.title || 'Change order',
+      description: null,
+      // ⚠️ ONE LINE PER ITEM, INCLUDING THE CREDITS (negative). A client shown
+      // only the additions sees an unexplained discount at the bottom.
+      lines: items.map((i) => ({
+        label:
+          i.description ||
+          (i.kind === 'add_sub'
+            ? i.draft?.name || 'New scope'
+            : i.kind === 'remove_sub'
+              ? `Remove ${subNames.get(i.subproject_id) || 'scope'}`
+              : `Revise ${subNames.get(i.subproject_id) || 'scope'}`),
+        amount: Number(i.delta_amount) || 0,
+      })),
+      netChange: items.reduce((s, i) => s + (Number(i.delta_amount) || 0), 0),
+      newContractTotal: null,
+      sentAt: d.sent_at,
+      signedName: d.signed_name,
+      signedAt: d.signed_at,
+      // Signable while it's sent and not yet accepted. A signed-but-unaccepted
+      // doc is waiting on the SHOP, which is the v1 split — see the sign route.
+      awaitingSignature: d.status === 'open' && !d.signed_at,
+      kind: 'doc' as const,
     }
   })
 }

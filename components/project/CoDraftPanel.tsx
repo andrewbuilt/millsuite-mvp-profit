@@ -21,7 +21,17 @@
 // ============================================================================
 
 import { useState } from 'react'
-import { AlertTriangle, Check, FilePlus2, FileText, Minus, Pencil, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  FilePlus2,
+  FileText,
+  Minus,
+  Pencil,
+  PenLine,
+  Send,
+  Trash2,
+} from 'lucide-react'
 import {
   coLabel,
   itemHeadline,
@@ -60,6 +70,7 @@ export default function CoDraftPanel({
   onAccept,
   onVoid,
   onPdf,
+  onSend,
 }: {
   doc: CoDoc
   items: CoDocItem[]
@@ -71,6 +82,7 @@ export default function CoDraftPanel({
   onAccept: () => void
   onVoid: () => void
   onPdf: () => void
+  onSend: () => void
 }) {
   const [confirmAccept, setConfirmAccept] = useState(false)
   const s = summarizeDoc(items)
@@ -93,6 +105,24 @@ export default function CoDraftPanel({
               ? 'Nothing in it yet.'
               : `${s.adds} added · ${s.edits} revised · ${s.removes} removed`}
           </div>
+          {/* ⛔ THE SIGNATURE IS CONSENT, NOT ACCEPTANCE. The portal records
+              that the client agreed; the money still moves when the shop
+              clicks Accept — one code path touches the contract total, and it
+              is the one that always has. Say so plainly, or a signed doc looks
+              done and nobody presses the button. */}
+          {doc.signed_name ? (
+            <div className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-[#047857] bg-[#ECFDF5] border border-[#A7F3D0] rounded px-2 py-1">
+              <PenLine className="w-3 h-3" />
+              Signed by {doc.signed_name}
+              {doc.signed_at ? ` on ${new Date(doc.signed_at).toLocaleDateString()}` : ''} — still
+              needs your Accept to apply it
+            </div>
+          ) : doc.sent_at ? (
+            <div className="mt-1.5 text-[11px] text-[#1D4ED8]">
+              Sent to the client {new Date(doc.sent_at).toLocaleDateString()} · waiting on their
+              signature
+            </div>
+          ) : null}
         </div>
         <div className="text-right flex-shrink-0">
           <div
@@ -256,6 +286,24 @@ export default function CoDraftPanel({
             >
               <FileText className="w-3.5 h-3.5" /> PDF
             </button>
+            {/* ⛔ SENDING IS WHAT MAKES IT VISIBLE IN THE PORTAL. Until then the
+                client sees nothing — an open doc is the shop composing, and
+                showing a half-written document invites a signature on scope
+                that is still moving. */}
+            {!doc.sent_at && (
+              <button
+                onClick={onSend}
+                disabled={busy || items.length === 0}
+                title={
+                  items.length === 0
+                    ? 'Add some scope first'
+                    : 'Make this visible in the client portal for signing'
+                }
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[#BFDBFE] bg-white text-[#1D4ED8] text-xs font-medium hover:bg-[#EFF6FF] disabled:opacity-40"
+              >
+                <Send className="w-3.5 h-3.5" /> Send to client
+              </button>
+            )}
             <button
               onClick={onVoid}
               disabled={busy}

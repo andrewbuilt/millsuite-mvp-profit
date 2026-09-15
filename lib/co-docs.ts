@@ -642,6 +642,38 @@ export async function setCoDocTitle(docId: string, title: string): Promise<boole
   return !error && !!data && data.length > 0
 }
 
+/**
+ * Mark a doc as sent to the client — which is what makes it visible in the
+ * portal at all.
+ *
+ * ⛔ THE PORTAL GATE. An OPEN doc is the shop composing: drafts coming and
+ * going, prices moving, an abandoned click leaving an empty one. Without this
+ * flag every open doc would appear in the client portal and invite a signature
+ * on a document still being written. 110's `sent_at` is the v2 equivalent of
+ * v1's `state='sent_to_client'`.
+ *
+ * ⚠️ Idempotent, and it keeps the ORIGINAL timestamp — "sent on the 3rd" is a
+ * fact about the conversation, not about the last time someone pressed a
+ * button. Zero rows updated therefore means "already sent", which is a fine
+ * outcome for a button whose job is "make sure the client can see this".
+ */
+export async function sendCoDocToClient(docId: string): Promise<boolean> {
+  const now = new Date().toISOString()
+  const { error } = await supabase
+    .from('co_docs')
+    .update({ sent_at: now, updated_at: now })
+    .eq('id', docId)
+    .eq('status', 'open')
+    .is('sent_at', null)
+    .select('id')
+  if (error) {
+    // 42703 / PGRST204 = migration 110 hasn't run yet.
+    console.error('sendCoDocToClient', error)
+    return false
+  }
+  return true
+}
+
 export async function voidCoDoc(docId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from('co_docs')
