@@ -97,13 +97,27 @@ export function ProjectPaymentLedger({
         <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
           Payments
         </div>
-        {/* The schedule is editable on /payments and nowhere else. */}
-        <Link
-          href="/payments"
-          className="inline-flex items-center gap-1 text-[11px] text-[#2563EB] hover:underline"
-        >
-          Payments board <ArrowUpRight className="w-3 h-3" />
-        </Link>
+        {/* ⛔ THE SCHEDULE IS EDITED IN EXACTLY ONE PLACE. Andrew asked for an
+            edit path on the board AND on this panel; a second editor here
+            would mean two copies of the cash-vetoes rule, and the copy that
+            drifts is the one that rewrites a draw money was credited against.
+            So this DEEP-LINKS to the board's editor, prefilled for this job. */}
+        <div className="flex items-center gap-2">
+          {draws.length > 0 && (
+            <Link
+              href={`/payments?edit=${projectId}`}
+              className="text-[11px] text-[#2563EB] hover:underline"
+            >
+              Edit draws
+            </Link>
+          )}
+          <Link
+            href="/payments"
+            className="inline-flex items-center gap-1 text-[11px] text-[#2563EB] hover:underline"
+          >
+            Payments board <ArrowUpRight className="w-3 h-3" />
+          </Link>
+        </div>
       </div>
 
       {missing ? (

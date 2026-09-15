@@ -13,7 +13,7 @@
 import { supabase } from './supabase'
 import { POSTSOLD_STAGES, type ProjectStage } from './types'
 import { formatLocalDate, type PaymentRow } from './payment-schedule'
-import { defaultDrawDates, type LedgerEntry } from './payment-ledger'
+import { type LedgerEntry } from './payment-ledger'
 
 export * from './payment-schedule'
 export * from './payment-ledger'
@@ -156,7 +156,6 @@ export async function createDrawSchedule(
   orgId: string,
   projectId: string,
   rows: Array<{ label: string; pct: number; amount: number; note?: string }>,
-  startFrom: Date = new Date(),
 ): Promise<void> {
   if (rows.length === 0) throw new Error('Nothing to create.')
 
@@ -172,7 +171,6 @@ export async function createDrawSchedule(
     throw new Error('This project already has draws. Edit them on the board instead.')
   }
 
-  const dates = defaultDrawDates(startFrom, rows.length)
   const { data, error } = await supabase
     .from('cash_flow_receivables')
     .insert(
@@ -186,7 +184,14 @@ export async function createDrawSchedule(
         milestone_pct: r.pct,
         milestone_trigger: 'manual',
         amount: r.amount,
-        expected_date: dates[i],
+        // ⛔ NO DATE — THEY LAND IN "No date set" AND GET DRAGGED IN.
+        // Andrew: "just add them to the no-date bucket so I can drag them in."
+        // A fresh schedule used to be stamped one month apart from today,
+        // which dropped real money into months nobody had agreed to and made
+        // the forecast look decided. `defaultDrawDates` still exists and still
+        // documents why dates are never inferred from project stage — this is
+        // the same argument carried one step further.
+        expected_date: null,
         // ⛔ `order:N` IS the sort order — there's no column. The waterfall
         // credits payments in this order, so an unmarked row would sort last
         // and soak up money belonging to earlier draws.
@@ -197,6 +202,129 @@ export async function createDrawSchedule(
   if (error) throw new Error(error.message || 'Could not create the draws.')
   if (!data || data.length === 0) {
     throw new Error('The draws did not reach the database. Reload and try again.')
+  }
+}
+
+/**
+ * Rewrite a project's draw schedule in place.
+ *
+ * ⛔ WHY THIS IS NEEDED AT ALL. There was NO edit path — `DefineDrawsModal`
+ * only ran on first setup, `createDrawSchedule` refuses when draws exist, and
+ * `saveMilestones` (the old builder) now refuses outright on any project with
+ * recorded cash. Andrew mis-set percentages and was stuck with them.
+ *
+ * ⛔ CASH VETOES A REWRITE OF THE ROW IT PAID. This is the Schiller guard, and
+ * it is the reason this function takes a list of ids to KEEP rather than just
+ * replacing everything: a draw with money against it keeps its amount, its
+ * label and its id, because deleting it would orphan the payment that settled
+ * it and re-authoring its amount would un-say something that already happened.
+ * The caller (the modal) locks those rows in the UI; this enforces it.
+ *
+ * ⚠️ Rows are matched by id. Anything not in `rows` is DELETED — but only if
+ * it has no cash against it, which the caller guarantees by locking.
+ */
+export async function updateDrawSchedule(
+  orgId: string,
+  projectId: string,
+  rows: Array<{
+    /** Existing row id, or null for a newly added draw. */
+    id: string | null
+    label: string
+    pct: number
+    amount: number
+  }>,
+  /** Ids that have recorded payments and must survive untouched. */
+  lockedIds: string[],
+): Promise<void> {
+  if (rows.length === 0) throw new Error('A schedule needs at least one draw.')
+
+  const { data: existing, error: readErr } = await supabase
+    .from('cash_flow_receivables')
+    .select('id, notes, expected_date, amount, milestone_label, change_order_id')
+    .eq('project_id', projectId)
+    .eq('type', 'receivable')
+    .neq('status', 'cancelled')
+  if (readErr) throw new Error(readErr.message || 'Could not read the schedule.')
+
+  const locked = new Set(lockedIds)
+  const keep = new Set(rows.map((r) => r.id).filter(Boolean) as string[])
+
+  // ⛔ A LOCKED ROW MAY NOT BE DROPPED, whatever the caller sent. The UI
+  // disables them, but a stale tab is a real thing and this is money.
+  for (const id of locked) {
+    if (!keep.has(id)) {
+      throw new Error(
+        'A draw with a recorded payment cannot be removed. Delete its payments first.',
+      )
+    }
+  }
+
+  const byId = new Map((existing || []).map((e) => [e.id as string, e]))
+
+  // 1. Delete the rows the operator removed. Cash-free by construction.
+  const toDelete = (existing || [])
+    .map((e) => e.id as string)
+    .filter((id) => !keep.has(id) && !locked.has(id))
+  if (toDelete.length > 0) {
+    const { error } = await supabase
+      .from('cash_flow_receivables')
+      .delete()
+      .in('id', toDelete)
+      .select('id')
+    if (error) throw new Error(error.message || 'Could not remove the old draws.')
+  }
+
+  // 2. Update / insert, re-stamping `order:N` so the waterfall order matches
+  //    the order the operator is looking at.
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    const prior = r.id ? byId.get(r.id) : null
+    // ⚠️ PRESERVE THE NOTE BODY. `order:N` shares the column with whatever the
+    // operator typed; rebuilding it from scratch would silently delete notes.
+    const priorNote = String(prior?.notes || '').replace(/order:\d+\s*/, '').trim()
+    const notes = priorNote ? `order:${i} ${priorNote}` : `order:${i}`
+
+    if (r.id && prior) {
+      const patch: Record<string, unknown> = { notes }
+      // A locked row keeps its money and its name. Only its position moves.
+      if (!locked.has(r.id)) {
+        patch.amount = r.amount
+        patch.milestone_pct = r.pct
+        patch.milestone_label = r.label
+        patch.description = r.label
+      }
+      const { data, error } = await supabase
+        .from('cash_flow_receivables')
+        .update(patch)
+        .eq('id', r.id)
+        .select('id')
+      // ⛔ .select() — a zero-row UPDATE returns { error: null }, so an RLS
+      // refusal is otherwise indistinguishable from a successful save.
+      if (error || !data || data.length === 0) {
+        throw new Error(error?.message || 'A draw did not save. Reload and check the schedule.')
+      }
+    } else {
+      const { data, error } = await supabase
+        .from('cash_flow_receivables')
+        .insert({
+          org_id: orgId,
+          project_id: projectId,
+          type: 'receivable' as const,
+          status: 'projected' as const,
+          description: r.label,
+          milestone_label: r.label,
+          milestone_pct: r.pct,
+          milestone_trigger: 'manual',
+          amount: r.amount,
+          // Same rule as a fresh schedule: no invented date.
+          expected_date: null,
+          notes,
+        })
+        .select('id')
+      if (error || !data || data.length === 0) {
+        throw new Error(error?.message || 'A new draw did not save.')
+      }
+    }
   }
 }
 

@@ -24,12 +24,12 @@
 // cash-flow tool. `qb_event_id` on the ledger is a hook for a future watcher.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, CalendarClock, FileQuestion, Inbox, Plus, Trash2, X } from 'lucide-react'
 import PlanGate from '@/components/plan-gate'
 import GoalBanner from '@/components/payments/GoalBanner'
-import DefineDrawsModal from '@/components/payments/DefineDrawsModal'
+import DefineDrawsModal, { type DrawDraft } from '@/components/payments/DefineDrawsModal'
 import { useAuth } from '@/lib/auth-context'
 import { deriveMonthlyFixed } from '@/lib/sales-goal'
 import { loadGoalSettings, type GoalSettings } from '@/lib/sales-goal-data'
@@ -46,13 +46,14 @@ import {
   loadOrgLedger,
   loadOrgPayments,
   createDrawSchedule,
+  updateDrawSchedule,
   loadSoldProjects,
   logPayment,
   monthId,
   monthLabel,
   monthLabelShort,
   parseLocalDate,
-  reconcileAll,
+  reconcileEverything,
   reschedulePayment,
   rescheduleTo,
   sameMonth,
@@ -61,6 +62,7 @@ import {
   type LedgerEntry,
   type MonthKey,
   type PaymentRow,
+  type SettledCard,
   type SoldProjectRef,
 } from '@/lib/payments'
 
@@ -103,6 +105,9 @@ export default function PaymentsPage() {
   /** The project whose draws are being defined, or null. */
   const [defineFor, setDefineFor] = useState<SoldProjectRef | null>(null)
   const [defining, setDefining] = useState(false)
+  /** Non-null = the modal is EDITING this project's existing draws rather than
+   *  creating a schedule. Carries the lock state per row. */
+  const [editDraws, setEditDraws] = useState<DrawDraft[] | null>(null)
 
   const [today] = useState(() => currentMonth())
 
@@ -135,8 +140,25 @@ export default function PaymentsPage() {
     [today, monthOffset],
   )
 
-  /** Schedule × ledger → what's actually still owed on each draw. */
-  const derived = useMemo(() => reconcileAll(rows, ledger, totals), [rows, ledger, totals])
+  /**
+   * Schedule × ledger → what's still owed on each draw, AND the money that
+   * reached no draw.
+   *
+   * ⛔ THE UNAPPLIED HALF IS LOAD-BEARING NOW. Every green card is built by
+   * attributing payments to draws, so a payment that attributes to nothing —
+   * an overpayment, or any payment on a job with no schedule — would simply
+   * not render. It used to survive because the board drew raw ledger rows.
+   */
+  const { draws: derived, unapplied } = useMemo(
+    () =>
+      reconcileEverything(
+        rows,
+        ledger,
+        totals,
+        Object.fromEntries(soldProjects.map((p) => [p.id, p.name])),
+      ),
+    [rows, ledger, totals, soldProjects],
+  )
 
   /**
    * THIS month, regardless of where the pager is.
@@ -148,8 +170,8 @@ export default function PaymentsPage() {
    * month is the honest way to get one month.
    */
   const thisMonthBucket = useMemo(
-    () => buildPaymentsView(derived, ledger, [today], today).months[0] ?? null,
-    [derived, ledger, today],
+    () => buildPaymentsView(derived, ledger, [today], today, unapplied).months[0] ?? null,
+    [derived, ledger, today, unapplied],
   )
 
   /** Goal settings + the derived fixed cost behind them (migration 101). */
@@ -178,8 +200,8 @@ export default function PaymentsPage() {
   }, [org?.id])
 
   const view = useMemo(
-    () => buildPaymentsView(derived, ledger, months, today),
-    [derived, ledger, months, today],
+    () => buildPaymentsView(derived, ledger, months, today, unapplied),
+    [derived, ledger, months, today, unapplied],
   )
 
   /** Still owed across every sold job — not just the visible window. */
@@ -249,6 +271,70 @@ export default function PaymentsPage() {
   const pagerLabel =
     monthOffset === 0 ? null : monthOffset < 0 ? `${-monthOffset}m back` : `${monthOffset}m ahead`
 
+  /**
+   * Open the schedule editor for a project, prefilled from its real draws.
+   *
+   * ⛔ THERE WAS NO EDIT PATH AT ALL. `DefineDrawsModal` only ran on first
+   * setup, `createDrawSchedule` refuses once draws exist, and the old
+   * milestone builder now refuses on any project with recorded cash — so a
+   * mis-set percentage was permanent. Andrew hit exactly that.
+   *
+   * ⚠️ PERCENTAGES ARE DERIVED FROM THE STORED DOLLARS, because the board
+   * doesn't carry `milestone_pct`. Dollars are what the schedule actually
+   * holds; the percentage is a way of typing them.
+   */
+  const openEditDraws = useCallback(
+    (projectId: string) => {
+      const mine = derived
+        .filter((d) => d.row.projectId === projectId && d.row.status !== 'cancelled')
+        .sort((a, b) => a.row.sortOrder - b.row.sortOrder)
+      if (mine.length === 0) return
+      const contract = totals[projectId] ?? mine.reduce((s, d) => s + d.stored, 0)
+      setDefineFor({
+        id: projectId,
+        name: mine[0].row.projectName,
+        clientName: mine[0].row.clientName ?? null,
+        contractTotal: contract,
+      })
+      setEditDraws(
+        mine.map((d) => ({
+          id: d.row.id,
+          label: d.row.label,
+          pct: contract > 0 ? String(Math.round((d.stored / contract) * 10000) / 100) : '0',
+          note: '',
+          // Any money credited against it locks it — re-authoring the amount
+          // would un-say a payment, and removing it would orphan one.
+          locked: d.covered > 0.005,
+          lockedAmount: d.stored,
+        })),
+      )
+    },
+    [derived, totals],
+  )
+
+  /**
+   * `/payments?edit=<projectId>` opens the editor for that project — how the
+   * project page's "Edit draws" link gets here without a second editor.
+   *
+   * ⚠️ `window.location.search`, NOT `useSearchParams`: the hook forces the
+   * page under a Suspense boundary at build time, and this is a client-only
+   * concern on an already client-only page.
+   *
+   * ⛔ IT WAITS FOR THE DRAWS. `openEditDraws` reads `derived`, so firing
+   * before the first load returns finds nothing and silently does nothing —
+   * the link would simply look broken.
+   */
+  const editHandled = useRef(false)
+  useEffect(() => {
+    if (loading || editHandled.current || derived.length === 0) return
+    const id = new URLSearchParams(window.location.search).get('edit')
+    if (!id) return
+    editHandled.current = true
+    openEditDraws(id)
+    // Drop the param so a refresh doesn't reopen the modal forever.
+    window.history.replaceState({}, '', '/payments')
+  }, [loading, derived, openEditDraws])
+
   const cardProps = (d: DerivedDraw) => ({
     draw: d,
     busy: busyId === d.row.id,
@@ -258,6 +344,7 @@ export default function PaymentsPage() {
       setDragOver(null)
     },
     dragging: dragId === d.row.id,
+    onEditDraws: () => openEditDraws(d.row.projectId),
     onLogPayment: () =>
       setPayFor({
         projectId: d.row.projectId,
@@ -582,9 +669,7 @@ export default function PaymentsPage() {
                       </div>
 
                       <div className="p-2 space-y-1.5">
-                        {b.outstanding.length === 0 &&
-                        b.received.length === 0 &&
-                        b.settled.length === 0 ? (
+                        {b.outstanding.length === 0 && b.settledCards.length === 0 ? (
                           <div className="text-[11.5px] text-[#D1D5DB] italic px-1 py-3 text-center">
                             Nothing due.
                           </div>
@@ -593,35 +678,22 @@ export default function PaymentsPage() {
                             {b.outstanding.map((d) => (
                               <DrawCard key={d.row.id} {...cardProps(d)} />
                             ))}
-                            {/* ⛔ SETTLED DRAWS STAY VISIBLE. They owe nothing,
-                                so they're greyed and excluded from every
-                                total — but dropping them made a fully-paid
-                                job vanish from the board, leaving only
-                                receipts. That reads as the schedule having
-                                been rewritten and the deposit deleted. */}
-                            {b.settled.map((d) => (
-                              <div
-                                key={d.row.id}
-                                className="rounded-md border border-[#E5E7EB] bg-[#FAFAFA] px-2.5 py-1.5 opacity-70"
-                              >
-                                <div className="flex items-baseline justify-between gap-2">
-                                  <span className="text-[11.5px] text-[#6B7280] truncate">
-                                    {d.row.label}
-                                  </span>
-                                  <span className="text-[11.5px] font-mono tabular-nums text-[#059669] flex-shrink-0">
-                                    {money(d.scheduled)}
-                                  </span>
-                                </div>
-                                <div className="text-[10px] text-[#9CA3AF]">paid in full</div>
-                              </div>
-                            ))}
-                            {b.received.map((e) => (
-                              <ReceiptCard
-                                key={e.id}
-                                entry={e}
-                                projectName={projectNameById.get(e.projectId) || 'Project'}
-                                busy={busyId === e.id}
-                                onDelete={() => void run(e.id, () => deletePayment(e.id, org?.id))}
+                            {/* ⛔ ONE GREEN CARD PER SETTLED DRAW, IN THE MONTH
+                                THE MONEY LANDED. This replaces two cards that
+                                said the same thing in different months — a
+                                grey "paid in full" draw card where it was
+                                SCHEDULED plus a green receipt card where it
+                                ARRIVED. Andrew: "I don't want to see both",
+                                and the split is why a month's cards could sum
+                                past $100k under a $49,075 header. */}
+                            {b.settledCards.map((c) => (
+                              <SettledDrawCard
+                                key={c.key}
+                                card={c}
+                                busyId={busyId}
+                                onDeleteEntry={(id) =>
+                                  void run(id, () => deletePayment(id, org?.id))
+                                }
                               />
                             ))}
                           </>
@@ -656,13 +728,29 @@ export default function PaymentsPage() {
           projectName={defineFor.name}
           contractTotal={defineFor.contractTotal}
           saving={defining}
-          onCancel={() => setDefineFor(null)}
+          existing={editDraws ?? undefined}
+          onCancel={() => {
+            setDefineFor(null)
+            setEditDraws(null)
+          }}
           onSave={async (drawRows) => {
             if (!org?.id) return
             setDefining(true)
             try {
-              await createDrawSchedule(org.id, defineFor.id, drawRows)
+              if (editDraws) {
+                // ⛔ EDIT, NOT REPLACE. `updateDrawSchedule` matches on id and
+                // refuses to drop a draw that money was credited against.
+                await updateDrawSchedule(
+                  org.id,
+                  defineFor.id,
+                  drawRows,
+                  editDraws.filter((d) => d.locked).map((d) => d.id!),
+                )
+              } else {
+                await createDrawSchedule(org.id, defineFor.id, drawRows)
+              }
               setDefineFor(null)
+              setEditDraws(null)
               await refresh()
             } finally {
               setDefining(false)
@@ -697,6 +785,7 @@ function DrawCard({
   onDragStart,
   onDragEnd,
   onLogPayment,
+  onEditDraws,
 }: {
   draw: DerivedDraw
   busy: boolean
@@ -704,6 +793,7 @@ function DrawCard({
   onDragStart: () => void
   onDragEnd: () => void
   onLogPayment: () => void
+  onEditDraws: () => void
 }) {
   const { row, scheduled, covered, outstanding, state } = draw
   return (
@@ -730,9 +820,24 @@ function DrawCard({
           >
             {row.projectName}
           </Link>
-          <div className="text-[10.5px] text-[#6B7280] truncate">
-            {row.label}
-            {row.clientName ? ` · ${row.clientName}` : ''}
+          <div className="text-[10.5px] text-[#6B7280] truncate flex items-center gap-1">
+            <span className="truncate">
+              {row.label}
+              {row.clientName ? ` · ${row.clientName}` : ''}
+            </span>
+            {/* The only way back into the schedule. Andrew mis-set his
+                percentages on setup and had no route to correct them. */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onEditDraws()
+              }}
+              draggable={false}
+              title="Edit this project's draw schedule"
+              className="flex-shrink-0 text-[9.5px] text-[#9CA3AF] hover:text-[#2563EB] hover:underline"
+            >
+              Edit
+            </button>
           </div>
           <div className="text-[10px] text-[#9CA3AF] mt-0.5 flex items-center gap-1 flex-wrap">
             <CalendarClock className="w-2.5 h-2.5" />
@@ -764,20 +869,35 @@ function DrawCard({
   )
 }
 
-/** Money that actually arrived. A fact, so it isn't draggable — but it IS
- *  removable, because a mis-keyed amount has to be fixable. */
-function ReceiptCard({
-  entry,
-  projectName,
-  busy,
-  onDelete,
+/**
+ * Money that landed, labelled with the draw it paid.
+ *
+ * ⛔ THIS IS ONE CARD WHERE THERE USED TO BE TWO. A fully-paid draw rendered
+ * as a grey "paid in full" schedule card in the month it was SCHEDULED, and
+ * its payments rendered as separate green receipt cards in the month they
+ * ARRIVED. Andrew: "I don't want to see both." The two also disagreed about
+ * which month they belonged to, which is why September's cards could sum past
+ * $100,000 while its header said $49,075.
+ *
+ * ⚠️ The header is summed from the ledger and these cards are built by
+ * attributing payments to draws — two different code paths. They agree by
+ * construction, and `verify-payments-board` asserts it.
+ */
+function SettledDrawCard({
+  card,
+  busyId,
+  onDeleteEntry,
 }: {
-  entry: LedgerEntry
-  projectName: string
-  busy: boolean
-  onDelete: () => void
+  card: SettledCard
+  busyId: string | null
+  onDeleteEntry: (entryId: string) => void
 }) {
-  const refund = entry.amount < 0
+  const [open, setOpen] = useState(false)
+  const refund = card.amount < 0
+  // Multiple receipts, or a slice of a bigger cheque, both need the detail.
+  const expandable = card.entries.length > 1 || card.partialEntry
+  const busy = card.entries.some((e) => e.id === busyId)
+
   return (
     <div
       className={`rounded-lg border px-2.5 py-2 group ${
@@ -787,15 +907,31 @@ function ReceiptCard({
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <Link
-            href={`/projects/${entry.projectId}`}
+            href={`/projects/${card.projectId}`}
             className="text-[12.5px] font-medium text-[#111] hover:underline truncate block"
           >
-            {projectName}
+            {card.projectName}
           </Link>
+          {/* The draw label the grey card used to carry. Unlabelled means the
+              money matched no draw — an overpayment, or a job with no
+              schedule — and saying so is the point of keeping it separate. */}
+          <div className="text-[11px] text-[#374151] mt-0.5 truncate">
+            {card.drawLabel ?? 'Payment — no draw matched'}
+          </div>
           <div className="text-[10px] text-[#6B7280] mt-0.5 truncate">
-            {refund ? 'Refund' : 'Received'} {dayLabel(entry.paymentDate)}
-            {entry.method ? ` · ${entry.method}` : ''}
-            {entry.reference ? ` · ${entry.reference}` : ''}
+            {card.completesDraw ? (
+              <>Paid {dayLabel(card.paidOn)}</>
+            ) : card.drawScheduled != null ? (
+              // ⚠️ NEVER "Paid" ON A PART-PAID DRAW. The remainder is still a
+              // schedule card in its own month; claiming this one is settled
+              // would double-count it as done.
+              <>
+                {money(card.amount)} of {money(card.drawScheduled)} · {dayLabel(card.paidOn)}
+              </>
+            ) : (
+              <>Received {dayLabel(card.paidOn)}</>
+            )}
+            {card.entries.length > 1 ? ` · ${card.entries.length} payments` : ''}
           </div>
         </div>
         <div className="text-right flex-shrink-0">
@@ -804,18 +940,62 @@ function ReceiptCard({
               refund ? 'text-[#B91C1C]' : 'text-[#059669]'
             }`}
           >
-            {money(entry.amount)}
+            {money(card.amount)}
           </div>
-          <button
-            disabled={busy}
-            onClick={onDelete}
-            title="Remove this payment"
-            className="mt-1 p-0.5 text-[#D1D5DB] hover:text-[#DC2626] opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
+          {expandable ? (
+            <button
+              onClick={() => setOpen((v) => !v)}
+              className="mt-1 text-[10px] text-[#059669] hover:underline"
+            >
+              {open ? 'Hide' : 'Details'}
+            </button>
+          ) : (
+            <button
+              disabled={busy}
+              onClick={() => onDeleteEntry(card.entries[0].id)}
+              title="Remove this payment"
+              className="mt-1 p-0.5 text-[#D1D5DB] hover:text-[#DC2626] opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
+
+      {open && (
+        <div className="mt-1.5 pt-1.5 border-t border-[#A7F3D0] space-y-1">
+          {/* ⚠️ DELETING REMOVES THE WHOLE PAYMENT, NOT THE SLICE. A cheque
+              that spilled across two draws appears on two cards; the amounts
+              shown are its parts, but there is only one ledger row. */}
+          {card.partialEntry && (
+            <div className="text-[9.5px] text-[#047857] leading-snug">
+              Part of a larger payment — deleting removes all of it.
+            </div>
+          )}
+          {card.entries.map((e) => (
+            <div key={e.id} className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-[#6B7280] truncate">
+                {dayLabel(e.paymentDate)}
+                {e.method ? ` · ${e.method}` : ''}
+                {e.reference ? ` · ${e.reference}` : ''}
+              </span>
+              <span className="flex items-center gap-1 flex-shrink-0">
+                <span className="text-[10.5px] font-mono tabular-nums text-[#059669]">
+                  {money(e.amount)}
+                </span>
+                <button
+                  disabled={busyId === e.id}
+                  onClick={() => onDeleteEntry(e.id)}
+                  title="Remove this payment"
+                  className="p-0.5 text-[#D1D5DB] hover:text-[#DC2626]"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

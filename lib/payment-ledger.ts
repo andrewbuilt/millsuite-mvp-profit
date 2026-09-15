@@ -74,6 +74,20 @@ export interface LedgerEntry {
 
 export type DrawState = 'paid' | 'partial' | 'open'
 
+/**
+ * One payment, or the slice of one, that went to a particular draw.
+ *
+ * ⛔ A SLICE, NOT ALWAYS A WHOLE PAYMENT. The waterfall overflows: a $20,000
+ * cheque against a $13,000 deposit puts $13,000 on the deposit and $7,000 on
+ * the next draw. So `amount` is what THIS draw got, and `entry.amount` is what
+ * the client actually sent. Any UI showing a slice has to say so — deleting it
+ * removes the whole payment, not the slice.
+ */
+export interface AppliedPayment {
+  entry: LedgerEntry
+  amount: number
+}
+
 export interface DerivedDraw {
   row: PaymentRow
   /** What the draw was authored as. */
@@ -85,6 +99,14 @@ export interface DerivedDraw {
   /** `scheduled - covered`. What's still owed on this draw. */
   outstanding: number
   state: DrawState
+  /**
+   * Which payments covered it, oldest first. ⛔ THIS IS WHAT LETS THE BOARD
+   * STOP SHOWING THE SAME MONEY TWICE. Before it existed, a fully-paid draw
+   * rendered as a grey "paid in full" card AND its payments rendered as green
+   * receipt cards — Andrew: "I don't want to see both." Nothing linked the two,
+   * so neither could be merged into the other.
+   */
+  applied: AppliedPayment[]
 }
 
 export interface ProjectReconciliation {
@@ -110,6 +132,16 @@ export interface ProjectReconciliation {
   /** True when the schedule has no draws at all — every other number is then
    *  meaningless and the caller should say "no schedule" rather than "$0". */
   empty: boolean
+  /**
+   * Money that reached no draw — an overpayment, or any payment on a project
+   * with no schedule. Sums to `credit`.
+   *
+   * ⛔ IT MUST BE RETURNED, NOT DROPPED. Every dollar of the ledger has to land
+   * in exactly one card on the board or a month's cards stop summing to its
+   * Received figure — which is the complaint that started this: grey cards in
+   * September summed past $100k while the header said $49,075.
+   */
+  unapplied: AppliedPayment[]
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -130,6 +162,14 @@ export function reconcileProject(
   const storedSum = round2(draws.reduce((s, d) => s + d.amount, 0))
   const drift = round2(storedSum - contractTotal)
 
+  // ⛔ OLDEST PAYMENT FIRST. The waterfall fills the oldest unpaid draw first,
+  // so the payments have to be walked in the same direction or "Paid {date}"
+  // names the wrong cheque. Ties break on id so the result is stable across
+  // reloads — a card that reorders itself reads as data changing.
+  const ordered = [...entries].sort(
+    (a, b) => a.paymentDate.localeCompare(b.paymentDate) || a.id.localeCompare(b.id),
+  )
+
   if (draws.length === 0) {
     return {
       contractTotal,
@@ -139,15 +179,36 @@ export function reconcileProject(
       credit: round2(Math.max(0, received - contractTotal)),
       drift,
       empty: true,
+      // No draws to attribute to: every payment is unapplied, and the board
+      // still has to be able to render it.
+      unapplied: ordered.map((entry) => ({ entry, amount: entry.amount })),
     }
   }
 
   // ── 1. Waterfall the money over the draws, oldest first ──
-  let pool = received
+  // Tracks WHICH payment filled which draw, not just how much. A single
+  // payment can span draws (a $20k cheque against a $13k deposit spills $7k
+  // onto the next one), so an entry may appear in two draws as two slices.
+  let cursor = 0
+  let leftInEntry = ordered.length > 0 ? ordered[0].amount : 0
+  const unapplied: AppliedPayment[] = []
+
   const out: DerivedDraw[] = draws.map((row) => {
     const stored = row.amount
-    const covered = round2(Math.min(Math.max(pool, 0), stored))
-    pool = round2(pool - covered)
+    const applied: AppliedPayment[] = []
+    let need = stored
+    while (need > EPS && cursor < ordered.length) {
+      if (leftInEntry <= EPS) {
+        cursor++
+        leftInEntry = cursor < ordered.length ? ordered[cursor].amount : 0
+        continue
+      }
+      const take = round2(Math.min(need, leftInEntry))
+      applied.push({ entry: ordered[cursor], amount: take })
+      leftInEntry = round2(leftInEntry - take)
+      need = round2(need - take)
+    }
+    const covered = round2(applied.reduce((s, a) => s + a.amount, 0))
     return {
       row,
       stored,
@@ -155,8 +216,17 @@ export function reconcileProject(
       covered,
       outstanding: round2(stored - covered),
       state: 'open' as DrawState,
+      applied,
     }
   })
+
+  // Whatever the draws couldn't absorb — an overpayment. Kept, never dropped.
+  if (cursor < ordered.length) {
+    if (leftInEntry > EPS) unapplied.push({ entry: ordered[cursor], amount: leftInEntry })
+    for (let i = cursor + 1; i < ordered.length; i++) {
+      unapplied.push({ entry: ordered[i], amount: ordered[i].amount })
+    }
+  }
 
   // ── 2. Rebalance the UNPAID portion so it equals `remaining` ──
   // Only the unpaid part may move. A covered draw is settled history, and
@@ -203,6 +273,7 @@ export function reconcileProject(
     credit: round2(Math.max(0, received - contractTotal)),
     drift,
     empty: false,
+    unapplied,
   }
 }
 
@@ -241,23 +312,56 @@ export function defaultDrawDates(start: Date, count: number): string[] {
 // the projected amount, which is exactly why a payment that differed from its
 // projection had nowhere to go.
 
+/**
+ * One green card: money that landed, labelled with the draw it paid.
+ *
+ * ⛔ THIS REPLACES TWO CARDS WITH ONE. A fully-paid draw used to render as a
+ * grey "paid in full" schedule card AND as one green receipt card per payment.
+ * Andrew: "I don't want to see both." Worse, the grey card sat in the month the
+ * draw was SCHEDULED while the green one sat in the month the money LANDED, so
+ * a month's cards could sum past $100k while its header said $49,075. The card
+ * is now the payment — it lives where the cash landed, and it carries the draw
+ * label the grey card used to supply.
+ */
+export interface SettledCard {
+  /** Stable React key: draw (or 'none') + month + first entry. */
+  key: string
+  projectId: string
+  projectName: string
+  /** The draw this money paid. NULL = it matched no draw (an overpayment, or a
+   *  project with no schedule) — those keep their own card, unlabelled. */
+  drawLabel: string | null
+  drawId: string | null
+  /** Sum of this card's slices — what landed THIS month against THIS draw. */
+  amount: number
+  /** The draw's full scheduled value, for "X of Y" when this doesn't finish it. */
+  drawScheduled: number | null
+  /** True when the draw is fully covered and this card carries its last money.
+   *  Only then is "Paid {date}" honest. */
+  completesDraw: boolean
+  /** Latest payment date in the card. */
+  paidOn: string
+  /** The real ledger rows, for expand + delete. */
+  entries: LedgerEntry[]
+  /** ⚠️ TRUE when any entry here was SPLIT across draws, so the card shows
+   *  less than the client actually sent. Deleting it removes the whole
+   *  payment, not the slice — the UI has to say so. */
+  partialEntry: boolean
+}
+
 export interface MonthBucket {
   key: MonthKey
   /** Draws with money still owed, expected this month. Soonest first.
-   *  ⚠️ Fully-paid draws are NOT here — they have nothing outstanding, and the
-   *  cash they represent shows as a ledger entry instead. */
+   *  ⚠️ Fully-paid draws are NOT here — they owe nothing, and their money is a
+   *  settled card in the month it arrived. */
   outstanding: DerivedDraw[]
-  /** Payments that actually landed this month. */
-  received: LedgerEntry[]
+  /** ⛔ THE GREEN CARDS, and the ONLY place cash appears. Their amounts sum to
+   *  `receivedTotal` by construction — which is the month-math fix: every
+   *  dollar of the ledger lands in exactly one card, in the month it landed. */
+  settledCards: SettledCard[]
   /** Sum of `outstanding` — "needed this month". */
   needed: number
-  /** ⛔ SETTLED DRAWS, KEPT RATHER THAN DROPPED. They're excluded from
-   *  `outstanding` (nothing is owed, so they mustn't count toward "needed")
-   *  but a fully-paid job used to vanish from the board entirely, leaving
-   *  only receipt cards. Andrew read that as "the schedule changed and the
-   *  down payment was deleted" — the rows were there the whole time. */
-  settled: DerivedDraw[]
-  /** Sum of `received` — "came in this month". */
+  /** Sum of the ledger entries dated this month — "came in this month". */
   receivedTotal: number
 }
 
@@ -283,14 +387,16 @@ export function buildPaymentsView(
   ledger: LedgerEntry[],
   months: MonthKey[],
   today: MonthKey,
+  /** Money that reached no draw, from every project's reconciliation. Each
+   *  keeps its own card — it's real cash and the month has to foot. */
+  unapplied: Array<AppliedPayment & { projectId: string; projectName: string }> = [],
 ): PaymentsView {
   const buckets = new Map<string, MonthBucket>()
   for (const k of months) {
     buckets.set(monthId(k), {
       key: k,
       outstanding: [],
-      received: [],
-      settled: [],
+      settledCards: [],
       needed: 0,
       receivedTotal: 0,
     })
@@ -300,44 +406,140 @@ export function buildPaymentsView(
   const unscheduled: DerivedDraw[] = []
   const overdue: DerivedDraw[] = []
 
+  // ── The draws that still owe something ──────────────────────────────────
   for (const d of draws) {
     if (d.row.status === 'cancelled') continue
     if (!isOutstanding(d.row) && d.row.status !== 'received') continue
 
-    // ⛔ A SETTLED DRAW IS STILL PART OF THE SCHEDULE. It contributes nothing
-    // to `needed` — nothing is owed — but it is NOT dropped: a job whose
-    // draws are all paid used to disappear from the board completely, leaving
-    // only receipt cards, which reads as the schedule having been rewritten.
-    const isSettled = d.outstanding < SETTLED
+    // ⛔ A SETTLED DRAW IS NOT A SCHEDULE CARD ANY MORE. It owes nothing, and
+    // its money is rendered as a settled card below — in the month the cash
+    // ARRIVED, which is the only way a month's cards can sum to its Received
+    // figure. Leaving it here too is the duplicate Andrew asked us to kill.
+    if (d.outstanding < SETTLED) continue
 
     const day = parseLocalDate(d.row.expectedDate)
     if (!day) {
-      // An undated settled draw has nothing left to schedule, so it doesn't
-      // belong in the "no date set" tray asking to be placed.
-      if (!isSettled) unscheduled.push(d)
+      unscheduled.push(d)
       continue
     }
     const m = monthOf(day)
     const b = buckets.get(monthId(m))
     if (!b) {
-      // Only money still owed can be overdue.
-      if (!isSettled && first && idx(m) < idx(first) && idx(m) < idx(today)) overdue.push(d)
-      continue
-    }
-    if (isSettled) {
-      b.settled.push(d)
+      if (first && idx(m) < idx(first) && idx(m) < idx(today)) overdue.push(d)
       continue
     }
     b.outstanding.push(d)
     b.needed += d.outstanding
   }
 
+  // ── The cash, grouped into one card per (draw, month) ────────────────────
+  // ⛔ GROUPED BY MONTH AS WELL AS BY DRAW. A draw paid across two months has
+  // to produce a card in each, or one month claims money that landed in the
+  // other and the header stops matching the cards under it.
+  const cardBy = new Map<string, SettledCard>()
+  /** The last card built for a project in a month — where crumbs go. */
+  const lastForProject = new Map<string, SettledCard>()
+
+  const push = (
+    monthIdStr: string,
+    key: string,
+    seed: () => SettledCard,
+    slice: AppliedPayment,
+    projectKey?: string,
+  ) => {
+    const b = buckets.get(monthIdStr)
+    if (!b) return // outside the window; the month totals below still ignore it
+
+    // ⛔ A SUB-DOLLAR SPILL IS ROUNDING NOISE, NOT A PAYMENT ON THE NEXT DRAW.
+    // Murtagh: the deposit row is $13,113 and the client paid $13,114, so a
+    // dollar overflowed onto the next draw and rendered as its own green card
+    // reading "$1 of $6,557" — which says the client made a one-dollar payment
+    // toward the kickoff. That is the same phantom-$1 card Andrew rejected
+    // once already (634c0eb); it just moved.
+    //
+    // So a crumb is folded into the previous card for the same project in the
+    // same month. It is NOT dropped — the month has to keep footing — it just
+    // stops claiming to be a payment against a draw nobody has paid.
+    // ⚠️ `<=`, NOT `<`. A whole-dollar spill is the COMMON case, not an edge
+    // one: draw amounts are stored as whole dollars, so a schedule that's a
+    // dollar off its contract — which every schedule generated before
+    // `allocateRounded` was — spills exactly $1.00. A strict `<` folds
+    // Murtagh's 50¢ and leaves the next job's $1 card standing.
+    const prior = projectKey ? lastForProject.get(projectKey) : undefined
+    if (prior && slice.amount <= SETTLED) {
+      prior.amount = round2(prior.amount + slice.amount)
+      prior.entries.push(slice.entry)
+      if (slice.entry.paymentDate > prior.paidOn) prior.paidOn = slice.entry.paymentDate
+      return
+    }
+
+    let card = cardBy.get(key)
+    if (!card) {
+      card = seed()
+      cardBy.set(key, card)
+      b.settledCards.push(card)
+    }
+    card.amount = round2(card.amount + slice.amount)
+    card.entries.push(slice.entry)
+    if (slice.entry.paymentDate > card.paidOn) card.paidOn = slice.entry.paymentDate
+    if (slice.amount + EPS < slice.entry.amount) card.partialEntry = true
+    if (projectKey) lastForProject.set(projectKey, card)
+  }
+
+  for (const d of draws) {
+    if (d.row.status === 'cancelled') continue
+    const settled = d.outstanding < SETTLED
+    for (const slice of d.applied) {
+      const day = parseLocalDate(slice.entry.paymentDate)
+      if (!day) continue
+      const mId = monthId(monthOf(day))
+      push(mId, `${d.row.id}:${mId}`, () => ({
+        key: `${d.row.id}:${mId}`,
+        projectId: d.row.projectId,
+        projectName: d.row.projectName,
+        drawLabel: d.row.label,
+        drawId: d.row.id,
+        amount: 0,
+        drawScheduled: d.scheduled,
+        // ⚠️ Only the draw being FULLY covered makes "Paid" true. A card that
+        // carries half a draw says "$6,000 of $12,269" instead — claiming a
+        // draw is paid when it isn't is how a board loses trust.
+        completesDraw: settled,
+        paidOn: slice.entry.paymentDate,
+        entries: [],
+        partialEntry: false,
+      }), slice, `${d.row.projectId}:${mId}`)
+    }
+  }
+
+  for (const u of unapplied) {
+    const day = parseLocalDate(u.entry.paymentDate)
+    if (!day) continue
+    const mId = monthId(monthOf(day))
+    push(mId, `unapplied:${u.entry.id}:${mId}`, () => ({
+      key: `unapplied:${u.entry.id}:${mId}`,
+      projectId: u.projectId,
+      projectName: u.projectName,
+      drawLabel: null,
+      drawId: null,
+      amount: 0,
+      drawScheduled: null,
+      completesDraw: false,
+      paidOn: u.entry.paymentDate,
+      entries: [],
+      partialEntry: false,
+    }), u)
+  }
+
+  // ⛔ receivedTotal COMES FROM THE LEDGER, NOT FROM THE CARDS. They must
+  // agree — that is the invariant this whole change exists to create — so
+  // deriving the header from the cards would make the check vacuous and hide
+  // the very drift it's meant to catch.
   for (const e of ledger) {
     const day = parseLocalDate(e.paymentDate)
     if (!day) continue
     const b = buckets.get(monthId(monthOf(day)))
     if (!b) continue
-    b.received.push(e)
     b.receivedTotal += e.amount
   }
 
@@ -347,7 +549,9 @@ export function buildPaymentsView(
 
   for (const b of buckets.values()) {
     b.outstanding.sort(byDate)
-    b.received.sort((x, y) => x.paymentDate.localeCompare(y.paymentDate))
+    b.settledCards.sort(
+      (x, y) => x.paidOn.localeCompare(y.paidOn) || x.projectName.localeCompare(y.projectName),
+    )
     b.needed = round2(b.needed)
     b.receivedTotal = round2(b.receivedTotal)
   }
@@ -378,6 +582,31 @@ export function reconcileAll(
   entries: LedgerEntry[],
   contractTotals: Record<string, number>,
 ): DerivedDraw[] {
+  return reconcileEverything(rows, entries, contractTotals).draws
+}
+
+/** What `reconcileAll` returns, plus the money that reached no draw. */
+export interface OrgReconciliation {
+  draws: DerivedDraw[]
+  unapplied: Array<AppliedPayment & { projectId: string; projectName: string }>
+}
+
+/**
+ * ⛔ THE UNAPPLIED HALF IS NOT OPTIONAL. `reconcileAll` discarded it, which was
+ * survivable while the board rendered raw ledger rows as their own green cards.
+ * Now that every card comes from attribution, dropped money is INVISIBLE money
+ * — and the worst case is a project with PAYMENTS BUT NO DRAWS, which has no
+ * draws to iterate and so contributed nothing at all. That's ~$600k of
+ * un-scheduled contracts on this board.
+ */
+export function reconcileEverything(
+  rows: PaymentRow[],
+  entries: LedgerEntry[],
+  contractTotals: Record<string, number>,
+  /** Only needed for projects that have payments but no draws — there's no
+   *  draw row to read a name off. */
+  projectNames: Record<string, string> = {},
+): OrgReconciliation {
   const byProject = new Map<string, PaymentRow[]>()
   for (const r of rows) {
     const list = byProject.get(r.projectId)
@@ -391,20 +620,28 @@ export function reconcileAll(
     else payByProject.set(e.projectId, [e])
   }
 
-  const out: DerivedDraw[] = []
-  for (const [projectId, draws] of byProject) {
-    draws.sort(
+  const draws: DerivedDraw[] = []
+  const unapplied: OrgReconciliation['unapplied'] = []
+
+  // The UNION of both sides, so a project that has only payments is included.
+  const projectIds = new Set([...byProject.keys(), ...payByProject.keys()])
+
+  for (const projectId of projectIds) {
+    const list = byProject.get(projectId) || []
+    list.sort(
       (a, b) =>
         a.sortOrder - b.sortOrder ||
         (a.createdAt || '').localeCompare(b.createdAt || '') ||
         a.label.localeCompare(b.label),
     )
     const r = reconcileProject(
-      draws,
+      list,
       payByProject.get(projectId) || [],
-      contractTotals[projectId] ?? draws.reduce((s, d) => s + d.amount, 0),
+      contractTotals[projectId] ?? list.reduce((s, d) => s + d.amount, 0),
     )
-    out.push(...r.draws)
+    draws.push(...r.draws)
+    const projectName = list[0]?.projectName || projectNames[projectId] || 'Project'
+    for (const u of r.unapplied) unapplied.push({ ...u, projectId, projectName })
   }
-  return out
+  return { draws, unapplied }
 }
