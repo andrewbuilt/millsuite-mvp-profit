@@ -251,6 +251,12 @@ export interface MonthBucket {
   received: LedgerEntry[]
   /** Sum of `outstanding` — "needed this month". */
   needed: number
+  /** ⛔ SETTLED DRAWS, KEPT RATHER THAN DROPPED. They're excluded from
+   *  `outstanding` (nothing is owed, so they mustn't count toward "needed")
+   *  but a fully-paid job used to vanish from the board entirely, leaving
+   *  only receipt cards. Andrew read that as "the schedule changed and the
+   *  down payment was deleted" — the rows were there the whole time. */
+  settled: DerivedDraw[]
   /** Sum of `received` — "came in this month". */
   receivedTotal: number
 }
@@ -280,7 +286,14 @@ export function buildPaymentsView(
 ): PaymentsView {
   const buckets = new Map<string, MonthBucket>()
   for (const k of months) {
-    buckets.set(monthId(k), { key: k, outstanding: [], received: [], needed: 0, receivedTotal: 0 })
+    buckets.set(monthId(k), {
+      key: k,
+      outstanding: [],
+      received: [],
+      settled: [],
+      needed: 0,
+      receivedTotal: 0,
+    })
   }
   const first = months[0]
   const idx = (k: MonthKey) => k.year * 12 + k.month
@@ -288,22 +301,31 @@ export function buildPaymentsView(
   const overdue: DerivedDraw[] = []
 
   for (const d of draws) {
-    // Nothing meaningfully owed ⇒ nothing to plan for; the money is in the
-    // ledger. Uses the same sub-dollar tolerance as `state`, or a settled draw
-    // would drop off the card list but still be counted in "needed".
-    if (d.outstanding < SETTLED) continue
     if (d.row.status === 'cancelled') continue
     if (!isOutstanding(d.row) && d.row.status !== 'received') continue
 
+    // ⛔ A SETTLED DRAW IS STILL PART OF THE SCHEDULE. It contributes nothing
+    // to `needed` — nothing is owed — but it is NOT dropped: a job whose
+    // draws are all paid used to disappear from the board completely, leaving
+    // only receipt cards, which reads as the schedule having been rewritten.
+    const isSettled = d.outstanding < SETTLED
+
     const day = parseLocalDate(d.row.expectedDate)
     if (!day) {
-      unscheduled.push(d)
+      // An undated settled draw has nothing left to schedule, so it doesn't
+      // belong in the "no date set" tray asking to be placed.
+      if (!isSettled) unscheduled.push(d)
       continue
     }
     const m = monthOf(day)
     const b = buckets.get(monthId(m))
     if (!b) {
-      if (first && idx(m) < idx(first) && idx(m) < idx(today)) overdue.push(d)
+      // Only money still owed can be overdue.
+      if (!isSettled && first && idx(m) < idx(first) && idx(m) < idx(today)) overdue.push(d)
+      continue
+    }
+    if (isSettled) {
+      b.settled.push(d)
       continue
     }
     b.outstanding.push(d)

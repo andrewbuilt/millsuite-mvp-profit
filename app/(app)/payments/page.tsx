@@ -29,6 +29,7 @@ import Link from 'next/link'
 import { AlertTriangle, CalendarClock, FileQuestion, Inbox, Plus, Trash2, X } from 'lucide-react'
 import PlanGate from '@/components/plan-gate'
 import GoalBanner from '@/components/payments/GoalBanner'
+import DefineDrawsModal from '@/components/payments/DefineDrawsModal'
 import { useAuth } from '@/lib/auth-context'
 import { deriveMonthlyFixed } from '@/lib/sales-goal'
 import { loadGoalSettings, type GoalSettings } from '@/lib/sales-goal-data'
@@ -44,6 +45,7 @@ import {
   deletePayment,
   loadOrgLedger,
   loadOrgPayments,
+  createDrawSchedule,
   loadSoldProjects,
   logPayment,
   monthId,
@@ -98,6 +100,9 @@ export default function PaymentsPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [payFor, setPayFor] = useState<PayTarget | null>(null)
+  /** The project whose draws are being defined, or null. */
+  const [defineFor, setDefineFor] = useState<SoldProjectRef | null>(null)
+  const [defining, setDefining] = useState(false)
 
   const [today] = useState(() => currentMonth())
 
@@ -367,10 +372,14 @@ export default function PaymentsPage() {
                   </div>
                   <div className="p-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5">
                     {unscheduledProjects.map((p) => (
-                      <Link
+                      // ⛔ OPENS THE MODAL, DOESN'T NAVIGATE. This used to link
+                      // to the project page, where the only way to define a
+                      // schedule was the milestone builder — which dead-ended
+                      // on imported jobs. Andrew: "I cant add draws."
+                      <button
                         key={p.id}
-                        href={`/projects/${p.id}`}
-                        className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 hover:border-[#FDE68A] hover:bg-[#FFFBEB] transition-colors"
+                        onClick={() => setDefineFor(p)}
+                        className="text-left rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 hover:border-[#FDE68A] hover:bg-[#FFFBEB] transition-colors"
                       >
                         <div className="flex items-start gap-2">
                           <div className="min-w-0 flex-1">
@@ -385,7 +394,7 @@ export default function PaymentsPage() {
                             {money(p.contractTotal)}
                           </div>
                         </div>
-                      </Link>
+                      </button>
                     ))}
                   </div>
                 </section>
@@ -573,7 +582,9 @@ export default function PaymentsPage() {
                       </div>
 
                       <div className="p-2 space-y-1.5">
-                        {b.outstanding.length === 0 && b.received.length === 0 ? (
+                        {b.outstanding.length === 0 &&
+                        b.received.length === 0 &&
+                        b.settled.length === 0 ? (
                           <div className="text-[11.5px] text-[#D1D5DB] italic px-1 py-3 text-center">
                             Nothing due.
                           </div>
@@ -581,6 +592,28 @@ export default function PaymentsPage() {
                           <>
                             {b.outstanding.map((d) => (
                               <DrawCard key={d.row.id} {...cardProps(d)} />
+                            ))}
+                            {/* ⛔ SETTLED DRAWS STAY VISIBLE. They owe nothing,
+                                so they're greyed and excluded from every
+                                total — but dropping them made a fully-paid
+                                job vanish from the board, leaving only
+                                receipts. That reads as the schedule having
+                                been rewritten and the deposit deleted. */}
+                            {b.settled.map((d) => (
+                              <div
+                                key={d.row.id}
+                                className="rounded-md border border-[#E5E7EB] bg-[#FAFAFA] px-2.5 py-1.5 opacity-70"
+                              >
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className="text-[11.5px] text-[#6B7280] truncate">
+                                    {d.row.label}
+                                  </span>
+                                  <span className="text-[11.5px] font-mono tabular-nums text-[#059669] flex-shrink-0">
+                                    {money(d.scheduled)}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-[#9CA3AF]">paid in full</div>
+                              </div>
                             ))}
                             {b.received.map((e) => (
                               <ReceiptCard
@@ -617,6 +650,26 @@ export default function PaymentsPage() {
           )}
         </div>
       </div>
+
+      {defineFor && (
+        <DefineDrawsModal
+          projectName={defineFor.name}
+          contractTotal={defineFor.contractTotal}
+          saving={defining}
+          onCancel={() => setDefineFor(null)}
+          onSave={async (drawRows) => {
+            if (!org?.id) return
+            setDefining(true)
+            try {
+              await createDrawSchedule(org.id, defineFor.id, drawRows)
+              setDefineFor(null)
+              await refresh()
+            } finally {
+              setDefining(false)
+            }
+          }}
+        />
+      )}
 
       {payFor && (
         <LogPaymentModal

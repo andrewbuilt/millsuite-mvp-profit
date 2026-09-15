@@ -68,9 +68,15 @@ function allocateRounded(values, target) {
   return out
 }
 
+// ⛔ SOLD AND LATER ONLY. On an unsold job `bid_total` is an ESTIMATE that
+// moves as the scope changes, so comparing draws to it says nothing — Kennedy
+// showed as "off by $68,588" purely because it's a live 50/50 bid. Andrew:
+// "Off what? the project isnt sold. that is the estimated price."
+const POSTSOLD = ['sold', 'production', 'installed', 'complete']
 const { data: projects, error } = await db
   .from('projects')
-  .select('id, name, bid_total')
+  .select('id, name, bid_total, stage')
+  .in('stage', POSTSOLD)
   .order('name')
 if (error) throw error
 

@@ -13,7 +13,7 @@
 import { supabase } from './supabase'
 import { POSTSOLD_STAGES, type ProjectStage } from './types'
 import { formatLocalDate, type PaymentRow } from './payment-schedule'
-import type { LedgerEntry } from './payment-ledger'
+import { defaultDrawDates, type LedgerEntry } from './payment-ledger'
 
 export * from './payment-schedule'
 export * from './payment-ledger'
@@ -138,6 +138,66 @@ export async function loadProjectDraws(projectId: string): Promise<PaymentRow[]>
     sortOrder: Number(/order:(\d+)/.exec(String(r.notes || ''))?.[1] ?? Number.MAX_SAFE_INTEGER),
     createdAt: String(r.created_at ?? ''),
   }))
+}
+
+/**
+ * Create a project's draw schedule from percentages.
+ *
+ * ⛔ THE ESCAPE HATCH. The project-page route (tray → project → Compose →
+ * preset → Save) dead-ended on imported jobs and Andrew had no reachable way
+ * to add draws to a sold project. This writes the rows directly from the
+ * board and depends on nothing but the contract total.
+ *
+ * ⛔ REFUSES IF DRAWS ALREADY EXIST. This creates; it never replaces. A
+ * "define" that quietly wiped an existing schedule is the Schiller failure
+ * mode, and once cash is recorded the allocation can't be reconstructed.
+ */
+export async function createDrawSchedule(
+  orgId: string,
+  projectId: string,
+  rows: Array<{ label: string; pct: number; amount: number; note?: string }>,
+  startFrom: Date = new Date(),
+): Promise<void> {
+  if (rows.length === 0) throw new Error('Nothing to create.')
+
+  const { data: existing, error: readErr } = await supabase
+    .from('cash_flow_receivables')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('type', 'receivable')
+    .neq('status', 'cancelled')
+    .limit(1)
+  if (readErr) throw new Error(readErr.message || 'Could not check the schedule.')
+  if (existing && existing.length > 0) {
+    throw new Error('This project already has draws. Edit them on the board instead.')
+  }
+
+  const dates = defaultDrawDates(startFrom, rows.length)
+  const { data, error } = await supabase
+    .from('cash_flow_receivables')
+    .insert(
+      rows.map((r, i) => ({
+        org_id: orgId,
+        project_id: projectId,
+        type: 'receivable' as const,
+        status: 'projected' as const,
+        description: r.label,
+        milestone_label: r.label,
+        milestone_pct: r.pct,
+        milestone_trigger: 'manual',
+        amount: r.amount,
+        expected_date: dates[i],
+        // ⛔ `order:N` IS the sort order — there's no column. The waterfall
+        // credits payments in this order, so an unmarked row would sort last
+        // and soak up money belonging to earlier draws.
+        notes: r.note ? `order:${i} ${r.note}` : `order:${i}`,
+      })),
+    )
+    .select('id')
+  if (error) throw new Error(error.message || 'Could not create the draws.')
+  if (!data || data.length === 0) {
+    throw new Error('The draws did not reach the database. Reload and try again.')
+  }
 }
 
 /** A sold job, for spotting the ones with no draw schedule at all. */
