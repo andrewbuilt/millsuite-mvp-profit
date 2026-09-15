@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // Must precede the lib imports.
 import './env'
 import type { CliOptions } from './cli'
+import { allocateRounded } from '../../lib/allocate'
 import {
   lookupMillsuiteId,
   lookupLiveMillsuiteId,
@@ -623,6 +624,14 @@ export async function migrateMilestones(ctx: Ctx): Promise<void> {
       .eq('type', 'receivable')
       .eq('status', 'projected')
       .is('change_order_id', null)
+    // ⛔ ALLOCATE, DON'T ROUND EACH ROW. Rounding every percentage on its own
+    // is why every imported schedule came in a dollar off the contract: 50% of
+    // $49,075 rounds to $24,538 and each 25% to $12,269 — $49,076 in total.
+    // Schiller and Brabson both landed $1 over, and the operator ends up
+    // recording a correcting payment to make the ledger foot.
+    const exactAmounts = list.map((m) => (j.price * m.pct) / 100)
+    const allocated = allocateRounded(exactAmounts, j.price)
+
     const rows = list.map((m, idx) => ({
       org_id: orgId,
       project_id: msProjectId,
@@ -631,7 +640,7 @@ export async function migrateMilestones(ctx: Ctx): Promise<void> {
       milestone_label: m.label,
       milestone_pct: m.pct,
       milestone_trigger: mapTrigger(m.trigger),
-      amount: Math.round((j.price * m.pct) / 100),
+      amount: allocated[idx],
       notes: `order:${idx}`,
     }))
     const { error } = await ms.from('cash_flow_receivables').insert(rows)

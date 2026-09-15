@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { allocateRounded } from './allocate'
 import { recordProjectEvent } from './project-events'
 import { formatLocalDate } from './payment-schedule'
 import {
@@ -242,7 +243,18 @@ export async function saveMilestones(input: {
     .filter(({ m }) => (m.status ?? 'projected') === 'projected')
   if (insertable.length === 0) return true
 
-  const rows = insertable.map(({ m, i }) => ({
+  // ⛔ ALLOCATE, DON'T ROUND EACH ROW. `Math.round(total * pct / 100)` per row
+  // is why every imported schedule was a dollar off: 50% of $49,075 rounds to
+  // $24,538 and each 25% to $12,269, summing to $49,076. The operator then
+  // chases a phantom dollar, or records a $2 correction to make the ledger
+  // foot — which is exactly what happened on Schiller.
+  //
+  // `allocateRounded` is the largest-remainder split that already exists for
+  // this, and it guarantees the parts sum to the whole.
+  const exactAmounts = insertable.map(({ m }) => (input.project_total * m.pct) / 100)
+  const allocated = allocateRounded(exactAmounts, input.project_total)
+
+  const rows = insertable.map(({ m, i }, idx) => ({
     org_id: input.org_id,
     project_id: input.project_id,
     type: 'receivable' as const,
@@ -250,7 +262,7 @@ export async function saveMilestones(input: {
     milestone_label: m.label,
     milestone_pct: m.pct,
     milestone_trigger: m.trigger,
-    amount: Math.round((input.project_total * m.pct) / 100),
+    amount: allocated[idx],
     status: 'projected' as const,
     expected_date: m.expected_date,
     notes: `order:${i}`,

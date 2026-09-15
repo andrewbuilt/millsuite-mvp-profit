@@ -98,6 +98,48 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
   return { rows, contractTotals, error: null }
 }
 
+/**
+ * One project's draw schedule as `PaymentRow`s, ready for `reconcileProject`.
+ *
+ * ⛔ WHY THIS EXISTS. `loadOrgPayments` selects FROM `cash_flow_receivables`
+ * with `projects!inner`, which is right for the board but wrong for a single
+ * project page — and the project page had NO way to see its own schedule at
+ * all after the sale. Andrew looked at a fully-paid Schiller, saw only
+ * receipt cards, and reasonably concluded the schedule had been rewritten and
+ * the deposit row deleted. It hadn't: `buildPaymentsView` hides draws with
+ * nothing outstanding, so a completed schedule disappears everywhere.
+ */
+export async function loadProjectDraws(projectId: string): Promise<PaymentRow[]> {
+  const { data, error } = await supabase
+    .from('cash_flow_receivables')
+    .select(
+      'id, project_id, milestone_label, amount, status, expected_date, received_date, notes, created_at',
+    )
+    .eq('project_id', projectId)
+    .eq('type', 'receivable')
+    .neq('status', 'cancelled')
+  if (error) {
+    console.error('loadProjectDraws', error)
+    return []
+  }
+  return (data || []).map((r: Record<string, unknown>) => ({
+    id: String(r.id),
+    projectId: String(r.project_id),
+    projectName: '',
+    clientName: null,
+    stage: 'sold' as ProjectStage,
+    label: String(r.milestone_label || 'Milestone'),
+    amount: Number(r.amount) || 0,
+    status: (r.status as PaymentRow['status']) || 'projected',
+    expectedDate: (r.expected_date as string) ?? null,
+    receivedDate: (r.received_date as string) ?? null,
+    // Same `order:N` encoding the board relies on — a row without it sorts
+    // last rather than hijacking the deposit position in the waterfall.
+    sortOrder: Number(/order:(\d+)/.exec(String(r.notes || ''))?.[1] ?? Number.MAX_SAFE_INTEGER),
+    createdAt: String(r.created_at ?? ''),
+  }))
+}
+
 /** A sold job, for spotting the ones with no draw schedule at all. */
 export interface SoldProjectRef {
   id: string

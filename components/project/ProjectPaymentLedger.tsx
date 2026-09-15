@@ -21,7 +21,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, CalendarClock } from 'lucide-react'
-import { loadProjectLedger, type LedgerEntry } from '@/lib/payments'
+import {
+  loadProjectDraws,
+  loadProjectLedger,
+  reconcileProject,
+  type LedgerEntry,
+  type PaymentRow,
+} from '@/lib/payments'
 
 function money(n: number): string {
   const r = Math.round(n)
@@ -50,13 +56,22 @@ export function ProjectPaymentLedger({
   const [entries, setEntries] = useState<LedgerEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [missing, setMissing] = useState(false)
+  /** ⛔ THE SCHEDULE, SHOWN. Without this the project page had no view of its
+   *  own draws at all post-sale, and `buildPaymentsView` hides a draw with
+   *  nothing outstanding — so a fully-paid job showed only receipts and read
+   *  as though its schedule had been deleted. */
+  const [draws, setDraws] = useState<PaymentRow[]>([])
 
   useEffect(() => {
     let alive = true
     void (async () => {
-      const res = await loadProjectLedger(projectId)
+      const [res, rows] = await Promise.all([
+        loadProjectLedger(projectId),
+        loadProjectDraws(projectId),
+      ])
       if (!alive) return
       setEntries(res.entries)
+      setDraws(rows)
       setMissing(res.missing)
       setLoading(false)
     })()
@@ -66,6 +81,12 @@ export function ProjectPaymentLedger({
   }, [projectId])
 
   const received = useMemo(() => entries.reduce((s, e) => s + e.amount, 0), [entries])
+  // Same reconciliation the board runs, so the two can't tell different
+  // stories about the same job.
+  const recon = useMemo(
+    () => reconcileProject(draws, entries, contractTotal),
+    [draws, entries, contractTotal],
+  )
   const remaining = Math.max(0, contractTotal - received)
   const credit = Math.max(0, received - contractTotal)
   const pct = contractTotal > 0 ? Math.min(100, (received / contractTotal) * 100) : 0
@@ -91,6 +112,70 @@ export function ProjectPaymentLedger({
         </div>
       ) : (
         <>
+          {/* ⛔ THE AGREED TERMS, ALWAYS VISIBLE — INCLUDING WHEN PAID.
+              The payments board deliberately drops a draw once it has nothing
+              outstanding, so a finished job showed nothing but receipts and
+              looked as if its schedule had been erased. This is the one place
+              that answers "what did we agree to?" after the sale. Read-only:
+              the schedule changes on /payments and nowhere else. */}
+          {draws.length > 0 && (
+            <div className="mb-3 rounded-lg border border-[#E5E7EB] overflow-hidden">
+              <div className="px-2.5 py-1.5 bg-[#FAFAFA] border-b border-[#F3F4F6] flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
+                  Draw schedule
+                </span>
+                <span className="text-[10px] text-[#9CA3AF] font-mono tabular-nums">
+                  {recon.draws.filter((d) => d.state === 'paid').length} of {recon.draws.length} paid
+                </span>
+              </div>
+              {recon.draws.map((d) => (
+                <div
+                  key={d.row.id}
+                  className="px-2.5 py-1.5 flex items-center gap-2 border-b border-[#F3F4F6] last:border-b-0"
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                      d.state === 'paid'
+                        ? 'bg-[#059669]'
+                        : d.state === 'partial'
+                          ? 'bg-[#D97706]'
+                          : 'bg-[#D1D5DB]'
+                    }`}
+                  />
+                  <span className="text-[11.5px] text-[#374151] truncate flex-1 min-w-0">
+                    {d.row.label}
+                  </span>
+                  {/* ⚠️ `scheduled`, not `stored`: a change order or a shrunk
+                      contract rebalances the unpaid part, and showing the
+                      stale authored figure would disagree with the board. */}
+                  <span className="text-[11.5px] font-mono tabular-nums text-[#111] flex-shrink-0">
+                    {money(d.scheduled)}
+                  </span>
+                  <span
+                    className={`text-[10px] w-14 text-right flex-shrink-0 ${
+                      d.state === 'paid' ? 'text-[#059669]' : 'text-[#9CA3AF]'
+                    }`}
+                  >
+                    {d.state === 'paid'
+                      ? 'paid'
+                      : d.state === 'partial'
+                        ? `${money(d.outstanding)} left`
+                        : 'open'}
+                  </span>
+                </div>
+              ))}
+              {/* The stored rows not summing to the contract is how a phantom
+                  dollar starts. Say it rather than letting the final draw
+                  quietly absorb it. */}
+              {Math.abs(recon.drift) >= 1 && (
+                <div className="px-2.5 py-1.5 bg-[#FFFBEB] text-[10.5px] text-[#92400E] leading-snug">
+                  The stored draws sum to {money(recon.drift > 0 ? contractTotal + recon.drift : contractTotal + recon.drift)},
+                  {' '}{money(Math.abs(recon.drift))} {recon.drift > 0 ? 'over' : 'under'} the contract.
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-2 mb-2">
             <Stat label="Contract" value={money(contractTotal)} />
             <Stat label="Received" value={money(received)} tone="green" />

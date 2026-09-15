@@ -40,7 +40,7 @@ Every item below appears on 3+ competitor sites or is a known AI-template tell. 
 - "X won't save you. Y will." contrast-flip headlines
 - Saturated phrases used by 3+ competitors: "know your numbers" as a headline, "all-in-one / everything in one place", "from quote to paid / estimate to install", "by woodworkers for woodworkers" and variants, "built for how you actually work"
 - The banned-words list in `voice-and-tone` (leverage, optimize, game-changing, revolutionary, etc.)
-- Any claim about a training dataset size or an accuracy percentage for the rate book. Confirmed false by Andrew 2026-09-14; the product ships pre-populated with starter rates and self-corrects from each shop's own numbers, not from a proprietary dataset. See `MILLSUITE-DESIGN-BRIEF.md` §4.
+- Any claim about a training dataset size or an accuracy percentage for the rate book, or any claim that the rate book ships with pre-filled prices. Verified against `lib/rate-book-seed.ts`: the rate book starts with zero dollar values, only starter category/item shapes. The shop enters its own real numbers via the onboarding walkthroughs; everything is 'untested' until real jobs close against it. See `MILLSUITE-DESIGN-BRIEF.md` §4/§6.
 - Any sentence that could appear on a competitor's site unchanged. The test: swap in their logo. If it still works, cut it.
 
 Note: "know your numbers" stays alive as Andrew's spoken POV and in body copy where it's his voice. It just can't be the headline. The distinctive version is the sharper one: **"More sales at a loss kills a business twice as fast."**
