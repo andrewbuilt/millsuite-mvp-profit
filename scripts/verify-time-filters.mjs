@@ -16,6 +16,7 @@ import {
   isFilterActive,
   matchesTimeFilter,
   mondayOf,
+  weekBar,
   EMPTY_TIME_FILTER,
 } from '../lib/time-filters.ts'
 
@@ -155,6 +156,35 @@ const f = (over = {}) => ({ ...EMPTY_TIME_FILTER, ...over })
   check('chip', isFilterActive(f({ chip: 'today' })), true)
   check('project', isFilterActive(f({ projectId: 'p1' })), true)
 }
+
+
+// ── The week bar (shared by /me and /team) ──────────────────────────────────
+// ⛔ ONE IMPLEMENTATION, TWO PAGES. /me shows a worker their own week; /team
+// shows the same bar on every collapsed roster row. Two copies of "am I at
+// 100% this week?" would eventually disagree about the same person on the same
+// day — worse than not showing it at all. So the math lives in the lib and
+// both import it, and these are the rules that must not drift.
+console.log('\nweek bar')
+check('half a week', weekBar(1200, 0, 40).width, 50)
+check('not yet "over"', weekBar(1200, 0, 40).over, false)
+check('amber on the way', weekBar(1200, 0, 40).color, '#D97706')
+// Exactly on target is GREEN, not amber — the week is made.
+check('exactly 40h is green', weekBar(2400, 0, 40).color, '#059669')
+check('past it is blue', weekBar(2500, 0, 40).color, '#2563EB')
+check('and flagged over', weekBar(2500, 0, 40).over, true)
+// ⚠️ THE FILL CLAMPS, THE PERCENT DOES NOT. A 60h week must not draw a bar
+// wider than its track, but the number behind it stays honest.
+check('fill clamps at 100', weekBar(3600, 0, 40).width, 100)
+check('pct does not clamp', Math.round(weekBar(3600, 0, 40).pct), 150)
+// ⚠️ THE RUNNING CLOCK COUNTS. Without it, someone four hours into the day
+// watches the bar sit still all morning and concludes it is broken.
+check('live minutes are included', weekBar(1200, 120, 40).total, 1320)
+// ⛔ A 0h TARGET IS A REAL ROSTER VALUE — anyone not on a weekly schedule.
+// Dividing by it would paint every bar full, i.e. "done for the week".
+check('zero target falls back to 40', weekBar(1200, 0, 0).width, 50)
+check('negative target too', weekBar(1200, 0, -5).width, 50)
+check('no hours yet is empty, not full', weekBar(0, 0, 40).width, 0)
+check('garbage minutes count as zero', weekBar(NaN, 0, 40).total, 0)
 
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'} — ${pass} checks passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

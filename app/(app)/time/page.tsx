@@ -112,7 +112,23 @@ export default function TimePage() {
   // own. `orgs.team_members[].user_id` is the only client-side bridge, which
   // is the same rule the task system follows for `created_by`.
   const [roster, setRoster] = useState<Array<{ id: string; name: string; userId: string | null }>>([])
-  const [filter, setFilter] = useState<TimeFilter>(EMPTY_TIME_FILTER)
+  /**
+   * ⛔ SEEDED FROM `?member=`, so /team's "tracked this week" link lands on a
+   * filtered timesheet instead of the whole shop's. Without this the link is
+   * silently a no-op — the page opens, looks right, and shows everyone.
+   *
+   * Read in the INITIALISER, not an effect: applying it afterwards paints
+   * every entry for a beat and then snaps to one person, which reads as the
+   * filter having been applied by accident.
+   *
+   * ⚠️ `window` is guarded because this initialiser also runs during the
+   * server render, where there is no location.
+   */
+  const [filter, setFilter] = useState<TimeFilter>(() => {
+    if (typeof window === 'undefined') return EMPTY_TIME_FILTER
+    const memberId = new URLSearchParams(window.location.search).get('member')
+    return memberId ? { ...EMPTY_TIME_FILTER, memberId } : EMPTY_TIME_FILTER
+  })
   const [loading, setLoading] = useState(true)
 
   // Timer state

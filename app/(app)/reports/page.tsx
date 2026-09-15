@@ -12,10 +12,18 @@ import { getNextMonthKeys, type BookedProject } from '@/lib/reports/outlookCalcu
 import { loadBookedProjects } from '@/lib/reports/bookedProjects'
 import {
   countBillable,
+  computeDerivedShopRate,
+  emptyOverheadInputs,
   loadShopRateSetup,
+  saveShopRate,
+  sumBillableHoursYear,
   sumOverheadAnnual,
   sumTeamAnnualComp,
+  type BillableHoursInputs,
+  type TeamMember,
 } from '@/lib/shop-rate-setup'
+import { loadProjectDeptHours } from '@/lib/project-hours'
+import MarginsCard from './components/MarginsCard'
 import ShopGrade from './components/ShopGrade'
 import CompletedProjects from './components/CompletedProjects'
 import OutlookSection from './components/OutlookSection'
@@ -58,6 +66,85 @@ const DEFAULT_CONFIG = {
 
 const HRS_PER_FT_YEAR = 2080
 
+// ── Margins card data (moved off /team 2026-09-15) ──────────────────────────
+
+interface MarginsData {
+  breakEven: number
+  shopRate: number
+  snapshots: Array<{ id: string; effective_rate: number; created_at: string }>
+  alerts: Array<{ id: string; name: string; effRate: number; belowBreakEven: boolean }>
+  /** Kept so the promote-rate write can snapshot the inputs behind the rate. */
+  overhead: ReturnType<typeof emptyOverheadInputs>
+  team: TeamMember[]
+  billable: BillableHoursInputs
+}
+
+/**
+ * Everything the Margins card needs, or NULL if the caller may not see money.
+ *
+ * ⛔ THE GATE IS /api/team/setup, NOT A CLIENT-SIDE READ. That endpoint is the
+ * one authority on "can this person see comp" — it strips every money figure
+ * server-side for non-owners. /reports has no role check of its own, so
+ * fetching `orgs` directly here would quietly expose break-even and the margin
+ * ladder to every manager who can open this page.
+ */
+async function loadMarginsData(orgId: string): Promise<MarginsData | null> {
+  const { data: session } = await supabase.auth.getSession()
+  const res = await fetch('/api/team/setup', {
+    headers: { Authorization: `Bearer ${session.session?.access_token ?? ''}` },
+    // The derived rate is computed from this payload and the inputs are edited
+    // on /team and Settings — a cached response shows a stale ladder.
+    cache: 'no-store',
+  })
+  if (!res.ok) return null
+  const setup = await res.json()
+  if (!setup?.canSeeComp) return null
+
+  const overhead = setup.overhead || emptyOverheadInputs()
+  const team = (setup.team || []) as TeamMember[]
+  const billable = setup.billable as BillableHoursInputs
+  const breakEven = computeDerivedShopRate(overhead, team, billable)
+
+  const { data: snaps } = await supabase
+    .from('shop_rate_snapshots')
+    .select('id, effective_rate, created_at')
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false })
+    .limit(8)
+
+  // Margin alerts: active projects whose effective rate sits under break-even
+  // +15%. N parallel calls, same as it was on /team — fine at beta scale.
+  let alerts: MarginsData['alerts'] = []
+  if (breakEven > 0) {
+    const { data: projs } = await supabase
+      .from('projects')
+      .select('id, name, bid_total, stage')
+      .eq('org_id', orgId)
+      .in('stage', ['sold', 'production', 'installed'])
+    const threshold = breakEven * 1.15
+    const rows = await Promise.all(
+      ((projs || []) as Array<{ id: string; name: string; bid_total: number }>).map(async (p) => {
+        const { totalHours } = await loadProjectDeptHours(orgId, p.id)
+        if (!totalHours || totalHours <= 0 || !p.bid_total) return null
+        const effRate = p.bid_total / totalHours
+        if (effRate >= threshold) return null
+        return { id: p.id, name: p.name, effRate, belowBreakEven: effRate < breakEven }
+      }),
+    )
+    alerts = rows.filter(Boolean).sort((a, b) => a!.effRate - b!.effRate) as MarginsData['alerts']
+  }
+
+  return {
+    breakEven,
+    shopRate: Number(setup.shopRate) || 0,
+    snapshots: (snaps || []) as MarginsData['snapshots'],
+    alerts,
+    overhead,
+    team,
+    billable,
+  }
+}
+
 // ── Main page ──
 
 export default function ReportsPage() {
@@ -71,9 +158,63 @@ export default function ReportsPage() {
 
   const monthKeys = useMemo(() => getNextMonthKeys(8), [])
 
+  // Margins card (moved off /team). NULL for anyone who may not see money.
+  const [margins, setMargins] = useState<MarginsData | null>(null)
+  const [savingRate, setSavingRate] = useState(false)
+
   useEffect(() => {
     if (org?.id) loadData()
   }, [org?.id, period])
+
+  useEffect(() => {
+    if (!org?.id) return
+    let cancelled = false
+    void loadMarginsData(org.id)
+      .then((m) => {
+        if (!cancelled) setMargins(m)
+      })
+      .catch(() => {
+        // A failed load must leave the card HIDDEN, not half-rendered with
+        // zeros — a break-even of $0 reads as "every job is profitable".
+        if (!cancelled) setMargins(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [org?.id])
+
+  /**
+   * Promote the derived rate to the shop rate, and snapshot the inputs behind
+   * it. Moved verbatim from /team with the card.
+   *
+   * ⚠️ The snapshot is best-effort: the rate is already saved by then, so a
+   * snapshot failure must not read as "the save failed".
+   */
+  async function promoteRate() {
+    if (!org?.id || !margins || margins.breakEven <= 0) return
+    setSavingRate(true)
+    try {
+      const rate = Math.round(margins.breakEven * 100) / 100
+      await saveShopRate(org.id, rate)
+      try {
+        await supabase.from('shop_rate_snapshots').insert({
+          org_id: org.id,
+          effective_rate: rate,
+          overhead_monthly: sumOverheadAnnual(margins.overhead) / 12,
+          labor_cost_monthly: sumTeamAnnualComp(margins.team) / 12,
+          billable_hours_monthly: sumBillableHoursYear(margins.team, margins.billable) / 12,
+          utilization_pct: margins.billable.utilization_pct,
+        })
+      } catch (e) {
+        console.warn('shop rate snapshot', e)
+      }
+      setMargins(await loadMarginsData(org.id))
+    } catch (e) {
+      console.error('promote shop rate', e)
+    } finally {
+      setSavingRate(false)
+    }
+  }
 
   async function loadData() {
     setLoading(true)
@@ -243,6 +384,27 @@ export default function ReportsPage() {
           {/* Moved off /dashboard 2026-09-12. Sits between what happened and
               what's coming because it narrates both. */}
           <AiShopReport />
+
+          {/* ⛔ MOVED OFF /team 2026-09-15 (team upgrade item 2), AND IT IS
+              OWNER-ONLY. `margins` stays null unless /api/team/setup says
+              `canSeeComp` — that endpoint strips every money figure
+              server-side for non-owners, and THIS page has no role check of
+              its own. Rendering the ladder without that gate would hand
+              break-even and per-project effective rates to any manager who can
+              open Reports. */}
+          {margins && (
+            <>
+              <div className="border-t border-[#E5E7EB]" />
+              <MarginsCard
+                breakEven={margins.breakEven}
+                shopRate={margins.shopRate}
+                saving={savingRate}
+                onSave={promoteRate}
+                snapshots={margins.snapshots}
+                alerts={margins.alerts}
+              />
+            </>
+          )}
 
           {/* ═══ BOTTOM HALF: What's coming ═══ */}
           <OutlookSection

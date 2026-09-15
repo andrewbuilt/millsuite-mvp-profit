@@ -59,6 +59,9 @@ const MERGEABLE_FIELD_SET: Record<Exclude<keyof TeamMember, 'id'>, true> = {
   phone: true,
   title: true,
   start_date: true,
+  // Team upgrade item 4. The build refused to compile until this was here —
+  // exactly what the typed field map is for.
+  birthday: true,
   hours_per_week: true,
   active: true,
 }

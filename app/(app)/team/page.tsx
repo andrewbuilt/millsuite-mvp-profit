@@ -30,7 +30,9 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { announce } from '@/lib/tour-events'
 import { useConfirm } from '@/components/confirm-dialog'
-import { Trash2, ArrowRight } from 'lucide-react'
+import { Trash2, ArrowRight, Cake, ChevronRight, Clock, Search } from 'lucide-react'
+import { mondayOf, weekBar } from '@/lib/time-filters'
+import { fmtActualHours } from '@/lib/actual-hours'
 import Link from 'next/link'
 import HolidaysAndPtoSection from '@/components/team/HolidaysAndPtoSection'
 import {
@@ -101,6 +103,13 @@ function TeamContent() {
   // Owner-only: compensation figures. Server-authoritative (the /api/team/setup
   // route strips comp for non-owners) + a secure default of false.
   const [canSeeComp, setCanSeeComp] = useState(false)
+  /** Roster collapse + search (team upgrade item 1). One row open at a time —
+   *  the point is to stop the page being twenty stacked edit panes. */
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null)
+  const [rosterSearch, setRosterSearch] = useState('')
+  /** roster member id → minutes logged since Monday. Drives the collapsed
+   *  week bar and the "tracked this week" link. */
+  const [weekMinutesByMember, setWeekMinutesByMember] = useState<Record<string, number>>({})
   // Item 5 — role assignment. `roles` maps users.id → owner|admin|member (the
   // same id team_members[].user_id holds). Only the owner may change them;
   // `/api/admin/users` enforces that regardless of what this UI offers.
@@ -115,8 +124,6 @@ function TeamContent() {
   const [savingRate, setSavingRate] = useState(false)
   const [rateSavedAt, setRateSavedAt] = useState<number | null>(null)
   // Shop-rate extras (chunk C).
-  const [snapshots, setSnapshots] = useState<Array<{ id: string; effective_rate: number; created_at: string }>>([])
-  const [rateAlerts, setRateAlerts] = useState<Array<{ id: string; name: string; effRate: number; belowBreakEven: boolean }>>([])
 
   const [newDeptName, setNewDeptName] = useState('')
   const [addingDept, setAddingDept] = useState(false)
@@ -162,7 +169,6 @@ function TeamContent() {
       setLoaded(true)
 
       // Shop-rate snapshot history (chunk C). Table predates this (001).
-      loadSnapshots()
 
       // PTO (chunk B). Guarded: if migration 062 hasn't run yet the tables
       // are missing — hide the section rather than erroring the page.
@@ -270,53 +276,78 @@ function TeamContent() {
     label: 'team save',
   })
 
-  const derivedRate = useMemo(
-    () => computeDerivedShopRate(overhead, team, billable),
-    [overhead, team, billable],
-  )
-  // Break-even = the cost-covering derived rate. Projects should bid above
-  // it; the alert strip flags anything under break-even × 1.15.
-  const breakEven = derivedRate
-
-  // Margin alert strip (chunk C2). Loads active projects' bid_total + est
-  // hours (N parallel calls, fine at beta scale) and flags underpriced ones.
+  /**
+   * This week's tracked minutes per ROSTER member.
+   *
+   * ⛔ TWO ID SPACES, AND THE BRIDGE IS `team_members[].user_id`.
+   * `time_entries.user_id` is a LOGIN id (`users.id`); the roster is keyed by
+   * its own member id. Keying this map by the login id would leave every bar
+   * at zero for everyone — and a bar that reads 0h looks like "this person did
+   * nothing", not like "the app can't match them".
+   *
+   * ⚠️ `mondayOf` is LOCAL. `toISOString().slice(0,10)` is the UTC day and
+   * rolls at 8pm Eastern, which would push Monday-evening work into the
+   * previous week's bar.
+   */
   useEffect(() => {
-    if (!org?.id || !loaded || breakEven <= 0) {
-      setRateAlerts([])
-      return
-    }
+    if (!orgId || !loaded) return
     let cancelled = false
-    ;(async () => {
-      const { data: projs } = await supabase
-        .from('projects')
-        .select('id, name, bid_total, stage')
-        .eq('org_id', org.id)
-        .in('stage', ['sold', 'production', 'installed'])
-      const list = (projs || []) as Array<{ id: string; name: string; bid_total: number; stage: string }>
-      const threshold = breakEven * 1.15
-      const rows = await Promise.all(
-        list.map(async (p) => {
-          const { totalHours } = await loadProjectDeptHours(org.id, p.id)
-          if (!totalHours || totalHours <= 0 || !p.bid_total) return null
-          const effRate = p.bid_total / totalHours
-          if (effRate >= threshold) return null
-          return { id: p.id, name: p.name, effRate, belowBreakEven: effRate < breakEven }
-        }),
-      )
+    void (async () => {
+      const weekStart = mondayOf(new Date())
+      const { data } = await supabase
+        .from('time_entries')
+        .select('user_id, duration_minutes, started_at')
+        .eq('org_id', orgId)
+        .gte('started_at', weekStart.toISOString())
       if (cancelled) return
-      setRateAlerts(
-        rows.filter(Boolean).sort((a, b) => a!.effRate - b!.effRate) as Array<{
-          id: string
-          name: string
-          effRate: number
-          belowBreakEven: boolean
-        }>,
-      )
+      const byLogin: Record<string, number> = {}
+      for (const e of (data || []) as Array<{ user_id: string | null; duration_minutes: number | null }>) {
+        if (!e.user_id) continue
+        byLogin[e.user_id] = (byLogin[e.user_id] || 0) + (Number(e.duration_minutes) || 0)
+      }
+      const byMember: Record<string, number> = {}
+      for (const m of team) {
+        if (m.user_id && byLogin[m.user_id]) byMember[m.id] = byLogin[m.user_id]
+      }
+      setWeekMinutesByMember(byMember)
     })()
     return () => {
       cancelled = true
     }
-  }, [org?.id, loaded, breakEven])
+    // `team` is intentionally a dependency: a member linked to a login mid-
+    // session should get their bar without a reload.
+  }, [orgId, loaded, team])
+
+  /** Requests still waiting on a decision, oldest first — the banner queue. */
+  const pendingPto = useMemo(
+    () =>
+      ptoRequests
+        .filter((r) => r.status === 'pending')
+        .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || '')),
+    [ptoRequests],
+  )
+
+  /** Roster filtered for DISPLAY ONLY — see the note at the search box. */
+  const visibleTeam = useMemo(() => {
+    const q = rosterSearch.trim().toLowerCase()
+    if (!q) return team
+    return team.filter((m) => {
+      const deptNames = (m.dept_assignments || [])
+        .map((id) => departments.find((d) => d.id === id)?.name || '')
+        .join(' ')
+      return `${m.name} ${m.title || ''} ${deptNames}`.toLowerCase().includes(q)
+    })
+  }, [team, rosterSearch, departments])
+
+  const derivedRate = useMemo(
+    () => computeDerivedShopRate(overhead, team, billable),
+    [overhead, team, billable],
+  )
+  // ⛔ THE MARGIN-ALERT QUERY MOVED TO /reports WITH THE CARD (item 2). It
+  // loaded every active project plus its dept hours — N parallel calls — on
+  // every /team render, and after the relocation nothing on this page read the
+  // result. A dead query that still costs a page load is the kind of thing
+  // that survives for a year because it isn't visible.
 
   // ── Departments CRUD ──
 
@@ -439,17 +470,6 @@ function TeamContent() {
   }
 
   // ── Save derived rate as the org's shop rate + snapshot (chunk C) ──
-  async function loadSnapshots() {
-    if (!org?.id) return
-    const { data } = await supabase
-      .from('shop_rate_snapshots')
-      .select('id, effective_rate, created_at')
-      .eq('org_id', org.id)
-      .order('created_at', { ascending: false })
-      .limit(8)
-    setSnapshots((data || []) as Array<{ id: string; effective_rate: number; created_at: string }>)
-  }
-
   async function promoteDerivedRate() {
     if (!org?.id || derivedRate <= 0) return
     setSavingRate(true)
@@ -489,7 +509,6 @@ function TeamContent() {
         billable_hours_monthly: sumBillableHoursYear(team, billable) / 12,
         utilization_pct: billable.utilization_pct,
       })
-      await loadSnapshots()
     } catch (e) {
       console.warn('shop rate snapshot', e)
     } finally {
@@ -651,6 +670,57 @@ function TeamContent() {
         Team & Departments
       </h1>
 
+      {/* ⛔ PENDING TIME OFF, AT THE TOP. It sat inside the time-off section
+          far down the page, so a request could wait days purely because nobody
+          scrolled — and an unanswered request silently blocks capacity the
+          schedule is already counting on. Approve/deny inline; the policy
+          editor and the balances stay where they are. */}
+      {pendingPto.length > 0 && (
+        <div className="mb-5 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-[#FDE68A] text-[12.5px] font-semibold text-[#92400E]">
+            {pendingPto.length} time-off request{pendingPto.length === 1 ? '' : 's'} waiting on you
+          </div>
+          <div className="divide-y divide-[#FDE68A]/60">
+            {pendingPto.map((req) => {
+              const who = team.find((m) => m.id === req.team_member_id)
+              return (
+                <div key={req.id} className="px-4 py-2.5 flex items-center gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12.5px] text-[#111]">
+                      {who?.name || 'Team member'}
+                      <span className="text-[#92400E]">
+                        {' '}
+                        · {req.start_date}
+                        {req.end_date && req.end_date !== req.start_date
+                          ? ` → ${req.end_date}`
+                          : ''}
+                      </span>
+                    </div>
+                    {req.notes && (
+                      <div className="text-[11px] text-[#9CA3AF] truncate">{req.notes}</div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => void approveRequest(req)}
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#059669] text-white hover:bg-[#047857]"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => void denyRequest(req)}
+                      className="px-2.5 py-1 text-[11px] rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#B91C1C] hover:border-[#FECACA]"
+                    >
+                      Deny
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Shop rate + comp are owner-only (money). Admins/managers see the
           roster, departments, and time-off without any dollar figures. */}
       {canSeeComp && showRateBanner && (
@@ -675,15 +745,22 @@ function TeamContent() {
         </div>
       )}
 
+      {/* ⛔ THE MARGIN LADDER + MARGIN ALERTS MOVED TO /reports (item 2).
+          Andrew: "those should live somewhere else." They're financial
+          monitoring, not roster management. Nothing was deleted — the
+          component is `reports/components/MarginsCard`, and it took its
+          owner-only gate with it. The rate-drift banner above STAYS here,
+          because this is the page whose edits cause the drift. */}
       {canSeeComp && (
-        <ShopRatePanel
-          breakEven={breakEven}
-          shopRate={shopRate}
-          saving={savingRate}
-          onSave={promoteDerivedRate}
-          snapshots={snapshots}
-          alerts={rateAlerts}
-        />
+        <div className="mb-5">
+          <Link
+            href="/reports"
+            className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+          >
+            Shop rate ladder + margin alerts moved to Reports{' '}
+            <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
       )}
 
       {/* Departments + team roster. Open to managers since 087: salary moved
@@ -860,15 +937,93 @@ function TeamContent() {
             </div>
           )}
 
+          {/* ⛔ SEARCH FILTERS THE RENDER, NOTHING ELSE. `visibleTeam` is used
+              ONLY for display — every write still goes through `patchMember`
+              by id against the full `team`, so a filtered view can never drop
+              someone from the autosave payload. */}
+          {team.length > 3 && (
+            <div className="mb-3 relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+              <input
+                value={rosterSearch}
+                onChange={(e) => setRosterSearch(e.target.value)}
+                placeholder="Search by name, title or department"
+                className="w-full pl-8 pr-3 py-2 text-[12.5px] border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+              />
+            </div>
+          )}
+
           <div data-tour="team-roster" className="space-y-2">
-            {team.map((member) => (
+            {visibleTeam.map((member) => {
+              const expanded = expandedMemberId === member.id
+              const memberDeptNames = (member.dept_assignments || [])
+                .map((id) => departments.find((d) => d.id === id)?.name)
+                .filter(Boolean) as string[]
+              const bar = weekBar(
+                weekMinutesByMember[member.id] || 0,
+                0,
+                Number(member.hours_per_week) > 0 ? Number(member.hours_per_week) : 40,
+              )
+              return (
               <div
                 key={member.id}
-                className={`bg-white border border-[#E5E7EB] rounded-xl p-4 ${
-                  member.active === false ? 'opacity-60' : ''
-                }`}
+                className={`bg-white border border-[#E5E7EB] rounded-xl ${
+                  expanded ? 'p-4' : 'px-4 py-2.5'
+                } ${member.active === false ? 'opacity-60' : ''}`}
               >
-                <div className="flex items-center justify-between mb-2">
+                {/* ⛔ THE COLLAPSED ROW. Twenty people meant twenty full edit
+                    panes stacked down the page, and the name you were looking
+                    for was never on screen. Name · title · depts · the week
+                    bar; the pane opens on click. */}
+                <button
+                  onClick={() => setExpandedMemberId(expanded ? null : member.id)}
+                  className="w-full flex items-center gap-3 text-left"
+                >
+                  <ChevronRight
+                    className={`w-3.5 h-3.5 flex-shrink-0 text-[#9CA3AF] transition-transform ${
+                      expanded ? 'rotate-90' : ''
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-[#111] truncate">
+                      {member.name || 'Unnamed'}
+                      {member.active === false && (
+                        <span className="ml-1.5 text-[10px] text-[#9CA3AF] font-normal">
+                          inactive
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-[#9CA3AF] truncate">
+                      {[member.title, memberDeptNames.join(' · ')].filter(Boolean).join(' — ') ||
+                        'No title or department'}
+                    </div>
+                  </div>
+                  {/* ⚠️ THE SAME BAR AS /me, FROM THE SAME HELPER. Two copies
+                      of "am I at 100% this week?" would eventually disagree
+                      about the same person on the same day. */}
+                  {!expanded && (
+                    <div className="w-28 flex-shrink-0 hidden sm:block">
+                      <div className="flex items-baseline justify-between mb-0.5">
+                        <span className="text-[9.5px] uppercase tracking-wider text-[#D1D5DB]">
+                          This week
+                        </span>
+                        <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">
+                          {fmtActualHours(bar.total)}
+                        </span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${bar.width}%`, background: bar.color }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </button>
+
+                {expanded && (
+                <>
+                <div className="flex items-center justify-between mb-2 mt-3">
                   {/* Controlled — see FieldInput for why. */}
                   <input
                     type="text"
@@ -1055,8 +1210,51 @@ function TeamContent() {
                   onRemove={() => removeLogin(member)}
                   onSetRole={(role) => setMemberRole(member, role)}
                 />
+
+                {/* ⛔ THE TIME LINK REUSES /time's OWN FILTER STATE. That page
+                    reads `?member=` into the memberId filter that shipped with
+                    the time batch — so this opens the real filtered view
+                    rather than a second, near-identical listing that would
+                    drift from it. The id is the ROSTER id, which is what
+                    `matchesTimeFilter` compares against. */}
+                <div className="mt-3 pt-3 border-t border-[#F3F4F6] flex items-center justify-between gap-2 flex-wrap">
+                  <Link
+                    href={`/time?member=${encodeURIComponent(member.id)}`}
+                    className="inline-flex items-center gap-1 text-[11.5px] text-[#2563EB] hover:text-[#1D4ED8] font-medium"
+                  >
+                    <Clock className="w-3 h-3" />
+                    {fmtActualHours(weekMinutesByMember[member.id] || 0)} tracked this week
+                    <ArrowRight className="w-3 h-3" />
+                  </Link>
+                  {/* Birthday. Jsonb, so no migration — but it had to be added
+                      to `normalizeTeamMembers`, which is an allowlist that
+                      silently drops anything it doesn't name. */}
+                  <label className="flex items-center gap-1.5 text-[11px] text-[#9CA3AF]">
+                    <Cake className="w-3 h-3" />
+                    Birthday
+                    <input
+                      type="date"
+                      value={member.birthday || ''}
+                      onChange={(e) =>
+                        patchMember(member.id, { birthday: e.target.value || null })
+                      }
+                      className="px-1.5 py-1 text-[11.5px] text-[#374151] border border-[#E5E7EB] rounded outline-none focus:border-[#2563EB]"
+                    />
+                  </label>
+                </div>
+                </>
+                )}
               </div>
-            ))}
+              )
+            })}
+            {/* ⚠️ "No results" is NOT the same as "no team" — the empty state
+                below reads "Add team members", which would be wrong and
+                confusing while a search is simply matching nothing. */}
+            {team.length > 0 && visibleTeam.length === 0 && (
+              <div className="text-center py-6 text-sm text-[#9CA3AF]">
+                Nobody matches “{rosterSearch}”.
+              </div>
+            )}
             {team.length === 0 && !addingMember && (
               <div className="text-center py-8 text-sm text-[#9CA3AF]">
                 Add team members to assign to departments
@@ -1348,117 +1546,6 @@ function NumberCell({ value, onCommit }: { value: number; onCommit: (v: number) 
   )
 }
 
-// Shop-rate cockpit (chunk C): margin ladder + save + snapshot history +
-// margin alerts. Break-even is the cost-covering derived rate.
-function ShopRatePanel({
-  breakEven,
-  shopRate,
-  saving,
-  onSave,
-  snapshots,
-  alerts,
-}: {
-  breakEven: number
-  shopRate: number
-  saving: boolean
-  onSave: () => void
-  snapshots: Array<{ id: string; effective_rate: number; created_at: string }>
-  alerts: Array<{ id: string; name: string; effRate: number; belowBreakEven: boolean }>
-}) {
-  if (breakEven <= 0) return null
-  const margins = [0, 0.15, 0.2, 0.25, 0.3]
-  const money = (n: number) => `$${n.toFixed(2)}`
-  const fmtDate = (iso: string) =>
-    new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-
-  return (
-    <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {/* Margin ladder */}
-      <div className="bg-white border border-[#E5E7EB] rounded-xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-[#111]">Shop rate</h2>
-          <span className="text-[11px] text-[#9CA3AF]">
-            Current <span className="font-mono text-[#111]">{money(shopRate)}/hr</span>
-          </span>
-        </div>
-        <div className="space-y-1">
-          {margins.map((m) => {
-            const rate = breakEven / (1 - m)
-            const isCurrent = Math.abs(rate - shopRate) < 0.01
-            return (
-              <div
-                key={m}
-                className={`flex items-center justify-between text-sm px-2 py-1 rounded-lg ${
-                  isCurrent ? 'bg-[#EFF6FF]' : ''
-                }`}
-              >
-                <span className="text-[#6B7280]">
-                  {m === 0 ? 'Break-even' : `${Math.round(m * 100)}% margin`}
-                </span>
-                <span className="font-mono tabular-nums text-[#111]">{money(rate)}/hr</span>
-              </div>
-            )
-          })}
-        </div>
-        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[#F3F4F6]">
-          <button
-            onClick={onSave}
-            disabled={saving}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-60"
-          >
-            {saving ? 'Saving…' : 'Save break-even as my shop rate'}
-          </button>
-          {snapshots.length > 0 && (
-            <span className="text-[11px] text-[#9CA3AF]">
-              Last saved {fmtDate(snapshots[0].created_at)}
-            </span>
-          )}
-        </div>
-        {snapshots.length > 1 && (
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5">
-            {snapshots.slice(0, 6).map((s) => (
-              <span key={s.id} className="text-[10px] font-mono text-[#9CA3AF]">
-                {fmtDate(s.created_at)}: {money(s.effective_rate)}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Margin alerts */}
-      <div className="bg-white border border-[#E5E7EB] rounded-xl p-4">
-        <h2 className="text-sm font-semibold text-[#111] mb-1">Margin alerts</h2>
-        <p className="text-[11px] text-[#9CA3AF] mb-2">
-          Active jobs priced under break-even × 1.15 ({money(breakEven * 1.15)}/hr).
-        </p>
-        {alerts.length === 0 ? (
-          <div className="text-xs text-[#16A34A] font-medium py-2">
-            All active jobs are priced above target.
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {alerts.map((a) => (
-              <Link
-                key={a.id}
-                href={`/projects/${a.id}`}
-                className="flex items-center justify-between text-xs px-1 py-1 rounded hover:bg-[#F9FAFB]"
-              >
-                <span className="truncate text-[#111]">{a.name}</span>
-                <span
-                  className={`font-mono tabular-nums flex-shrink-0 ml-2 ${
-                    a.belowBreakEven ? 'text-[#DC2626] font-semibold' : 'text-[#B45309]'
-                  }`}
-                >
-                  {money(a.effRate)}/hr
-                </span>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 // Small labeled input for the member detail grid. Uncontrolled
 // CONTROLLED, with a local draft.

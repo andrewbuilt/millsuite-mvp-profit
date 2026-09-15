@@ -67,6 +67,11 @@ export interface TeamMember {
   title?: string | null
   /** ISO date (YYYY-MM-DD). Drives PTO tenure bands (chunk B). */
   start_date?: string | null
+  /** ISO date (YYYY-MM-DD), optional. Shown on the expanded roster card.
+   *  ⚠️ NOTHING DERIVES FROM THIS and nothing should — `start_date` is the
+   *  field the PTO tenure bands read. A birthday that quietly became a tenure
+   *  input would move people between accrual bands for no visible reason. */
+  birthday?: string | null
   /** Per-person scheduled hours/week. Feeds BOTH the shop-rate billable
    *  denominator and per-dept capacity (hours_per_week / 5 per working
    *  day). Defaults from the org billable inputs (40) so existing members
@@ -318,6 +323,10 @@ export function normalizeTeamMembers(
     phone: m.phone ? String(m.phone) : null,
     title: m.title ? String(m.title) : null,
     start_date: m.start_date ? String(m.start_date) : null,
+    // ⛔ THIS OBJECT IS AN ALLOWLIST. Anything not named here is DROPPED on
+    // every load and every merge — a new jsonb field that isn't added right
+    // here saves once, vanishes on reload, and looks like a broken autosave.
+    birthday: m.birthday ? String(m.birthday) : null,
     hours_per_week:
       m.hours_per_week != null && String(m.hours_per_week).trim() !== ''
         ? Number(m.hours_per_week)

@@ -13,6 +13,54 @@
 // been bitten by that on payments and on `received_date`; don't reintroduce it.
 // ============================================================================
 
+/**
+ * The week bar: hours logged against a person's own weekly target.
+ *
+ * ⛔ EXTRACTED SO /me AND /team CANNOT DISAGREE. This math lived inside /me's
+ * `WeekHoursBar`. /team's roster now shows the same bar on each collapsed row,
+ * and two copies of "am I at 100% this week?" would eventually answer
+ * differently for the same person on the same day — which is worse than not
+ * showing it at all.
+ *
+ * ⛔ PLAIN `hours_per_week`, NOT PTO-ADJUSTED (scoped explicitly). Capacity
+ * already computes a PTO-aware week; folding that in makes the bar move for
+ * reasons the reader didn't cause — a target that shrinks because you booked a
+ * day off reads as the app losing your hours.
+ *
+ * ⚠️ `liveMinutes` IS THE RUNNING CLOCK. Closed entries carry
+ * `duration_minutes`; an open shift doesn't. Without it, someone four hours
+ * into the day watches the bar sit still all morning and concludes it's broken.
+ *
+ * The colours are deliberately not a performance score: amber on the way,
+ * green once the week is made, blue past it.
+ */
+export interface WeekBar {
+  /** Logged + running, in minutes. */
+  total: number
+  targetMinutes: number
+  pct: number
+  /** `pct` clamped to 0–100, for the fill width. */
+  width: number
+  over: boolean
+  color: string
+}
+
+export function weekBar(minutes: number, liveMinutes: number, targetHours: number): WeekBar {
+  const total = Math.max(0, minutes || 0) + Math.max(0, liveMinutes || 0)
+  // ⚠️ NEVER ZERO. A 0h target divides by zero and paints every bar full — and
+  // 0 is a real value on the roster for anyone who isn't on a weekly schedule.
+  const targetMinutes = Math.max(1, Math.round((targetHours > 0 ? targetHours : 40) * 60))
+  const pct = (total / targetMinutes) * 100
+  return {
+    total,
+    targetMinutes,
+    pct,
+    width: Math.max(0, Math.min(100, pct)),
+    over: pct > 100,
+    color: pct > 100 ? '#2563EB' : pct >= 100 ? '#059669' : '#D97706',
+  }
+}
+
 /** Monday of the week containing `d`. Sunday belongs to the week just ended,
  *  matching the schedule board's convention. */
 export function mondayOf(d: Date): Date {

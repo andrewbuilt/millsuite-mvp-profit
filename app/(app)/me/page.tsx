@@ -24,6 +24,7 @@ import {
   type TimeEntry,
   type ScheduledJob,
 } from '@/lib/worker-time'
+import { weekBar } from '@/lib/time-filters'
 import {
   loadPtoRequests,
   loadOrCreateDefaultPolicy,
@@ -251,14 +252,10 @@ function WeekHoursBar({
   targetHours: number
   liveMinutes: number
 }) {
-  const total = minutes + liveMinutes
-  const targetMinutes = Math.max(1, Math.round(targetHours * 60))
-  const pct = (total / targetMinutes) * 100
-  const width = Math.max(0, Math.min(100, pct))
-  const over = pct > 100
-  // Green once the week is made; amber on the way; there is no "bad" here —
-  // this is someone's own timesheet, not a performance score.
-  const color = over ? '#2563EB' : pct >= 100 ? '#059669' : '#D97706'
+  // ⛔ THE MATH MOVED TO lib/time-filters. /team now shows this same bar on
+  // every collapsed roster row, and two implementations of "am I at 100% this
+  // week?" would eventually disagree about the same person on the same day.
+  const { total, width, color } = weekBar(minutes, liveMinutes, targetHours)
 
   return (
     <div className="mb-4 rounded-xl border border-[#E5E7EB] bg-white px-3.5 py-3">
