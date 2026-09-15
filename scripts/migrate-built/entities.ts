@@ -510,6 +510,16 @@ export async function migrateSubprojects(ctx: Ctx): Promise<void> {
       // consumables 5 points higher than the script did and the two would
       // disagree on the same job.
       consumable_markup_pct: ctx.manifest.builtConsumablesPct,
+      // ⛔ FROZEN (migration 108). This sub's lines carry Built's quoted price
+      // verbatim as a material lump, so the app must add no labor $, no
+      // consumables and no margin on top.
+      //
+      // The app used to infer this from `projects.imported_at`, which also
+      // froze any subproject added to the job AFTER the import — so new scope,
+      // with real composer lines and real hours, priced at material cost with
+      // zero labor and zero margin. Saying it on the ROW is what lets a change
+      // order add scope to a migrated job at a real price.
+      price_frozen: true,
       quality_type: s.quality_type ?? null,
       material_finish: s.material_finish ?? null,
       activity_type: s.activity_type ?? null,

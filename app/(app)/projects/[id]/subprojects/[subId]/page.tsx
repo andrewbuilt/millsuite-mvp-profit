@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
-import { resolveBucketMargins } from '@/lib/pricing'
+import { isSubFrozen, resolveBucketMargins } from '@/lib/pricing'
 import { normalizeItemName } from '@/lib/subproject-description'
 import { recomputeProjectBidTotal } from '@/lib/project-totals'
 import { useConfirm } from '@/components/confirm-dialog'
@@ -102,6 +102,9 @@ interface SubprojectRow {
   description: string | null
   linear_feet: number | null
   consumable_markup_pct: number | null
+  /** Migration 108 — frozen means the stored cost IS the price (a migrated
+   *  Built room). New scope added by a change order is NOT frozen. */
+  price_frozen?: boolean | null
   activity_type: string | null
   details_json: unknown
   exclusions_json: unknown
@@ -218,10 +221,15 @@ export default function SubprojectEditorPage() {
   // rate, so a sold job's cost doesn't move when the shop rate changes. Same
   // rule the project page and lib/project-totals use.
   const shopRate = Number(project?.locked_shop_rate) || (org?.shop_rate ?? 0)
-  // Imported jobs price FROZEN (6c-2): the line's stored lump IS Built's
-  // quoted price, so no labor $ and no consumables get layered on top. Hours
-  // still roll up (hoursByDept doesn't depend on the rate).
-  const isImported = !!project?.imported_at
+  // MIGRATED subprojects price FROZEN (6c-2, narrowed by 108): the line's
+  // stored lump IS Built's quoted price, so no labor $ and no consumables get
+  // layered on top. Hours still roll up (hoursByDept doesn't depend on rate).
+  //
+  // ⛔ PER-SUBPROJECT, NOT PER-PROJECT. `imported_at` also froze scope added
+  // AFTER the import — a change order's new room, with real composer lines,
+  // priced at material cost with no labor and no margin. This editor is where
+  // that would have been visible as a suspiciously cheap subtotal.
+  const isImported = isSubFrozen(project, subproject)
   // Subproject rollup runs at COST. Project markup is applied at the
   // project rollup uniformly via projects.target_margin_pct (Phase 12
   // dogfood-2 Issue 12), so we pass 0 here. The subproject bottom-bar
@@ -279,7 +287,7 @@ export default function SubprojectEditorPage() {
           .single(),
         supabase
           .from('subprojects')
-          .select('id, project_id, name, description, linear_feet, consumable_markup_pct, activity_type, details_json, exclusions_json')
+          .select('id, project_id, name, description, linear_feet, consumable_markup_pct, price_frozen, activity_type, details_json, exclusions_json')
           .eq('id', subId)
           .single(),
         supabase

@@ -30,7 +30,13 @@ import {
   type EstimateLine,
   type PricingContext,
 } from './estimate-lines'
-import { computeBucketedPrice, resolveBucketMargins, type CostBuckets } from './pricing'
+import {
+  computeBucketedPrice,
+  isSubFrozen,
+  resolveMarginsForNewScope,
+  type CostBuckets,
+  type PricingProjectSource,
+} from './pricing'
 import { recomputeProjectBidTotal } from './project-totals'
 import type { ComposerDefaults } from './composer'
 import {
@@ -107,12 +113,12 @@ export function openDocOf(docs: CoDoc[]): CoDoc | null {
 
 interface ProjectPricing {
   orgId: string
-  /** Built-imported job: its migrated lines carry the quoted price verbatim as
-   *  a material lump, so the project's own rule adds nothing on top. */
-  isImported: boolean
+  /** Kept whole so per-subproject freeze questions (`isSubFrozen`) can be
+   *  answered against it — the freeze is NOT a project-level fact any more. */
+  project: PricingProjectSource
   shopRate: number
   orgConsumablesPct: number
-  margins: ReturnType<typeof resolveBucketMargins>
+  margins: ReturnType<typeof resolveMarginsForNewScope>
   rateBook: Awaited<ReturnType<typeof loadRateBook>>
 }
 
@@ -145,10 +151,14 @@ export async function loadProjectPricing(projectId: string): Promise<ProjectPric
 
   return {
     orgId: project.org_id as string,
-    isImported: !!project.imported_at,
+    project: project as PricingProjectSource,
     shopRate,
     orgConsumablesPct: Number((org as any)?.consumable_markup_pct ?? 10),
-    margins: resolveBucketMargins(project as any, org as any),
+    // ⛔ NOT resolveBucketMargins. On an imported job the importer PINS every
+    // margin to 0 to freeze Built's numbers, so the plain resolver would price
+    // a change order's new scope at raw cost — no markup at all. See
+    // resolveMarginsForNewScope.
+    margins: resolveMarginsForNewScope(project as any, org as any),
     rateBook: await loadRateBook(project.org_id as string),
   }
 }
@@ -252,15 +262,17 @@ export async function priceSubprojectAtContract(
 ): Promise<number> {
   const { data: sub } = await supabase
     .from('subprojects')
-    .select(
-      'id, quantity, consumable_markup_pct, install_guys, install_days, install_complexity_pct, install_rate_per_hour, install_included',
-    )
+    .select('*')
     .eq('id', subprojectId)
     .maybeSingle()
   const lines = await loadEstimateLines(subprojectId)
+  // ⛔ PER-SUBPROJECT (108). Credit a MIGRATED room at its frozen Built number
+  // — that is what the client paid. Credit a room added by an earlier change
+  // order at the rate and margin it was actually sold at.
+  const frozen = isSubFrozen(p.project, sub as any)
   const ctx: PricingContext = {
-    shopRate: p.isImported ? 0 : p.shopRate,
-    consumableMarkupPct: p.isImported
+    shopRate: frozen ? 0 : p.shopRate,
+    consumableMarkupPct: frozen
       ? 0
       : ((sub as any)?.consumable_markup_pct ?? p.orgConsumablesPct),
     profitMarginPct: 0,
@@ -272,7 +284,7 @@ export async function priceSubprojectAtContract(
     ctx,
     (sub as { quantity?: number } | null)?.quantity ?? 1,
   )
-  const margins = p.isImported
+  const margins = frozen
     ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
     : p.margins
   return Math.round(computeBucketedPrice(bucketsOf(rollup), margins).priceTotal)

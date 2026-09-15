@@ -96,6 +96,65 @@ export interface PricingProjectSource {
   locked_shop_rate?: number | null
 }
 
+/** The bit of a SUBPROJECT row that decides whether its lines are frozen. */
+export interface PricingSubSource {
+  price_frozen?: boolean | null
+}
+
+/**
+ * ⛔ THE MARGIN TO USE FOR SCOPE ADDED AFTER AN IMPORT.
+ *
+ * The import freeze is TWO mechanisms stacked, and fixing one without the
+ * other still gives the work away:
+ *   1. rate 0 + consumables 0  — handled by `isSubFrozen` / migration 108.
+ *   2. the importer PINS `projects.*_margin_pct` to 0 ("the price is the
+ *      price"), so `resolveBucketMargins` returns zeros for the whole project.
+ *
+ * Leave (2) alone and a change order's new scope prices at raw COST: labor and
+ * material with no markup at all. So for the LIVE half of an imported project
+ * the pins are ignored — they are an artifact of the freeze, not a decision
+ * about what new work is worth — and margin resolves from the org (→ 35).
+ *
+ * ⚠️ THE COST: a margin Andrew pinned BY HAND on an imported job is
+ * indistinguishable from the importer's zeros, so it won't apply to new scope
+ * there. That's the safe side of the trade — the alternative is billing a
+ * change order at cost — but it's the thing to remember if a CO on an imported
+ * job ever prices higher than expected.
+ *
+ * Native projects are completely unaffected: their pins are real and are used.
+ */
+export function resolveMarginsForNewScope(
+  project: (MarginSource & PricingProjectSource) | null | undefined,
+  org: MarginSource | null | undefined,
+): BucketMargins {
+  if (project?.imported_at) return resolveBucketMargins(null, org)
+  return resolveBucketMargins(project, org)
+}
+
+/**
+ * ⛔ IS THIS SUBPROJECT'S STORED COST ALREADY ITS PRICE? (migration 108)
+ *
+ * `projects.imported_at` answers "did this project come from Built" — a fact
+ * about its HISTORY. Pricing needs "does this row already contain its price" —
+ * a fact about the ROW. They were identical on the day of the import and have
+ * been drifting apart ever since: **a subproject added to an imported job
+ * today holds real composer lines with real hours, and freezing it prices that
+ * work at material cost with no labor and no margin.**
+ *
+ * ⚠️ THE FALLBACK DIRECTION IS LOAD-BEARING. `undefined` means the caller
+ * didn't select the column, and that resolves to the OLD project-level answer
+ * — frozen on an imported job. A forgotten select therefore behaves exactly as
+ * it does today instead of quietly un-freezing a signed contract and marking
+ * it up a second time. `false` is an explicit answer and is honoured.
+ */
+export function isSubFrozen(
+  project: PricingProjectSource | null | undefined,
+  sub?: PricingSubSource | null,
+): boolean {
+  if (sub && sub.price_frozen != null) return !!sub.price_frozen
+  return !!project?.imported_at
+}
+
 /**
  * ⛔ THE ONE ANSWER TO "what rate and consumables price this project's lines".
  *
@@ -118,20 +177,77 @@ export interface PricingProjectSource {
 export function effectiveShopRate(
   project: PricingProjectSource | null | undefined,
   orgShopRate: number,
+  // ⛔ PER-SUBPROJECT AS OF 108. Omit it and you get the project-level answer,
+  // which is the safe (frozen) one on an imported job — see isSubFrozen.
+  sub?: PricingSubSource | null,
 ): number {
-  if (project?.imported_at) return 0
+  if (isSubFrozen(project, sub)) return 0
   return Number(project?.locked_shop_rate) || orgShopRate
 }
 
-/** Consumables markup for this project's lines — zero on imported jobs, for
+/** Consumables markup for this subproject's lines — zero when it's frozen, for
  *  the same reason the rate is. `subPct` is a subproject-level override. */
 export function effectiveConsumablePct(
   project: PricingProjectSource | null | undefined,
   orgPct: number | null | undefined,
   subPct?: number | null,
+  sub?: PricingSubSource | null,
 ): number {
-  if (project?.imported_at) return 0
+  if (isSubFrozen(project, sub)) return 0
   return subPct ?? orgPct ?? 10
+}
+
+/**
+ * Price a project whose subprojects are NOT all on the same footing.
+ *
+ * ⛔ WHY THIS EXISTS. `computeBucketedPrice` applies margin ONCE over summed
+ * buckets, which was fine while a project was entirely frozen or entirely
+ * live. After 108 one project can hold both: Built's migrated rooms (their
+ * cost IS their price) beside a change order's new scope (quoted today, at
+ * margin). Running one bucket sum through one margin would either mark up the
+ * contract a second time or give away the margin on the new work.
+ *
+ * Splitting is EXACT, not an approximation: `priceFromMargin` is linear in
+ * cost, so price(frozen) + price(live) is the same number a single pass would
+ * produce if the rates agreed.
+ */
+export function priceMixedBuckets(
+  frozen: CostBuckets,
+  live: CostBuckets,
+  margins: BucketMargins,
+): { priceTotal: number; frozenPrice: number; livePrice: number } {
+  const NO_MARGIN: BucketMargins = {
+    laborMarginPct: 0,
+    materialMarginPct: 0,
+    consumableMarginPct: 0,
+  }
+  const frozenPrice = computeBucketedPrice(frozen, NO_MARGIN).priceTotal
+  const livePrice = computeBucketedPrice(live, margins).priceTotal
+  return { frozenPrice, livePrice, priceTotal: round(frozenPrice + livePrice) }
+}
+
+/** An empty bucket set — the accumulator both halves start from. */
+export function emptyBuckets(): CostBuckets {
+  return {
+    laborCost: 0,
+    materialCost: 0,
+    hardwareCost: 0,
+    consumablesCost: 0,
+    installCost: 0,
+    optionsCost: 0,
+    customCost: 0,
+  }
+}
+
+/** Add `add` into `into`, in place. */
+export function addBuckets(into: CostBuckets, add: Partial<CostBuckets>): void {
+  into.laborCost += add.laborCost || 0
+  into.materialCost += add.materialCost || 0
+  into.hardwareCost += add.hardwareCost || 0
+  into.consumablesCost += add.consumablesCost || 0
+  into.installCost += add.installCost || 0
+  into.optionsCost += add.optionsCost || 0
+  into.customCost += add.customCost || 0
 }
 
 function marginFraction(pct: number): number {

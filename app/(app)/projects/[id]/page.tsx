@@ -68,7 +68,11 @@ import {
 } from '@/lib/estimate-lines'
 import {
   computeBucketedPrice,
-  resolveBucketMargins,
+  resolveMarginsForNewScope,
+  isSubFrozen,
+  priceMixedBuckets,
+  emptyBuckets,
+  addBuckets,
   effectiveShopRate,
   effectiveConsumablePct,
   type CostBuckets,
@@ -196,6 +200,10 @@ interface Subproject {
   linear_feet: number | null
   consumable_markup_pct: number | null
   profit_margin_pct: number | null
+  /** Migration 108 — this sub's stored cost IS its price (a migrated Built
+   *  room). Optional because the select is `*`: before 108 it's simply absent,
+   *  and `isSubFrozen` reads absent as the old project-level answer. */
+  price_frozen?: boolean | null
   ready_for_production: boolean | null
   // Phase 12 item 9 — install prefill columns. Compute install cost at
   // display time so a shop-rate change in ShopRateWalkthrough flows in.
@@ -346,7 +354,7 @@ export default function ProjectCoverPage() {
   // at cost; margin is applied once at the project rollup via
   // computeBucketedPrice so the editor UI reads raw cost numbers.
   const margins: BucketMargins = useMemo(
-    () => resolveBucketMargins(project, org),
+    () => resolveMarginsForNewScope(project, org),
     [
       project?.labor_margin_pct,
       project?.material_margin_pct,
@@ -507,17 +515,20 @@ export default function ProjectCoverPage() {
     // which is a tick behind on first load) so cards price at the job's
     // locked rate immediately.
     const loadedProject = projRes.data as Project | null
-    const effRate = effectiveShopRate(loadedProject, orgShopRate)
 
     const cardData: SubCardData[] = subs.map((sub) => {
       const subLines =
         linesBySub.find((x) => x.subId === sub.id)?.lines || ([] as EstimateLine[])
+      // ⛔ THE FREEZE IS PER-SUBPROJECT (108), so the rate is resolved INSIDE
+      // the map, not once above. New scope on an imported job prices at the
+      // real rate; Built's migrated rooms stay frozen at their quoted lump.
       const perSubCtx: PricingContext = {
-        shopRate: effRate,
+        shopRate: effectiveShopRate(loadedProject, orgShopRate, sub),
         consumableMarkupPct: effectiveConsumablePct(
           loadedProject,
           org?.consumable_markup_pct,
           sub.consumable_markup_pct,
+          sub,
         ),
         // Subproject rollups always run at COST. Margin is applied
         // exactly once at the project total below.
@@ -675,7 +686,10 @@ export default function ProjectCoverPage() {
     // customer-facing prices on each QB line. Because computeBucketedPrice
     // is linear per bucket, the sum of the QB line prices equals the
     // project total. Install prefill cost rides in the install bucket.
-    const qbMargins = resolveBucketMargins(projRes.data as Project | null, org)
+    // ⛔ PER-SUB FREEZE (108) APPLIES HERE TOO — these numbers go onto a CLIENT
+    // INVOICE. Marking up a migrated room bills Built's price twice; leaving a
+    // change order's new scope at cost invoices it with no margin at all.
+    const qbMargins = resolveMarginsForNewScope(projRes.data as Project | null, org)
     setQbLines(
       cardData.map(({ sub, rollup, installPrefillCost }) => {
         const price = Math.round(
@@ -689,7 +703,9 @@ export default function ProjectCoverPage() {
               optionsCost: rollup.optionsCost,
               customCost: rollup.customCost,
             },
-            qbMargins,
+            isSubFrozen(loadedProject, sub)
+              ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+              : qbMargins,
           ).priceTotal,
         )
         return {
@@ -958,16 +974,41 @@ export default function ProjectCoverPage() {
 
     // Migration 052: apply the three per-bucket margins via the shared
     // helper (same code path as lib/project-totals.ts — no divergence).
-    const buckets: CostBuckets = {
-      laborCost: acc.laborCost,
-      materialCost: acc.materialCost,
-      hardwareCost: acc.hardwareCost,
-      consumablesCost: acc.consumablesCost,
-      installCost: acc.installCost,
-      optionsCost: acc.optionsCost,
-      customCost: acc.customCost,
+    //
+    // ⛔ SPLIT BY FREEZE (108), exactly as recomputeProjectBidTotal does. A
+    // frozen sub's cost IS its price; a live sub's cost carries margin. One
+    // sum through one margin gets one of the two wrong by the whole margin —
+    // and this page's number is what the header shows against bid_total, so a
+    // divergence here reads as the contract total being wrong.
+    const frozenB = emptyBuckets()
+    const liveB = emptyBuckets()
+    for (const { sub, rollup, installPrefillCost } of cards) {
+      addBuckets(isSubFrozen(project, sub) ? frozenB : liveB, {
+        ...rollup,
+        installCost: rollup.installCost + installPrefillCost,
+      })
     }
-    const priced = computeBucketedPrice(buckets, margins)
+    const mixed = priceMixedBuckets(frozenB, liveB, margins)
+    const priced = {
+      ...computeBucketedPrice(
+        {
+          laborCost: acc.laborCost,
+          materialCost: acc.materialCost,
+          hardwareCost: acc.hardwareCost,
+          consumablesCost: acc.consumablesCost,
+          installCost: acc.installCost,
+          optionsCost: acc.optionsCost,
+          customCost: acc.customCost,
+        },
+        margins,
+      ),
+      // ⚠️ Only the PRICE side is re-derived from the split; the cost-side
+      // group figures above are margin-independent and stay as they were.
+      priceTotal: mixed.priceTotal,
+      marginAmount: mixed.priceTotal - (acc.laborCost + acc.materialCost + acc.hardwareCost + acc.consumablesCost + acc.installCost + acc.optionsCost + acc.customCost),
+    }
+    priced.blendedMarginPct =
+      priced.priceTotal > 0 ? (priced.marginAmount / priced.priceTotal) * 100 : 0
     acc.costTotal = priced.costTotal
     acc.priceTotal = priced.priceTotal
     acc.marginAmount = priced.marginAmount
@@ -1009,7 +1050,11 @@ export default function ProjectCoverPage() {
     if (cards.length === 0) return out
 
     // Same bucket mapping the project total uses, one subproject at a time.
-    const exact = cards.map(({ rollup, installPrefillCost }) =>
+    // ⛔ AND THE SAME PER-SUB FREEZE (108): a migrated room prices at cost, a
+    // change order's new scope prices at margin. Using one rule for both makes
+    // these cards stop summing to the header — which is the exact complaint
+    // this map was built to fix.
+    const exact = cards.map(({ sub, rollup, installPrefillCost }) =>
       computeBucketedPrice(
         {
           laborCost: rollup.laborCost,
@@ -1020,7 +1065,9 @@ export default function ProjectCoverPage() {
           optionsCost: rollup.optionsCost,
           customCost: rollup.customCost,
         },
-        margins,
+        isSubFrozen(project, sub)
+          ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+          : margins,
       ).priceTotal,
     )
 

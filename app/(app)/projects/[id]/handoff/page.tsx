@@ -61,7 +61,11 @@ import {
 } from '@/lib/estimate-lines'
 import {
   computeBucketedPrice,
-  resolveBucketMargins,
+  resolveMarginsForNewScope,
+  isSubFrozen,
+  priceMixedBuckets,
+  emptyBuckets,
+  addBuckets,
   effectiveShopRate,
   effectiveConsumablePct,
   type CostBuckets,
@@ -120,6 +124,10 @@ interface Subproject {
   material_finish: string | null
   linear_feet: number | null
   consumable_markup_pct: number | null
+  /** Migration 108 — the stored cost IS the price (a migrated Built room).
+   *  Loaded via select('*'); absent before 108, which `isSubFrozen` reads as
+   *  the old project-level answer. */
+  price_frozen?: boolean | null
   install_guys: number | null
   install_days: number | null
   install_complexity_pct: number | null
@@ -254,12 +262,17 @@ function HandoffPageInner() {
           // ⚠️ Priced off the row we JUST loaded, not the render-time
           // `shopRate`, which is a tick behind on first paint — the same
           // reason the project page does it this way.
+          // ⛔ THE FREEZE IS PER-SUBPROJECT (108). This page writes its number
+          // into bid_total on confirm, so getting it wrong here sells the job
+          // at the wrong contract value — which is exactly the failure the
+          // comment above `shopRate` records.
           const perSubCtx: PricingContext = {
-            shopRate: effectiveShopRate(loadedProject, orgShopRate),
+            shopRate: effectiveShopRate(loadedProject, orgShopRate, sub),
             consumableMarkupPct: effectiveConsumablePct(
               loadedProject,
               org?.consumable_markup_pct,
               sub.consumable_markup_pct,
+              sub,
             ),
             // Subproject rollups always run at COST. Margin is applied
             // exactly once at the project total.
@@ -387,7 +400,7 @@ function HandoffPageInner() {
   // Migration 052: three per-bucket margins, same shared helper as the
   // bidding page so the handoff total === the project total exactly.
   const margins = useMemo(
-    () => resolveBucketMargins(project, org),
+    () => resolveMarginsForNewScope(project, org),
     [
       project?.labor_margin_pct,
       project?.material_margin_pct,
@@ -408,28 +421,21 @@ function HandoffPageInner() {
       subCount: subs.length,
       linearFeet: 0,
     }
-    const buckets: CostBuckets = {
-      laborCost: 0,
-      materialCost: 0,
-      hardwareCost: 0,
-      consumablesCost: 0,
-      installCost: 0,
-      optionsCost: 0,
-      customCost: 0,
-    }
+    // ⛔ TWO BUCKET SETS (108): a migrated room's cost IS its price, a change
+    // order's new scope carries margin. `handleConfirm` writes this total into
+    // bid_total, so one rule for both sells the job at the wrong number.
+    const frozenB = emptyBuckets()
+    const liveB = emptyBuckets()
+    const buckets: CostBuckets = emptyBuckets()
     for (const sub of subs) {
       const r = rollupBySub[sub.id]
       const installCost = installCostBySub[sub.id] || 0
       const installHours = installHoursBySub[sub.id] || 0
       acc.linearFeet += Number(sub.linear_feet) || 0
       if (!r) continue
-      buckets.laborCost += r.laborCost
-      buckets.materialCost += r.materialCost
-      buckets.hardwareCost += r.hardwareCost
-      buckets.consumablesCost += r.consumablesCost
-      buckets.installCost += r.installCost + installCost
-      buckets.optionsCost += r.optionsCost
-      buckets.customCost += r.customCost
+      const withInstall = { ...r, installCost: r.installCost + installCost }
+      addBuckets(buckets, withInstall)
+      addBuckets(isSubFrozen(project, sub) ? frozenB : liveB, withInstall)
       acc.hoursByDept.eng += r.hoursByDept.eng
       acc.hoursByDept.cnc += r.hoursByDept.cnc
       acc.hoursByDept.assembly += r.hoursByDept.assembly
@@ -438,12 +444,13 @@ function HandoffPageInner() {
       acc.totalHours += r.totalHours
     }
     const priced = computeBucketedPrice(buckets, margins)
+    const mixed = priceMixedBuckets(frozenB, liveB, margins)
     acc.costTotal = priced.costTotal
-    acc.total = priced.priceTotal
-    acc.marginAmount = priced.marginAmount
-    acc.marginPct = priced.blendedMarginPct
+    acc.total = mixed.priceTotal
+    acc.marginAmount = mixed.priceTotal - priced.costTotal
+    acc.marginPct = mixed.priceTotal > 0 ? (acc.marginAmount / mixed.priceTotal) * 100 : 0
     return acc
-  }, [subs, rollupBySub, installCostBySub, installHoursBySub, margins])
+  }, [subs, rollupBySub, installCostBySub, installHoursBySub, margins, project])
 
   const suggested = useMemo(
     () => suggestWindow(projectTotals.totalHours),

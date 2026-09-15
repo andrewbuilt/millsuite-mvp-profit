@@ -31,8 +31,13 @@ import {
 } from './estimate-lines'
 import { computeInstallCost, computeInstallHours } from './install-prefill'
 import {
+  addBuckets,
   computeBucketedPrice,
+  emptyBuckets,
+  isSubFrozen,
+  priceMixedBuckets,
   resolveBucketMargins,
+  resolveMarginsForNewScope,
   type CostBuckets,
 } from './pricing'
 
@@ -58,6 +63,9 @@ interface ProjectRow {
 
 interface SubRow {
   id: string
+  /** Migration 108. `undefined` = the column wasn't selected (pre-108 retry
+   *  path), which `isSubFrozen` resolves to the old project-level answer. */
+  price_frozen?: boolean | null
   consumable_markup_pct: number | null
   install_guys: number | null
   install_days: number | null
@@ -120,27 +128,49 @@ export async function recomputeProjectBidTotal(
     const lockedRate = Number(project.locked_shop_rate) || 0
     const shopRate = lockedRate > 0 ? lockedRate : Number(orgRow?.shop_rate ?? 0)
 
-    // ── Imported jobs price FROZEN (6c-2) ──────────────────────────────────
-    // These were quoted in Built; the price cannot vary. Each migrated line
-    // carries Built's per-sub price verbatim as its material lump, so the
-    // rollup must add NOTHING on top: no labor $ (hours are still preserved —
-    // hoursByDept doesn't depend on the rate — so scheduling and est-vs-actual
-    // still work), no consumables, no margin. Cost therefore == the quoted
-    // price, and the project total lands exactly on Built's contract number.
-    // Native projects are completely unaffected.
-    const isImported = !!project.imported_at
+    // ── MIGRATED SUBPROJECTS price FROZEN (6c-2, narrowed by 108) ──────────
+    // A migrated line carries Built's per-sub price verbatim as its material
+    // lump, so the rollup must add NOTHING on top: no labor $ (hours are still
+    // preserved — hoursByDept doesn't depend on the rate — so scheduling and
+    // est-vs-actual still work), no consumables, no margin. Cost therefore ==
+    // the quoted price, and the total lands exactly on Built's number.
+    //
+    // ⛔ THIS IS PER-SUBPROJECT NOW, NOT PER-PROJECT. It used to key on
+    // `projects.imported_at`, which also froze any scope added AFTER the
+    // import — so a subproject created today on an imported job, with real
+    // composer lines and real hours, priced at material cost with zero labor
+    // and zero margin. That is thousands of dollars per change order, and CO
+    // v2 acceptance walks straight into it (Pajot is imported). See
+    // `isSubFrozen` and migration 108.
+    //
+    // ⚠️ So ONE PROJECT CAN NOW HOLD BOTH KINDS, and margin can no longer be
+    // applied once over a single bucket sum — the frozen half would be marked
+    // up a second time. Two accumulators, priced separately, summed by
+    // `priceMixedBuckets`. Exact, because priceFromMargin is linear.
+    // ⚠️ The FROZEN half needs no margins object at all — `priceMixedBuckets`
+    // hard-zeroes it. This one is for the LIVE half, and on an imported
+    // project it deliberately ignores the importer's pinned zeros; see
+    // `resolveMarginsForNewScope`.
+    const margins = resolveMarginsForNewScope(project, orgRow)
 
-    // Effective per-bucket margins: project pin → org default → 35.
-    const margins = isImported
-      ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
-      : resolveBucketMargins(project, orgRow)
-
-    const { data: subsData } = await supabase
+    const SUB_COLS =
+      'id, consumable_markup_pct, install_guys, install_days, install_complexity_pct, install_rate_per_hour, install_included'
+    let subsData: SubRow[] | null = null
+    const withFlag = await supabase
       .from('subprojects')
-      .select(
-        'id, consumable_markup_pct, install_guys, install_days, install_complexity_pct, install_rate_per_hour, install_included',
-      )
+      .select(`${SUB_COLS}, price_frozen`)
       .eq('project_id', projectId)
+    subsData = (withFlag.data as SubRow[] | null) ?? null
+    if (!subsData) {
+      // ⛔ PRE-108 FALLBACK. PostgREST fails the WHOLE select on ONE unknown
+      // column (42703), so asking for `price_frozen` before the migration runs
+      // returns NO SUBPROJECTS — and the `subs.length === 0` guard below would
+      // then leave bid_total untouched, making a real pricing bug look like a
+      // page that simply didn't update. Retry without it; `isSubFrozen` sees
+      // `undefined` and gives the old project-level answer.
+      const retry = await supabase.from('subprojects').select(SUB_COLS).eq('project_id', projectId)
+      subsData = (retry.data as SubRow[] | null) ?? null
+    }
     const subs = (subsData || []) as SubRow[]
     if (subs.length === 0) {
       // No subs → priceTotal of 0 means we shouldn't overwrite a
@@ -152,27 +182,24 @@ export async function recomputeProjectBidTotal(
 
     const rateBook = await loadRateBook(project.org_id)
 
-    // Accumulate the six cost buckets across subs (all at COST — margin is
-    // applied once below via computeBucketedPrice). Install prefill dollars
-    // land in the install bucket.
-    const buckets: CostBuckets = {
-      laborCost: 0,
-      materialCost: 0,
-      hardwareCost: 0,
-      consumablesCost: 0,
-      installCost: 0,
-      optionsCost: 0,
-      customCost: 0,
-    }
+    // Accumulate the six cost buckets across subs, all at COST — margin is
+    // applied below. Install prefill dollars land in the install bucket.
+    //
+    // ⛔ TWO ACCUMULATORS. A frozen sub's cost IS its price and must not be
+    // marked up; a live sub's cost must be. Mixing them into one sum and
+    // applying one margin gets one of the two wrong by the whole margin.
+    const frozenBuckets = emptyBuckets()
+    const liveBuckets = emptyBuckets()
     for (const sub of subs) {
+      const frozen = isSubFrozen(project, sub)
       const lines = await loadEstimateLines(sub.id)
       const ctx: PricingContext = {
-        // Imported (frozen): zero rate + zero consumables so the line's stored
-        // price is the whole number. Hours still accumulate.
-        shopRate: isImported ? 0 : shopRate,
-        consumableMarkupPct: isImported ? 0 : (sub.consumable_markup_pct ?? orgConsumables),
+        // Frozen: zero rate + zero consumables so the line's stored price is
+        // the whole number. Hours still accumulate either way.
+        shopRate: frozen ? 0 : shopRate,
+        consumableMarkupPct: frozen ? 0 : (sub.consumable_markup_pct ?? orgConsumables),
         // Subproject rollups always run at COST. Margin lives on the
-        // project-level computeBucketedPrice below — same as the project page.
+        // project-level price below — same as the project page.
         profitMarginPct: 0,
       }
       // 097: a "(TYP)" subproject priced once but built N times.
@@ -190,20 +217,17 @@ export async function recomputeProjectBidTotal(
         ratePerHour: sub.install_rate_per_hour,
         included: sub.install_included ?? false,
       }
-      const installPrefillCost = isImported ? 0 : computeInstallCost(installPrefill, shopRate)
+      const installPrefillCost = frozen ? 0 : computeInstallCost(installPrefill, shopRate)
       // computeInstallHours is read but doesn't affect priceTotal —
       // hours fold into hoursByDept; dollars come from the cost buckets.
       void computeInstallHours(installPrefill)
-      buckets.laborCost += rollup.laborCost
-      buckets.materialCost += rollup.materialCost
-      buckets.hardwareCost += rollup.hardwareCost
-      buckets.consumablesCost += rollup.consumablesCost
-      buckets.installCost += rollup.installCost + installPrefillCost
-      buckets.optionsCost += rollup.optionsCost
-      buckets.customCost += rollup.customCost
+      addBuckets(frozen ? frozenBuckets : liveBuckets, {
+        ...rollup,
+        installCost: rollup.installCost + installPrefillCost,
+      })
     }
 
-    const priceTotal = Math.round(computeBucketedPrice(buckets, margins).priceTotal)
+    const priceTotal = Math.round(priceMixedBuckets(frozenBuckets, liveBuckets, margins).priceTotal)
 
     const stored = Number(project.bid_total) || 0
     if (Math.abs(stored - priceTotal) <= EPSILON_DOLLARS) return stored
