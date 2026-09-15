@@ -60,6 +60,9 @@ export default function ReviseScopeModal({
   priceOf,
   onCancel,
   onSave,
+  onRemoveWholeScope,
+  isBeingRemoved,
+  onUndoRemoval,
 }: {
   subprojectId: string
   subprojectName: string
@@ -75,6 +78,10 @@ export default function ReviseScopeModal({
   priceOf: (d: EditSubDraft) => { delta: number; credit: number; charge: number }
   onCancel: () => void
   onSave: (draft: EditSubDraft) => Promise<void>
+  /** Flag the WHOLE scope for removal, credited at contract value. */
+  onRemoveWholeScope: () => void
+  isBeingRemoved: boolean
+  onUndoRemoval: () => void
 }) {
   const [removeIds, setRemoveIds] = useState<string[]>(initial?.removeLineIds ?? [])
   const [addLines, setAddLines] = useState<CoDraftLine[]>(initial?.addLines ?? [])
@@ -183,9 +190,39 @@ export default function ReviseScopeModal({
         </div>
 
         <div className="p-4">
-          <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1.5">
-            Contract lines
-          </div>
+          {/* ⛔ REMOVING THE WHOLE SCOPE LIVES HERE, NOT ON THE PROJECT PAGE.
+              It used to be a button beside the card, one stray click from a
+              price — and next to an equally-sized "Revise" button, with
+              nothing saying which change order either belonged to. It's the
+              destructive option, so it sits behind opening this modal. */}
+          {isBeingRemoved ? (
+            <div className="mb-3 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2.5 flex items-center justify-between gap-3">
+              <div className="text-[11.5px] text-[#991B1B] leading-snug">
+                <strong>This entire scope is being removed</strong> on {coLabel}, credited at its
+                original contract value. Line edits don&rsquo;t apply while it&rsquo;s removed.
+              </div>
+              <button
+                onClick={onUndoRemoval}
+                disabled={saving}
+                className="flex-shrink-0 px-2.5 py-1 text-[11px] rounded-lg border border-[#FCA5A5] bg-white text-[#B91C1C] hover:bg-[#FEF2F2] disabled:opacity-50"
+              >
+                Keep it
+              </button>
+            </div>
+          ) : (
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+                Contract lines
+              </div>
+              <button
+                onClick={onRemoveWholeScope}
+                disabled={saving}
+                className="text-[11px] text-[#9CA3AF] hover:text-[#B91C1C] disabled:opacity-50"
+              >
+                Remove this whole scope instead
+              </button>
+            </div>
+          )}
           <div className="space-y-1">
             {contractLines.map((l) => {
               const removed = removeIds.includes(l.id)

@@ -2069,59 +2069,35 @@ export default function ProjectCoverPage() {
                         sub keeps existing — it may hold tracked hours — and is
                         only flagged; acceptance is what applies it. Outside the
                         Link so clicking it doesn't navigate. */}
+                    {/* ⛔ ONE CHIP PER ROW, NAMED AFTER THE CHANGE ORDER.
+                        This was two bordered buttons — "Remove in CO" and
+                        "Revise in CO" — sitting as siblings of the card in an
+                        `items-stretch` row, so they inherited its full height
+                        and read as two more cards. Andrew, looking at the live
+                        page: "what do these buttons do".
+                        ⚠️ `self-center` is load-bearing: without it flexbox
+                        stretches this to the card's height again.
+                        Removal moved INSIDE the revise modal — it's the
+                        destructive option and doesn't belong one stray click
+                        away from a price. */}
                     {coDoc && !install && (
-                      <button
-                        onClick={() => {
-                          const already = coItems.find((i) => i.subproject_id === sub.id)
-                          if (already) {
-                            void runCo(async () =>
-                              (await deleteCoDocItem(already.id))
-                                ? null
-                                : 'Could not take that off the change order.',
-                            )
-                            return
-                          }
-                          void runCo(async () =>
-                            (await addRemoval({
-                              orgId: org!.id,
-                              doc: coDoc,
-                              subprojectId: sub.id,
-                            }))
-                              ? null
-                              : 'Could not add that removal — is it already on the change order?',
-                          )
-                        }}
-                        disabled={coV2Busy}
-                        title={
-                          coTouch.has(sub.id)
-                            ? `Take this off ${coLabel(coDoc)}`
-                            : `Remove this scope in ${coLabel(coDoc)}`
-                        }
-                        className={`flex-shrink-0 px-2 rounded-lg border text-[10px] font-medium transition-colors disabled:opacity-40 ${
-                          coTouch.get(sub.id) === 'remove_sub'
-                            ? 'border-[#FCA5A5] bg-[#FEF2F2] text-[#B91C1C]'
-                            : 'border-[#E5E7EB] bg-white text-[#9CA3AF] hover:text-[#B91C1C] hover:border-[#FCA5A5]'
-                        }`}
-                      >
-                        {coTouch.get(sub.id) === 'remove_sub' ? 'Undo' : 'Remove in CO'}
-                      </button>
-                    )}
-                    {/* Revise = the line-level diff. Hidden once the sub is
-                        being removed outright — you can't revise scope you're
-                        deleting, and the unique index would refuse a second
-                        item for the same sub anyway. */}
-                    {coDoc && !install && coTouch.get(sub.id) !== 'remove_sub' && (
                       <button
                         onClick={() => void openRevise(sub)}
                         disabled={coV2Busy}
                         title={`Change this scope in ${coLabel(coDoc)}`}
-                        className={`flex-shrink-0 px-2 rounded-lg border text-[10px] font-medium transition-colors disabled:opacity-40 ${
-                          coTouch.get(sub.id) === 'edit_sub'
-                            ? 'border-[#FCD34D] bg-[#FFFBEB] text-[#92400E]'
-                            : 'border-[#E5E7EB] bg-white text-[#9CA3AF] hover:text-[#7C3AED] hover:border-[#C4B5FD]'
+                        className={`flex-shrink-0 self-center px-2 py-1 rounded-md text-[10px] font-semibold transition-colors disabled:opacity-40 ${
+                          coTouch.get(sub.id) === 'remove_sub'
+                            ? 'bg-[#FEE2E2] text-[#991B1B]'
+                            : coTouch.get(sub.id) === 'edit_sub'
+                              ? 'bg-[#FEF3C7] text-[#92400E]'
+                              : 'text-[#C4B5FD] hover:bg-[#F5F3FF] hover:text-[#7C3AED]'
                         }`}
                       >
-                        {coTouch.get(sub.id) === 'edit_sub' ? 'Edit CO' : 'Revise in CO'}
+                        {coTouch.get(sub.id) === 'remove_sub'
+                          ? 'REMOVING'
+                          : coTouch.get(sub.id) === 'edit_sub'
+                            ? 'CHANGED'
+                            : coLabel(coDoc)}
                       </button>
                     )}
                   </div>
@@ -3265,6 +3241,29 @@ export default function ProjectCoverPage() {
                 )
               : 0
             return { delta: charge - credit, credit, charge }
+          }}
+          isBeingRemoved={coTouch.get(reviseFor.sub.id) === 'remove_sub'}
+          onRemoveWholeScope={() => {
+            void runCo(async () =>
+              (await addRemoval({
+                orgId: org.id,
+                doc: coDoc,
+                subprojectId: reviseFor.sub.id,
+              }))
+                ? null
+                : 'Could not add that removal — is this scope already on the change order?',
+            )
+            setReviseFor(null)
+          }}
+          onUndoRemoval={() => {
+            const already = coItems.find((i) => i.subproject_id === reviseFor.sub.id)
+            if (!already) return
+            void runCo(async () =>
+              (await deleteCoDocItem(already.id))
+                ? null
+                : 'Could not take that off the change order.',
+            )
+            setReviseFor(null)
           }}
           onCancel={() => setReviseFor(null)}
           onSave={async (d) => {
