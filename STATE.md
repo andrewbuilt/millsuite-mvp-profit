@@ -12,6 +12,15 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-15)
 
+**NEW 2026-09-15 (Andrew): TEAM PAGE UPGRADE — scoped, build after the payments coherence batch.** Six edits to `/team`, no schema migration expected (the roster is jsonb):
+1. **Roster rows collapse + search.** Each member renders collapsed by default (name · role/depts · the tracked-time mini bar from item 6); expand for the full edit pane. A text search filters by name/title/dept.
+2. **Shop rate + margin alert LEAVE the page** — Andrew: "those should live somewhere else." **Call made (veto-able): the margin ladder + margin-alert strip move to `/reports`** as a "Margins" card (they're financial monitoring, and /reports is where the AI report already landed). The shop-rate SETUP flow is untouched — only /team's display strip moves. Nothing deleted, relocated.
+3. **Pending PTO requests become a banner at the top of /team** (count + the approve/deny queue inline or one click away). The Time-off section below keeps the policy editor + balances.
+4. **Birthday on the employee card** — new `birthday` field in the `team_members` jsonb (date, optional), shown on the expanded card. Jsonb = no migration; keep the write inside the existing roster save path (mind the flush-on-unmount autosave).
+5. **Link to their tracked time** — the expanded card links to `/time` pre-filtered to that member (the member filter shipped in the time batch — reuse its query state).
+6. **Tracked-time progress on the COLLAPSED row** — a mini bar: this week's logged hours vs their `hours_per_week` (same math as /me's weekly banner — share the helper, don't reimplement).
+Verify: search finds a member by dept; PTO banner shows a pending request and approving it clears; a birthday saves and survives reload (the autosave path); the collapsed bar matches /me's bar for the same person; margin ladder renders on /reports and is GONE from /team.
+
 **✅ 2026-09-15: PAYMENTS BOARD COHERENCE BATCH — ALL FOUR BUILT (`0ae28d4`). No migration. ⚠️ Andrew still owes the one thing code can't do: correcting the mis-set percentages via the new Edit draws, and a look at the board.**
 1. **✅ One green card per draw.** `reconcileProject` now records **which payments covered which draw** (`DerivedDraw.applied`) — nothing linked the two before, which is why neither card could absorb the other. The board builds one card per (draw, month) carrying the draw label the grey card used to supply; multiple payments collapse into one card with the entries (and deletes) on expand. The grey "paid in full" card is gone, and `ReceiptCard` with it.
 2. **✅ The months foot, verified against prod.** Cards live where the money LANDED; unpaid draws stay where they're scheduled. **The header is still summed from the LEDGER while the cards are built by ATTRIBUTION — two different code paths that must agree**, which is what makes the check worth anything. `npx tsx scripts/inspect-board-footing.mjs` reports **every month footing**, and **Schiller shows three green cards summing to exactly $49,075**.
