@@ -2231,6 +2231,15 @@ export default function ProjectCoverPage() {
                             res.agreed,
                           )} — a ${money(Math.abs(res.drift))} difference worth checking.`
                         }
+                        // ⚠️ A NET CREDIT RAISES NO INVOICE AND NO DRAW. Say so
+                        // explicitly, or it reads as the billing having
+                        // silently failed — you don't send a bill for money you
+                        // owe back.
+                        if (res.agreed <= 0) {
+                          return `Accepted. This is a net credit, so no invoice or draw was raised — the contract is reduced by ${money(
+                            Math.abs(res.agreed),
+                          )}.`
+                        }
                         return null
                       })
                     }

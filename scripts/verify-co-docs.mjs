@@ -282,6 +282,31 @@ check('notes come off the slots', row.notes, 'CO scope')
 check('stamped as corrected', row.composer_hours_corrected, true)
 check('product_key round-trips for edit', row.product_key, 'base')
 
+// ── Step 3: what gets billed and scheduled ──────────────────────────────────
+console.log('\nbilling and the draw row')
+// `summarizeDoc().delta` is what acceptance bills and schedules, so the sign
+// rules live here. A NET CREDIT raises neither: you don't invoice money you
+// owe back, and a negative line on a client-facing payment schedule reads as a
+// mistake (Andrew, 2026-09-13).
+const creditDoc = summarizeDoc([
+  { kind: 'remove_sub', delta_amount: -4200, subproject_id: 's1' },
+  { kind: 'add_sub', delta_amount: 1000, subproject_id: null },
+])
+check('a net-credit doc is negative', creditDoc.delta, -3200)
+check('so nothing is billed', creditDoc.delta > 0, false)
+// ⚠️ Mixed doc that still nets POSITIVE: bills and schedules the NET, not the
+// additions. Billing `additions` would charge for scope the credit paid for.
+const mixedDoc = summarizeDoc([
+  { kind: 'remove_sub', delta_amount: -1850, subproject_id: 's1' },
+  { kind: 'add_sub', delta_amount: 1420, subproject_id: null },
+  { kind: 'add_sub', delta_amount: 6240, subproject_id: null },
+])
+check("Pajot's net", mixedDoc.delta, 5810)
+check('additions alone would overcharge', mixedDoc.additions, 7660)
+check('by exactly the credit', mixedDoc.additions + mixedDoc.credits, mixedDoc.delta)
+// A $0 doc (a free change) bills nothing either — there's nothing to collect.
+check('a free change bills nothing', summarizeDoc([{ kind: 'edit_sub', delta_amount: 0, subproject_id: 's1' }]).delta > 0, false)
+
 // ── The inertness guard ─────────────────────────────────────────────────────
 console.log('\ndrafts have exactly one data path')
 // ⛔ THIS IS ANDREW'S CONDITION, ENFORCED RATHER THAN PROMISED.

@@ -626,14 +626,38 @@ export async function migrateMilestones(ctx: Ctx): Promise<void> {
     // The same guard is in `saveMilestones` (lib/milestones) for the same
     // reason. Batia is the live example: sold, imported, and a re-import is
     // exactly what its price drift needs.
-    await ms
-      .from('cash_flow_receivables')
-      .delete()
-      .eq('org_id', orgId)
-      .eq('project_id', msProjectId)
-      .eq('type', 'receivable')
-      .eq('status', 'projected')
-      .is('change_order_id', null)
+    //
+    // ⛔ BOTH SYSTEMS: `change_order_id` is v1's (106), `co_doc_id` is the v2
+    // document's (109). Guarding one and not the other leaves the identical
+    // bug open for the newer feature.
+    //
+    // ⛔ AND THE ERROR IS CHECKED, which it wasn't before. PostgREST fails the
+    // WHOLE statement on one unknown column, so on a pre-109 database this
+    // delete would silently do NOTHING — and the insert below would then add a
+    // second full schedule on top of the first. A silent no-op before an
+    // unconditional insert is the worst shape this code could have.
+    const clearProjected = (guardV2: boolean) => {
+      const q = ms
+        .from('cash_flow_receivables')
+        .delete()
+        .eq('org_id', orgId)
+        .eq('project_id', msProjectId)
+        .eq('type', 'receivable')
+        .eq('status', 'projected')
+        .is('change_order_id', null)
+      return guardV2 ? q.is('co_doc_id', null) : q
+    }
+    let { error: clearErr } = await clearProjected(true)
+    if (clearErr && /co_doc_id|42703|does not exist|schema cache/i.test(clearErr.message || '')) {
+      console.warn('  ⚠️  pre-109 database — clearing without the co_doc_id guard')
+      ;({ error: clearErr } = await clearProjected(false))
+    }
+    if (clearErr) {
+      throw new Error(
+        `clear projected receivables for ${j.builtId}: ${clearErr.message}. ` +
+          'Refusing to insert a second schedule on top of the first.',
+      )
+    }
     // ⛔ ALLOCATE, DON'T ROUND EACH ROW. Rounding every percentage on its own
     // is why every imported schedule came in a dollar off the contract: 50% of
     // $49,075 rounds to $24,538 and each 25% to $12,269 — $49,076 in total.

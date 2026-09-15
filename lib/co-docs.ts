@@ -38,10 +38,13 @@ import {
   type PricingProjectSource,
 } from './pricing'
 import { recomputeProjectBidTotal } from './project-totals'
+import { createInvoice } from './invoices'
+import { coDrawSlot } from './payment-schedule'
 import type { ComposerDefaults } from './composer'
 import {
   canAcceptDoc,
   canAddLinesToSub,
+  coLabel,
   introducedLines,
   touchedLineIds,
   nextCoNumber,
@@ -831,7 +834,166 @@ export async function acceptDoc(input: {
     }
   }
 
+  // ── 5. Bill it, and put it on the cash-flow board ──
+  // ⚠️ AFTER THE LOCK, AND EACH IN ITS OWN TRY. The scope is applied and the
+  // doc is accepted; a failure to raise an invoice or write a draw row must
+  // not read as a failed acceptance, and must not stop the other one. Both are
+  // idempotent (`co_docs.qbo_invoice_id`, `uniq_receivable_co_doc`), so the
+  // fix for either is to accept again — which is safe by construction.
+  const accepted: CoDoc = { ...doc, status: 'accepted' }
+  try {
+    await invoiceAcceptedDoc(accepted, agreed)
+  } catch (e) {
+    console.error('acceptDoc: invoice', e)
+  }
+  try {
+    // ⛔ THE INVOICE SAYS WHAT THEY'RE BILLED; THE DRAW SAYS WHEN THE CASH IS
+    // EXPECTED. Payments v2 keeps those separate on purpose, and until 106
+    // only the invoice half moved on a change order — so the board silently
+    // grew the final draw instead of showing a line.
+    await appendCoDocDraw(accepted, agreed)
+  } catch (e) {
+    console.error('acceptDoc: draw row', e)
+  }
+
   return { ok: true, reason: null, created, agreed, moved, drift: agreed - moved }
+}
+
+/**
+ * Append an accepted doc to the project's DRAW SCHEDULE.
+ *
+ * Generalises v1's `appendCoDrawRow`, and keeps every one of its rules — each
+ * was paid for:
+ *
+ * ⛔ POSITIVE DOCS ONLY. A net CREDIT writes no row (Andrew, 2026-09-13): a
+ * negative line on a client-facing payment schedule reads as a mistake, and
+ * `reconcileProject`'s shrink-from-the-end branch already absorbs it without
+ * letting a draw fall below what's been paid against it.
+ *
+ * ⛔ NO SCHEDULE ⇒ NO ROW. A sold project with zero draws sits in the "No
+ * payment schedule" tray, which is driven by "has no rows". Writing one row
+ * would take it OUT of that tray while the rest of its contract stayed
+ * unscheduled — hiding an untracked job to show a single line. The tray
+ * already reports it at full `bid_total`, which now includes this doc.
+ *
+ * ⛔ IT MUST SORT LAST — `coDrawSlot`, pure and verified. `reconcileAll`
+ * waterfalls received money over the draws in sort order, so a row landing at
+ * the front soaks up payments belonging to earlier draws and marks them
+ * unpaid. That's the bug that made dragging a card change which draw counted
+ * as paid (634c0eb).
+ *
+ * Idempotent through `uniq_receivable_co_doc` (109), because acceptance runs
+ * its steps as separate best-effort blocks and a doc can be re-accepted.
+ */
+export async function appendCoDocDraw(doc: CoDoc, netChange: number): Promise<void> {
+  if (netChange <= 0) return
+
+  const { data: existing, error: readErr } = await supabase
+    .from('cash_flow_receivables')
+    .select('id, notes, expected_date')
+    .eq('project_id', doc.project_id)
+    .eq('type', 'receivable')
+    .neq('status', 'cancelled')
+  if (readErr) {
+    console.error('appendCoDocDraw: could not read the schedule', readErr)
+    return
+  }
+  const rows = existing || []
+  if (rows.length === 0) return
+
+  const slot = coDrawSlot(rows as Array<{ notes: string | null; expected_date: string | null }>)
+  const label = `${coLabel(doc)}${doc.title ? ` — ${doc.title}` : ''}`.slice(0, 200)
+
+  const { error } = await supabase.from('cash_flow_receivables').insert({
+    org_id: doc.org_id,
+    project_id: doc.project_id,
+    type: 'receivable',
+    status: 'projected',
+    milestone_label: label,
+    amount: netChange,
+    expected_date: slot.expectedDate,
+    notes: `order:${slot.order}`,
+    co_doc_id: doc.id,
+  })
+  if (error) {
+    // 23505 = the unique index did its job; the draw already exists.
+    if ((error as { code?: string }).code === '23505') return
+    // 42703 / PGRST204 = migration 109 hasn't run. Log rather than throw: the
+    // doc is accepted and the board still balances the old way.
+    console.error('appendCoDocDraw: insert failed', error)
+  }
+}
+
+/**
+ * Bill an accepted doc as its OWN invoice.
+ *
+ * ⛔ ONE INVOICE PER DOCUMENT — Andrew's call, and the opposite of v1, which
+ * appends every CO to a single ROLLING invoice per project. That rolling
+ * invoice is why "what is this $4,890 for?" had no answer: several change
+ * orders landed on one invoice with nothing on screen saying which. A v2 doc
+ * is already the unit the client signs, so it's the unit they get billed for.
+ *
+ * ⛔ NET CREDITS ARE NOT INVOICED. You don't send a bill for money you owe
+ * back; that's a refund conversation, and inventing a negative invoice would
+ * put a number in QuickBooks nobody chose.
+ *
+ * Idempotent through `co_docs.qbo_invoice_id` — a re-accept won't double-bill.
+ * ⚠️ This writes the MILLSUITE invoice. The QuickBooks push stays operator-
+ * initiated, exactly as the contract invoice flow does; `qbo_invoice_id` is
+ * where that link lands when it happens.
+ */
+export async function invoiceAcceptedDoc(doc: CoDoc, netChange: number): Promise<string | null> {
+  if (netChange <= 0) return null
+  if (doc.qbo_invoice_id) return doc.qbo_invoice_id
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, name, org_id, client_id')
+    .eq('id', doc.project_id)
+    .maybeSingle()
+  const proj = project as { name: string; org_id: string | null; client_id: string | null } | null
+  if (!proj?.org_id) {
+    console.error('invoiceAcceptedDoc: no org for project', doc.project_id)
+    return null
+  }
+
+  const { data: org } = await supabase
+    .from('orgs')
+    .select('default_tax_pct')
+    .eq('id', proj.org_id)
+    .maybeSingle()
+  const taxPct = Number((org as { default_tax_pct: number | null } | null)?.default_tax_pct) || 0
+  const today = new Date().toISOString().slice(0, 10)
+  const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+
+  try {
+    const inv = await createInvoice({
+      invoice: {
+        org_id: proj.org_id,
+        project_id: doc.project_id,
+        client_id: proj.client_id ?? null,
+        invoice_date: today,
+        due_date: due,
+        tax_pct: taxPct,
+        notes: `${proj.name} — ${coLabel(doc)}`,
+      },
+      lineItems: [
+        {
+          sort_order: 0,
+          description: `${coLabel(doc)}${doc.title ? ` — ${doc.title}` : ''}`,
+          quantity: 1,
+          unit_price: netChange,
+          amount: netChange,
+        },
+      ],
+      markSent: true,
+    })
+    await supabase.from('co_docs').update({ qbo_invoice_id: inv.id }).eq('id', doc.id)
+    return inv.id
+  } catch (e) {
+    console.error('invoiceAcceptedDoc', e)
+    return null
+  }
 }
 
 /**

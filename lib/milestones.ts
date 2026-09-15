@@ -199,24 +199,40 @@ export async function saveMilestones(input: {
   // one unknown column (42703), and a builder that can't save because a
   // migration is pending would be a worse bug than the one this prevents.
   // Same shape as the pre-098 fallback in lib/tasks.
-  const runDelete = (guardCo: boolean) => {
+  // ⛔ BOTH CHANGE-ORDER SYSTEMS. `change_order_id` is v1's (106) and
+  // `co_doc_id` is v2's (109). Guarding only v1 would leave the hole exactly
+  // the width of the newer feature — the same destroy-the-CO-draw bug, just
+  // for documents instead of change orders.
+  // ⛔ THE FALLBACK IS STEPWISE, AND THAT MATTERS. PostgREST fails the WHOLE
+  // statement on ONE unknown column, so on a pre-109 database asking for
+  // `co_doc_id` errors — and dropping straight to "no guard at all" would
+  // delete the v1 change-order draws that the 106 guard currently protects.
+  // Retry with the guards that DO exist before giving any of them up.
+  const runDelete = (guards: 'both' | 'v1' | 'none') => {
     const q = supabase
       .from('cash_flow_receivables')
       .delete()
       .eq('project_id', input.project_id)
       .eq('type', 'receivable')
       .eq('status', 'projected')
-    return guardCo ? q.is('change_order_id', null) : q
+    if (guards === 'both') return q.is('change_order_id', null).is('co_doc_id', null)
+    if (guards === 'v1') return q.is('change_order_id', null)
+    return q
   }
-  let { error: delErr } = await runDelete(true)
-  if (
-    delErr &&
-    /change_order_id|42703|does not exist|schema cache/i.test(
-      `${(delErr as { code?: string }).code || ''} ${delErr.message || ''}`,
+  const missingColumn = (e: { code?: string; message?: string } | null) =>
+    !!e &&
+    /change_order_id|co_doc_id|42703|does not exist|schema cache/i.test(
+      `${e.code || ''} ${e.message || ''}`,
     )
-  ) {
+
+  let { error: delErr } = await runDelete('both')
+  if (missingColumn(delErr)) {
+    console.warn('saveMilestones: pre-109 database — keeping the v1 change-order guard')
+    ;({ error: delErr } = await runDelete('v1'))
+  }
+  if (missingColumn(delErr)) {
     console.warn('saveMilestones: pre-106 database — deleting without the CO guard')
-    ;({ error: delErr } = await runDelete(false))
+    ;({ error: delErr } = await runDelete('none'))
   }
   if (delErr) {
     console.error('saveMilestones delete', delErr)
