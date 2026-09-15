@@ -2519,6 +2519,17 @@ export default function ProjectCoverPage() {
                     })),
                   })
                   setMilestonesSaving(false)
+                  // ⛔ A REFUSAL HAS TO BE SAID OUT LOUD. `saveMilestones`
+                  // returns false when the project already has recorded
+                  // payments (regenerating would re-allocate real money) — and
+                  // this used to do nothing at all on false, so the operator
+                  // saw a dirty form, no toast, no error, and no idea why.
+                  if (!ok) {
+                    showToast(
+                      'Not saved — this project has recorded payments. Change the draws on /payments instead.',
+                    )
+                    return
+                  }
                   if (ok) {
                     setMilestonesDirty(false)
                     showToast('Milestones saved.')

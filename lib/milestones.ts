@@ -120,10 +120,31 @@ export async function loadMilestones(projectId: string): Promise<ProjectMileston
 
 /**
  * Replace the entire milestone list for a project in one transactional-ish
- * swap. We delete all projected receivables and re-insert the new set with
- * computed amounts. Milestones already invoiced/received are preserved — we
- * only nuke rows with status='projected' so the editor can't accidentally
- * clobber real QB-tracked payments.
+ * swap: delete the projected receivables, re-insert the new set.
+ *
+ * ⛔⛔ THE `status='projected'` GUARD NO LONGER MEANS "UNPAID". READ THIS
+ * BEFORE CHANGING ANYTHING HERE.
+ *
+ * The old comment said the delete "can't accidentally clobber real payments"
+ * because received milestones carried status='received'. **Payments v2 made
+ * paid-ness DERIVED**: `logPayment` writes a `project_payments` row and
+ * deliberately never touches the draw (lib/payments — "there is no 'mark
+ * received' any more"). So a draw that is fully paid is STILL
+ * status='projected', and this delete will happily destroy it.
+ *
+ * That is exactly what happened to Schiller: a 50/25/25 schedule with all
+ * three draws paid came back as 25/25/25/25 with the deposit row gone. The
+ * ledger cash survived — it lives in another table — and the waterfall
+ * silently re-allocated it across the regenerated rows, leaving a $2 orphan.
+ * A safety check that was made obsolete by a later refactor, still looking
+ * correct.
+ *
+ * ⛔ SO THE REAL GUARD IS CASH, NOT STATUS. `assertNoLedgerCash` below
+ * refuses the whole operation when the project has any recorded payment.
+ * Money cannot be linked to a specific draw — allocation is derived by the
+ * waterfall — so "which row is safe to delete" is not an answerable
+ * question. The only safe rule is: once cash exists, the schedule is not
+ * regenerable wholesale.
  */
 export async function saveMilestones(input: {
   org_id: string
@@ -136,6 +157,36 @@ export async function saveMilestones(input: {
     }
   >
 }): Promise<boolean> {
+  // ⛔ CASH ON THE PROJECT VETOES THE WHOLE SWAP. See the header: status is
+  // no longer a proxy for "unpaid", so this is the only honest test. Refusing
+  // is correct even though it's blunt — the alternative is what happened to
+  // Schiller, where a regenerated schedule silently re-allocated paid money.
+  //
+  // ⚠️ Tolerant of a pre-099 database (no project_payments table): treat an
+  // unknown relation as "no cash" rather than blocking every save.
+  const { data: cash, error: cashErr } = await supabase
+    .from('project_payments')
+    .select('id')
+    .eq('project_id', input.project_id)
+    .limit(1)
+  const ledgerMissing =
+    !!cashErr &&
+    /42P01|PGRST205|does not exist|schema cache/i.test(
+      `${(cashErr as { code?: string }).code || ''} ${cashErr.message || ''}`,
+    )
+  if (cashErr && !ledgerMissing) {
+    console.error('saveMilestones: could not check the ledger', cashErr)
+    return false
+  }
+  if (!ledgerMissing && cash && cash.length > 0) {
+    console.error(
+      'saveMilestones: REFUSED — this project has recorded payments. ' +
+        'Regenerating the schedule would re-allocate money that has already ' +
+        'been received. Edit the draws on /payments instead.',
+    )
+    return false
+  }
+
   // ⛔ NEVER DELETE A CHANGE-ORDER DRAW (migration 106). CO rows are written
   // by `appendCoDrawRow` with status='projected' — exactly what this delete
   // targets — so without the guard, opening the milestone builder and saving

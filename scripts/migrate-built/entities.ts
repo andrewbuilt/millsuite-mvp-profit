@@ -584,6 +584,25 @@ export async function migrateMilestones(ctx: Ctx): Promise<void> {
     if (Math.abs(sum - 100) > 0.5) {
       console.warn(`    ! project ${j.builtId} milestones sum to ${sum}% (not 100)`)
     }
+    // ⛔ CASH VETOES THE MILESTONE REWRITE, exactly as it does in
+    // lib/milestones. A re-import of a project that has recorded payments
+    // would delete its draws and re-insert Built's — and the ledger cash,
+    // which lives in another table and survives, would be silently
+    // re-allocated across the new rows. Batia is the live candidate: sold,
+    // imported, and a re-import is what its price drift would need.
+    const { data: msCash } = await ms
+      .from('project_payments')
+      .select('id')
+      .eq('project_id', msProjectId)
+      .limit(1)
+    if (msCash && msCash.length > 0) {
+      console.warn(
+        `    ! ${j.builtId}: SKIPPING milestones — this project has recorded payments. ` +
+          `Rewriting the schedule would re-allocate received money. Set the draws by hand.`,
+      )
+      continue
+    }
+
     // Clear prior projected receivables for this project, then insert fresh.
     //
     // ⛔ NEVER THE CHANGE-ORDER DRAWS (migration 106). An approved CO writes
