@@ -12,6 +12,29 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-15)
 
+**NEW 2026-09-15 (two Cowork design passes with Andrew): CHANGE ORDERS V2 — scoped, NOT built. THE BIG ONE; build after the time/schedule batch.** The CO stops being a guess-the-number modal and becomes a **draft revision of the project, priced by the real composer**: one open CO doc per project accumulating changes until accepted → locked; drafts live visibly ON the project as highlighted subs (install-sub flag pattern); additions price at current rates, credits at original contract value; **QB hears nothing until acceptance, then one separate CO invoice per doc** (Andrew's call). Full spec = "Change Orders v2" in Now. Supersedes the v1 authoring UI when it ships; v1 history stays readable.
+
+### Change Orders v2 — spec (scoped 2026-09-15)
+
+**Why:** the v1 modal (spec-change delta or custom $+hours) isn't linked to the rate book — Andrew: "I'm just guessing at the costs." His Pajot case: ONE CO on the island = remove the rounded end panel + add a finish panel + add a solid-wood waterfall top — three edits, one CO, and today that's multiple guessed COs.
+
+**Core model — one open doc, drafts on the project:**
+1. **One OPEN CO doc per project** (CO #N). It accumulates every pending change, its PDF regenerates freely, and everything stays editable **until ACCEPTED** (in-app mark or the portal's existing CO signature fields from 092) → doc locks, drafts APPLY, the next change opens doc #N+1. Repeat cycles are first-class.
+2. **Drafts are visible, highlighted, and inert to production:**
+   - **New sub via CO** — a real subproject flagged as CO-draft (the install-sub flag pattern: color + behavior). Excluded from bid_total, schedule, capacity, pre-production gating and shop lists until accepted; removable from the doc at any time. Andrew's ask that a whole NEW scope (e.g. a new vanity) arrives as a new sub — confirmed.
+   - **Inline edit to an existing sub** — the CO **reopens the sub in the composer**; edits save as a DRAFT REVISION attached to the doc (contract lines stay the working truth; the sub shows a "CO pending" highlight until resolved). Delete lines, add lines, change slots — all real rate-book pricing.
+   - **Delete a whole sub** — marked-for-removal highlight; on acceptance it ARCHIVES (it may hold tracked hours), never hard-deletes.
+3. **Pricing basis (the money rule):** additions/new lines price at the **current** rate book with the project's margin; removals credit at **original contract value**; a modification = credit old + add new. **Frozen/imported bases NEVER reprice** (the handoff-repricing lesson). Delta per doc item is stored, not derived at render.
+4. **QB:** nothing before acceptance. On acceptance the doc pushes **one separate QB invoice** ("{project} — CO #N", linked `qbo_invoice_id`); the watcher applies payments to it; **one labelled draw row appends for the doc total** (generalizing `596b201`). Internal-mode orgs mirror with a MillSuite invoice as usual.
+5. **Acceptance effects, all at once:** drafts apply (lines update, draft subs become normal subs, removals archive) · est/dept hours update so schedule + capacity tell the truth · new materials/specs can spawn pre-production approval slots · PDF snapshots immutable · `project_events` row.
+6. **The doc PDF:** per modified sub — a description of the change + the delta (credits as negative lines); additions as normal priced lines; new subs as their own sections. Standard template styling first; presentation variant later if Andrew asks.
+
+**Data sketch (Code refines; next migration numbers from 107):** `co_docs` (project_id, number, status open|accepted|void, accepted_at/by, portal-sign link, qbo_invoice_id, pdf snapshot) · `co_doc_items` (doc_id, subproject_id NULL, kind add_sub|edit_sub|remove_sub, draft payload/diff jsonb, description, delta_amount, credit_basis) · a CO-draft flag on subprojects for new-sub drafts. Draft revisions must key on the DOC id so an open doc #2 can't tangle with doc #1's applied history.
+
+**Cutover:** v1 authoring retires when v2 ships; v1's accepted COs stay readable everywhere they show today; check for OPEN v1 COs at cutover and migrate or finish them by hand with Andrew. The scoped-and-ready "surface draw drift" item stays valid and separate.
+
+**Build order inside the feature:** (1) doc + new-sub drafts + delete-sub + acceptance + PDF → (2) inline composer draft revisions (the hard part — the diff) → (3) QB push + draw append → (4) portal signature hookup. Each step shippable behind the previous.
+
 **✅ 2026-09-14/15: PAYMENTS BLOCK — DONE** (`83c9ab6` · `ee1c015` · `fc6a10b`). No migrations. ⛔ **THE SCOPED DIAGNOSIS WAS WRONG ON A AND ON TWO OF THE "DRIFTED" PROJECTS. The data is the record; read this before acting on the old text.**
 
 **A. ⛔ SCHILLER WAS NEVER REWRITTEN. NOTHING WAS DELETED.** The inspector shows all three rows intact — **50% $24,538 · 25% $12,269 · 25% $12,269**, created `2026-09-03 20:24:42` at import, never modified. **The bug was the DISPLAY:** `buildPaymentsView` dropped any draw with nothing outstanding, so once the last payment landed the whole schedule vanished from the board and left only five receipt cards (four ~$12k + a $2), which reads exactly like "25/25/25/25 with the deposit deleted". The $2 was Andrew's own true-up, not an orphan.
