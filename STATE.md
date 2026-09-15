@@ -46,7 +46,7 @@
 
 **⚠️ TWO PROJECTS THE REPAIR DELIBERATELY WON'T TOUCH, AND ONE OF THEM IS NOT A BUG:**
 - **Batia — NOT DRIFT. Andrew: "Batia removed scope so the price is correct."** MillSuite's $140,518 is right; Built's $160,139 is stale. ⛔ Don't "fix" it, and don't re-import it.
-- **Towers — off by $2,474 across 4 rows.** Too big to be rounding. Needs eyes, not a script.
+- **Towers — NOT A BUG EITHER. Andrew, 2026-09-15: "I changed the towers pricing yesterday."** The draws were set against the OLD price, so they sum $2,474 under the new contract. ⛔ **Leave it** — and note the general rule this and Batia both illustrate: **repricing a project does NOT move its stored draws** (the final draw absorbs the gap on read), so a legitimate price change always shows as "drift". That is precisely what the scoped **"Surface `drift`"** item exists to make visible instead of alarming.
 - **⛔ AND THE SCRIPT ONLY LOOKS AT SOLD-AND-LATER PROJECTS NOW.** On a live bid `bid_total` is an estimate that moves with scope, so comparing draws to it is meaningless — Kennedy read "off by $68,588" purely for being a 50/50 bid. Andrew: *"Off what? the project isnt sold."*
 
 **`scripts/inspect-project-payments.mjs`** (read-only) is the tool for any future "the schedule changed" report. ⛔ **The board CANNOT diagnose this class of problem** — it renders the derived view, so a schedule that looks wrong on screen may be perfectly intact underneath.
