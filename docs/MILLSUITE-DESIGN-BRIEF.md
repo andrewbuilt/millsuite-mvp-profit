@@ -47,13 +47,16 @@ Brand belief stack the design should *feel* like: profit clarity is possible; th
 
 ## 4. The founder story (credibility anchor)
 
-The "built by a shop owner" origin lands instantly with every prospect and should be prominent.
+**Updated 2026-09-14, directly from Andrew, this replaces the earlier bankruptcy/26-to-15-employees version as the lead story.** That older material (still sitting in the `storytelling` skill's founder-story raw material) isn't necessarily false, but Andrew was explicit: the walkout story below is now the one to tell.
 
-- **Andrew Watson** has run **Built LLC**, a custom millwork shop in **Tampa, FL**, for **14+ years**.
-- MillSuite was built to solve his own shop's problem first.
-- The rate book starts with zero dollar values. Verified in `lib/rate-book-seed.ts`: new orgs get category/item shapes seeded in (names, units) with numbers zeroed out, and onboarding walkthroughs are how the shop enters its own real rates from scratch. Everything is 'untested' until real jobs close against it. **There is no claim of a large proprietary training dataset or a stated accuracy percentage** — that framing ("$10M+ of real projects," "$1.9M of project data," "97–99% accuracy") was confirmed false by Andrew on 2026-09-14 and has been removed everywhere it appeared. It describes a mechanism the product doesn't have, and neither does "ships pre-populated with rates" (a phrasing this doc used briefly and got wrong too). Do not reintroduce either.
+- **The inciting incident:** Andrew's #1 employee quit with two weeks' notice on January 2nd. Everything the shop needed lived in that one person's head, he could make sense of it, but there was nothing to hand the next person. No SOPs, no system, no sense of what success looked like or how to measure it, no idea whether they were even profiting, or on which jobs.
+- **Andrew Watson** has run **Built LLC**, a custom millwork shop in **Tampa, FL**, for **14+ years**. Use the 14 years to mean "this problem sat unsolved for 14 years," not "MillSuite has existed for 14 years", the software itself is new; the experience behind it isn't.
+- MillSuite was built to solve his own shop's problem first, and to solve it fast enough that nobody else has to lose weeks to a bad handoff the way Built LLC did.
+- Rate book mechanics (what it seeds, how it self-corrects) are covered in §6, not repeated here, keep this section about the story, not the feature.
 
-Domain expertise *is* the product. The designer should treat "this was made by a guy who has stood on a shop floor for 14 years" as a primary trust signal, not a footnote.
+Domain expertise *is* the product. The designer should treat "this was made by a guy who has stood on a shop floor for 14 years" as a primary trust signal, not a footnote, but the specific story that earns it is the January 2nd walkout, not a vague "years of experience" claim.
+
+**How it wins, in Andrew's own words (2026-09-14):** "We want you to have money left over after every job, and MillSuite proves it." Plus: it solves a problem that's been unsolved for 14 years, and you don't have to spend weeks learning how to use it. Lead with proof and speed, not adjectives.
 
 ---
 
