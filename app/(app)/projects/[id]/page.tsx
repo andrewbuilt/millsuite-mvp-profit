@@ -155,6 +155,7 @@ import {
   voidCoDoc,
 } from '@/lib/co-docs'
 import { coLabel, type AddSubDraft, type CoDoc, type CoDocItem } from '@/lib/co-doc-math'
+import { downloadCoDocPdf, generateCoDocPdf } from '@/lib/co-doc-pdf'
 import { useConfirm } from '@/components/confirm-dialog'
 import { isReadyForProduction, startProduction, forceStartProduction, isDepositReceived, markDepositReceived } from '@/lib/project-stage'
 
@@ -402,6 +403,8 @@ export default function ProjectCoverPage() {
   // drafts has to ask for them explicitly. It does, here.
   const [coDoc, setCoDoc] = useState<CoDoc | null>(null)
   const [coItems, setCoItems] = useState<CoDocItem[]>([])
+  /** Accepted + voided docs, newest last. The signed record. */
+  const [coHistory, setCoHistory] = useState<Array<{ doc: CoDoc; items: CoDocItem[] }>>([])
   // ⚠️ `coV2Busy`, because `coBusy` below is v1's and holds a CO id, not a
   // boolean. Two change-order systems coexist until v1's authoring retires.
   const [coV2Busy, setCoV2Busy] = useState(false)
@@ -779,6 +782,11 @@ export default function ProjectCoverPage() {
     const open = docs.find((d) => d.doc.status === 'open') || null
     setCoDoc(open?.doc ?? null)
     setCoItems(open?.items ?? [])
+    // ⛔ ACCEPTED DOCS MUST STAY REACHABLE. Once accepted a doc is no longer
+    // the open one, so the panel above stops rendering it — and without this
+    // list the signed document, its PDF and the record of what was agreed all
+    // become unreachable at exactly the moment they start to matter.
+    setCoHistory(docs.filter((d) => d.doc.status !== 'open'))
   }, [projectId])
   useEffect(() => {
     void refreshCoDocs()
@@ -2109,6 +2117,18 @@ export default function ProjectCoverPage() {
                         (await voidCoDoc(coDoc.id)) ? null : 'Could not void this change order.',
                       )
                     }
+                    onPdf={() => {
+                      // ⚠️ NOT through `runCo` — that reloads the whole project
+                      // afterwards, and opening a PDF changes nothing. It also
+                      // sets the busy flag, which would disable the panel while
+                      // a new tab is opening.
+                      setCoError(null)
+                      void downloadCoDocPdf(coDoc.id).catch((e) =>
+                        setCoError(
+                          e instanceof Error ? e.message : 'Could not open the change order PDF.',
+                        ),
+                      )
+                    }}
                     onAccept={() =>
                       void runCo(async () => {
                         const res = await acceptDoc({
@@ -2117,6 +2137,17 @@ export default function ProjectCoverPage() {
                           acceptedBy: user?.id ?? null,
                         })
                         if (!res.ok) return res.reason
+                        // ⛔ TAKE THE SNAPSHOT NOW. 107 calls `pdf_url` "an
+                        // immutable snapshot taken at acceptance", and the
+                        // route only stamps it when asked — so if nobody opens
+                        // the PDF, an accepted doc never gets one. Best-effort:
+                        // the scope is already applied and a failed render must
+                        // not read as a failed acceptance.
+                        try {
+                          await generateCoDocPdf(coDoc.id)
+                        } catch (e) {
+                          console.error('acceptDoc: PDF snapshot failed', e)
+                        }
                         // ⛔ DRIFT IS REPORTED, NEVER SWALLOWED. If the contract
                         // moved by something other than what the client agreed
                         // to, say so — the usual cause is an imported job whose
@@ -2150,6 +2181,76 @@ export default function ProjectCoverPage() {
                   </button>
                 )}
               </>
+            )}
+
+            {/* ⛔ THE SIGNED RECORD. An accepted doc leaves the panel above, so
+                without this its PDF and the list of what was agreed would be
+                unreachable the moment they start to matter. */}
+            {coHistory.length > 0 && (
+              <div className="mt-4 rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+                <div className="px-4 py-2 border-b border-[#F3F4F6] text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+                  Change order history
+                </div>
+                <div className="divide-y divide-[#F3F4F6]">
+                  {coHistory.map(({ doc, items }) => {
+                    const delta = items.reduce((s, i) => s + (Number(i.delta_amount) || 0), 0)
+                    const voided = doc.status === 'void'
+                    return (
+                      <div key={doc.id} className="px-4 py-2.5 flex items-center gap-3">
+                        <span
+                          className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded flex-shrink-0 ${
+                            voided
+                              ? 'bg-[#F3F4F6] text-[#9CA3AF]'
+                              : 'bg-[#ECFDF5] text-[#047857]'
+                          }`}
+                        >
+                          {coLabel(doc)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[12.5px] text-[#111] truncate">
+                            {doc.title || `${items.length} change${items.length === 1 ? '' : 's'}`}
+                          </div>
+                          <div className="text-[10.5px] text-[#9CA3AF]">
+                            {voided
+                              ? 'Voided'
+                              : `Accepted${
+                                  doc.accepted_at
+                                    ? ` ${new Date(doc.accepted_at).toLocaleDateString()}`
+                                    : ''
+                                }${doc.signed_name ? ` · signed by ${doc.signed_name}` : ''}`}
+                          </div>
+                        </div>
+                        {!voided && (
+                          <span
+                            className={`text-[12.5px] font-mono tabular-nums flex-shrink-0 ${
+                              delta < 0 ? 'text-[#B91C1C]' : 'text-[#111]'
+                            }`}
+                          >
+                            {delta >= 0 ? '+' : ''}
+                            {money(delta)}
+                          </span>
+                        )}
+                        {!voided && (
+                          <button
+                            onClick={() => {
+                              setCoError(null)
+                              void downloadCoDocPdf(doc.id).catch((e) =>
+                                setCoError(
+                                  e instanceof Error ? e.message : 'Could not open that PDF.',
+                                ),
+                              )
+                            }}
+                            title="Open the signed change order"
+                            className="flex-shrink-0 text-[11px] text-[#2563EB] hover:underline"
+                          >
+                            PDF
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
             )}
 
             {/* Change orders (v1). Created from a subproject header; listed here

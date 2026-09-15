@@ -213,7 +213,17 @@ console.log('\ndrafts have exactly one data path')
 import fs from 'fs'
 import path from 'path'
 
-const ALLOWED = new Set(['lib/co-docs.ts'])
+// ⚠️ THE ALLOWLIST IS THE POINT, NOT A LOOPHOLE. Every entry is a second
+// reader somebody had to justify out loud, which is the decision this check
+// exists to force.
+//
+//   · lib/co-docs.ts — the data layer. The browser's only path.
+//   · the PDF route — CANNOT go through lib/co-docs: it runs server-side as
+//     the SERVICE ROLE, which bypasses RLS entirely, while lib/co-docs uses
+//     the anon client and relies on it. ⛔ So that route carries its own org
+//     check against `co_docs.org_id`, and that check IS the security — there
+//     is no policy behind it. Read it before adding anything beside it.
+const ALLOWED = new Set(['lib/co-docs.ts', 'app/api/co-docs/[id]/pdf/route.ts'])
 const roots = ['lib', 'app', 'components', 'scripts']
 const offenders = []
 

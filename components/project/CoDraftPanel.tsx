@@ -21,7 +21,7 @@
 // ============================================================================
 
 import { useState } from 'react'
-import { AlertTriangle, Check, FilePlus2, Minus, Pencil, Trash2 } from 'lucide-react'
+import { AlertTriangle, Check, FilePlus2, FileText, Minus, Pencil, Trash2 } from 'lucide-react'
 import {
   coLabel,
   itemHeadline,
@@ -46,6 +46,7 @@ export default function CoDraftPanel({
   onRemoveItem,
   onAccept,
   onVoid,
+  onPdf,
 }: {
   doc: CoDoc
   items: CoDocItem[]
@@ -56,6 +57,7 @@ export default function CoDraftPanel({
   onRemoveItem: (item: CoDocItem) => void
   onAccept: () => void
   onVoid: () => void
+  onPdf: () => void
 }) {
   const [confirmAccept, setConfirmAccept] = useState(false)
   const s = summarizeDoc(items)
@@ -226,6 +228,18 @@ export default function CoDraftPanel({
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#7C3AED] text-white text-xs font-medium hover:bg-[#6D28D9] disabled:opacity-40"
             >
               <Check className="w-3.5 h-3.5" /> Accept {label}
+            </button>
+            {/* ⚠️ The PDF is generated from the OPEN doc so it can be sent for
+                signature BEFORE acceptance — that's the normal order of
+                events. Once accepted it stops re-rendering and returns the
+                stored snapshot; see the route header. */}
+            <button
+              onClick={onPdf}
+              disabled={busy || items.length === 0}
+              title={items.length === 0 ? 'Add some scope first' : 'Open the change order PDF'}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[#DDD6FE] bg-white text-[#6D28D9] text-xs font-medium hover:bg-[#F5F3FF] disabled:opacity-40"
+            >
+              <FileText className="w-3.5 h-3.5" /> PDF
             </button>
             <button
               onClick={onVoid}
