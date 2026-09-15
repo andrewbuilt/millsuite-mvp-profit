@@ -29,11 +29,24 @@ import {
   type AddSubDraft,
   type CoDoc,
   type CoDocItem,
+  type EditSubDraft,
 } from '@/lib/co-doc-math'
 
 function money(n: number): string {
   const r = Math.round(n)
   return r < 0 ? `-$${Math.abs(r).toLocaleString()}` : `$${r.toLocaleString()}`
+}
+
+/** "2 lines removed · 1 added" — what a revision actually does, on the card.
+ *  A revision showing only its net dollars looks like an unexplained discount. */
+function editSummary(item: CoDocItem): string {
+  const d = item.draft as unknown as EditSubDraft
+  const removed = (d?.removeLineIds?.length ?? 0) + (d?.reviseLines?.length ?? 0)
+  const added = (d?.addLines?.length ?? 0) + (d?.reviseLines?.length ?? 0)
+  const parts: string[] = []
+  if (removed > 0) parts.push(`${removed} line${removed === 1 ? '' : 's'} removed`)
+  if (added > 0) parts.push(`${added} added`)
+  return parts.length > 0 ? parts.join(' · ') : 'No changes yet'
 }
 
 export default function CoDraftPanel({
@@ -143,7 +156,9 @@ export default function CoDraftPanel({
                   <div className="text-[11px] text-[#6B7280] mt-0.5">
                     {removal
                       ? 'Credited at its original contract value'
-                      : `${lineCount} line${lineCount === 1 ? '' : 's'} · priced at today’s rates`}
+                      : item.kind === 'edit_sub'
+                        ? editSummary(item)
+                        : `${lineCount} line${lineCount === 1 ? '' : 's'} · priced at today’s rates`}
                   </div>
                   {item.description && !removal && (
                     <div className="text-[11px] text-[#9CA3AF] mt-0.5 truncate">

@@ -142,9 +142,13 @@ import ClientPicker from '@/components/project/ClientPicker'
 import NewSubprojectModal from '@/components/project/NewSubprojectModal'
 import CoDraftPanel from '@/components/project/CoDraftPanel'
 import NewScopeDraftModal from '@/components/project/NewScopeDraftModal'
+import ReviseScopeModal, { type ContractLine } from '@/components/project/ReviseScopeModal'
 import {
   acceptDoc,
   addNewScopeDraft,
+
+  priceContractLinesIndividually,
+  saveEditDraft,
   addRemoval,
   deleteCoDocItem,
   ensureOpenDoc,
@@ -154,7 +158,14 @@ import {
   updateNewScopeDraft,
   voidCoDoc,
 } from '@/lib/co-docs'
-import { coLabel, type AddSubDraft, type CoDoc, type CoDocItem } from '@/lib/co-doc-math'
+import {
+  canAddLinesToSub,
+  coLabel,
+  type AddSubDraft,
+  type CoDoc,
+  type CoDocItem,
+  type EditSubDraft,
+} from '@/lib/co-doc-math'
 import { downloadCoDocPdf, generateCoDocPdf } from '@/lib/co-doc-pdf'
 import { useConfirm } from '@/components/confirm-dialog'
 import { isReadyForProduction, startProduction, forceStartProduction, isDepositReceived, markDepositReceived } from '@/lib/project-stage'
@@ -410,6 +421,17 @@ export default function ProjectCoverPage() {
   const [coV2Busy, setCoV2Busy] = useState(false)
   const [coError, setCoError] = useState<string | null>(null)
   const [scopeDraftFor, setScopeDraftFor] = useState<{ item: CoDocItem | null } | null>(null)
+  /** The subproject being revised on the open doc, with its contract lines. */
+  const [reviseFor, setReviseFor] = useState<{
+    sub: Subproject
+    lines: ContractLine[]
+    item: CoDocItem | null
+  } | null>(null)
+  /** Priced synchronously in the revise modal, so the credit half has to be
+   *  pre-resolved — it needs the sub's contract lines from the database. */
+  const [revisePricing, setRevisePricing] = useState<{ delta: number; credit: number; charge: number } | null>(
+    null,
+  )
   const [coPricing, setCoPricing] = useState<Awaited<
     ReturnType<typeof loadProjectPricing>
   > | null>(null)
@@ -836,6 +858,38 @@ export default function ProjectCoverPage() {
     for (const c of cards) m.set(c.sub.id, c.sub.name)
     return m
   }, [cards])
+
+  /** lineId → its contract value, for the revise modal's credit half. */
+  const [lineContractPrices, setLineContractPrices] = useState<Record<string, number>>({})
+
+  /** Open the revise modal for a sub: its contract lines + their prices. */
+  const openRevise = useCallback(
+    async (sub: Subproject) => {
+      if (!coDoc) return
+      setCoError(null)
+      const { data, error } = await supabase
+        .from('estimate_lines')
+        .select('id, description, quantity, unit, product_key, product_slots, sort_order')
+        .eq('subproject_id', sub.id)
+        .order('sort_order', { ascending: true })
+      if (error) {
+        setCoError('Could not read that scope’s lines.')
+        return
+      }
+      const existing = coItems.find(
+        (i) => i.subproject_id === sub.id && i.kind === 'edit_sub',
+      )
+      if (coPricing) {
+        setLineContractPrices(await priceContractLinesIndividually(coPricing, sub.id))
+      }
+      setReviseFor({
+        sub,
+        lines: (data || []) as ContractLine[],
+        item: existing ?? null,
+      })
+    },
+    [coDoc, coItems, coPricing],
+  )
 
   /** subproject id → what the OPEN change order does to it. Drives the card
    *  highlight; empty when there's no open doc, which is the common case. */
@@ -2051,6 +2105,24 @@ export default function ProjectCoverPage() {
                         {coTouch.get(sub.id) === 'remove_sub' ? 'Undo' : 'Remove in CO'}
                       </button>
                     )}
+                    {/* Revise = the line-level diff. Hidden once the sub is
+                        being removed outright — you can't revise scope you're
+                        deleting, and the unique index would refuse a second
+                        item for the same sub anyway. */}
+                    {coDoc && !install && coTouch.get(sub.id) !== 'remove_sub' && (
+                      <button
+                        onClick={() => void openRevise(sub)}
+                        disabled={coV2Busy}
+                        title={`Change this scope in ${coLabel(coDoc)}`}
+                        className={`flex-shrink-0 px-2 rounded-lg border text-[10px] font-medium transition-colors disabled:opacity-40 ${
+                          coTouch.get(sub.id) === 'edit_sub'
+                            ? 'border-[#FCD34D] bg-[#FFFBEB] text-[#92400E]'
+                            : 'border-[#E5E7EB] bg-white text-[#9CA3AF] hover:text-[#7C3AED] hover:border-[#C4B5FD]'
+                        }`}
+                      >
+                        {coTouch.get(sub.id) === 'edit_sub' ? 'Edit CO' : 'Revise in CO'}
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -3133,6 +3205,59 @@ export default function ProjectCoverPage() {
               return ok ? null : 'Could not save that scope.'
             })
             setScopeDraftFor(null)
+          }}
+        />
+      )}
+
+      {/* Line-level revision of an existing sub. Writes a diff payload; the
+          contract lines don't move until the doc is accepted. */}
+      {reviseFor && coDoc && org?.id && (
+        <ReviseScopeModal
+          subprojectId={reviseFor.sub.id}
+          subprojectName={reviseFor.sub.name}
+          contractLines={reviseFor.lines}
+          orgId={org.id}
+          orgConsumablePct={org.consumable_markup_pct ?? null}
+          coLabel={coLabel(coDoc)}
+          // ⛔ A FROZEN SUB CANNOT TAKE NEW LINES — they'd price with no labor
+          // and no margin (108's bug, one level down). The gate lives in the
+          // lib and is re-checked on save; this is just the UI half.
+          canAddLines={
+            coPricing ? canAddLinesToSub(coPricing.project, reviseFor.sub).ok : false
+          }
+          addLinesBlockedReason={
+            coPricing ? canAddLinesToSub(coPricing.project, reviseFor.sub).reason : null
+          }
+          initial={
+            reviseFor.item ? (reviseFor.item.draft as unknown as EditSubDraft) : null
+          }
+          saving={coV2Busy}
+          priceOf={(d) => {
+            // ⚠️ A PREVIEW summed from per-line contract values; the number
+            // that gets STORED comes from `priceEditDraft` on save. They agree
+            // because bucket pricing is linear — see that function's note.
+            const credit = [
+              ...(d.removeLineIds || []),
+              ...(d.reviseLines || []).map((r) => r.lineId),
+            ].reduce((s, id) => s + (lineContractPrices[id] || 0), 0)
+            const charge = coPricing
+              ? priceAddition(
+                  coPricing,
+                  [...(d.addLines || []), ...(d.reviseLines || []).map((r) => r.line)],
+                  d.defaults,
+                )
+              : 0
+            return { delta: charge - credit, credit, charge }
+          }}
+          onCancel={() => setReviseFor(null)}
+          onSave={async (d) => {
+            const item = reviseFor.item
+            await runCo(async () =>
+              (await saveEditDraft({ orgId: org.id, doc: coDoc, item, draft: d }))
+                ? null
+                : 'Could not save that revision.',
+            )
+            setReviseFor(null)
           }}
         />
       )}

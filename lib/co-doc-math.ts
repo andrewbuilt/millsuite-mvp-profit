@@ -64,6 +64,89 @@ export interface AddSubDraft {
   lines: CoDraftLine[]
 }
 
+/**
+ * The `draft` payload for an `edit_sub` item — a DIFF against the sub's
+ * contract lines, not a replacement for them.
+ *
+ * ⛔ WHY THIS ISN'T "REOPEN THE SUB IN THE COMPOSER", WHICH IS WHAT THE SPEC
+ * ASKED FOR. `AddLineComposer` refuses any line without `product_key` — it has
+ * no math model for one — and the Built importer writes frozen lines with
+ * dept hours and a material lump and no product_key at all. Measured
+ * (scripts/inspect-line-editability): **Pajot 0 of 7 lines are composer-
+ * editable. Every imported job is 0%.** 14 of 64 lines across all sold jobs.
+ *
+ * So on the jobs Andrew actually raises change orders against, "reopen and
+ * edit" cannot work. What does work — and what his Pajot change IS — is
+ * remove a line, add a line. Revision in the composer is offered where it's
+ * possible (a native sub's composer lines) and is expressed as the same thing:
+ * credit the old line, charge the new one, which is the spec's own money rule
+ * for a modification.
+ */
+export interface EditSubDraft {
+  subprojectId: string
+  defaults: ComposerDefaults
+  /** `estimate_lines.id` of contract lines to delete. Credited at the value
+   *  they carry in the contract. */
+  removeLineIds: string[]
+  /** Brand-new lines, priced at today's rates. */
+  addLines: CoDraftLine[]
+  /** In-place revisions of composer lines. Priced as credit-old + add-new;
+   *  applied as an UPDATE so the row keeps its id (and anything hanging off
+   *  it) rather than being deleted and recreated. */
+  reviseLines: Array<{ lineId: string; line: CoDraftLine }>
+}
+
+/** Every contract line this draft touches — removed outright or replaced. */
+export function touchedLineIds(d: EditSubDraft): string[] {
+  return [...(d.removeLineIds || []), ...(d.reviseLines || []).map((r) => r.lineId)]
+}
+
+/** Every line this draft introduces, priced at current rates. */
+export function introducedLines(d: EditSubDraft): CoDraftLine[] {
+  return [...(d.addLines || []), ...(d.reviseLines || []).map((r) => r.line)]
+}
+
+/** An edit that changes nothing shouldn't be on a change order at all. */
+export function editIsEmpty(d: EditSubDraft): boolean {
+  return touchedLineIds(d).length === 0 && (d.addLines?.length ?? 0) === 0
+}
+
+/**
+ * ⛔ CAN NEW LINES GO INSIDE THIS SUBPROJECT AT ALL?
+ *
+ * A FROZEN sub's stored costs ARE its price (migration 108). Append a composer
+ * line to it and `recomputeProjectBidTotal` prices that line frozen too — at
+ * material cost, no labor, no margin — which is exactly the bug 108 fixed,
+ * reintroduced one level down. The freeze is per-SUBPROJECT; the need here
+ * would be per-LINE.
+ *
+ * Rather than move the freeze onto the line (a third migration, on the hot
+ * pricing path), new work on a frozen sub goes on the change order as its OWN
+ * scope, which already prices correctly at today's rates. REMOVING and
+ * crediting lines from a frozen sub is unaffected — and that is the common
+ * case, because every imported line is frozen and none of them is composer-
+ * editable anyway.
+ *
+ * ⚠️ `lib/co-docs.saveEditDraft` re-checks this on the way in. The modal
+ * disables the button, but a stale tab must not be able to append a $0-labor
+ * line to a signed contract.
+ */
+export function canAddLinesToSub(
+  project: { imported_at?: string | null } | null | undefined,
+  sub: { price_frozen?: boolean | null } | null,
+): Gate {
+  // Same fallback direction as `isSubFrozen`: an absent flag on an imported
+  // project means FROZEN, so a caller that forgot to select the column errs
+  // toward refusing rather than toward mispricing.
+  const frozen = sub && sub.price_frozen != null ? !!sub.price_frozen : !!project?.imported_at
+  if (!frozen) return { ok: true, reason: null }
+  return {
+    ok: false,
+    reason:
+      'This scope came from Built at a fixed price, so new lines can’t be added inside it — they would price with no labor or margin. Add the work as new scope on the change order instead.',
+  }
+}
+
 export interface CoDocItem {
   id: string
   doc_id: string
@@ -179,6 +262,14 @@ export function canAcceptDoc(doc: { status: CoDocStatus }, items: CoDocItem[]): 
     }
     if (i.kind === 'remove_sub' && !i.subproject_id)
       return { ok: false, reason: 'A removal is missing the subproject it removes.' }
+    if (i.kind === 'edit_sub') {
+      const d = i.draft as unknown as EditSubDraft
+      if (!i.subproject_id) return { ok: false, reason: 'A revision is missing its subproject.' }
+      // An edit that changes nothing would materialise as a no-op and leave a
+      // line on the client's change order describing no change.
+      if (editIsEmpty(d))
+        return { ok: false, reason: 'A revision has no changes in it — remove it or edit it.' }
+    }
   }
   return { ok: true, reason: null }
 }

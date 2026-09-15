@@ -41,15 +41,20 @@ import { recomputeProjectBidTotal } from './project-totals'
 import type { ComposerDefaults } from './composer'
 import {
   canAcceptDoc,
+  canAddLinesToSub,
+  introducedLines,
+  touchedLineIds,
   nextCoNumber,
   nextItemOrder,
   type AddSubDraft,
   type CoDoc,
   type CoDocItem,
   type CoDraftLine,
+  type EditSubDraft,
+  type Gate,
 } from './co-doc-math'
 
-export type { AddSubDraft, CoDoc, CoDocItem, CoDraftLine } from './co-doc-math'
+export type { AddSubDraft, CoDoc, CoDocItem, CoDraftLine, EditSubDraft } from './co-doc-math'
 
 // ── Reads ───────────────────────────────────────────────────────────────────
 
@@ -290,6 +295,111 @@ export async function priceSubprojectAtContract(
   return Math.round(computeBucketedPrice(bucketsOf(rollup), margins).priceTotal)
 }
 
+/**
+ * Price ONE sub's chosen contract lines at the value they carry in the
+ * contract — the sub's own rule, frozen or not.
+ *
+ * Used for the credit half of a revision. `priceSubprojectAtContract` prices
+ * the whole sub; this prices a subset, which is what a line-level edit needs.
+ */
+export async function priceContractLines(
+  p: ProjectPricing,
+  subprojectId: string,
+  lineIds: string[],
+): Promise<number> {
+  if (lineIds.length === 0) return 0
+  const { data: sub } = await supabase
+    .from('subprojects')
+    .select('*')
+    .eq('id', subprojectId)
+    .maybeSingle()
+  const all = await loadEstimateLines(subprojectId)
+  const picked = all.filter((l) => lineIds.includes(l.id))
+  if (picked.length === 0) return 0
+
+  const frozen = isSubFrozen(p.project, sub as any)
+  const rollup = computeSubprojectRollup(
+    picked,
+    p.rateBook.itemsById,
+    new Map(),
+    {
+      shopRate: frozen ? 0 : p.shopRate,
+      consumableMarkupPct: frozen
+        ? 0
+        : ((sub as any)?.consumable_markup_pct ?? p.orgConsumablesPct),
+      profitMarginPct: 0,
+    },
+    // ⚠️ NOT scaled by the sub's `quantity` (097's "(TYP)" multiplier). A
+    // credit is for the lines actually being removed once; multiplying here
+    // would credit a TYP sub N times for a single deletion.
+    1,
+  )
+  const margins = frozen
+    ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+    : p.margins
+  return Math.round(computeBucketedPrice(bucketsOf(rollup), margins).priceTotal)
+}
+
+/**
+ * Every contract line of a sub, priced individually at its contract value.
+ *
+ * ⛔ WHY PER-LINE. The revise modal re-prices on every click and must not touch
+ * the database to do it, but the CREDIT half depends on rows only the database
+ * has. So it is resolved once when the modal opens and summed in memory.
+ *
+ * ⚠️ SUMMING THESE EQUALS PRICING THEM TOGETHER — `priceFromMargin` is linear
+ * in cost, the same property the frozen/live bucket split relies on. If that
+ * ever stops being true, this preview and `priceEditDraft` (which prices the
+ * set in one pass and produces the number actually STORED) drift apart.
+ */
+export async function priceContractLinesIndividually(
+  p: ProjectPricing,
+  subprojectId: string,
+): Promise<Record<string, number>> {
+  const { data: sub } = await supabase
+    .from('subprojects')
+    .select('*')
+    .eq('id', subprojectId)
+    .maybeSingle()
+  const lines = await loadEstimateLines(subprojectId)
+  const frozen = isSubFrozen(p.project, sub as any)
+  const ctx: PricingContext = {
+    shopRate: frozen ? 0 : p.shopRate,
+    consumableMarkupPct: frozen
+      ? 0
+      : ((sub as any)?.consumable_markup_pct ?? p.orgConsumablesPct),
+    profitMarginPct: 0,
+  }
+  const margins = frozen
+    ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+    : p.margins
+
+  const out: Record<string, number> = {}
+  for (const line of lines) {
+    const rollup = computeSubprojectRollup([line], p.rateBook.itemsById, new Map(), ctx, 1)
+    out[line.id] = Math.round(computeBucketedPrice(bucketsOf(rollup), margins).priceTotal)
+  }
+  return out
+}
+
+/**
+ * What an `edit_sub` draft changes the contract by.
+ *
+ * ⛔ THE SPEC'S MONEY RULE, LITERALLY: "a modification = credit old + add new."
+ * Removed and replaced lines are credited at their ORIGINAL contract value;
+ * everything introduced is charged at TODAY'S rates. Untouched lines
+ * contribute nothing, which is why this is a diff and not a re-price of the
+ * whole subproject — re-pricing would silently restate scope nobody changed.
+ */
+export async function priceEditDraft(
+  p: ProjectPricing,
+  draft: EditSubDraft,
+): Promise<{ delta: number; credit: number; charge: number }> {
+  const credit = await priceContractLines(p, draft.subprojectId, touchedLineIds(draft))
+  const charge = priceAddition(p, introducedLines(draft), draft.defaults)
+  return { delta: charge - credit, credit, charge }
+}
+
 // ── Writes ──────────────────────────────────────────────────────────────────
 
 /**
@@ -387,6 +497,75 @@ export async function updateNewScopeDraft(input: {
     .select('id')
   if (error || !data || data.length === 0) {
     console.error('updateNewScopeDraft', error)
+    return false
+  }
+  return true
+}
+
+/** Add or update a line-level revision of an existing subproject. */
+export async function saveEditDraft(input: {
+  orgId: string
+  doc: CoDoc
+  /** Existing item to update, or null to create one. */
+  item?: CoDocItem | null
+  draft: EditSubDraft
+  description?: string | null
+}): Promise<boolean> {
+  const p = await loadProjectPricing(input.doc.project_id)
+  if (!p) return false
+
+  // ⛔ RE-CHECK THE FROZEN GATE ON THE WAY IN. The modal disables it, but this
+  // is money and a stale tab is a real thing.
+  if (introducedLines(input.draft).length > 0) {
+    const { data: sub } = await supabase
+      .from('subprojects')
+      .select('price_frozen')
+      .eq('id', input.draft.subprojectId)
+      .maybeSingle()
+    const gate = canAddLinesToSub(p.project, sub as any)
+    if (!gate.ok) {
+      console.error('saveEditDraft: refused —', gate.reason)
+      return false
+    }
+  }
+
+  const { delta } = await priceEditDraft(p, input.draft)
+
+  if (input.item) {
+    const { data, error } = await supabase
+      .from('co_doc_items')
+      .update({
+        draft: input.draft,
+        delta_amount: delta,
+        description: input.description ?? input.item.description,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', input.item.id)
+      .select('id')
+    if (error || !data || data.length === 0) {
+      console.error('saveEditDraft: update', error)
+      return false
+    }
+    return true
+  }
+
+  const items = await loadCoDocItems(input.doc.id)
+  const { error } = await supabase.from('co_doc_items').insert({
+    org_id: input.orgId,
+    doc_id: input.doc.id,
+    subproject_id: input.draft.subprojectId,
+    kind: 'edit_sub',
+    description: input.description ?? null,
+    draft: input.draft,
+    delta_amount: delta,
+    // A revision is both halves at once; `current` is the basis of the charge,
+    // which is the part that can be re-derived wrongly later.
+    credit_basis: 'current',
+    sort_order: nextItemOrder(items),
+  })
+  if (error) {
+    // 23505 = uniq_co_doc_items_sub; this sub is already on this doc.
+    if ((error as { code?: string }).code !== '23505') console.error('saveEditDraft: insert', error)
     return false
   }
   return true
@@ -564,6 +743,48 @@ export async function acceptDoc(input: {
     // Point the item at what it produced, so the doc's history says which
     // subproject this line of the change order became.
     await supabase.from('co_doc_items').update({ subproject_id: subId }).eq('id', item.id)
+  }
+
+  // ── 1b. Apply the line-level revisions ──
+  // ⛔ ORDER INSIDE AN EDIT: remove, then revise, then add. Revisions UPDATE
+  // the row in place rather than delete-and-insert, so the line keeps its id —
+  // anything hanging off it (approval items, history) survives the change
+  // order instead of being silently orphaned.
+  for (const item of items) {
+    if (item.kind !== 'edit_sub') continue
+    const d = item.draft as unknown as EditSubDraft
+    if (!d?.subprojectId) continue
+
+    if (d.removeLineIds?.length) {
+      const { error } = await supabase.from('estimate_lines').delete().in('id', d.removeLineIds)
+      if (error) console.error('acceptDoc: removing lines', error)
+    }
+    for (const r of d.reviseLines || []) {
+      // product_key / rate_book_item_id are omitted for the same reason
+      // updateComposerLine omits them: an edit can't change what product a
+      // line is.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { product_key, rate_book_item_id, ...patch } = r.line.row
+      const { error } = await supabase.from('estimate_lines').update(patch).eq('id', r.lineId)
+      if (error) console.error('acceptDoc: revising line', r.lineId, error)
+    }
+    if (d.addLines?.length) {
+      const { data: last } = await supabase
+        .from('estimate_lines')
+        .select('sort_order')
+        .eq('subproject_id', d.subprojectId)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      let next = last?.sort_order != null ? Number(last.sort_order) + 1 : 0
+      const rows = d.addLines.map((l) => ({
+        subproject_id: d.subprojectId,
+        sort_order: next++,
+        ...l.row,
+      }))
+      const { error } = await supabase.from('estimate_lines').insert(rows)
+      if (error) console.error('acceptDoc: adding lines', error)
+    }
   }
 
   // ── 2. Apply the removals ──

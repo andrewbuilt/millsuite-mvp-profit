@@ -127,24 +127,72 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     for (const s of (subs || []) as any[]) subNames.set(s.id, s.name)
   }
 
+  // ⛔ A REVISION HAS TO SAY WHAT WAS REMOVED, not just what was added. The
+  // client is being credited for those lines; showing only the new ones makes
+  // the credit look like an unexplained discount. So the removed lines are
+  // read back by id and listed with the rest.
+  const removedIds = rows.flatMap((r) =>
+    r.kind === 'edit_sub'
+      ? [
+          ...((r.draft?.removeLineIds as string[]) || []),
+          ...(((r.draft?.reviseLines as any[]) || []).map((x) => x?.lineId).filter(Boolean)),
+        ]
+      : [],
+  )
+  const removedLines = new Map<string, { description: string; quantity: number; unit: string | null }>()
+  if (removedIds.length > 0) {
+    const { data: els } = await supabaseAdmin
+      .from('estimate_lines')
+      .select('id, description, quantity, unit')
+      .in('id', removedIds)
+    for (const l of (els || []) as any[]) {
+      removedLines.set(l.id, {
+        description: l.description || '',
+        quantity: Number(l.quantity) || 0,
+        unit: l.unit ?? null,
+      })
+    }
+  }
+
   const items: CoDocPdfItem[] = rows.map((r) => {
     const draft = r.draft || {}
     const headline =
       r.kind === 'add_sub'
         ? draft.name || 'New scope'
         : subNames.get(r.subproject_id) || 'Scope'
+
+    const asLine = (l: any) => ({
+      description: l?.row?.description || '',
+      quantity: Number(l?.row?.quantity) || 0,
+      unit: l?.row?.unit ?? null,
+    })
+
+    let lines: CoDocPdfItem['lines']
+    if (r.kind === 'add_sub' && Array.isArray(draft.lines)) {
+      lines = draft.lines.map(asLine)
+    } else if (r.kind === 'edit_sub') {
+      const removed = [
+        ...((draft.removeLineIds as string[]) || []),
+        ...(((draft.reviseLines as any[]) || []).map((x) => x?.lineId).filter(Boolean)),
+      ]
+        .map((id) => removedLines.get(id))
+        .filter(Boolean)
+        .map((l) => ({ ...l!, description: `Removed: ${l!.description}` }))
+      const added = [
+        ...((draft.addLines as any[]) || []),
+        ...(((draft.reviseLines as any[]) || []).map((x) => x?.line).filter(Boolean)),
+      ]
+        .map(asLine)
+        .map((l) => ({ ...l, description: `Added: ${l.description}` }))
+      lines = [...removed, ...added]
+    }
+
     return {
       kind: r.kind,
       headline,
       description: r.description || null,
       delta: Number(r.delta_amount) || 0,
-      lines: Array.isArray(draft.lines)
-        ? draft.lines.map((l: any) => ({
-            description: l?.row?.description || '',
-            quantity: Number(l?.row?.quantity) || 0,
-            unit: l?.row?.unit ?? null,
-          }))
-        : undefined,
+      lines,
     }
   })
 

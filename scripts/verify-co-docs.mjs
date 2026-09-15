@@ -17,9 +17,13 @@
 
 import {
   canAcceptDoc,
+  canAddLinesToSub,
   canTouchSubproject,
   coLabel,
   docDelta,
+  editIsEmpty,
+  introducedLines,
+  touchedLineIds,
   itemHeadline,
   nextCoNumber,
   nextItemOrder,
@@ -116,6 +120,92 @@ check(
 check(
   'the refusal names the draft',
   canAcceptDoc(openDoc, [{ ...goodDraft, draft: { name: 'Island', lines: [] } }]).reason.includes('Island'),
+  true,
+)
+
+// ── edit_sub: the line-level diff (step 2) ──────────────────────────────────
+console.log('\nrevisions')
+const edit = (over = {}) => ({
+  subprojectId: 's1',
+  defaults: { consumablesPct: 10, wastePct: 5 },
+  removeLineIds: [],
+  addLines: [],
+  reviseLines: [],
+  ...over,
+})
+
+check('an untouched draft is empty', editIsEmpty(edit()), true)
+check('a removal is not', editIsEmpty(edit({ removeLineIds: ['l1'] })), false)
+check('an addition is not', editIsEmpty(edit({ addLines: [{ key: 'a' }] })), false)
+// ⛔ A REVISION IS CREDIT-OLD + ADD-NEW, so the revised line counts on BOTH
+// sides. Missing it on the credit side charges the client for the new line
+// without giving back the old one.
+check(
+  'a revision touches the old line',
+  touchedLineIds(edit({ reviseLines: [{ lineId: 'l9', line: { key: 'x' } }] })),
+  ['l9'],
+)
+check(
+  'and introduces the new one',
+  introducedLines(edit({ reviseLines: [{ lineId: 'l9', line: { key: 'x' } }] })).map((l) => l.key),
+  ['x'],
+)
+check(
+  'removals and revisions both get credited',
+  touchedLineIds(edit({ removeLineIds: ['l1', 'l2'], reviseLines: [{ lineId: 'l3', line: { key: 'y' } }] })),
+  ['l1', 'l2', 'l3'],
+)
+check(
+  'additions and revisions are both charged',
+  introducedLines(
+    edit({ addLines: [{ key: 'a' }], reviseLines: [{ lineId: 'l3', line: { key: 'y' } }] }),
+  ).map((l) => l.key),
+  ['a', 'y'],
+)
+// A revision is not empty even with nothing added outright.
+check('a revision alone is a change', editIsEmpty(edit({ reviseLines: [{ lineId: 'l1', line: { key: 'z' } }] })), false)
+
+// ⛔ THE FROZEN GATE. Appending a composer line to a frozen sub prices it at
+// material cost with no labor and no margin — migration 108's bug, one level
+// down. Pajot's island is frozen, so this is the live path, not a corner.
+console.log('\nnew lines inside a frozen sub')
+const IMPORTED = { imported_at: '2026-07-30T00:00:00Z' }
+const NATIVE = { imported_at: null }
+check('a frozen sub refuses new lines', canAddLinesToSub(IMPORTED, { price_frozen: true }).ok, false)
+check(
+  'and says where to put them instead',
+  canAddLinesToSub(IMPORTED, { price_frozen: true }).reason.includes('new scope'),
+  true,
+)
+// ⛔ Scope ADDED BY AN EARLIER CO to an imported job is NOT frozen, so it can
+// take new lines — that's the whole point of 108 being per-subproject.
+check('post-import scope accepts new lines', canAddLinesToSub(IMPORTED, { price_frozen: false }).ok, true)
+check('a native sub accepts new lines', canAddLinesToSub(NATIVE, { price_frozen: false }).ok, true)
+// Same fallback direction as isSubFrozen: an unselected column on an imported
+// job errs toward REFUSING rather than toward mispricing.
+check('column not selected on an imported job ⇒ refuse', canAddLinesToSub(IMPORTED, {}).ok, false)
+check('column not selected on a native job ⇒ allow', canAddLinesToSub(NATIVE, {}).ok, true)
+
+console.log('\nrevisions cannot be accepted empty')
+check(
+  'an empty revision blocks acceptance',
+  canAcceptDoc(openDoc, [
+    { kind: 'edit_sub', subproject_id: 's1', draft: edit(), delta_amount: 0 },
+  ]).ok,
+  false,
+)
+check(
+  'a revision with no subproject blocks acceptance',
+  canAcceptDoc(openDoc, [
+    { kind: 'edit_sub', subproject_id: null, draft: edit({ removeLineIds: ['l1'] }), delta_amount: -5 },
+  ]).ok,
+  false,
+)
+check(
+  'a real revision accepts',
+  canAcceptDoc(openDoc, [
+    { kind: 'edit_sub', subproject_id: 's1', draft: edit({ removeLineIds: ['l1'] }), delta_amount: -500 },
+  ]).ok,
   true,
 )
 
