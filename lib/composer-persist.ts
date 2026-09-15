@@ -19,8 +19,8 @@ import type {
   ComposerRateBook,
   ComposerSlots,
 } from './composer'
-import { productLabelFromKey, summarizeSlots } from './composer'
-import { PRODUCTS, type ProductKey } from './products'
+import { composerLineRow } from './composer-row'
+import { type ProductKey } from './products'
 import {
   recomputeProjectBidTotalForLine,
   recomputeProjectBidTotalForSubproject,
@@ -140,33 +140,13 @@ export function initialSubprojectDefaults(
  * (writes 8× back if it stores whole-line totals on refresh). One helper,
  * one contract, four callers.
  */
-export interface ComposerStorageValues {
-  /** Per-unit hours by dept; null when every dept is zero. */
-  deptHourOverrides: Record<string, number> | null
-  /** Per-unit (materialSubtotal + waste) — no consumables. */
-  lumpCostOverride: number
-}
-
-export function breakdownToStorageValues(
-  breakdown: ComposerBreakdown,
-  qty: number
-): ComposerStorageValues {
-  const deptHourOverrides: Record<string, number> = {}
-  if (qty > 0) {
-    if (breakdown.hoursByDept.eng > 0)      deptHourOverrides.eng      = breakdown.hoursByDept.eng      / qty
-    if (breakdown.hoursByDept.cnc > 0)      deptHourOverrides.cnc      = breakdown.hoursByDept.cnc      / qty
-    if (breakdown.hoursByDept.assembly > 0) deptHourOverrides.assembly = breakdown.hoursByDept.assembly / qty
-    if (breakdown.hoursByDept.finish > 0)   deptHourOverrides.finish   = breakdown.hoursByDept.finish   / qty
-    if (breakdown.hoursByDept.install > 0)  deptHourOverrides.install  = breakdown.hoursByDept.install  / qty
-  }
-  const lumpCostOverride =
-    qty > 0 ? (breakdown.materialSubtotal + breakdown.waste) / qty : 0
-  return {
-    deptHourOverrides:
-      Object.keys(deptHourOverrides).length > 0 ? deptHourOverrides : null,
-    lumpCostOverride,
-  }
-}
+// ⛔ MOVED to lib/composer-row.ts, and re-exported here so the four existing
+// callers keep working. It lives there because `lib/supabase` is imported at
+// module scope in THIS file, which makes anything defined here unloadable by a
+// verify script — and because change orders v2 needs to price a draft line
+// before any row exists, through the exact same code the insert uses.
+export type { ComposerStorageValues } from './composer-row'
+export { breakdownToStorageValues, composerLineRow } from './composer-row'
 
 // ── Save a composer line ──
 
@@ -202,37 +182,12 @@ export async function saveComposerLine(input: {
     .maybeSingle()
   const nextOrder = last?.sort_order != null ? Number(last.sort_order) + 1 : 0
 
-  const cp =
-    draft.productId === 'custom'
-      ? rateBook.customProducts.find((p) => p.id === draft.slots.customProductId)
-      : null
-  const summary = summarizeSlots(draft, rateBook)
-  const productLabel = cp ? cp.name : productLabelFromKey(draft.productId)
-  const description = summary ? `${productLabel} · ${summary}` : productLabel
-
-  // computeBreakdown returns whole-line totals; the storage columns are
-  // per-unit. See breakdownToStorageValues for the full contract.
-  const storage = breakdownToStorageValues(breakdown, Number(draft.qty) || 0)
-
   const { data, error } = await supabase
     .from('estimate_lines')
     .insert({
       subproject_id: subprojectId,
       sort_order: nextOrder,
-      description,
-      rate_book_item_id: null,
-      quantity: draft.qty,
-      // Per-product unit from lib/products.ts. Cabinet products are 'lf'
-      // (linear-foot runs); Solid Wood Top is 'piece'; custom products carry
-      // their own unit — so the line list's Unit column reads correctly.
-      unit: cp ? cp.unit : PRODUCTS[draft.productId].unit,
-      product_key: draft.productId,
-      product_slots: draft.slots,
-      material_mode_override: 'lump',
-      lump_cost_override: storage.lumpCostOverride,
-      dept_hour_overrides: storage.deptHourOverrides,
-      notes: draft.slots.notes || null,
-      composer_hours_corrected: true,
+      ...composerLineRow({ draft, breakdown, rateBook }),
     })
     .select('id')
     .single()
@@ -267,32 +222,21 @@ export async function updateComposerLine(input: {
 }): Promise<void> {
   const { lineId, draft, breakdown, rateBook } = input
 
-  const cp =
-    draft.productId === 'custom'
-      ? rateBook.customProducts.find((p) => p.id === draft.slots.customProductId)
-      : null
-  const summary = summarizeSlots(draft, rateBook)
-  const productLabel = cp ? cp.name : productLabelFromKey(draft.productId)
-  const description = summary ? `${productLabel} · ${summary}` : productLabel
-
-  const storage = breakdownToStorageValues(breakdown, Number(draft.qty) || 0)
+  // ⛔ product_key and rate_book_item_id are OMITTED on update, deliberately:
+  // edit mode can't change which product a line is, and re-stamping
+  // rate_book_item_id = null would be a no-op at best. Everything else —
+  // including the re-stamped `unit`, which fixes a stale 'lf' on a Solid Wood
+  // Top row — comes from the same builder the insert uses.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { product_key, rate_book_item_id, ...patch } = composerLineRow({
+    draft,
+    breakdown,
+    rateBook,
+  })
 
   const { error } = await supabase
     .from('estimate_lines')
-    .update({
-      description,
-      quantity: draft.qty,
-      // Re-stamp unit on edit so a stale 'lf' from before the unit-fix
-      // gets corrected to 'piece' the next time a Solid Wood Top line
-      // round-trips through the composer.
-      unit: cp ? cp.unit : PRODUCTS[draft.productId].unit,
-      product_slots: draft.slots,
-      material_mode_override: 'lump',
-      lump_cost_override: storage.lumpCostOverride,
-      dept_hour_overrides: storage.deptHourOverrides,
-      notes: draft.slots.notes || null,
-      composer_hours_corrected: true,
-    })
+    .update(patch)
     .eq('id', lineId)
   if (error) {
     console.error('updateComposerLine', error)

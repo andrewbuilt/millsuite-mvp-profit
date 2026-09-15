@@ -155,13 +155,9 @@ export function computeSolidWoodCost(
   return bdft * (component.cost_per_bdft || 0) * (1 + waste / 100)
 }
 
-/** "8/4", "4/4" — quarters as a sawmill fraction. */
-export function formatThickness(quarters: number): string {
-  const q = Math.max(1, Math.round(quarters))
-  return `${q}/4`
-}
-
-/** Approximate inches for a tooltip / detail row. 4/4 → 1.0 in, 8/4 → 2.0 in. */
-export function quartersToInches(quarters: number): number {
-  return (Math.max(0, quarters) / 4)
-}
+// ⛔ MOVED to lib/solid-wood-units.ts, re-exported here so every existing
+// caller is unaffected. THIS file imports lib/supabase at module scope, and
+// lib/composer.ts imports these two as VALUES — so anything touching the
+// composer built a database client just to format "8/4", which made the
+// composer's storage contract untestable. See solid-wood-units.ts.
+export { formatThickness, quartersToInches } from './solid-wood-units'

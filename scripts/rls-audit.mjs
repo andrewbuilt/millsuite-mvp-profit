@@ -27,7 +27,7 @@ const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_RO
 
 const TABLES = `orgs users clients contacts projects subprojects estimate_lines change_orders
 client_invoices client_invoice_line_items client_invoice_payments cash_flow_receivables
-project_payments tasks task_comments supply_items bom_items
+project_payments tasks task_comments supply_items bom_items co_docs co_doc_items
 departments time_entries pto_requests pto_policies capacity_overrides
 project_month_allocations rate_book_items rate_book_categories rate_book_finish_breakdown
 materials door_types door_type_materials door_type_material_finishes cabinet_features

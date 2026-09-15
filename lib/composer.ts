@@ -23,7 +23,12 @@ import type {
 } from './door-types'
 import type { CustomProduct } from './custom-products'
 import type { CabinetFeature } from './features'
-import { formatThickness, quartersToInches } from './solid-wood'
+// ⛔ FROM solid-wood-units, NOT solid-wood. The latter imports lib/supabase at
+// module scope, so pulling these two formatters through it builds a database
+// client for every consumer of the composer — and makes composer pricing
+// impossible to load in a verify script. Re-exporting was NOT enough: the
+// re-export keeps the chain alive, so the import has to name the pure file.
+import { formatThickness, quartersToInches } from './solid-wood-units'
 
 /** Per-LF carcass labor hours from a cabinet rate_book_item's
  *  base_labor_hours_*. Base cabinet is the anchor; Upper / Full can carry
