@@ -24,6 +24,7 @@ import { useState } from 'react'
 import {
   AlertTriangle,
   Check,
+  DollarSign,
   FilePlus2,
   FileText,
   Minus,
@@ -71,6 +72,7 @@ export default function CoDraftPanel({
   onVoid,
   onPdf,
   onSend,
+  onAddAdjustment,
 }: {
   doc: CoDoc
   items: CoDocItem[]
@@ -83,8 +85,16 @@ export default function CoDraftPanel({
   onVoid: () => void
   onPdf: () => void
   onSend: () => void
+  /** Negative = credit. The sign comes from the UI, not from typing a minus. */
+  onAddAdjustment: (amount: number, description: string) => void
 }) {
   const [confirmAccept, setConfirmAccept] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [adjNote, setAdjNote] = useState('')
+  const [adjAmount, setAdjAmount] = useState('')
+  /** Defaults to CREDIT: taking money off is the common case on an imported
+   *  job, and it's the direction that hurts if it goes in backwards. */
+  const [adjSign, setAdjSign] = useState<-1 | 1>(-1)
   const s = summarizeDoc(items)
   const label = coLabel(doc)
 
@@ -103,7 +113,14 @@ export default function CoDraftPanel({
           <div className="text-[11px] text-[#6B21A8] mt-1">
             {items.length === 0
               ? 'Nothing in it yet.'
-              : `${s.adds} added · ${s.edits} revised · ${s.removes} removed`}
+              : [
+                  s.adds ? `${s.adds} added` : '',
+                  s.edits ? `${s.edits} revised` : '',
+                  s.removes ? `${s.removes} removed` : '',
+                  s.adjustments ? `${s.adjustments} amount${s.adjustments === 1 ? '' : 's'}` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
           </div>
           {/* ⛔ THE SIGNATURE IS CONSENT, NOT ACCEPTANCE. The portal records
               that the client agreed; the money still moves when the shop
@@ -150,7 +167,9 @@ export default function CoDraftPanel({
             <div
               key={item.id}
               className={`rounded-lg border-2 border-dashed px-4 py-3 bg-white ${
-                removal ? 'border-[#FCA5A5]' : 'border-[#C4B5FD]'
+                removal || (item.kind === 'adjustment' && item.delta_amount < 0)
+                  ? 'border-[#FCA5A5]'
+                  : 'border-[#C4B5FD]'
               }`}
             >
               <div className="flex items-start justify-between gap-3">
@@ -171,6 +190,8 @@ export default function CoDraftPanel({
                         </>
                       ) : item.kind === 'edit_sub' ? (
                         'CO pending'
+                      ) : item.kind === 'adjustment' ? (
+                        item.delta_amount < 0 ? 'Credit' : 'Charge'
                       ) : (
                         'Draft — new scope'
                       )}
@@ -181,14 +202,20 @@ export default function CoDraftPanel({
                       removal ? 'text-[#991B1B] line-through' : 'text-[#111]'
                     }`}
                   >
-                    {item.kind === 'add_sub' ? draft?.name || 'Untitled scope' : subName || 'Scope'}
+                    {item.kind === 'add_sub'
+                      ? draft?.name || 'Untitled scope'
+                      : item.kind === 'adjustment'
+                        ? item.description || 'Adjustment'
+                        : subName || 'Scope'}
                   </div>
                   <div className="text-[11px] text-[#6B7280] mt-0.5">
                     {removal
                       ? 'Credited at its original contract value'
                       : item.kind === 'edit_sub'
                         ? editSummary(item)
-                        : `${lineCount} line${lineCount === 1 ? '' : 's'} · priced at today’s rates`}
+                        : item.kind === 'adjustment'
+                          ? 'A flat amount — no line items behind it'
+                          : `${lineCount} line${lineCount === 1 ? '' : 's'} · priced at today’s rates`}
                   </div>
                   {item.description && !removal && (
                     <div className="text-[11px] text-[#9CA3AF] mt-0.5 truncate">
@@ -229,14 +256,105 @@ export default function CoDraftPanel({
           )
         })}
 
-        <button
-          onClick={onAddScope}
-          disabled={busy}
-          className="w-full border border-dashed border-[#C4B5FD] rounded-lg px-4 py-2.5 text-center text-[12.5px] text-[#7C3AED] hover:bg-[#F5F3FF] transition-colors disabled:opacity-50"
-        >
-          <FilePlus2 className="w-3.5 h-3.5 inline mr-1" />
-          Add new scope to {label}
-        </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button
+            onClick={onAddScope}
+            disabled={busy}
+            className="border border-dashed border-[#C4B5FD] rounded-lg px-4 py-2.5 text-center text-[12.5px] text-[#7C3AED] hover:bg-[#F5F3FF] transition-colors disabled:opacity-50"
+          >
+            <FilePlus2 className="w-3.5 h-3.5 inline mr-1" />
+            Add new scope
+          </button>
+          {/* ⛔ THE ONLY MOVE THAT WORKS ON AN IMPORTED JOB. Every migrated
+              subproject is a single lump line — 91 of 91 — so "revise" there
+              can only remove the whole room. Andrew: "how can I just deduct an
+              amount? for the imported jobs there isn't anything to modify on
+              the subproject level." */}
+          <button
+            onClick={() => setAdding(true)}
+            disabled={busy}
+            className="border border-dashed border-[#C4B5FD] rounded-lg px-4 py-2.5 text-center text-[12.5px] text-[#7C3AED] hover:bg-[#F5F3FF] transition-colors disabled:opacity-50"
+          >
+            <DollarSign className="w-3.5 h-3.5 inline mr-1" />
+            Add or deduct an amount
+          </button>
+        </div>
+
+        {adding && (
+          <div className="rounded-lg border border-[#C4B5FD] bg-white px-3 py-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                autoFocus
+                value={adjNote}
+                onChange={(e) => setAdjNote(e.target.value)}
+                placeholder="What it's for — the client reads this"
+                className="flex-1 min-w-[180px] px-2 py-1.5 text-[12.5px] border border-[#E5E7EB] rounded outline-none focus:border-[#7C3AED]"
+              />
+              <div className="flex items-center gap-1">
+                {/* ⛔ THE SIGN IS AN EXPLICIT CHOICE, not a minus sign someone
+                    has to remember to type. A credit entered as a positive
+                    number would bill the client for scope you just took away. */}
+                <button
+                  onClick={() => setAdjSign(-1)}
+                  className={`px-2 py-1.5 text-[11px] font-semibold rounded border ${
+                    adjSign < 0
+                      ? 'border-[#FCA5A5] bg-[#FEF2F2] text-[#B91C1C]'
+                      : 'border-[#E5E7EB] text-[#9CA3AF]'
+                  }`}
+                >
+                  Credit
+                </button>
+                <button
+                  onClick={() => setAdjSign(1)}
+                  className={`px-2 py-1.5 text-[11px] font-semibold rounded border ${
+                    adjSign > 0
+                      ? 'border-[#A7F3D0] bg-[#ECFDF5] text-[#047857]'
+                      : 'border-[#E5E7EB] text-[#9CA3AF]'
+                  }`}
+                >
+                  Charge
+                </button>
+              </div>
+              <div className="flex items-center">
+                <span className="text-[12.5px] text-[#9CA3AF] mr-0.5">$</span>
+                <input
+                  value={adjAmount}
+                  onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                  placeholder="0"
+                  className="w-24 px-2 py-1.5 text-[12.5px] text-right font-mono border border-[#E5E7EB] rounded outline-none focus:border-[#7C3AED]"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  const n = Number(adjAmount)
+                  if (!Number.isFinite(n) || n <= 0 || !adjNote.trim()) return
+                  onAddAdjustment(adjSign * n, adjNote.trim())
+                  setAdding(false)
+                  setAdjNote('')
+                  setAdjAmount('')
+                  setAdjSign(-1)
+                }}
+                disabled={busy || !adjNote.trim() || !(Number(adjAmount) > 0)}
+                className="px-3 py-1.5 rounded-lg bg-[#7C3AED] text-white text-xs font-medium hover:bg-[#6D28D9] disabled:opacity-40"
+              >
+                Add
+              </button>
+              <button
+                onClick={() => setAdding(false)}
+                className="px-2 py-1.5 text-xs text-[#6B7280] hover:text-[#111]"
+              >
+                Cancel
+              </button>
+            </div>
+            <div className="mt-1.5 text-[10.5px] text-[#9CA3AF]">
+              {adjSign < 0 ? 'Comes off' : 'Goes on'} the contract when {label} is accepted
+              {Number(adjAmount) > 0
+                ? ` — ${adjSign < 0 ? '-' : '+'}$${Math.round(Number(adjAmount)).toLocaleString()}`
+                : ''}
+              .
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="px-4 py-3 border-t border-[#EDE9FE] flex items-center gap-2 flex-wrap">

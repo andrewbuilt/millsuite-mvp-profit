@@ -79,6 +79,7 @@ check('summary', summarizeDoc(mixed), {
   adds: 1,
   edits: 1,
   removes: 1,
+  adjustments: 0,
   delta: 2750,
   additions: 4250,
   credits: -1500,
@@ -122,6 +123,35 @@ check(
   canAcceptDoc(openDoc, [{ ...goodDraft, draft: { name: 'Island', lines: [] } }]).reason.includes('Island'),
   true,
 )
+
+// ── Flat adjustments (111) ──────────────────────────────────────────────────
+// ⛔ THE ONLY MOVE THAT WORKS ON AN IMPORTED JOB. Every migrated subproject is
+// a single lump line — 91 of 91, measured — so the revise flow there can only
+// remove the whole room. "Take $1,500 off" needed its own kind.
+console.log('\nflat adjustments')
+const adj = (over = {}) => ({
+  kind: 'adjustment',
+  subproject_id: null,
+  draft: {},
+  description: 'Client supplying own hardware',
+  delta_amount: -1850,
+  ...over,
+})
+check('a credit is counted as an adjustment', summarizeDoc([adj()]).adjustments, 1)
+check('and lands in credits, not additions', summarizeDoc([adj()]).credits, -1850)
+check('a charge lands in additions', summarizeDoc([adj({ delta_amount: 800 })]).additions, 800)
+check('it moves the doc total', docDelta([adj()]), -1850)
+// ⛔ BOTH HALVES OR IT DOESN'T GO. A number with no reason is an unexplained
+// figure on a document the client signs; a reason with no number changes
+// nothing and would materialise an empty $0 scope.
+check('an adjustment needs a description', canAcceptDoc(openDoc, [adj({ description: '  ' })]).ok, false)
+check('and a non-zero amount', canAcceptDoc(openDoc, [adj({ delta_amount: 0 })]).ok, false)
+check('a complete one accepts', canAcceptDoc(openDoc, [adj()]).ok, true)
+check('the refusal names it', canAcceptDoc(openDoc, [adj({ delta_amount: 0 })]).reason.includes('hardware'), true)
+// A doc can hold several — uniq_co_doc_items_sub only constrains non-null
+// subproject_id, and an adjustment has none.
+check('several can coexist', summarizeDoc([adj(), adj({ delta_amount: 500 })]).adjustments, 2)
+check('netting correctly', docDelta([adj(), adj({ delta_amount: 500 })]), -1350)
 
 // ── edit_sub: the line-level diff (step 2) ──────────────────────────────────
 console.log('\nrevisions')

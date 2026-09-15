@@ -574,6 +574,49 @@ export async function saveEditDraft(input: {
   return true
 }
 
+/**
+ * Add a flat amount to the change order — a description and a number.
+ *
+ * ⛔ THE ONLY MOVE THAT WORKS ON AN IMPORTED JOB. Every frozen subproject is a
+ * single lump line (91 of 91, measured), so the revise flow's "remove a line"
+ * there means removing the whole room. `addAdjustment` is how you take $1,500
+ * off, or add $800 for an extra trip, without pretending there's a line-item
+ * model behind it.
+ *
+ * Negative = a credit. The sign lives in the row, same as every other item, so
+ * `docDelta` stays a plain sum.
+ */
+export async function addAdjustment(input: {
+  orgId: string
+  doc: CoDoc
+  amount: number
+  description: string
+}): Promise<boolean> {
+  const amount = Number(input.amount)
+  if (!Number.isFinite(amount) || amount === 0) return false
+  if (!input.description.trim()) return false
+
+  const items = await loadCoDocItems(input.doc.id)
+  const { error } = await supabase.from('co_doc_items').insert({
+    org_id: input.orgId,
+    doc_id: input.doc.id,
+    subproject_id: null,
+    kind: 'adjustment',
+    description: input.description.trim(),
+    draft: {},
+    delta_amount: amount,
+    // Typed by a human against what was agreed, not derived from a rate book.
+    credit_basis: 'original',
+    sort_order: nextItemOrder(items),
+  })
+  if (error) {
+    // 23514 = the kind CHECK constraint — migration 111 hasn't run.
+    console.error('addAdjustment', error)
+    return false
+  }
+  return true
+}
+
 /** Mark an existing subproject for removal, credited at its contract value. */
 export async function addRemoval(input: {
   orgId: string
@@ -822,6 +865,38 @@ export async function acceptDoc(input: {
     }
   }
 
+  // ── 1c. Materialise the flat adjustments ──
+  // ⛔ AN ADJUSTMENT HAS NO LINES, AND `bid_total` IS DERIVED FROM LINES. So a
+  // described amount that materialised nothing would leave the contract
+  // untouched — `acceptDoc` would report the whole adjustment as `drift`, the
+  // client would have signed for a number the job never moved by, and the
+  // "agreed vs moved" check would fire on every single change order.
+  //
+  // So it becomes a real one-line subproject carrying the amount as its
+  // material lump, FROZEN (`price_frozen`) so it prices at exactly that number
+  // — no labor, no consumables, no margin on top. A credit is a negative lump;
+  // nothing in the rollup clamps at zero (checked), so it subtracts.
+  //
+  // ⚠️ IT SHOWS UP AS A SCOPE CARD, and that's the honest outcome: the money
+  // is in the contract, so it should be somewhere you can see it. It carries
+  // no hours and no department, so it contributes nothing to the schedule or
+  // capacity.
+  for (const item of items) {
+    if (item.kind !== 'adjustment') continue
+    if (item.subproject_id) continue // already materialised — see the retry note
+    const amount = Number(item.delta_amount) || 0
+    if (amount === 0) continue
+    const subId = await materialiseAdjustment(
+      p.orgId,
+      doc.project_id,
+      `${coLabel(doc)} — ${item.description || 'Adjustment'}`,
+      amount,
+    )
+    if (!subId) return fail(`Could not apply "${item.description}". Nothing else was changed.`)
+    created.push(subId)
+    await supabase.from('co_doc_items').update({ subproject_id: subId }).eq('id', item.id)
+  }
+
   // ── 2. Apply the removals ──
   for (const item of items) {
     if (item.kind !== 'remove_sub' || !item.subproject_id) continue
@@ -1026,6 +1101,69 @@ export async function invoiceAcceptedDoc(doc: CoDoc, netChange: number): Promise
     console.error('invoiceAcceptedDoc', e)
     return null
   }
+}
+
+/**
+ * A flat adjustment → a one-line, price-frozen subproject.
+ *
+ * ⛔ FROZEN IS THE WHOLE TRICK. `price_frozen` means "this row's stored cost IS
+ * its price" (migration 108), so the lump lands in `bid_total` as exactly the
+ * number on the change order — no labor, no consumables, no margin applied on
+ * top. Without it, a $1,500 credit would be marked up into something else
+ * entirely and the contract would move by a number nobody agreed to.
+ */
+async function materialiseAdjustment(
+  orgId: string,
+  projectId: string,
+  name: string,
+  amount: number,
+): Promise<string | null> {
+  const { data: last } = await supabase
+    .from('subprojects')
+    .select('sort_order')
+    .eq('project_id', projectId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextOrder = last?.sort_order != null ? Number(last.sort_order) + 1 : 0
+
+  const { data: sub, error } = await supabase
+    .from('subprojects')
+    .insert({
+      project_id: projectId,
+      org_id: orgId,
+      name: name.slice(0, 200),
+      sort_order: nextOrder,
+      price_frozen: true,
+      // ⚠️ No dept assignments and no hours — it must not reach the schedule
+      // or the capacity plan. It's money, not work.
+      dept_assignments: [],
+    })
+    .select('id')
+    .single()
+  if (error || !sub) {
+    console.error('materialiseAdjustment: subproject', error)
+    return null
+  }
+
+  const { error: lineErr } = await supabase.from('estimate_lines').insert({
+    subproject_id: (sub as { id: string }).id,
+    sort_order: 0,
+    description: name.slice(0, 200),
+    rate_book_item_id: null,
+    quantity: 1,
+    unit: 'job',
+    material_mode_override: 'lump',
+    // Negative for a credit. Nothing in the rollup clamps at zero.
+    lump_cost_override: amount,
+    dept_hour_overrides: null,
+  })
+  if (lineErr) {
+    console.error('materialiseAdjustment: line', lineErr)
+    await supabase.from('subprojects').delete().eq('id', (sub as { id: string }).id)
+    return null
+  }
+  return (sub as { id: string }).id
 }
 
 /**

@@ -145,6 +145,7 @@ import NewScopeDraftModal from '@/components/project/NewScopeDraftModal'
 import ReviseScopeModal, { type ContractLine } from '@/components/project/ReviseScopeModal'
 import {
   acceptDoc,
+  addAdjustment,
   addNewScopeDraft,
 
   priceContractLinesIndividually,
@@ -2153,6 +2154,18 @@ export default function ProjectCoverPage() {
                     subNameById={subNameById}
                     busy={coV2Busy}
                     onAddScope={() => setScopeDraftFor({ item: null })}
+                    onAddAdjustment={(amount, description) =>
+                      void runCo(async () =>
+                        (await addAdjustment({
+                          orgId: org!.id,
+                          doc: coDoc,
+                          amount,
+                          description,
+                        }))
+                          ? null
+                          : 'Could not add that amount — has migration 111 run?',
+                      )
+                    }
                     onEditDraft={(item) => setScopeDraftFor({ item })}
                     onRemoveItem={(item) =>
                       void runCo(async () =>

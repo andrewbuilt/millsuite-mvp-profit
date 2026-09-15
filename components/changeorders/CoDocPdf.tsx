@@ -31,7 +31,7 @@ import { pdfLogoOk } from '@/components/estimates/EstimatePdf'
 import { pdfText } from '@/lib/pdf-text'
 
 export interface CoDocPdfItem {
-  kind: 'add_sub' | 'edit_sub' | 'remove_sub'
+  kind: 'add_sub' | 'edit_sub' | 'remove_sub' | 'adjustment'
   /** What the client reads: the draft name, the sub name, or a typed note. */
   headline: string
   /** Optional longer description typed by the shop. */
@@ -128,6 +128,8 @@ function fmtDate(iso: string): string {
 }
 
 const KIND_LABEL: Record<CoDocPdfItem['kind'], string> = {
+  // A flat amount has no scope model behind it — the description IS the item.
+  adjustment: 'Adjustment',
   add_sub: 'Added scope',
   edit_sub: 'Revised scope',
   remove_sub: 'Removed scope',

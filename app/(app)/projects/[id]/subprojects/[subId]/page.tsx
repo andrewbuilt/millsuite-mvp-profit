@@ -192,7 +192,6 @@ export default function SubprojectEditorPage() {
   // on existing freeform rows AND for auto-open after a freeform Enter add.
   const [freeformLineId, setFreeformLineId] = useState<string | null>(null)
   // New (v2) header CO modal — Andrew's direct material/labor-cost flow.
-  const [newCoOpen, setNewCoOpen] = useState(false)
   // Install prefill values — loaded + kept in sync by InstallPrefill via its
   // onChange. We hold them here so the subproject total + header strip can
   // reflect the install cost without needing to refetch.
@@ -822,8 +821,11 @@ export default function SubprojectEditorPage() {
               Locked — sold
             </div>
             <div className="text-[12px] text-[#1E3A8A] mt-0.5">
-              The estimate is locked. Use the <b>Change order</b> button above
-              to draft a change order — that's the only edit path post-sale.
+              The estimate is locked. Change orders are drafted on the{' '}
+              <Link href={`/projects/${projectId}`} className="underline font-semibold">
+                project page
+              </Link>{' '}
+              — that&apos;s the only edit path post-sale.
             </div>
           </div>
         )}
@@ -964,15 +966,29 @@ export default function SubprojectEditorPage() {
                 </button>
               </div>
             )}
-            {/* CO entry — post-sold only (the estimate is locked; a CO is the
-                change path). Andrew's flow: header button → direct-cost modal. */}
+            {/* ⛔ v1 CHANGE-ORDER AUTHORING IS RETIRED (cutover 2026-09-15).
+                This opened the old guess-a-number modal — the one Andrew
+                described as "I'm just guessing at the costs" — and once v2
+                shipped it was a SECOND way to do the same thing on the same
+                job, producing a different kind of record.
+
+                The spec's cutover condition was "check for OPEN v1 COs and
+                migrate or finish them by hand". Checked with
+                `scripts/inspect-co-cutover`: 3 void, 2 approved, **ZERO open**
+                — so nothing was stranded by removing it.
+
+                ⚠️ v1 COs STAY FULLY READABLE — the list on the project page,
+                their PDFs and their invoices are untouched. Only the authoring
+                entry point is gone; it now points at the project page, where
+                change orders are drafted. */}
             {project && !isPresold(project.stage) && (
-              <button
-                onClick={() => setNewCoOpen(true)}
+              <Link
+                href={`/projects/${projectId}`}
+                title="Change orders are drafted on the project page"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#2563EB] bg-white border border-[#2563EB] rounded-lg hover:bg-[#EFF6FF] transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" /> Change order
-              </button>
+              </Link>
             )}
           </div>
 
@@ -1447,23 +1463,12 @@ export default function SubprojectEditorPage() {
         />
       )}
 
-      {newCoOpen && subproject && org?.id && (
-        <CreateChangeOrderModal
-          projectId={projectId}
-          subprojectId={subId}
-          subprojectName={subproject.name}
-          orgId={org.id}
-          specLines={coSpecLines}
-          pricing={coPricing}
-          composerRateBook={composerRateBook}
-          composerDefaults={composerDefaults}
-          onClose={() => setNewCoOpen(false)}
-          onCreated={() => {
-            setNewCoOpen(false)
-            router.push(`/projects/${projectId}`)
-          }}
-        />
-      )}
+      {/* ⛔ THE v1 CREATE-CO MODAL IS GONE (cutover 2026-09-15). Its only
+          trigger was the header button above, so once that retired this was
+          unreachable — and an unreachable modal is worse than no modal: the
+          next person to find it assumes it's a live path and wires something
+          to it. CreateChangeOrderModal itself still exists in components/ and
+          is still imported by nothing; delete it when v1 read surfaces go. */}
     </>
   )
 }

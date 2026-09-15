@@ -18,7 +18,15 @@ import type { ComposerLineRow } from './composer-row'
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export type CoDocStatus = 'open' | 'accepted' | 'void'
-export type CoItemKind = 'add_sub' | 'edit_sub' | 'remove_sub'
+/**
+ * ⛔ `adjustment` IS THE ONLY KIND THAT WORKS ON AN IMPORTED JOB (111).
+ * The Built importer writes each migrated room as ONE lump line — measured:
+ * 91 of 91 frozen subprojects have a single line or none — so "remove a line"
+ * there means removing the entire scope, and taking an arbitrary amount off
+ * had no representation at all. An adjustment is a description and a number,
+ * which is also how half the lines on a real change order read.
+ */
+export type CoItemKind = 'add_sub' | 'edit_sub' | 'remove_sub' | 'adjustment'
 /** 'current' = priced at today's rate book. 'original' = credited at the
  *  contract value the client actually signed. */
 export type CreditBasis = 'current' | 'original'
@@ -214,6 +222,7 @@ export interface DocSummary {
   adds: number
   edits: number
   removes: number
+  adjustments: number
   /** Net change to the contract. */
   delta: number
   /** Additions only — what a separate QB invoice would bill (step 3). */
@@ -222,11 +231,20 @@ export interface DocSummary {
 }
 
 export function summarizeDoc(items: CoDocItem[]): DocSummary {
-  const out: DocSummary = { adds: 0, edits: 0, removes: 0, delta: 0, additions: 0, credits: 0 }
+  const out: DocSummary = {
+    adds: 0,
+    edits: 0,
+    removes: 0,
+    adjustments: 0,
+    delta: 0,
+    additions: 0,
+    credits: 0,
+  }
   for (const i of items || []) {
     if (i.kind === 'add_sub') out.adds++
     else if (i.kind === 'edit_sub') out.edits++
     else if (i.kind === 'remove_sub') out.removes++
+    else if (i.kind === 'adjustment') out.adjustments++
     const amt = Number(i.delta_amount) || 0
     out.delta += amt
     if (amt >= 0) out.additions += amt
@@ -269,6 +287,15 @@ export function canAcceptDoc(doc: { status: CoDocStatus }, items: CoDocItem[]): 
     }
     if (i.kind === 'remove_sub' && !i.subproject_id)
       return { ok: false, reason: 'A removal is missing the subproject it removes.' }
+    if (i.kind === 'adjustment') {
+      // ⛔ AN ADJUSTMENT IS A NUMBER AND A REASON. Without the reason it's an
+      // unexplained figure on a document the client signs; without the number
+      // it's a sentence that changes nothing. Both, or it doesn't go.
+      if (!i.description?.trim())
+        return { ok: false, reason: 'An adjustment needs a description — the client reads it.' }
+      if (!Number.isFinite(Number(i.delta_amount)) || Number(i.delta_amount) === 0)
+        return { ok: false, reason: `"${i.description}" has no amount on it.` }
+    }
     if (i.kind === 'edit_sub') {
       const d = i.draft as unknown as EditSubDraft
       if (!i.subproject_id) return { ok: false, reason: 'A revision is missing its subproject.' }
@@ -312,6 +339,10 @@ export function itemHeadline(item: CoDocItem, subName?: string | null): string {
       return `Remove ${subName || 'scope'}`
     case 'edit_sub':
       return `Revise ${subName || 'scope'}`
+    case 'adjustment':
+      // The description IS the item — the branch above already returned it,
+      // so reaching here means somebody saved one without a reason.
+      return 'Adjustment'
   }
 }
 
