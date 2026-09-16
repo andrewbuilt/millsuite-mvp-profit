@@ -126,8 +126,18 @@ export default function TimePage() {
    */
   const [filter, setFilter] = useState<TimeFilter>(() => {
     if (typeof window === 'undefined') return EMPTY_TIME_FILTER
-    const memberId = new URLSearchParams(window.location.search).get('member')
-    return memberId ? { ...EMPTY_TIME_FILTER, memberId } : EMPTY_TIME_FILTER
+    const q = new URLSearchParams(window.location.search)
+    const memberId = q.get('member')
+    // ⛔ `?project=` MUST carry a `projects.id`. /reports links here from the
+    // diagnostic drawer to answer "which hours are these?", and the object it
+    // links from holds a `project_outcomes.id` in its `.id` field — pass that
+    // by mistake and this page filters to nothing and reads as "no time was
+    // tracked on this job". A wrong answer in the shape of a real one.
+    const projectId = q.get('project')
+    const next = { ...EMPTY_TIME_FILTER }
+    if (memberId) next.memberId = memberId
+    if (projectId) next.projectId = projectId
+    return next
   })
   const [loading, setLoading] = useState(true)
 

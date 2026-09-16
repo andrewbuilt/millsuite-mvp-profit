@@ -241,6 +241,7 @@ export default function ReportsPage() {
       setCompletedProjects(
         outcomes.map((o: any) => ({
           id: o.id,
+          projectId: o.project_id,
           name: o.projects?.name || 'Unknown',
           completionDate: o.completed_at,
           estimatedHours: o.estimated_hours,
@@ -254,6 +255,8 @@ export default function ReportsPage() {
           changeOrderCount: o.change_order_count,
           changeOrderRevenue: o.change_order_revenue,
           shopRate: o.shop_rate_at_completion,
+          deptHoursEstimated: o.dept_hours_estimated || undefined,
+          deptHoursActual: o.dept_hours_actual || undefined,
         })),
       )
       setBookedProjects(booked)

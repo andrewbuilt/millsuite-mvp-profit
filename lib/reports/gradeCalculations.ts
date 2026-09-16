@@ -49,7 +49,15 @@ function gradeMin(a: string, b: string): string {
 // ── Completed Project Type ──
 
 export interface CompletedProject {
+  /** ⛔ THIS IS `project_outcomes.id`, NOT the project id. */
   id: string
+  /**
+   * ⛔ `projects.id` — the one that `time_entries.project_id` points at.
+   * Without it the diagnostic drawer's "see the hours" link would carry the
+   * OUTCOME id, match zero time entries, and render as "nobody tracked time"
+   * rather than as a broken link. A wrong answer that looks like a real one.
+   */
+  projectId: string
   name: string
   completionDate: string
   estimatedHours: number
@@ -64,6 +72,14 @@ export interface CompletedProject {
   changeOrderCount?: number
   changeOrderRevenue?: number
   shopRate?: number
+  /**
+   * Per-department hours as they stood AT COMPLETION, keyed by department NAME
+   * (not id) — written by /api/project-outcome. Snapshots, deliberately: the
+   * drawer must keep agreeing with the totals beside it even after a
+   * department is renamed or a stray hour is logged against a closed job.
+   */
+  deptHoursEstimated?: Record<string, number>
+  deptHoursActual?: Record<string, number>
 }
 
 // ── Waterfall Diagnostic ──

@@ -86,12 +86,37 @@ export async function POST(req: NextRequest) {
     const revenue = actualRevenue > 0 ? actualRevenue : estimatedPrice
 
     // Actual material cost from parsed invoices (if available)
-    const { data: invoices } = await supabase
+    //
+    // ⛔ THIS SELECTED `total`, AND THE COLUMN IS `total_amount`. PostgREST
+    // fails the WHOLE select on one unknown column, so `invoices` came back
+    // null, `actualMaterials` was always 0, and the fallback below silently
+    // substituted the BUDGET as the recorded actual for every job ever closed
+    // through this route. The error rode in `error`, which nothing here read.
+    // Every other caller in the repo already used `total_amount`
+    // (lib/project-rollup, lib/sales-goal-data, api/shop-report,
+    // api/weekly-snapshot) — this was the only one that didn't.
+    const { data: invoices, error: invoiceErr } = await supabase
       .from('invoices')
-      .select('total')
+      .select('total_amount')
       .eq('project_id', project_id)
+    if (invoiceErr) {
+      // ⚠️ Do NOT collapse this into a 0. A failed read and a genuinely empty
+      // invoice list produce the same number and mean opposite things — and
+      // that number lands in the project's permanently recorded margin.
+      console.error('project-outcome: material invoice read failed', invoiceErr)
+      return NextResponse.json(
+        { error: `Could not read material invoices: ${invoiceErr.message}` },
+        { status: 500 },
+      )
+    }
 
-    const actualMaterials = (invoices || []).reduce((s, inv) => s + (inv.total || 0), 0)
+    const actualMaterials = (invoices || []).reduce((s, inv) => s + (inv.total_amount || 0), 0)
+    // ⚠️ THE FALLBACK REMAINS, AND IT IS STILL A CLAIM. With no invoices
+    // attached, the stored "actual" materials ARE the budget, so the margin is
+    // a partly-estimated number wearing an actual's label. The diagnostic
+    // drawer detects the exact tie and says so rather than reporting "$0 over
+    // — on budget". ⛔ The real fix is a per-project material spend record;
+    // until that exists, nothing downstream may treat this as measured.
     const materials = actualMaterials > 0 ? actualMaterials : estimatedMaterials
 
     // Shop rate and utilization at completion
