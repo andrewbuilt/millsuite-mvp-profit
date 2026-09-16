@@ -1,43 +1,65 @@
 # Brief: redesign the Completed Projects margin chart to a zero-baseline diverging bar
 
-## ✅ BUILT 2026-09-16. Three deviations from the brief — read these first.
+## ✅ BUILT 2026-09-16. ⛔ THE AXIS IS FIXED PERCENT, NOT DOLLARS — read this first.
 
-Shipped: diverging bar off a 0 line, length driven by dollar profit, Average
-row, legend, target tick removed. `lib/reports/margin-bar-geometry.ts` (pure)
-+ `scripts/verify-margin-bar-geometry.mjs` (58 checks, math *and* layout).
+**Shipped:** diverging bar off a **centred** 0 line, on a **fixed −100% … 0 …
++100% axis**, length driven by **the same `marginPct` that is printed in the
+row**. Average row, legend, and the **target tick is back** as one vertical
+line down the whole chart. `lib/reports/margin-bar-geometry.ts` (pure) +
+`scripts/verify-margin-bar-geometry.mjs` (76 checks, math *and* layout).
 
-**1. The 0 line is NOT centred — it sits at the data's own loss:gain ratio
-(14% on the demo set), floored by `MIN_SIDE`.** Centring splits the track 50/50
-regardless of the numbers, so with one small loss and six healthy gains — the
-ordinary shape of a shop's year — half the track is permanently empty and every
-gain is squeezed into the other half. The six bars carrying the most information
-would get half the resolution to say it. It is still a constant x for every row
-in the set, which is the property that makes rows comparable; it varies with the
-set, never within it. **To centre it: set `MIN_SIDE = 0.5` in the geometry
-module. Both clamps collapse to 0.5 and it's exactly centred — one constant.**
+### ⛔ The brief's "bar length = dollar profit" was built, then reversed.
 
-**2. ⛔ THE "Avg margin" KPI CARD ABOVE THE CHART HAD TO CHANGE TOO, and this
-is the one to look at.** It averaged the per-job *percentages*; the brief's
-Average row asks for *blended*. On the real demo set those are **23.8% and
-28.7% — 4.9 points apart and on opposite sides of the 25% target.** The page
-would have shown "Avg margin 23.8%" in amber (missed) directly above an Average
-row reading 28.7% in green (beat), from the same seven jobs. Two numbers is a
-discrepancy; two opposite verdicts in two colours is the page arguing with
-itself, on the screen about to be used for marketing. The card is now blended
-too (`sub` reads "Blended · target 25%"). Blended is also what agrees with the
-"Total profit" card beside it: same numerator, over the revenue that made it.
+Andrew, on seeing it: *"the percentages need to use the same scale to drive the
+idea home. if its centered and each side of the totals to 100% it should show
+the truth."* He was right, and the reason is visible in the dollar version's own
+screenshot: **Gulfview drew the LONGEST bar in the set at +31.9%, while Vega
+drew shorter at +35.3%** — because Gulfview is a bigger job. A longer bar
+sitting next to a smaller percentage is unreadable, and it is the same class of
+defect as the bar-width bug that preceded this whole redesign: **the drawing
+disagreeing with the number beside it.**
 
-**3. The legend has no "0" label.** First version pinned "Amount lost" to the
-far left with "0" centred on the line; the render showed them running together
-as "AMOUNT LOST 0", because when the 0 line sits at 14% the left edge and the
-line are nearly the same place. Each label is now confined to the region it
-describes, and the line is heavy enough to need no caption.
+So the bar is now the printed percentage, on an absolute scale. Dollars did not
+disappear — they are under every percentage and on the Average row. They just
+don't drive length any more, because length has to mean what the number means.
 
-**Also found while measuring: the right-hand value column still had the
-bar-width bug** — `min-w-[70px]`, and `-$3,190` is one character wider than
-`$6,480`, so the demo set was already drawing on two different track widths.
-Fixed. All three columns are now fixed-width constants in one place and the
-verify script fails on any `min-w-*` in the file.
+**What the fixed axis costs, deliberately:** bars no longer stretch to fill the
+track. A 30% job fills 30% of its half. Nothing ever reaches either end. That
+is the point — **a data-relative scale always makes the best row look maximal,
+so a shop having a terrible year renders exactly like a shop having a great
+one, and the chart can never say "this is bad."**
+
+**What it buys back: the target tick.** It had to be deleted on a dollar axis
+(25% of $21,300 is $5,325 and 25% of $102,500 is $25,625 — one "target" would
+have sat in a different place on every row). On a percentage axis it's a single
+line down the chart, and every row reads instantly as left of it or right of
+it. Bayshore at +20.6% visibly stops short; everything else crosses.
+
+⚠️ **100% is a real ceiling on the gain side** (margin = profit ÷ revenue, cost
+≥ 0). **It is not a real floor on the loss side** — a job costing 3× its price
+is −200%. Those clamp to the end of the track and the printed number keeps
+telling the truth. Rare, and better than rescaling the chart around one
+disaster.
+
+### ⛔ The "Avg margin" KPI card above the chart had to change too.
+
+It averaged the per-job *percentages*; the Average row is *blended*. On the real
+demo set those are **23.8% and 28.7% — 4.9 points apart and on opposite sides of
+the 25% target.** The page would have shown "Avg margin 23.8%" in amber (missed)
+directly above an Average row reading 28.7% in green (beat), from the same seven
+jobs. Two numbers is a discrepancy; two opposite verdicts in two colours is the
+page arguing with itself, on the screen about to be used for marketing. The card
+is blended now (`sub` reads "Blended · target 25%"), which is also what agrees
+with the "Total profit" card beside it: same numerator, over the revenue that
+made it.
+
+### Also found while measuring
+
+**The right-hand value column still had the bar-width bug** — `min-w-[70px]`,
+and `-$3,190` is one character wider than `$6,480`, so the demo set was already
+drawing on two different track widths. The alignment fix the day before had only
+got half of it. All three columns are now fixed-width constants in one place,
+and the verify script fails on any `min-w-*` in the file.
 
 **Not done, still open:** the marketing reshoot (below).
 

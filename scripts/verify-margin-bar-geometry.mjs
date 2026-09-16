@@ -18,12 +18,13 @@
 // ============================================================================
 
 import {
+  AXIS_MAX_PCT,
   MIN_BAR_PCT,
-  MIN_SIDE,
+  ZERO_X,
   averageProfit,
   barGeometry,
   blendedMarginPct,
-  computeBarScale,
+  targetX,
 } from '../lib/reports/margin-bar-geometry.ts'
 import fs from 'fs'
 import path from 'path'
@@ -50,82 +51,88 @@ const BAYSIDE = [
   { name: 'Bayshore Closet', profit: 6480, revenue: 31500, marginPct: 20.6 },
 ]
 
-const scale = computeBarScale(BAYSIDE.map((p) => p.profit))
-
-// ── 1. ONE SCALE, BOTH SIDES ─────────────────────────────────────────────────
-// The invariant the whole redesign rests on: a dollar is the same width
-// whether it was made or lost. Break this and a small loss can draw longer
-// than a large gain, which is the old bug wearing a new coat.
+// ── 1. THE BAR IS THE NUMBER BESIDE IT ───────────────────────────────────────
+// ⛔ THE CHECK THIS CHART EXISTS FOR, AND THE ONE THE DOLLAR VERSION FAILED.
+// Order by bar length and order by printed percentage MUST be the same order.
+// The dollar-scaled version drew Gulfview (+31.9%) longer than Vega (+35.3%)
+// because Gulfview is a bigger job — a longer bar against a smaller number.
 {
-  const gain = barGeometry(5000, scale)
-  const loss = barGeometry(-5000, scale)
-  check('equal magnitudes draw equal lengths', near(gain.widthPct, loss.widthPct),
-    `gain ${gain.widthPct.toFixed(3)} vs loss ${loss.widthPct.toFixed(3)}`)
+  const gains = BAYSIDE.filter((p) => p.marginPct > 0)
+  const byBar = [...gains].sort((a, b) => barGeometry(b.marginPct).widthPct - barGeometry(a.marginPct).widthPct)
+  const byPct = [...gains].sort((a, b) => b.marginPct - a.marginPct)
+  check('⛔ longest bar = highest percentage, every row',
+    byBar.map((p) => p.name).join('|') === byPct.map((p) => p.name).join('|'),
+    `bars: ${byBar.map((p) => p.name).join(', ')}`)
 
-  const big = barGeometry(20000, scale)
-  const small = barGeometry(10000, scale)
-  check('twice the profit draws twice the bar', near(big.widthPct, small.widthPct * 2, 1e-6),
-    `${big.widthPct.toFixed(3)} vs ${small.widthPct.toFixed(3)}`)
-}
-
-// ── 2. THE 0 LINE ANCHORS EVERY BAR ──────────────────────────────────────────
-for (const p of BAYSIDE) {
-  const g = barGeometry(p.profit, scale)
-  if (p.profit > 0) {
-    check(`${p.name}: gain starts AT 0`, near(g.leftPct, scale.zeroPct),
-      `left ${g.leftPct.toFixed(3)} vs zero ${scale.zeroPct.toFixed(3)}`)
-  } else {
-    check(`${p.name}: loss ENDS at 0`, near(g.leftPct + g.widthPct, scale.zeroPct),
-      `right edge ${(g.leftPct + g.widthPct).toFixed(3)} vs zero ${scale.zeroPct.toFixed(3)}`)
+  // And the strict form: length is exactly proportional to the percentage.
+  for (const p of gains) {
+    const g = barGeometry(p.marginPct)
+    check(`${p.name}: length is its own percentage`,
+      near(g.widthPct, (p.marginPct / AXIS_MAX_PCT) * ZERO_X, 1e-9),
+      `${g.widthPct.toFixed(4)} vs ${((p.marginPct / AXIS_MAX_PCT) * ZERO_X).toFixed(4)}`)
   }
 }
 
-// ── 3. NOTHING LEAVES THE TRACK ──────────────────────────────────────────────
-// A bar drawn past 100% is silently clipped by the browser, so it reads as
-// "exactly the maximum" — a number that looks plausible and is wrong.
+// ── 2. THE AXIS IS FIXED, NOT DERIVED FROM THE DATA ──────────────────────────
+// A row must draw the same length regardless of what it is sitting next to.
+// This is what lets two periods — or two shops — be compared at all.
+{
+  const alone = barGeometry(35.3)
+  check('a row is unaffected by its neighbours', near(alone.widthPct, (35.3 / 100) * 50))
+  check('0 line is dead centre', ZERO_X === 50)
+  check('+100% reaches the right edge', near(barGeometry(100).leftPct + barGeometry(100).widthPct, 100))
+  check('−100% reaches the left edge', near(barGeometry(-100).leftPct, 0))
+  check('a 30% job fills 30% of its half', near(barGeometry(30).widthPct, 15))
+}
+
+// ── 3. GAINS RIGHT, LOSSES LEFT, BOTH ANCHORED AT 0 ──────────────────────────
 for (const p of BAYSIDE) {
-  const g = barGeometry(p.profit, scale)
+  const g = barGeometry(p.marginPct)
+  if (p.marginPct > 0) {
+    check(`${p.name}: gain starts AT 0`, near(g.leftPct, ZERO_X), `${g.leftPct}`)
+  } else {
+    check(`${p.name}: loss ENDS at 0`, near(g.leftPct + g.widthPct, ZERO_X), `${g.leftPct + g.widthPct}`)
+  }
   check(`${p.name}: stays on the track`,
     g.leftPct >= -1e-9 && g.leftPct + g.widthPct <= 100 + 1e-9,
-    `[${g.leftPct.toFixed(3)}, ${(g.leftPct + g.widthPct).toFixed(3)}]`)
+    `[${g.leftPct.toFixed(2)}, ${(g.leftPct + g.widthPct).toFixed(2)}]`)
 }
 
-// ── 4. THE EXTREMES USE THE FULL TRACK ───────────────────────────────────────
+// ── 4. EQUAL MAGNITUDES, EQUAL LENGTHS ───────────────────────────────────────
+// A dollar of margin is the same width whether it was made or lost.
+check('+15% and −15% draw the same length',
+  near(barGeometry(15).widthPct, barGeometry(-15).widthPct))
+
+// ── 5. THE TARGET TICK IS ONE x FOR EVERY ROW ────────────────────────────────
+// ⛔ This is what the fixed axis buys back — it was impossible on a dollar axis.
 {
-  const maxGain = barGeometry(scale.maxGain, scale)
-  check('largest gain reaches the right edge',
-    near(maxGain.leftPct + maxGain.widthPct, 100, 1e-6),
-    `${(maxGain.leftPct + maxGain.widthPct).toFixed(3)}%`)
+  check('25% target sits at 62.5%', near(targetX(25), 62.5), `${targetX(25)}`)
+  check('a 0% target sits on the 0 line', near(targetX(0), ZERO_X))
+  check('the target tick does not depend on any row', targetX(25) === targetX(25))
+  // A job at exactly target must end exactly on the tick, or the tick lies.
+  const atTarget = barGeometry(25)
+  check('a job AT target ends exactly on the tick',
+    near(atTarget.leftPct + atTarget.widthPct, targetX(25)),
+    `${atTarget.leftPct + atTarget.widthPct} vs ${targetX(25)}`)
+  const under = barGeometry(20.6)
+  check('a job UNDER target ends left of the tick', under.leftPct + under.widthPct < targetX(25))
+  const over = barGeometry(35.3)
+  check('a job OVER target ends right of the tick', over.leftPct + over.widthPct > targetX(25))
 }
 
-// ── 5. DEGENERATE SETS DON'T PRODUCE NaN ─────────────────────────────────────
-// An all-profitable shop is the COMMON case, not an edge case.
+// ── 6. DEGENERATE VALUES DON'T PRODUCE NaN OR OVERFLOW ───────────────────────
 {
-  const allGains = computeBarScale([100, 200, 300])
-  check('all gains: 0 line floors at MIN_SIDE', near(allGains.zeroPct, MIN_SIDE * 100),
-    `${allGains.zeroPct}`)
-  check('all gains: scale is finite', Number.isFinite(allGains.pctPerDollar) && allGains.pctPerDollar > 0)
-
-  const allLosses = computeBarScale([-100, -200])
-  check('all losses: 0 line caps at 1-MIN_SIDE', near(allLosses.zeroPct, (1 - MIN_SIDE) * 100),
-    `${allLosses.zeroPct}`)
-  check('all losses: scale is finite', Number.isFinite(allLosses.pctPerDollar) && allLosses.pctPerDollar > 0)
-
-  const empty = computeBarScale([])
-  check('empty set: no NaN', Number.isFinite(empty.zeroPct) && Number.isFinite(empty.pctPerDollar))
-
-  const zeros = computeBarScale([0, 0])
-  check('all zeros: no NaN', Number.isFinite(zeros.zeroPct) && Number.isFinite(zeros.pctPerDollar))
-  const zg = barGeometry(0, zeros)
-  check('zero profit draws NOTHING', zg.widthPct === 0, `${zg.widthPct}`)
-}
-
-// ── 6. A SLIVER IS VISIBLE, BUT ZERO IS NOT A SLIVER ─────────────────────────
-{
-  const lopsided = computeBarScale([1000000, 1])
-  const tiny = barGeometry(1, lopsided)
-  check('a tiny non-zero profit still draws', tiny.widthPct >= MIN_BAR_PCT, `${tiny.widthPct}`)
-  check('the sliver still starts at 0', near(tiny.leftPct, lopsided.zeroPct))
+  check('0% draws NOTHING', barGeometry(0).widthPct === 0)
+  check('0% still sits on the line', near(barGeometry(0).leftPct, ZERO_X))
+  const tiny = barGeometry(0.01)
+  check('a tiny non-zero margin still draws', tiny.widthPct >= MIN_BAR_PCT, `${tiny.widthPct}`)
+  // ⚠️ A catastrophic job (cost > 2x price) is below −100%. It clamps to the
+  // end of the track; the printed number keeps telling the truth.
+  const disaster = barGeometry(-250)
+  check('−250% clamps to the left edge, no overflow',
+    near(disaster.leftPct, 0) && near(disaster.widthPct, ZERO_X), `${JSON.stringify(disaster)}`)
+  check('NaN margin draws nothing', barGeometry(NaN).widthPct === 0)
+  check('undefined margin draws nothing', barGeometry(undefined).widthPct === 0)
 }
 
 // ── 7. BLENDED IS REVENUE-WEIGHTED, NOT A MEAN OF RATIOS ─────────────────────
@@ -158,10 +165,13 @@ for (const p of BAYSIDE) {
 // If it didn't, the one row meant to summarise the others would be the one row
 // you can't compare to them.
 {
-  const avg = barGeometry(averageProfit(BAYSIDE), scale)
+  const blended = blendedMarginPct(BAYSIDE)
+  const avg = barGeometry(blended)
   check('average bar sits on the track', avg.leftPct + avg.widthPct <= 100 + 1e-9)
-  const gulfview = barGeometry(32730, scale)
-  check('average is shorter than the best job', avg.widthPct < gulfview.widthPct)
+  check('the average BAR is the average PERCENT, same as every row',
+    near(avg.widthPct, (blended / AXIS_MAX_PCT) * ZERO_X))
+  check('average is shorter than the best job', avg.widthPct < barGeometry(35.3).widthPct)
+  check('average is longer than the worst gain', avg.widthPct > barGeometry(20.6).widthPct)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -208,15 +218,21 @@ check('⛔ no transition-all (it animates WIDTH)', !src.includes('transition-all
 
 // The old single-direction bar must be GONE, not merely unused.
 check('⛔ the Math.abs(marginPct) bar is gone', !/Math\.abs\(\s*project\.marginPct/.test(src))
-check('bar length comes from profit', src.includes('barGeometry(project.profit'))
+// ⛔ THE BAR MUST BE FED THE SAME FIELD THAT IS PRINTED. `project.profit`
+// here is the dollar-scaled version's exact mistake.
+check('⛔ bar length comes from marginPct, the number that is printed',
+  src.includes('barGeometry(project.marginPct)'))
+check('⛔ bar length is NOT dollars', !src.includes('barGeometry(project.profit'))
 
-// The percent-axis target tick cannot survive on a dollar axis.
-check('⛔ no percent target tick on a dollar axis', !src.includes('targetPosition'))
+// The target tick is back, and it must be the shared one.
+check('the target tick is drawn from targetX()', src.includes('targetX(marginTarget)'))
+const targetUses = (src.match(/targetPos/g) || []).length
+check('the target tick appears in the legend + both row shapes', targetUses >= 4, `${targetUses} uses`)
 
-// The 0 line is shared geometry, not a per-row guess. Three places need it:
-// the legend's "0" label, the project row, the average row.
-const zeroUses = (src.match(/scale\.zeroPct/g) || []).length
-check('the 0 line is drawn from the shared scale in all 3 row shapes', zeroUses >= 3, `${zeroUses} uses`)
+// The 0 line is the fixed axis constant, not a per-row or per-set guess.
+const zeroUses = (src.match(/ZERO_X/g) || []).length
+check('the 0 line is the fixed ZERO_X in all 3 row shapes', zeroUses >= 4, `${zeroUses} uses`)
+check('⛔ no data-derived zero position survives', !src.includes('scale.zeroPct'))
 
 // The declarations themselves live in the stripped-out region? No — they're
 // code. But the COL_* regexes ran against `src`, so confirm the file really
@@ -224,22 +240,22 @@ check('the 0 line is drawn from the shared scale in all 3 row shapes', zeroUses 
 check('the component was actually read', rawSrc.length > 2000 && src.includes('CompletedProjects'))
 
 // ── Report ───────────────────────────────────────────────────────────────────
-console.log(`\n══ margin bar geometry ══\n`)
-console.log(`  Bayside scale: 0 line at ${scale.zeroPct.toFixed(1)}%  ·  ${scale.pctPerDollar.toFixed(5)}% per dollar`)
-console.log(`  maxGain $${scale.maxGain.toLocaleString()} · maxLoss $${scale.maxLoss.toLocaleString()}\n`)
-for (const p of BAYSIDE) {
-  const g = barGeometry(p.profit, scale)
-  const L = Math.round(g.leftPct / 2)
-  const W = Math.max(1, Math.round(g.widthPct / 2))
-  console.log(
-    `  ${p.name.padEnd(22)} ${' '.repeat(L)}${(p.profit < 0 ? '◀' : '') + '█'.repeat(W)}` +
-      `${' '.repeat(Math.max(0, 52 - L - W))} ${p.profit < 0 ? '-$' : '+$'}${Math.abs(p.profit).toLocaleString()}`,
-  )
+console.log(`\n══ margin bar geometry — fixed axis, 0 dead centre ══\n`)
+const W = 60
+const mark = (x) => Math.round((x / 100) * W)
+const axis = Array(W + 1).fill(' ')
+axis[mark(ZERO_X)] = '0'
+axis[mark(targetX(25))] = 'T'
+console.log(`  ${''.padEnd(22)} ${axis.join('')}   −100% … 0 … +100%  (T = 25% target)`)
+for (const p of [...BAYSIDE, { name: 'AVERAGE (blended)', marginPct: blendedMarginPct(BAYSIDE) }]) {
+  const g = barGeometry(p.marginPct)
+  const L = mark(g.leftPct)
+  const Wd = Math.max(1, mark(g.widthPct))
+  const line = Array(W + 1).fill('·')
+  for (let i = L; i < L + Wd; i++) line[i] = p.marginPct < 0 ? '▓' : '█'
+  line[mark(ZERO_X)] = '|'
+  console.log(`  ${p.name.padEnd(22)} ${line.join('')}   ${p.marginPct >= 0 ? '+' : ''}${p.marginPct.toFixed(1)}%`)
 }
-const ag = barGeometry(averageProfit(BAYSIDE), scale)
-console.log(
-  `  ${'AVERAGE'.padEnd(22)} ${' '.repeat(Math.round(ag.leftPct / 2))}${'█'.repeat(Math.max(1, Math.round(ag.widthPct / 2)))}`,
-)
 
 console.log(`\n  ${pass} checks passed${fails.length ? `, ${fails.length} FAILED` : ''}`)
 if (fails.length) {

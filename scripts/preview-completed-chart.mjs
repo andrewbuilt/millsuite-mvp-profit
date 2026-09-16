@@ -22,10 +22,11 @@
 
 import fs from 'fs'
 import {
+  ZERO_X,
   averageProfit,
   barGeometry,
   blendedMarginPct,
-  computeBarScale,
+  targetX,
 } from '../lib/reports/margin-bar-geometry.ts'
 
 const PROJECTS = [
@@ -43,18 +44,18 @@ const barColor = (pct) => (pct >= TARGET ? '#059669' : pct >= TARGET - 5 ? '#D97
 const money = (n) =>
   n < 0 ? `-$${Math.abs(n).toLocaleString()}` : `$${n.toLocaleString()}`
 
-const scale = computeBarScale(PROJECTS.map((p) => p.profit))
 const blended = blendedMarginPct(PROJECTS)
 const avgProfit = averageProfit(PROJECTS)
-const avgGeom = barGeometry(avgProfit, scale)
+const avgGeom = barGeometry(blended)
 const avgColor = barColor(blended)
+const targetPos = targetX(TARGET)
 
 const COL_NAME = 'w-[140px] sm:w-[180px] flex-shrink-0'
 const COL_HOURS = 'w-[104px] flex-shrink-0 hidden sm:block'
 const COL_VALUE = 'w-[92px] flex-shrink-0'
 
 const row = (p) => {
-  const g = barGeometry(p.profit, scale)
+  const g = barGeometry(p.marginPct)
   const c = barColor(p.marginPct)
   return `
   <div class="flex items-center gap-3 py-2.5 -mx-2 px-2 rounded-lg">
@@ -68,7 +69,8 @@ const row = (p) => {
     <div class="flex-1 relative h-6">
       <div class="absolute inset-0 bg-[#F3F4F6] rounded"></div>
       <div class="absolute top-0 bottom-0 rounded-sm" style="left:${g.leftPct}%;width:${g.widthPct}%;background:${c}"></div>
-      <div class="absolute top-[-5px] bottom-[-5px] w-[2px] opacity-70" style="left:${scale.zeroPct}%;background:#111"></div>
+      <div class="absolute top-[-3px] bottom-[-3px] w-[1.5px] opacity-30" style="left:${targetPos}%;background:#111"></div>
+      <div class="absolute top-[-5px] bottom-[-5px] w-[2px] opacity-70" style="left:${ZERO_X}%;background:#111"></div>
     </div>
     <div class="text-right ${COL_VALUE}">
       <div class="text-sm font-medium font-mono tabular-nums" style="color:${c}">${p.marginPct >= 0 ? '+' : ''}${p.marginPct.toFixed(1)}%</div>
@@ -90,8 +92,10 @@ const html = `<!doctype html>
       <div class="${COL_NAME}"></div>
       <div class="${COL_HOURS}"></div>
       <div class="flex-1 relative h-4">
-        <div class="absolute top-0 left-0 text-[10px] font-medium uppercase tracking-wide text-[#DC2626] text-right truncate pr-1.5" style="width:${scale.zeroPct}%">Amount lost</div>
-        <div class="absolute top-0 right-0 text-[10px] font-medium uppercase tracking-wide text-[#059669] truncate pl-1.5" style="left:${scale.zeroPct}%">Amount gained</div>
+        <div class="absolute top-0 left-0 text-[10px] font-medium uppercase tracking-wide text-[#DC2626]">&minus;100% lost</div>
+        <div class="absolute top-0 text-[10px] font-medium uppercase tracking-wide text-[#6B7280] -translate-x-1/2" style="left:${ZERO_X}%">0</div>
+        <div class="absolute top-0 text-[10px] font-medium uppercase tracking-wide text-[#111] -translate-x-1/2 whitespace-nowrap" style="left:${targetPos}%">${TARGET}% target</div>
+        <div class="absolute top-0 right-0 text-[10px] font-medium uppercase tracking-wide text-[#059669]">+100% gained</div>
       </div>
       <div class="${COL_VALUE}"></div>
     </div>
@@ -107,7 +111,8 @@ const html = `<!doctype html>
       <div class="flex-1 relative h-6">
         <div class="absolute inset-0 bg-[#F3F4F6] rounded"></div>
         <div class="absolute top-0 bottom-0 rounded-sm" style="left:${avgGeom.leftPct}%;width:${avgGeom.widthPct}%;background:${avgColor}"></div>
-        <div class="absolute top-[-5px] bottom-[-5px] w-[2px] opacity-70" style="left:${scale.zeroPct}%;background:#111"></div>
+        <div class="absolute top-[-3px] bottom-[-3px] w-[1.5px] opacity-30" style="left:${targetPos}%;background:#111"></div>
+        <div class="absolute top-[-5px] bottom-[-5px] w-[2px] opacity-70" style="left:${ZERO_X}%;background:#111"></div>
       </div>
       <div class="text-right ${COL_VALUE}">
         <div class="text-sm font-semibold font-mono tabular-nums" style="color:${avgColor}">+${blended.toFixed(1)}%</div>
@@ -116,9 +121,10 @@ const html = `<!doctype html>
     </div>
 
     <p class="text-xs text-[#6B7280] mt-2 leading-relaxed">
-      Average shows a visual of the blended rate — the percentage is total profit ÷ total revenue
-      across these ${PROJECTS.length} jobs; the bar and dollar figure are profit per job, on the
-      same scale as the rows above.
+      Bars show each job's margin on a fixed scale — 0 in the centre, 100% at either end, so
+      lengths mean the same thing on every row and in every period. Average shows a visual of the
+      blended rate: total profit ÷ total revenue across these ${PROJECTS.length} jobs, with profit
+      per job in dollars beneath it.
     </p>
   </div>
 
@@ -126,4 +132,4 @@ const html = `<!doctype html>
 
 fs.writeFileSync('/tmp/completed-chart.html', html)
 console.log(`\n  wrote /tmp/completed-chart.html`)
-console.log(`  0 line at ${scale.zeroPct.toFixed(1)}%  ·  blended ${blended.toFixed(1)}%  ·  avg/job ${money(Math.round(avgProfit))}\n`)
+console.log(`  0 at ${ZERO_X}%  ·  ${TARGET}% target tick at ${targetPos}%  ·  blended ${blended.toFixed(1)}%  ·  avg/job ${money(Math.round(avgProfit))}\n`)

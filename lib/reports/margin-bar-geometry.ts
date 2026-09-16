@@ -1,37 +1,50 @@
 // ============================================================================
-// margin-bar-geometry.ts — where a diverging profit bar starts and ends.
+// margin-bar-geometry.ts — where a diverging margin bar starts and ends.
 // ============================================================================
 // ⛔ PURE. No `lib/supabase` import, directly or transitively, so
 // `scripts/verify-margin-bar-geometry.mjs` can exercise it without a client
 // (supabase is built at module scope and would throw).
 //
-// WHY THIS IS A MODULE AND NOT FOUR LINES IN THE COMPONENT. The last bug in
-// this chart was geometry: an elastic column meant every row's bar track was a
-// different width, so bar LENGTHS WERE NOT COMPARABLE BETWEEN ROWS — the one
-// thing the chart exists to do. It rendered as "one bar looks wrong" and cost
-// two investigations that both went looking in the data, which was correct the
-// whole time. Geometry that carries meaning gets tested.
+// ⛔ THE AXIS IS FIXED: −100% … 0 … +100%, WITH 0 DEAD CENTRE.
+// It is NOT derived from the data. That is the whole point, and it is the
+// third design this chart has had — each previous one failed in a way that
+// only shows up on a rendered page:
 //
-// The invariant every function here protects: ONE SCALE, BOTH SIDES, EVERY
-// ROW. A dollar of profit and a dollar of loss are the same number of pixels,
-// in every row, or the picture lies.
+//   1. `Math.abs(marginPct)` scaled to the set's max, drawn left-to-right.
+//      A LOSS DREW LIKE A PROFIT. −15% and +15% were the same length,
+//      separated only by colour.
+//
+//   2. Dollar profit, diverging, scaled to the set's max. Fixed the loss, but
+//      THE BAR DISAGREED WITH THE NUMBER PRINTED NEXT TO IT: Gulfview drew
+//      the longest bar in the set at +31.9% while Vega drew shorter at
+//      +35.3%, because Gulfview is a bigger job. A reader sees a longer bar
+//      against a smaller percentage and cannot trust either.
+//
+//   3. This one. The bar IS the number beside it, on an absolute scale, so
+//      length and text cannot drift apart and no row's length depends on any
+//      other row.
+//
+// ⚠️ WHAT A FIXED AXIS COSTS, ON PURPOSE: bars no longer stretch to fill the
+// track. A 30% job fills 30% of its half, because 30% IS 30% of the way to a
+// job that cost nothing to build. A data-relative scale always makes the best
+// row look maximal — so a shop having a terrible year renders exactly like a
+// shop having a great one, and the chart can never say "this is bad".
+//
+// ⚠️ 100% IS A REAL CEILING on the gain side (margin = profit ÷ revenue, and
+// cost ≥ 0). It is NOT a real floor on the loss side: a job that costs three
+// times its price is −200%. Those clamp to the end of the track and the text
+// keeps telling the truth. Rare, and better than rescaling the whole chart
+// around one disaster.
 // ============================================================================
 
-/** Set to 0.5 to CENTER the 0 line (both clamps collapse to 0.5). */
-export const MIN_SIDE = 0.14
+/** Each side of the 0 line spans 0…100% margin. */
+export const AXIS_MAX_PCT = 100
 
-/** A non-zero value never draws as nothing — but zero draws as zero. */
+/** The 0 line, as a % of track width. Dead centre, by definition of the axis. */
+export const ZERO_X = 50
+
+/** A non-zero margin never draws as nothing — but exactly 0% draws as 0. */
 export const MIN_BAR_PCT = 0.6
-
-export interface BarScale {
-  /** x of the 0 line, as a % of track width. Constant for every row. */
-  zeroPct: number
-  /** % of track width per dollar. Identical left and right. */
-  pctPerDollar: number
-  maxGain: number
-  /** Magnitude, positive. */
-  maxLoss: number
-}
 
 export interface BarGeometry {
   leftPct: number
@@ -39,62 +52,38 @@ export interface BarGeometry {
 }
 
 /**
- * Place the 0 line and fix the scale for a set of profits.
+ * Where one bar sits on the track. Gains run right of 0, losses run left.
  *
- * ⚠️ THE 0 LINE IS NOT CENTERED BY DEFAULT, AND THAT IS DELIBERATE.
- * Centering splits the track 50/50 regardless of the data. With one small loss
- * and six healthy gains — the ordinary shape of a shop's year — half the track
- * sits permanently empty and every gain is compressed into the other half, so
- * the six bars that carry the most information get half the resolution to say
- * it. Instead the split follows the data's own loss:gain ratio, which keeps a
- * single scale on both sides AND uses the whole track.
- *
- * It is still a CONSTANT x for every row in the set, which is the property that
- * makes rows comparable. It varies with the set, never within it.
- *
- * MIN_SIDE floors each side so the loss region is never a hairline (the
- * "Amount lost" legend has to point at something) and so an all-gains shop
- * still shows a 0 line rather than an edge.
+ * ⛔ TAKES THE PERCENTAGE THAT IS PRINTED IN THE ROW. Not dollars, not a
+ * derived figure — the same number, so the two cannot disagree.
  */
-export function computeBarScale(profits: number[]): BarScale {
-  const maxGain = Math.max(0, ...profits.filter((p) => p > 0))
-  const maxLoss = Math.max(0, ...profits.filter((p) => p < 0).map((p) => -p))
-  const span = maxGain + maxLoss
-
-  const natural = span > 0 ? maxLoss / span : MIN_SIDE
-  const zeroFrac = Math.min(Math.max(natural, MIN_SIDE), 1 - MIN_SIDE)
-
-  // ⛔ ONE scale, chosen so NEITHER side overflows. Taking the min is what
-  // keeps a dollar the same width on both sides of the line. Scaling each
-  // side to its own extreme would make a $3k loss and a $32k gain draw the
-  // same length — the exact misread this redesign exists to kill.
-  const forGain = maxGain > 0 ? (1 - zeroFrac) / maxGain : Infinity
-  const forLoss = maxLoss > 0 ? zeroFrac / maxLoss : Infinity
-  const scale = Math.min(forGain, forLoss)
-
-  return {
-    zeroPct: zeroFrac * 100,
-    pctPerDollar: Number.isFinite(scale) ? scale * 100 : 0,
-    maxGain,
-    maxLoss,
+export function barGeometry(marginPct: number): BarGeometry {
+  if (!marginPct || !Number.isFinite(marginPct)) {
+    return { leftPct: ZERO_X, widthPct: 0 }
   }
+
+  const half = ZERO_X // each side of the axis is this many % of the track
+  const magnitude = Math.min(Math.abs(marginPct), AXIS_MAX_PCT)
+  const widthPct = Math.min(Math.max((magnitude / AXIS_MAX_PCT) * half, MIN_BAR_PCT), half)
+
+  return marginPct > 0
+    ? { leftPct: ZERO_X, widthPct }
+    : { leftPct: ZERO_X - widthPct, widthPct }
 }
 
-/** Where one bar sits on the track. Gains run right of 0, losses run left. */
-export function barGeometry(profit: number, scale: BarScale): BarGeometry {
-  if (!profit || !Number.isFinite(profit)) {
-    return { leftPct: scale.zeroPct, widthPct: 0 }
-  }
-
-  const raw = Math.abs(profit) * scale.pctPerDollar
-  const room = profit > 0 ? 100 - scale.zeroPct : scale.zeroPct
-  // Clamp to the room available BEFORE the minimum, so a sliver can't be
-  // pushed past the end of the track on a degenerate set.
-  const widthPct = Math.min(Math.max(raw, MIN_BAR_PCT), room)
-
-  return profit > 0
-    ? { leftPct: scale.zeroPct, widthPct }
-    : { leftPct: scale.zeroPct - widthPct, widthPct }
+/**
+ * Where the margin target tick sits — ONE x for every row.
+ *
+ * ⛔ THIS IS WHAT THE FIXED AXIS BUYS BACK. The target tick had to be deleted
+ * when the bar was drawn in dollars, because a percentage has no single x on a
+ * dollar axis: 25% of $21,300 is $5,325 and 25% of $102,500 is $25,625, so one
+ * "target" would have sat in a different place on every row. On a percentage
+ * axis it is a single vertical line down the whole chart, and every row is
+ * readable at a glance as left of it or right of it.
+ */
+export function targetX(targetPct: number): number {
+  const clamped = Math.min(Math.max(targetPct, -AXIS_MAX_PCT), AXIS_MAX_PCT)
+  return ZERO_X + (clamped / AXIS_MAX_PCT) * ZERO_X
 }
 
 /**
@@ -114,7 +103,7 @@ export function blendedMarginPct(rows: { profit: number; revenue: number }[]): n
   return (profit / revenue) * 100
 }
 
-/** Mean profit per job — the Average row's bar length, on the rows' own scale. */
+/** Mean profit per job — the dollar figure on the Average row. */
 export function averageProfit(rows: { profit: number }[]): number {
   if (rows.length === 0) return 0
   return rows.reduce((s, r) => s + (Number(r.profit) || 0), 0) / rows.length
