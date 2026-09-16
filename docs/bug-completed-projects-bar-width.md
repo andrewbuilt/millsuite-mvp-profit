@@ -13,7 +13,29 @@ On `/reports`, the "Completed projects" list shows 7 rows. "Sandpiper Lane Libra
 - `reports/page.tsx` line ~251: `marginPct: o.actual_margin_pct`, straight from the DB row, no client-side override.
 - `scripts/seed-demo-completed-projects.mjs`: refuses to seed outside a hardcoded margin band.
 
-## ⛔ The hypothesis was DUPLICATE / ORPHANED OUTCOME ROWS. It is disproven.
+## ✅ SOLVED — it was LAYOUT, not data. The bar was SHIFTED, not short.
+
+Andrew's screenshot after a logout/login/refresh showed it clearly: Sandpiper's
+bar is **not** a fifth the length. It starts **~24px to the right** of every
+other row's bar and ends at roughly the same place, and **its target tick is
+offset from the others too** — the rows are not aligned with each other.
+
+**Cause:** the Hours column was `text-right min-w-[80px] … hidden sm:block`
+with **no fixed width and no `flex-shrink-0`**, so it grew with its content and
+the `flex-1` bar track beside it absorbed the difference.
+
+**`213.5h actual` is two characters longer than `308h actual`.** Sandpiper Lane
+is the only one of the seven rows whose hours carry a **decimal** — which is
+exactly why it was the only row that looked wrong.
+
+The consequence is worse than one odd row: every bar is drawn on a track of a
+different width, so **bar lengths are not comparable between rows**, which is
+the entire job of this chart. It reads as "one bar is wrong".
+
+**Fix:** `w-[104px] flex-shrink-0` — wide enough for `9999.5h actual`. All
+tracks now start and end at the same x, and the target ticks line up.
+
+## The original hypothesis — DUPLICATE / ORPHANED OUTCOME ROWS — was wrong.
 
 Queried the demo org (`36f655a7-…`) directly, replicating the page's own query
 including its 90-day window and the practice-project filter:
@@ -38,23 +60,20 @@ So: the stored data is right, the mapping is right, and the width formula is
 right. Nothing between the database and the component can produce a fifth-length
 bar for that row. **The symptom is not reproducible from the current state.**
 
-Two explanations survive:
+⚠️ **The lesson for next time: the data was never the suspect to chase.** Both
+the original investigation and the first pass of this one reasoned about where
+`marginPct` could go wrong, because the symptom was described as a *length*.
+The value was provably correct the whole time. The answer was visible in one
+screenshot of the rendered page — the bars don't start in the same place — and
+no amount of querying would have found it.
 
-1. **The screenshot predates a corrected re-seed.** The doc itself notes the
-   seed script "looks like it was iterated on". If an earlier pass wrote a bad
-   `actual_margin_pct` and a later pass corrected it, the observation was real
-   when made and is now fixed. "Persists after a hard refresh" doesn't
-   distinguish this — every refresh before the re-seed would show it.
-2. **A mid-animation paint.** The bar carried `transition-all duration-500`,
-   which animates WIDTH. For half a second after any re-render that changes the
-   data, a bar is a length that doesn't match its own number.
+## Also changed (defensive, not the cause)
 
-## What was changed
-
-**`transition-all` → `transition-colors`** on the bar. Colour can animate;
-length is data. On a page people screenshot and read financially, an in-between
-width *is* a wrong number, and this was the only remaining mechanism by which a
-bar could disagree with the percentage printed beside it.
+**`transition-all` → `transition-colors`** on the bar. `transition-all`
+animates WIDTH, so for half a second after any data-changing re-render a bar is
+a length that doesn't match its own number. On a page people screenshot and
+read financially, an in-between width *is* a wrong number. Colour can animate;
+length is data.
 
 ## ⚠️ Separate, real, and NOT fixed — a design call
 

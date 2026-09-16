@@ -70,8 +70,22 @@ export default function CompletedProjects({
                 </div>
               </div>
 
+              {/* ⛔ FIXED WIDTH, AND THIS IS THE BUG. It was `min-w-[80px]`
+                  with no `flex-shrink-0`, so the column GREW with its content
+                  and the `flex-1` bar track next to it absorbed the
+                  difference. "213.5h actual" is two characters longer than
+                  "308h actual", so Sandpiper Lane — the only row whose hours
+                  carry a DECIMAL — started its bar ~24px right of every other
+                  row and ran on a shorter track. Its target tick sat right of
+                  the others too.
+                  ⚠️ That makes the bars NOT COMPARABLE, which is the entire
+                  job of this chart: same percentage, different track, so the
+                  lengths mean different things row to row. It reads as one
+                  wrong bar, which is how it was reported.
+                  Wide enough for "9999.5h actual" — the longest string this
+                  can produce before the numbers themselves are the problem. */}
               {/* Hours */}
-              <div className="text-xs text-[#6B7280] text-right min-w-[80px] font-mono tabular-nums leading-relaxed hidden sm:block">
+              <div className="text-xs text-[#6B7280] text-right w-[104px] flex-shrink-0 font-mono tabular-nums leading-relaxed hidden sm:block">
                 {project.estimatedHours}h est<br />
                 {project.actualHours}h actual
               </div>
