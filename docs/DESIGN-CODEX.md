@@ -88,6 +88,7 @@ If a second family gets introduced later for genuine differentiation, it should 
 - Photography full-bleed or in a defined frame with a small caption naming something real: `BUILT LLC, TAMPA. JOB 214, WALNUT STOREFRONT.` Specificity is still the trust signal, keep this regardless of theme.
 - Dropped from the original codex: hand-drawn annotation layers (arrows, circled numbers, twine/kraft material references). Those were part of the warm-paper costume and don't fit the cleaner direction.
 - Pull quotes from real prospects, set large, with real names, once cleared. Neither current quote (McKusick, Zook) is cleared as of 2026-09-14, don't build final layouts around unapproved text.
+- Real product UI screenshots get a consistent treatment: cropped clean of browser chrome, nav bar, and floating widgets (chat bubble, scrollbar), transparent background, 40px corner radius at native/retina resolution. Established 2026-09-16 on the Reports > Completed Projects screenshots, apply the same radius to every product screenshot on the site so they read as one system, not one-off crops.
 
 ---
 
