@@ -198,12 +198,19 @@ export async function createPtoRequest(args: {
 async function clearOverridesFor(req: PtoRequest): Promise<void> {
   const days = weekdaysInRange(req.start_date, req.end_date)
   if (days.length === 0) return
-  await supabase
+  // ⛔ THE ERROR WAS NOT CHECKED. An RLS refusal here returned quietly and
+  // approval carried on, so a half-applied approval looked identical to a
+  // working one. Kaylin's "the approve button doesn't work" had no way to
+  // surface whatever was actually refusing.
+  const { error } = await supabase
     .from('capacity_overrides')
     .delete()
     .eq('org_id', req.org_id)
     .eq('team_member_id', req.team_member_id)
     .in('override_date', days)
+  if (error) {
+    throw new Error(`Could not clear the old time-off days: ${error.message}`)
+  }
 }
 
 /** Approve: flip status + write one capacity_overrides row per weekday. The
@@ -230,24 +237,48 @@ export async function approvePtoRequest(
     const { error } = await supabase.from('capacity_overrides').insert(rows)
     if (error) throw error
   }
-  const { error: updErr } = await supabase
+  // ⛔ `.select()` IS THE WHOLE POINT. A zero-row UPDATE returns
+  // `{ error: null }`, so an RLS refusal is indistinguishable from success —
+  // the request stays `pending`, the button appears to do nothing, and no
+  // error is raised anywhere. That is exactly the reported symptom.
+  const { data: updated, error: updErr } = await supabase
     .from('pto_requests')
     .update({ status: 'approved', approved_by: approvedByUserId, approved_at: new Date().toISOString() })
     .eq('id', req.id)
+    .select('id')
   if (updErr) throw updErr
+  if (!updated || updated.length === 0) {
+    throw new Error(
+      'The request was not updated — the database refused the write. ' +
+        'The time-off days were cleared, so re-approving is safe.',
+    )
+  }
 }
 
 export async function denyPtoRequest(req: PtoRequest, approvedByUserId: string): Promise<void> {
   await clearOverridesFor(req)
-  const { error } = await supabase
+  // Same zero-row trap as approve — a refused deny would silently leave the
+  // request pending and look like a dead button.
+  const { data, error } = await supabase
     .from('pto_requests')
     .update({ status: 'denied', approved_by: approvedByUserId, approved_at: new Date().toISOString() })
     .eq('id', req.id)
+    .select('id')
   if (error) throw error
+  if (!data || data.length === 0) {
+    throw new Error('The request was not updated — the database refused the write.')
+  }
 }
 
 export async function deletePtoRequest(req: PtoRequest): Promise<void> {
   await clearOverridesFor(req)
-  const { error } = await supabase.from('pto_requests').delete().eq('id', req.id)
+  const { data, error } = await supabase
+    .from('pto_requests')
+    .delete()
+    .eq('id', req.id)
+    .select('id')
   if (error) throw error
+  if (!data || data.length === 0) {
+    throw new Error('The request was not deleted — the database refused the write.')
+  }
 }

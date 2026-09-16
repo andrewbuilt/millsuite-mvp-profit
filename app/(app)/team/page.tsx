@@ -103,6 +103,9 @@ function TeamContent() {
   const [rosterSearch, setRosterSearch] = useState('')
   /** Departments collapse (Andrew, 2026-09-15). Set up once, rarely touched. */
   const [deptsOpen, setDeptsOpen] = useState(false)
+  /** Surfaced next to the buttons — see approveRequest for why this exists. */
+  const [ptoError, setPtoError] = useState<string | null>(null)
+  const [ptoBusy, setPtoBusy] = useState<string | null>(null)
   /** roster member id → minutes logged since Monday. Drives the collapsed
    *  week bar and the "tracked this week" link. */
   const [weekMinutesByMember, setWeekMinutesByMember] = useState<Record<string, number>>({})
@@ -195,24 +198,56 @@ function TeamContent() {
     }
   }
 
+  /**
+   * ⛔ BOTH FAILURE PATHS USED TO BE SILENT, WHICH IS THE ACTUAL REPORTED BUG.
+   * Kaylin: "the approve button doesn't work." It bailed without a word when
+   * `user?.id` was missing, and swallowed every thrown error into
+   * `console.error` — so a refused write, a missing session and a success all
+   * looked identical from the outside: nothing happens.
+   *
+   * Now it says what went wrong, in the banner, where the button is.
+   */
   async function approveRequest(req: PtoRequest) {
-    if (!user?.id) return
+    setPtoError(null)
+    if (!user?.id) {
+      setPtoError('Your login isn’t linked to a user record, so the approval can’t be recorded.')
+      return
+    }
     const member = team.find((m) => m.id === req.team_member_id)
+    if (!member) {
+      // The roster is jsonb; a request can outlive the member it belongs to.
+      setPtoError(
+        'That request belongs to someone who is no longer on the roster — delete it instead.',
+      )
+      return
+    }
+    setPtoBusy(req.id)
     try {
-      await approvePtoRequest(req, user.id, member, Number(billable.hrs_per_week) || 40)
+      await approvePtoRequest(req, user.id, member, Number(billable?.hrs_per_week) || 40)
       await reloadPto()
     } catch (e) {
       console.error('approve PTO', e)
+      setPtoError(e instanceof Error ? e.message : 'Could not approve that request.')
+    } finally {
+      setPtoBusy(null)
     }
   }
 
   async function denyRequest(req: PtoRequest) {
-    if (!user?.id) return
+    setPtoError(null)
+    if (!user?.id) {
+      setPtoError('Your login isn’t linked to a user record, so the denial can’t be recorded.')
+      return
+    }
+    setPtoBusy(req.id)
     try {
       await denyPtoRequest(req, user.id)
       await reloadPto()
     } catch (e) {
       console.error('deny PTO', e)
+      setPtoError(e instanceof Error ? e.message : 'Could not deny that request.')
+    } finally {
+      setPtoBusy(null)
     }
   }
 
@@ -630,6 +665,13 @@ function TeamContent() {
           <div className="px-4 py-2.5 border-b border-[#FDE68A] text-[12.5px] font-semibold text-[#92400E]">
             {pendingPto.length} time-off request{pendingPto.length === 1 ? '' : 's'} waiting on you
           </div>
+          {/* ⛔ THE REFUSAL, WHERE THE BUTTON IS. This used to be a
+              console.error nobody was looking at. */}
+          {ptoError && (
+            <div className="px-4 py-2 bg-[#FEF2F2] border-b border-[#FECACA] text-[11.5px] text-[#B91C1C]">
+              {ptoError}
+            </div>
+          )}
           <div className="divide-y divide-[#FDE68A]/60">
             {pendingPto.map((req) => {
               const who = team.find((m) => m.id === req.team_member_id)
@@ -653,13 +695,15 @@ function TeamContent() {
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button
                       onClick={() => void approveRequest(req)}
-                      className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#059669] text-white hover:bg-[#047857]"
+                      disabled={ptoBusy === req.id}
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#059669] text-white hover:bg-[#047857] disabled:opacity-50"
                     >
-                      Approve
+                      {ptoBusy === req.id ? 'Approving…' : 'Approve'}
                     </button>
                     <button
                       onClick={() => void denyRequest(req)}
-                      className="px-2.5 py-1 text-[11px] rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#B91C1C] hover:border-[#FECACA]"
+                      disabled={ptoBusy === req.id}
+                      className="px-2.5 py-1 text-[11px] rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:text-[#B91C1C] hover:border-[#FECACA] disabled:opacity-50"
                     >
                       Deny
                     </button>

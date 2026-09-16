@@ -220,6 +220,25 @@ function getDeptDisplayName(name: string): string {
   return map[name.toLowerCase()] || name
 }
 
+/**
+ * Whole hours, for display only.
+ *
+ * ⛔ THE BOARD WAS PRINTING RAW FLOATS. Andrew's screenshot: a block reading
+ * `96.875h`, an overage reading `(+83.54166666666667)`, and a capacity rail
+ * reading `33.33333333333332h/wk`. They come from real division — dept hours
+ * split across weeks, a member's weekly hours over five days — so the decimals
+ * are genuine, they're just not information anybody can use at a glance on a
+ * schedule block.
+ *
+ * ⚠️ DISPLAY ONLY. Nothing here feeds capacity math, the allocation writes or
+ * the divide-block modal — those keep full precision, because rounding 13
+ * blocks to whole hours and then summing is how a week silently stops adding
+ * up to the number it was split from.
+ */
+function hrs(n: number): number {
+  return Math.round(Number(n) || 0)
+}
+
 // Capacity-utilization color thresholds — single source of truth used by
 // the header dots, the sticky CapacityRow, and any future widget that
 // surfaces per-column utilization. Returns null when zero so callers can
@@ -550,7 +569,7 @@ function FlowView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete, de
             <div style={{ width: DEPT_LABEL_WIDTH, minWidth: DEPT_LABEL_WIDTH, flexShrink: 0, minHeight: ROW_HEIGHT, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 12px', borderRight: '1px solid #E5E7EB', background: isOverridden ? '#F5F3FF' : '#FFF', position: 'sticky', left: 0, zIndex: 15 }}>
               <div style={{ fontSize: 12, fontWeight: 600 }}>{getDeptDisplayName(dept.name)}</div>
               <div style={{ fontSize: 10, color: isOverridden ? '#7C3AED' : '#9CA3AF', fontFamily: "'SF Mono', monospace", marginTop: 1, fontWeight: isOverridden ? 600 : 400 }}>
-                {cap}h/wk {isOverridden && <span style={{ fontSize: 8, color: '#A78BFA' }}>(was {baseCap})</span>}
+                {hrs(cap)}h/wk {isOverridden && <span style={{ fontSize: 8, color: '#A78BFA' }}>(was {hrs(baseCap)})</span>}
               </div>
               {simMode && (
                 <div style={{ display: 'flex', gap: 3, marginTop: 4 }}>
@@ -569,7 +588,7 @@ function FlowView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete, de
               const overflow = oc ? th - cap : 0
               return (
                 <div key={wi} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, minHeight: ROW_HEIGHT, position: 'relative', borderRight: '1px solid #F3F4F6', background: oc ? '#FEF2F2' : wi % 2 === 0 ? '#FFF' : '#FAFBFC', padding: '14px 3px 3px', display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'flex-start', transition: 'background 0.2s' }}>
-                  {th > 0 && <div style={{ position: 'absolute', top: 2, right: 5, fontSize: 8, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: oc ? '#DC2626' : (th / cap) > 0.8 ? '#D97706' : '#C4C4C4' }}>{th}h{overflow > 0 && <span style={{ color: '#DC2626' }}> (+{overflow})</span>}</div>}
+                  {th > 0 && <div style={{ position: 'absolute', top: 2, right: 5, fontSize: 8, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: oc ? '#DC2626' : (th / cap) > 0.8 ? '#D97706' : '#C4C4C4' }}>{hrs(th)}h{overflow > 0 && <span style={{ color: '#DC2626' }}> (+{hrs(overflow)})</span>}</div>}
                   {cellBlks.map(block => {
                     const c = projectColors[block.project] || COLOR_PALETTE[0]
                     const sk = getSubKey(block)
@@ -599,7 +618,7 @@ function FlowView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete, de
                           boxShadow: isNew ? `0 0 8px ${diffBorder}40` : drag ? `0 4px 12px ${c.bg}40` : hl ? `0 1px 4px ${c.bg}30` : 'none', flexShrink: 0,
                         }}>
                         <span style={{ fontSize: n > 6 ? 8 : n > 4 ? 9 : 10, fontWeight: 600, lineHeight: 1, color: hl ? '#FFF' : oc ? '#991B1B' : c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0, textDecoration: block.completed ? 'line-through' : undefined }}>{block.sub}</span>
-                        <span style={{ fontSize: n > 4 ? 7 : 8, fontWeight: 600, marginLeft: 'auto', paddingLeft: 3, fontFamily: "'SF Mono', monospace", flexShrink: 0, color: hl ? 'rgba(255,255,255,0.7)' : oc ? '#DC2626' : '#B0B0B0' }}>{block.hours}h</span>
+                        <span style={{ fontSize: n > 4 ? 7 : 8, fontWeight: 600, marginLeft: 'auto', paddingLeft: 3, fontFamily: "'SF Mono', monospace", flexShrink: 0, color: hl ? 'rgba(255,255,255,0.7)' : oc ? '#DC2626' : '#B0B0B0' }}>{hrs(block.hours)}h</span>
                         {isNew && <span style={{ fontSize: 7, marginLeft: 3, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
                         <CompleteToggle block={block} onToggle={onToggleComplete} right={16} />
                         <BlockActionMenu
@@ -715,7 +734,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{projectNames[pk]}</div>
                 </div>
                 <span style={{ fontSize: 8, fontWeight: 700, color: PRIORITY_COLORS[pri], flexShrink: 0 }}>P{pri}</span>
-                <span style={{ fontSize: 9, color: '#9CA3AF', fontFamily: "'SF Mono', monospace", flexShrink: 0 }}>{totalH}h</span>
+                <span style={{ fontSize: 9, color: '#9CA3AF', fontFamily: "'SF Mono', monospace", flexShrink: 0 }}>{hrs(totalH)}h</span>
               </div>
               {/* Summary bar */}
               {Array.from({ length: numWeeks }, (_, wi) => {
@@ -730,7 +749,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete
                         background: `${c.bg}18`, border: `1px solid ${c.border}60`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
-                        {weekH > 0 && <span style={{ fontSize: 8, fontWeight: 600, color: c.text, fontFamily: "'SF Mono', monospace" }}>{weekH}h</span>}
+                        {weekH > 0 && <span style={{ fontSize: 8, fontWeight: 600, color: c.text, fontFamily: "'SF Mono', monospace" }}>{hrs(weekH)}h</span>}
                       </div>
                     )}
                   </div>
@@ -758,7 +777,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete
                   }}>
                     <div style={{ fontSize: 11, fontWeight: 500, color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>{sub}</div>
                     {gateStatus && <GateChip status={gateStatus} small />}
-                    <span style={{ fontSize: 8, color: '#B0B0B0', fontFamily: "'SF Mono', monospace", flexShrink: 0 }}>{subBlocks.reduce((s, b) => s + b.hours, 0)}h</span>
+                    <span style={{ fontSize: 8, color: '#B0B0B0', fontFamily: "'SF Mono', monospace", flexShrink: 0 }}>{hrs(subBlocks.reduce((s, b) => s + b.hours, 0))}h</span>
                   </div>
 
                   {/* Week cells with dept-colored blocks */}
@@ -800,7 +819,7 @@ function SwimlaneView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete
                                 opacity: block.completed ? 0.5 : 1,
                               }}>
                               <span style={{ fontSize: 8, fontWeight: 700, color: hl ? '#FFF' : dc.text, letterSpacing: '0.02em', textDecoration: block.completed ? 'line-through' : undefined }}>{deptShortMap[block.dept] || 'DEPT'}</span>
-                              <span style={{ fontSize: 8, fontWeight: 600, color: hl ? 'rgba(255,255,255,0.7)' : `${dc.text}90`, fontFamily: "'SF Mono', monospace" }}>{block.hours}h</span>
+                              <span style={{ fontSize: 8, fontWeight: 600, color: hl ? 'rgba(255,255,255,0.7)' : `${dc.text}90`, fontFamily: "'SF Mono', monospace" }}>{hrs(block.hours)}h</span>
                               {isNew && <span style={{ fontSize: 6, color: diffBorder!, fontWeight: 700 }}>{diffInfo.direction === 'earlier' ? '\u25C0' : '\u25B6'}</span>}
                               <CompleteToggle block={block} onToggle={onToggleComplete} right={15} />
                               <BlockActionMenu
@@ -1713,7 +1732,7 @@ export default function SchedulePage() {
       const baseCap = deptCapacities[d.id] || 0
       const override = currentOverrides[d.id]
       const cap = override != null ? override : baseCap
-      const label = override != null ? `${cap}h/wk (SIM, was ${baseCap}h)` : `${cap}h/wk`
+      const label = override != null ? `${hrs(cap)}h/wk (SIM, was ${hrs(baseCap)}h)` : `${hrs(cap)}h/wk`
       return `${d.name}("${d.id}"):${label}`
     })
 
@@ -1723,7 +1742,7 @@ export default function SchedulePage() {
         const cap = effectiveCap(dept.id)
         const total = currentBlocks.filter(b => b.dept === dept.id && b.week === w).reduce((s, b) => s + b.hours, 0)
         if (total > cap) {
-          const who = currentBlocks.filter(b => b.dept === dept.id && b.week === w).map(b => `${b.projectName}/${b.sub}(${b.hours}h)`).join(', ')
+          const who = currentBlocks.filter(b => b.dept === dept.id && b.week === w).map(b => `${b.projectName}/${b.sub}(${hrs(b.hours)}h)`).join(', ')
           overCap.push(`${dept.name} Wk${w + 1}: ${total}/${cap}h - ${who}`)
         }
       }
@@ -2182,7 +2201,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: '#FAFBFC', borderBottom: '1px solid #F3F4F6' }}>
                           <div style={{ width: 8, height: 8, borderRadius: 2, background: dc.bg, flexShrink: 0 }} />
                           <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#111' }}>{getDeptDisplayName(dept.name)}</div>
-                          <span style={{ fontSize: 10, fontFamily: "'SF Mono', monospace", color: pct > 100 ? '#DC2626' : '#6B7280', fontWeight: pct > 100 ? 600 : 400 }}>{deptH}/{cap}h</span>
+                          <span style={{ fontSize: 10, fontFamily: "'SF Mono', monospace", color: pct > 100 ? '#DC2626' : '#6B7280', fontWeight: pct > 100 ? 600 : 400 }}>{hrs(deptH)}/{hrs(cap)}h</span>
                           <span style={{ fontSize: 9, fontWeight: 600, color: pct > 100 ? '#DC2626' : pct > 80 ? '#D97706' : '#9CA3AF' }}>{pct}%</span>
                         </div>
                         {/* Projects in this dept this week */}
@@ -2195,7 +2214,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                                 <div style={{ fontSize: 11, fontWeight: 500, color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.projectName}</div>
                                 <div style={{ fontSize: 10, color: '#9CA3AF' }}>{b.sub}</div>
                               </div>
-                              <span style={{ fontSize: 11, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: '#6B7280', flexShrink: 0 }}>{b.hours}h</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: '#6B7280', flexShrink: 0 }}>{hrs(b.hours)}h</span>
                             </div>
                           )
                         })}

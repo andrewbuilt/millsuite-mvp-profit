@@ -57,6 +57,18 @@ function moneyFmt(n: number): string {
 // (per project, per drawer, etc.).
 const STANDARD_UNITS = ['ea', 'lf', 'sf', 'lump', 'hr', 'set'] as const
 
+/** The five cost departments, in the order the shop works through them.
+ *  ⚠️ These keys ARE the storage keys in `dept_hour_overrides` — the same ones
+ *  `computeLineBuildup` reads and the composer writes. Renaming one here
+ *  silently zeroes that department's labor on every freeform line. */
+const DEPTS = [
+  { key: 'eng', label: 'Engineering' },
+  { key: 'cnc', label: 'CNC' },
+  { key: 'assembly', label: 'Assembly' },
+  { key: 'finish', label: 'Finish' },
+  { key: 'install', label: 'Install' },
+] as const
+
 function isStandardUnit(u: string): boolean {
   return (STANDARD_UNITS as readonly string[]).includes(u)
 }
@@ -73,6 +85,28 @@ export default function FreeformLineModal({
   const [unitIsCustom, setUnitIsCustom] = useState(false)
   const [costEach, setCostEach] = useState('')
   const [notes, setNotes] = useState('')
+  /**
+   * ⛔ TWO WAYS TO PRICE A ONE-OFF, AND ONLY ONE EXISTED.
+   *
+   * Andrew: "we still need a way to price something one off like a solid wood
+   * table base." This modal could only ever write `unit_price_override` — a
+   * flat number you worked out in your head — because `computeLineBuildup`
+   * SHORT-CIRCUITS a line with that field set and zeroes every cost bucket.
+   * So a one-off carried material and no labor, which is the same shape as the
+   * imported-pricing bug: real hours priced at nothing.
+   *
+   * 'fixed'  — the price IS the price. Client-supplied appliance, a
+   *            subcontracted install, a vendor quote. Writes
+   *            unit_price_override, unchanged behaviour.
+   * 'build'  — material + real dept hours, priced by the shop rate and
+   *            margined at the project like everything else. Writes the SAME
+   *            storage a composer line uses (lump_cost_override +
+   *            dept_hour_overrides) with unit_price_override cleared — which
+   *            is why the rollup already understands it.
+   */
+  const [mode, setMode] = useState<'fixed' | 'build'>('fixed')
+  const [matEach, setMatEach] = useState('')
+  const [hours, setHours] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -99,6 +133,22 @@ export default function FreeformLineModal({
     const storedCost =
       line.unit_price_override != null ? Number(line.unit_price_override) : 0
     setCostEach(storedCost > 0 ? String(storedCost) : '')
+    // ⚠️ The stored shape decides the mode, not a flag: a line with
+    // unit_price_override is fixed-price by definition (the rollup treats it
+    // that way), anything else is built up.
+    const built = line.unit_price_override == null
+    setMode(built ? 'build' : 'fixed')
+    setMatEach(
+      line.lump_cost_override != null && Number(line.lump_cost_override) > 0
+        ? String(line.lump_cost_override)
+        : '',
+    )
+    const dh = (line.dept_hour_overrides || {}) as Record<string, number>
+    setHours(
+      Object.fromEntries(
+        DEPTS.map((d) => [d.key, dh[d.key] != null && dh[d.key] > 0 ? String(dh[d.key]) : '']),
+      ),
+    )
     setNotes(line.notes || '')
     setError(null)
     setSaving(false)
@@ -107,6 +157,13 @@ export default function FreeformLineModal({
   if (!line) return null
 
   const qtyN = parseFloat(qty)
+  const totalHoursPerUnit =
+    Math.round(
+      DEPTS.reduce((sum, d) => {
+        const n = parseFloat(hours[d.key] ?? '')
+        return sum + (Number.isFinite(n) && n > 0 ? n : 0)
+      }, 0) * 10,
+    ) / 10
   const costEachN = moneyParse(costEach)
   const lineTotalPreview =
     Number.isFinite(qtyN) && Number.isFinite(costEachN) && qtyN > 0 && costEachN >= 0
@@ -124,11 +181,39 @@ export default function FreeformLineModal({
       setError('Quantity must be a positive number.')
       return
     }
-    if (!Number.isFinite(costEachN) || costEachN < 0) {
+    if (mode === 'fixed' && (!Number.isFinite(costEachN) || costEachN < 0)) {
       setError('Cost each must be zero or greater.')
       return
     }
     const unitClean = unit.trim() || 'ea'
+
+    // ⛔ THE TWO SHAPES ARE MUTUALLY EXCLUSIVE. A line with BOTH
+    // unit_price_override and dept hours prices at the override and silently
+    // throws the labor away — so whichever mode is off gets its field NULLED,
+    // not just ignored.
+    const deptHours: Record<string, number> = {}
+    for (const d of DEPTS) {
+      const n = parseFloat(hours[d.key] ?? '')
+      if (Number.isFinite(n) && n > 0) deptHours[d.key] = n
+    }
+    const matEachN = moneyParse(matEach)
+    const built = mode === 'build'
+    if (built && Object.keys(deptHours).length === 0 && !(matEachN > 0)) {
+      setError('Add some hours or a material cost — otherwise this line is $0.')
+      return
+    }
+    const pricing = built
+      ? {
+          unit_price_override: null,
+          material_mode_override: 'lump' as const,
+          lump_cost_override: matEachN > 0 ? matEachN : 0,
+          dept_hour_overrides: Object.keys(deptHours).length > 0 ? deptHours : null,
+        }
+      : {
+          unit_price_override: costEachN,
+          lump_cost_override: null,
+          dept_hour_overrides: null,
+        }
 
     setSaving(true)
     setError(null)
@@ -136,23 +221,16 @@ export default function FreeformLineModal({
       // Per-unit storage: computeLineBuildup multiplies unit_price_override
       // by quantity at read time (lib/estimate-lines.ts ~L446). Storing
       // costEach directly makes the form input and the line total agree.
-      await updateEstimateLine(line.id, {
+      const patch = {
         description: trimmedDesc,
         quantity: qtyN,
         unit: unitClean as Unit,
-        unit_price_override: costEachN,
         notes: notes.trim() || null,
         spec_label: specLabel.trim() || null,
-      })
-      onSaved({
-        ...line,
-        description: trimmedDesc,
-        quantity: qtyN,
-        unit: unitClean as Unit,
-        unit_price_override: costEachN,
-        notes: notes.trim() || null,
-        spec_label: specLabel.trim() || null,
-      })
+        ...pricing,
+      }
+      await updateEstimateLine(line.id, patch)
+      onSaved({ ...line, ...patch } as EstimateLine)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setSaving(false)
@@ -181,7 +259,10 @@ export default function FreeformLineModal({
       >
         <div className="px-5 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
           <h3 className="text-[15px] font-semibold text-[#111]">
-            Freeform line
+            {/* The button that opens this says "Custom item or vendor
+                product"; calling it a "freeform line" here named the internal
+                concept, not the thing the operator clicked. */}
+            Custom item
           </h3>
           <button
             onClick={onClose}
@@ -284,11 +365,13 @@ export default function FreeformLineModal({
             </label>
             <label className="block">
               <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
-                Cost each ($)
+                {mode === 'build' ? 'Material each ($)' : 'Cost each ($)'}
               </span>
               <input
-                value={costEach}
-                onChange={(e) => setCostEach(e.target.value)}
+                value={mode === 'build' ? matEach : costEach}
+                onChange={(e) =>
+                  mode === 'build' ? setMatEach(e.target.value) : setCostEach(e.target.value)
+                }
                 placeholder="0"
                 inputMode="decimal"
                 className="mt-1 w-full px-3 py-2 text-sm font-mono tabular-nums border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none text-right"
@@ -296,10 +379,79 @@ export default function FreeformLineModal({
             </label>
           </div>
 
+          {/* ⛔ HOW THIS LINE IS PRICED. Fixed = the number IS the price, and
+              the rollup zeroes every cost bucket for it. Build = material plus
+              real hours, priced at the shop rate and margined at the project,
+              which is the only way a one-off like a solid wood table base
+              carries its labor. */}
+          <div className="flex items-center gap-1.5 -mt-1">
+            <button
+              type="button"
+              onClick={() => setMode('fixed')}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg border ${
+                mode === 'fixed'
+                  ? 'border-[#2563EB] bg-[#EFF6FF] text-[#1D4ED8]'
+                  : 'border-[#E5E7EB] text-[#9CA3AF] hover:border-[#D1D5DB]'
+              }`}
+            >
+              Fixed price
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('build')}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg border ${
+                mode === 'build'
+                  ? 'border-[#2563EB] bg-[#EFF6FF] text-[#1D4ED8]'
+                  : 'border-[#E5E7EB] text-[#9CA3AF] hover:border-[#D1D5DB]'
+              }`}
+            >
+              Build it up
+            </button>
+            <span className="text-[10.5px] text-[#9CA3AF]">
+              {mode === 'build'
+                ? 'material + hours, priced at your shop rate'
+                : 'the price is the price — vendor or subcontracted'}
+            </span>
+          </div>
+
+          {mode === 'build' && (
+            <div>
+              <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1.5">
+                Hours per {unit || 'ea'}
+              </div>
+              <div className="grid grid-cols-5 gap-1.5">
+                {DEPTS.map((d) => (
+                  <label key={d.key} className="block">
+                    <span className="text-[9.5px] text-[#9CA3AF]">{d.label}</span>
+                    <input
+                      value={hours[d.key] ?? ''}
+                      onChange={(e) =>
+                        setHours((prev) => ({ ...prev, [d.key]: e.target.value }))
+                      }
+                      placeholder="0"
+                      inputMode="decimal"
+                      className="mt-0.5 w-full px-2 py-1.5 text-[12.5px] font-mono tabular-nums border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] focus:outline-none text-right"
+                    />
+                  </label>
+                ))}
+              </div>
+              {/* ⚠️ PER UNIT, NOT PER LINE — same contract the composer uses.
+                  The rollup multiplies by quantity at read time, so typing the
+                  whole line's hours here prices it qty× too high. */}
+              <div className="mt-1.5 text-[10.5px] text-[#9CA3AF]">
+                {totalHoursPerUnit > 0
+                  ? `${totalHoursPerUnit}h each × ${qtyN || 0} = ${
+                      Math.round(totalHoursPerUnit * (qtyN || 0) * 10) / 10
+                    }h, plus ${moneyFmt(moneyParse(matEach) * (qtyN || 0))} material. Labor is
+                      priced at the shop rate; margin is applied at the project.`
+                  : 'Enter the hours this takes per unit.'}
+              </div>
+            </div>
+          )}
+
           {/* Live derived total — confidence check that the contractor
-              mental model and the stored math agree. Reads:
-                  N {unit} × $X each = $Total */}
-          {qtyN > 0 && (
+              mental model and the stored math agree. */}
+          {qtyN > 0 && mode === 'fixed' && (
             <div className="text-[12px] text-[#6B7280] -mt-2">
               Line total:{' '}
               <span className="font-mono tabular-nums text-[#111] font-semibold">
