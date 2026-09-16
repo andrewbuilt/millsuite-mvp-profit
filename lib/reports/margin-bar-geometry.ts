@@ -1,89 +1,119 @@
 // ============================================================================
-// margin-bar-geometry.ts — where a diverging margin bar starts and ends.
+// margin-bar-geometry.ts — the Completed Projects profit bar.
 // ============================================================================
 // ⛔ PURE. No `lib/supabase` import, directly or transitively, so
 // `scripts/verify-margin-bar-geometry.mjs` can exercise it without a client
 // (supabase is built at module scope and would throw).
 //
-// ⛔ THE AXIS IS FIXED: −100% … 0 … +100%, WITH 0 DEAD CENTRE.
-// It is NOT derived from the data. That is the whole point, and it is the
-// third design this chart has had — each previous one failed in a way that
-// only shows up on a rendered page:
+// ⛔ ZERO AT THE FAR LEFT. EVERY BAR GROWS RIGHT. LENGTH IS DOLLARS.
+// Andrew's call, 2026-09-16: *"zero can to the far left. negative would just be
+// red. i think we need to add some gradations on the top up to $100k?
+// otherwise the scale would need to resize to accommodate larger and small
+// values."*
 //
-//   1. `Math.abs(marginPct)` scaled to the set's max, drawn left-to-right.
-//      A LOSS DREW LIKE A PROFIT. −15% and +15% were the same length,
-//      separated only by colour.
+// ⚠️⚠️ READ THIS BEFORE CHANGING ANYTHING HERE. A bar anchored at the left
+// means A LOSS AND A GAIN OF THE SAME SIZE DRAW THE SAME LENGTH. −$3,190 and
+// +$3,190 are the same bar. That is the exact misread the redesign brief was
+// written to kill ("losses and gains need to be visually distinguishable by
+// more than color alone"), and it is back by deliberate choice, because on a
+// DOLLAR axis the length now answers "how much money moved" and the direction
+// is carried elsewhere. Two things carry it, and both must survive:
+//   1. COLOUR — red for a loss (`marginBarColor` already does this).
+//   2. PATTERN — losses render with a striped fill, not a solid one.
+// ⛔ THE STRIPES ARE NOT DECORATION. Red/green is the single worst colour pair
+// for colour-vision deficiency (~8% of men, and this chart is going on a
+// marketing site). Without the pattern, ~1 reader in 12 sees a loss and a
+// profit as identical bars in identical grey. Do not remove it and leave hue
+// as the only signal.
 //
-//   2. Dollar profit, diverging, scaled to the set's max. Fixed the loss, but
-//      THE BAR DISAGREED WITH THE NUMBER PRINTED NEXT TO IT: Gulfview drew
-//      the longest bar in the set at +31.9% while Vega drew shorter at
-//      +35.3%, because Gulfview is a bigger job. A reader sees a longer bar
-//      against a smaller percentage and cannot trust either.
-//
-//   3. This one. The bar IS the number beside it, on an absolute scale, so
-//      length and text cannot drift apart and no row's length depends on any
-//      other row.
-//
-// ⚠️ WHAT A FIXED AXIS COSTS, ON PURPOSE: bars no longer stretch to fill the
-// track. A 30% job fills 30% of its half, because 30% IS 30% of the way to a
-// job that cost nothing to build. A data-relative scale always makes the best
-// row look maximal — so a shop having a terrible year renders exactly like a
-// shop having a great one, and the chart can never say "this is bad".
-//
-// ⚠️ 100% IS A REAL CEILING on the gain side (margin = profit ÷ revenue, and
-// cost ≥ 0). It is NOT a real floor on the loss side: a job that costs three
-// times its price is −200%. Those clamp to the end of the track and the text
-// keeps telling the truth. Rare, and better than rescaling the whole chart
-// around one disaster.
+// THE SCALE IS A LADDER, NOT A HARD CAP AND NOT A FREE FIT:
+//   · a hard $100k ceiling CLIPS a job that made $150k — silently, and a
+//     clipped bar reads as "exactly the maximum", which is a wrong number.
+//   · fitting the axis to the data makes the best row always look maximal, so
+//     a shop having a terrible year renders exactly like one having a great
+//     year, and the axis twitches every time a project closes.
+//   · the ladder snaps to the next round rung up. It is stable across normal
+//     data changes, it can never clip, and the gradation labels say out loud
+//     what the scale currently is — so a reader is never guessing.
 // ============================================================================
 
-/** Each side of the 0 line spans 0…100% margin. */
-export const AXIS_MAX_PCT = 100
+/** Round rungs, smallest first. The axis is always one of these. */
+export const AXIS_LADDER = [
+  10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000, 2_500_000,
+  5_000_000, 10_000_000,
+]
 
-/** The 0 line, as a % of track width. Dead centre, by definition of the axis. */
-export const ZERO_X = 50
-
-/** A non-zero margin never draws as nothing — but exactly 0% draws as 0. */
+/** A non-zero profit never draws as nothing — but exactly $0 draws as $0. */
 export const MIN_BAR_PCT = 0.6
 
-export interface BarGeometry {
-  leftPct: number
-  widthPct: number
-}
+/** Gradation lines drawn across the track, including both ends. */
+export const GRADATION_STEPS = 5
 
 /**
- * Where one bar sits on the track. Gains run right of 0, losses run left.
+ * The smallest rung that contains the data.
  *
- * ⛔ TAKES THE PERCENTAGE THAT IS PRINTED IN THE ROW. Not dollars, not a
- * derived figure — the same number, so the two cannot disagree.
+ * ⚠️ Uses the ABSOLUTE value, so a catastrophic loss widens the axis the same
+ * way a big win does. A −$400k job has to fit on the chart too.
  */
-export function barGeometry(marginPct: number): BarGeometry {
-  if (!marginPct || !Number.isFinite(marginPct)) {
-    return { leftPct: ZERO_X, widthPct: 0 }
+export function chooseAxisMax(profits: number[]): number {
+  const peak = Math.max(0, ...profits.map((p) => Math.abs(Number(p) || 0)))
+  for (const rung of AXIS_LADDER) {
+    if (peak <= rung) return rung
   }
-
-  const half = ZERO_X // each side of the axis is this many % of the track
-  const magnitude = Math.min(Math.abs(marginPct), AXIS_MAX_PCT)
-  const widthPct = Math.min(Math.max((magnitude / AXIS_MAX_PCT) * half, MIN_BAR_PCT), half)
-
-  return marginPct > 0
-    ? { leftPct: ZERO_X, widthPct }
-    : { leftPct: ZERO_X - widthPct, widthPct }
+  // ⛔ Past the top rung, round UP to the next whole multiple of the largest
+  // rung rather than clipping. A bar that runs off the end is a wrong number.
+  const top = AXIS_LADDER[AXIS_LADDER.length - 1]
+  return Math.ceil(peak / top) * top
 }
 
 /**
- * Where the margin target tick sits — ONE x for every row.
+ * Bar width as a % of the track. ALWAYS anchored at the left edge.
  *
- * ⛔ THIS IS WHAT THE FIXED AXIS BUYS BACK. The target tick had to be deleted
- * when the bar was drawn in dollars, because a percentage has no single x on a
- * dollar axis: 25% of $21,300 is $5,325 and 25% of $102,500 is $25,625, so one
- * "target" would have sat in a different place on every row. On a percentage
- * axis it is a single vertical line down the whole chart, and every row is
- * readable at a glance as left of it or right of it.
+ * Losses use their magnitude — see the header. The caller is responsible for
+ * rendering them red AND striped.
  */
-export function targetX(targetPct: number): number {
-  const clamped = Math.min(Math.max(targetPct, -AXIS_MAX_PCT), AXIS_MAX_PCT)
-  return ZERO_X + (clamped / AXIS_MAX_PCT) * ZERO_X
+export function barWidthPct(profit: number, axisMax: number): number {
+  const v = Number(profit)
+  if (!v || !Number.isFinite(v) || axisMax <= 0) return 0
+  const raw = (Math.abs(v) / axisMax) * 100
+  return Math.min(Math.max(raw, MIN_BAR_PCT), 100)
+}
+
+/** True when the axis had to clip this value. Should never happen — assert it. */
+export function overflowsAxis(profit: number, axisMax: number): boolean {
+  return Math.abs(Number(profit) || 0) > axisMax
+}
+
+export interface Gradation {
+  /** Position across the track, 0–100. */
+  pct: number
+  value: number
+  /** Short money label: $0, $10k, $1.5M. */
+  label: string
+}
+
+/** The ticks drawn across the top, so the scale is never a guess. */
+export function gradations(axisMax: number, steps: number = GRADATION_STEPS): Gradation[] {
+  const out: Gradation[] = []
+  for (let i = 0; i <= steps; i++) {
+    const value = (axisMax / steps) * i
+    out.push({ pct: (i / steps) * 100, value, label: shortMoney(value) })
+  }
+  return out
+}
+
+/** $0 · $12.5k · $250k · $1.5M — short enough to sit above a bar track. */
+export function shortMoney(n: number): string {
+  const v = Math.abs(n)
+  if (v === 0) return '$0'
+  if (v >= 1_000_000) return `$${trim(v / 1_000_000)}M`
+  if (v >= 1_000) return `$${trim(v / 1_000)}k`
+  return `$${Math.round(v)}`
+}
+
+function trim(n: number): string {
+  // One decimal only when it carries information — $12.5k, but $50k not $50.0k.
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
 }
 
 /**
@@ -103,7 +133,7 @@ export function blendedMarginPct(rows: { profit: number; revenue: number }[]): n
   return (profit / revenue) * 100
 }
 
-/** Mean profit per job — the dollar figure on the Average row. */
+/** Mean profit per job — the Average row's bar length and its big number. */
 export function averageProfit(rows: { profit: number }[]): number {
   if (rows.length === 0) return 0
   return rows.reduce((s, r) => s + (Number(r.profit) || 0), 0) / rows.length

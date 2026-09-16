@@ -1,30 +1,32 @@
 // ============================================================================
-// verify-margin-bar-geometry.mjs — the Completed Projects diverging bar.
+// verify-margin-bar-geometry.mjs — the Completed Projects profit bar.
 // ============================================================================
 // Run: npx tsx scripts/verify-margin-bar-geometry.mjs   (no DB, no network)
 //
-// ⛔ WHY THIS FILE EXISTS. The last defect in this chart was GEOMETRY, and it
-// shipped because geometry isn't type-checked: an elastic column made every
-// row's bar track a different width, so lengths were not comparable between
-// rows. tsc was green the whole time. Two investigations went hunting in the
-// data, which was correct the whole time.
+// ⛔ WHY THIS FILE EXISTS. Every defect this chart has shipped was GEOMETRY or
+// LAYOUT, and tsc was green for all of them: an elastic column made every row's
+// bar track a different width; a loss drew like a profit; a dollar-scaled bar
+// sat beside a percentage and disagreed with it. None of that is type-checkable.
 //
 // So this checks BOTH halves of the drawing:
-//   1. the math   — one scale, both sides, every row; nothing overflows
-//   2. the layout — no sibling of the `flex-1` track can grow with its content
+//   1. the math   — one scale, nothing clips, length is proportional to money
+//   2. the layout — no elastic siblings, and the fill/label wiring that carries
+//                   SIGN now that every bar grows the same direction
 //
 // ⚠️ Every check below was confirmed to FAIL when the thing it guards was
 // deliberately broken. A guard that has never gone red is not a guard.
 // ============================================================================
 
 import {
-  AXIS_MAX_PCT,
+  AXIS_LADDER,
   MIN_BAR_PCT,
-  ZERO_X,
   averageProfit,
-  barGeometry,
+  barWidthPct,
   blendedMarginPct,
-  targetX,
+  chooseAxisMax,
+  gradations,
+  overflowsAxis,
+  shortMoney,
 } from '../lib/reports/margin-bar-geometry.ts'
 import fs from 'fs'
 import path from 'path'
@@ -51,88 +53,74 @@ const BAYSIDE = [
   { name: 'Bayshore Closet', profit: 6480, revenue: 31500, marginPct: 20.6 },
 ]
 
-// ── 1. THE BAR IS THE NUMBER BESIDE IT ───────────────────────────────────────
-// ⛔ THE CHECK THIS CHART EXISTS FOR, AND THE ONE THE DOLLAR VERSION FAILED.
-// Order by bar length and order by printed percentage MUST be the same order.
-// The dollar-scaled version drew Gulfview (+31.9%) longer than Vega (+35.3%)
-// because Gulfview is a bigger job — a longer bar against a smaller number.
-{
-  const gains = BAYSIDE.filter((p) => p.marginPct > 0)
-  const byBar = [...gains].sort((a, b) => barGeometry(b.marginPct).widthPct - barGeometry(a.marginPct).widthPct)
-  const byPct = [...gains].sort((a, b) => b.marginPct - a.marginPct)
-  check('⛔ longest bar = highest percentage, every row',
-    byBar.map((p) => p.name).join('|') === byPct.map((p) => p.name).join('|'),
-    `bars: ${byBar.map((p) => p.name).join(', ')}`)
+const axisMax = chooseAxisMax(BAYSIDE.map((p) => p.profit))
+const ticks = gradations(axisMax)
 
-  // And the strict form: length is exactly proportional to the percentage.
-  for (const p of gains) {
-    const g = barGeometry(p.marginPct)
-    check(`${p.name}: length is its own percentage`,
-      near(g.widthPct, (p.marginPct / AXIS_MAX_PCT) * ZERO_X, 1e-9),
-      `${g.widthPct.toFixed(4)} vs ${((p.marginPct / AXIS_MAX_PCT) * ZERO_X).toFixed(4)}`)
+// ── 1. THE AXIS CAN NEVER CLIP ───────────────────────────────────────────────
+// ⛔ A clipped bar renders at exactly 100% — which reads as "the maximum", a
+// plausible and wrong number. Money must never run off the end of the chart.
+{
+  check('ladder rung contains the data', axisMax >= 32730, `${axisMax}`)
+  check('ladder picks the SMALLEST rung that fits', axisMax === 50_000, `${axisMax}`)
+  for (const p of BAYSIDE) {
+    check(`${p.name}: does not overflow the axis`, !overflowsAxis(p.profit, axisMax))
+    check(`${p.name}: width <= 100%`, barWidthPct(p.profit, axisMax) <= 100)
   }
-}
-
-// ── 2. THE AXIS IS FIXED, NOT DERIVED FROM THE DATA ──────────────────────────
-// A row must draw the same length regardless of what it is sitting next to.
-// This is what lets two periods — or two shops — be compared at all.
-{
-  const alone = barGeometry(35.3)
-  check('a row is unaffected by its neighbours', near(alone.widthPct, (35.3 / 100) * 50))
-  check('0 line is dead centre', ZERO_X === 50)
-  check('+100% reaches the right edge', near(barGeometry(100).leftPct + barGeometry(100).widthPct, 100))
-  check('−100% reaches the left edge', near(barGeometry(-100).leftPct, 0))
-  check('a 30% job fills 30% of its half', near(barGeometry(30).widthPct, 15))
-}
-
-// ── 3. GAINS RIGHT, LOSSES LEFT, BOTH ANCHORED AT 0 ──────────────────────────
-for (const p of BAYSIDE) {
-  const g = barGeometry(p.marginPct)
-  if (p.marginPct > 0) {
-    check(`${p.name}: gain starts AT 0`, near(g.leftPct, ZERO_X), `${g.leftPct}`)
-  } else {
-    check(`${p.name}: loss ENDS at 0`, near(g.leftPct + g.widthPct, ZERO_X), `${g.leftPct + g.widthPct}`)
+  // Every rung, and past the top of the ladder.
+  for (const rung of AXIS_LADDER) {
+    check(`exactly ${rung} still fits on its own rung`, chooseAxisMax([rung]) === rung)
+    check(`${rung} + $1 moves up a rung`, chooseAxisMax([rung + 1]) > rung)
   }
-  check(`${p.name}: stays on the track`,
-    g.leftPct >= -1e-9 && g.leftPct + g.widthPct <= 100 + 1e-9,
-    `[${g.leftPct.toFixed(2)}, ${(g.leftPct + g.widthPct).toFixed(2)}]`)
+  const huge = chooseAxisMax([42_000_000])
+  check('past the top rung it rounds UP, never clips', huge >= 42_000_000, `${huge}`)
+  // ⚠️ A catastrophic LOSS has to fit too — the axis reads magnitude.
+  check('a big loss widens the axis', chooseAxisMax([-400_000, 1_000]) >= 400_000)
 }
 
-// ── 4. EQUAL MAGNITUDES, EQUAL LENGTHS ───────────────────────────────────────
-// A dollar of margin is the same width whether it was made or lost.
-check('+15% and −15% draw the same length',
-  near(barGeometry(15).widthPct, barGeometry(-15).widthPct))
-
-// ── 5. THE TARGET TICK IS ONE x FOR EVERY ROW ────────────────────────────────
-// ⛔ This is what the fixed axis buys back — it was impossible on a dollar axis.
+// ── 2. LENGTH IS PROPORTIONAL TO MONEY ───────────────────────────────────────
 {
-  check('25% target sits at 62.5%', near(targetX(25), 62.5), `${targetX(25)}`)
-  check('a 0% target sits on the 0 line', near(targetX(0), ZERO_X))
-  check('the target tick does not depend on any row', targetX(25) === targetX(25))
-  // A job at exactly target must end exactly on the tick, or the tick lies.
-  const atTarget = barGeometry(25)
-  check('a job AT target ends exactly on the tick',
-    near(atTarget.leftPct + atTarget.widthPct, targetX(25)),
-    `${atTarget.leftPct + atTarget.widthPct} vs ${targetX(25)}`)
-  const under = barGeometry(20.6)
-  check('a job UNDER target ends left of the tick', under.leftPct + under.widthPct < targetX(25))
-  const over = barGeometry(35.3)
-  check('a job OVER target ends right of the tick', over.leftPct + over.widthPct > targetX(25))
+  check('twice the profit, twice the bar',
+    near(barWidthPct(20_000, axisMax), barWidthPct(10_000, axisMax) * 2))
+  check('half the axis is half the track', near(barWidthPct(axisMax / 2, axisMax), 50))
+  check('the full axis fills the track', near(barWidthPct(axisMax, axisMax), 100))
+  check('$0 draws NOTHING', barWidthPct(0, axisMax) === 0)
+  check('a tiny profit still draws', barWidthPct(1, axisMax) >= MIN_BAR_PCT)
+  check('NaN draws nothing', barWidthPct(NaN, axisMax) === 0)
+  check('a zero axis cannot divide by zero', barWidthPct(100, 0) === 0)
 }
 
-// ── 6. DEGENERATE VALUES DON'T PRODUCE NaN OR OVERFLOW ───────────────────────
+// ── 3. ⚠️ SIGN IS *NOT* IN THE LENGTH — SO IT MUST BE SOMEWHERE ELSE ─────────
+// ⛔ THIS IS THE KNOWN, ACCEPTED TRADE OF ANCHORING AT THE LEFT EDGE. A loss
+// and a gain of the same size are the SAME BAR. Asserted here so nobody later
+// "fixes" the length and assumes direction was ever encoded in it. The layout
+// guard below is what proves colour AND pattern are still carrying it.
+check('⚠️ BY DESIGN: -$3,190 and +$3,190 draw identical lengths',
+  near(barWidthPct(-3190, axisMax), barWidthPct(3190, axisMax)))
+
+// ── 4. THE GRADATIONS TELL THE TRUTH ─────────────────────────────────────────
+// The scale moves between rungs, so the labels are the only thing telling a
+// reader whether a full bar is $50k or $5M. If they drift, the chart lies.
 {
-  check('0% draws NOTHING', barGeometry(0).widthPct === 0)
-  check('0% still sits on the line', near(barGeometry(0).leftPct, ZERO_X))
-  const tiny = barGeometry(0.01)
-  check('a tiny non-zero margin still draws', tiny.widthPct >= MIN_BAR_PCT, `${tiny.widthPct}`)
-  // ⚠️ A catastrophic job (cost > 2x price) is below −100%. It clamps to the
-  // end of the track; the printed number keeps telling the truth.
-  const disaster = barGeometry(-250)
-  check('−250% clamps to the left edge, no overflow',
-    near(disaster.leftPct, 0) && near(disaster.widthPct, ZERO_X), `${JSON.stringify(disaster)}`)
-  check('NaN margin draws nothing', barGeometry(NaN).widthPct === 0)
-  check('undefined margin draws nothing', barGeometry(undefined).widthPct === 0)
+  check('gradations span 0..100%', ticks[0].pct === 0 && ticks[ticks.length - 1].pct === 100)
+  check('first gradation is $0', ticks[0].label === '$0' && ticks[0].value === 0)
+  check('last gradation is the axis max', ticks[ticks.length - 1].value === axisMax)
+  check('gradations are evenly spaced and rising',
+    ticks.every((t, i) => i === 0 || (t.value > ticks[i - 1].value && t.pct > ticks[i - 1].pct)))
+  check('each gradation label matches its own value',
+    ticks.every((t) => t.label === shortMoney(t.value)),
+    ticks.map((t) => `${t.label}=${t.value}`).join(' '))
+  // ⛔ A bar at a gradation's value must land exactly ON that gradation, or
+  // the grid lines are decorative and a reader measuring against them is wrong.
+  for (const t of ticks) {
+    check(`a bar worth ${t.label} ends on the ${t.label} line`,
+      near(barWidthPct(t.value, axisMax), t.pct) || t.value === 0)
+  }
+  check('$50k axis reads in $10k steps', ticks.map((t) => t.label).join(' ') === '$0 $10k $20k $30k $40k $50k',
+    ticks.map((t) => t.label).join(' '))
+  check('short money: thousands', shortMoney(12_500) === '$12.5k', shortMoney(12_500))
+  check('short money: whole thousands have no decimal', shortMoney(50_000) === '$50k', shortMoney(50_000))
+  check('short money: millions', shortMoney(2_500_000) === '$2.5M', shortMoney(2_500_000))
+  check('short money: zero', shortMoney(0) === '$0')
 }
 
 // ── 7. BLENDED IS REVENUE-WEIGHTED, NOT A MEAN OF RATIOS ─────────────────────
@@ -165,13 +153,14 @@ check('+15% and −15% draw the same length',
 // If it didn't, the one row meant to summarise the others would be the one row
 // you can't compare to them.
 {
-  const blended = blendedMarginPct(BAYSIDE)
-  const avg = barGeometry(blended)
-  check('average bar sits on the track', avg.leftPct + avg.widthPct <= 100 + 1e-9)
-  check('the average BAR is the average PERCENT, same as every row',
-    near(avg.widthPct, (blended / AXIS_MAX_PCT) * ZERO_X))
-  check('average is shorter than the best job', avg.widthPct < barGeometry(35.3).widthPct)
-  check('average is longer than the worst gain', avg.widthPct > barGeometry(20.6).widthPct)
+  const avg = averageProfit(BAYSIDE)
+  const w = barWidthPct(avg, axisMax)
+  check('average bar sits on the track', w <= 100)
+  check('the average BAR is the average DOLLARS, same basis as every row',
+    near(w, (avg / axisMax) * 100))
+  check('average is shorter than the best job', w < barWidthPct(32730, axisMax))
+  check('average is longer than the smallest gain', w > barWidthPct(6480, axisMax))
+  check('average shares the rows\' axis', chooseAxisMax(BAYSIDE.map((p) => p.profit)) === axisMax)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -218,44 +207,60 @@ check('⛔ no transition-all (it animates WIDTH)', !src.includes('transition-all
 
 // The old single-direction bar must be GONE, not merely unused.
 check('⛔ the Math.abs(marginPct) bar is gone', !/Math\.abs\(\s*project\.marginPct/.test(src))
-// ⛔ THE BAR MUST BE FED THE SAME FIELD THAT IS PRINTED. `project.profit`
-// here is the dollar-scaled version's exact mistake.
-check('⛔ bar length comes from marginPct, the number that is printed',
-  src.includes('barGeometry(project.marginPct)'))
-check('⛔ bar length is NOT dollars', !src.includes('barGeometry(project.profit'))
+// ⛔ THE BAR MUST BE FED DOLLARS, AND THE BIG NUMBER MUST BE DOLLARS TOO.
+// The previous build drove the bar with dollars and printed the PERCENTAGE as
+// the primary figure, so Gulfview's longest-in-the-set bar sat beside "+31.9%"
+// while Vega's shorter bar read "+35.3%". Whatever drives the length has to be
+// the number the eye lands on first.
+check('⛔ bar length comes from profit dollars', src.includes('barWidthPct(project.profit, axisMax)'))
+check('⛔ the bar is anchored at the left edge', src.includes('bottom-0 left-0 rounded-sm'))
+{
+  // In the value column, fmtMoney must appear BEFORE the percentage.
+  const col = src.slice(src.indexOf('COL_VALUE}`}'), src.indexOf('COL_VALUE}`}') + 600)
+  const moneyAt = col.indexOf('fmtMoney(project.profit)')
+  const pctAt = col.indexOf('marginPct.toFixed(1)')
+  check('⛔ dollars are the BIG number, percent is secondary',
+    moneyAt > -1 && pctAt > -1 && moneyAt < pctAt, `money@${moneyAt} pct@${pctAt}`)
+}
 
-// The target tick is back, and it must be the shared one.
-check('the target tick is drawn from targetX()', src.includes('targetX(marginTarget)'))
-const targetUses = (src.match(/targetPos/g) || []).length
-check('the target tick appears in the legend + both row shapes', targetUses >= 4, `${targetUses} uses`)
+// ⛔⛔ SIGN IS CARRIED BY COLOUR *AND* PATTERN, NOT COLOUR ALONE.
+// Every bar grows the same direction now, so a loss and a gain of equal size
+// are the same length. Red/green is the worst pair for colour-vision
+// deficiency (~8% of men) — drop the stripes and ~1 reader in 12 cannot tell
+// -$3,190 from +$3,190 at all. This is the check that keeps that from
+// happening quietly.
+check('⛔ LOSS_FILL (the stripe pattern) exists', src.includes('const LOSS_FILL'))
+check('⛔ LOSS_FILL is actually a repeating gradient, not a flat colour',
+  /LOSS_FILL[\s\S]{0,200}repeating-linear-gradient/.test(src))
+const lossUses = (src.match(/LOSS_FILL\(/g) || []).length
+check('⛔ the stripe is applied to project rows AND the average row',
+  lossUses >= 2, `${lossUses} uses`)
+check('⛔ sign comes from profit, not the percentage', src.includes('project.profit < 0'))
 
-// The 0 line is the fixed axis constant, not a per-row or per-set guess.
-const zeroUses = (src.match(/ZERO_X/g) || []).length
-check('the 0 line is the fixed ZERO_X in all 3 row shapes', zeroUses >= 4, `${zeroUses} uses`)
-check('⛔ no data-derived zero position survives', !src.includes('scale.zeroPct'))
+// The laddered axis has to be SHOWN, or a reader cannot tell $50k from $5M.
+check('gradations are computed', src.includes('gradations(axisMax)'))
+const tickUses = (src.match(/ticks\./g) || []).length
+check('gradations are drawn in the header AND behind the bars', tickUses >= 3, `${tickUses} uses`)
 
-// The declarations themselves live in the stripped-out region? No — they're
-// code. But the COL_* regexes ran against `src`, so confirm the file really
-// still contains what we think it does before trusting any of the above.
+// Nothing from the abandoned centred/percent axis may survive.
+check('⛔ no leftover centred-axis geometry', !src.includes('ZERO_X') && !src.includes('targetX'))
+check('⛔ no leftover percent-driven bar', !src.includes('barGeometry('))
+
 check('the component was actually read', rawSrc.length > 2000 && src.includes('CompletedProjects'))
 
 // ── Report ───────────────────────────────────────────────────────────────────
-console.log(`\n══ margin bar geometry — fixed axis, 0 dead centre ══\n`)
-const W = 60
-const mark = (x) => Math.round((x / 100) * W)
-const axis = Array(W + 1).fill(' ')
-axis[mark(ZERO_X)] = '0'
-axis[mark(targetX(25))] = 'T'
-console.log(`  ${''.padEnd(22)} ${axis.join('')}   −100% … 0 … +100%  (T = 25% target)`)
-for (const p of [...BAYSIDE, { name: 'AVERAGE (blended)', marginPct: blendedMarginPct(BAYSIDE) }]) {
-  const g = barGeometry(p.marginPct)
-  const L = mark(g.leftPct)
-  const Wd = Math.max(1, mark(g.widthPct))
-  const line = Array(W + 1).fill('·')
-  for (let i = L; i < L + Wd; i++) line[i] = p.marginPct < 0 ? '▓' : '█'
-  line[mark(ZERO_X)] = '|'
-  console.log(`  ${p.name.padEnd(22)} ${line.join('')}   ${p.marginPct >= 0 ? '+' : ''}${p.marginPct.toFixed(1)}%`)
+console.log(`\n══ profit bar — zero at left, laddered axis ══\n`)
+const W = 54
+console.log(`  ${''.padEnd(22)} ${ticks.map((t) => t.label.padEnd(W / (ticks.length - 1))).join('')}`)
+for (const p of [...BAYSIDE, { name: 'AVERAGE (per job)', profit: averageProfit(BAYSIDE) }]) {
+  const w = Math.max(1, Math.round((barWidthPct(p.profit, axisMax) / 100) * W))
+  const fill = p.profit < 0 ? '▨' : '█'
+  console.log(
+    `  ${p.name.padEnd(22)} ${fill.repeat(w)}${'·'.repeat(W - w)}  ` +
+      `${p.profit < 0 ? '-$' : ' $'}${Math.abs(Math.round(p.profit)).toLocaleString()}`,
+  )
 }
+console.log(`\n  axis $0 … ${shortMoney(axisMax)}   ▨ = striped (loss)`)
 
 console.log(`\n  ${pass} checks passed${fails.length ? `, ${fails.length} FAILED` : ''}`)
 if (fails.length) {

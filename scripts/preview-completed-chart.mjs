@@ -22,12 +22,15 @@
 
 import fs from 'fs'
 import {
-  ZERO_X,
   averageProfit,
-  barGeometry,
+  barWidthPct,
   blendedMarginPct,
-  targetX,
+  chooseAxisMax,
+  gradations,
 } from '../lib/reports/margin-bar-geometry.ts'
+
+const LOSS_FILL = (c) =>
+  `repeating-linear-gradient(135deg, ${c} 0 6px, rgba(255,255,255,.42) 6px 11px)`
 
 const PROJECTS = [
   { name: 'Meridian Storefront Build-out', date: 'Sep 2', est: 96, act: 121, profit: -3190, revenue: 21300, marginPct: -15.0 },
@@ -46,17 +49,21 @@ const money = (n) =>
 
 const blended = blendedMarginPct(PROJECTS)
 const avgProfit = averageProfit(PROJECTS)
-const avgGeom = barGeometry(blended)
 const avgColor = barColor(blended)
-const targetPos = targetX(TARGET)
+const axisMax = chooseAxisMax(PROJECTS.map((p) => p.profit))
+const ticks = gradations(axisMax)
+const grid = ticks
+  .slice(1, -1)
+  .map((t) => `<div class="absolute top-0 bottom-0 w-px bg-[#E5E7EB]" style="left:${t.pct}%"></div>`)
+  .join('')
 
 const COL_NAME = 'w-[140px] sm:w-[180px] flex-shrink-0'
 const COL_HOURS = 'w-[104px] flex-shrink-0 hidden sm:block'
-const COL_VALUE = 'w-[92px] flex-shrink-0'
+const COL_VALUE = 'w-[104px] flex-shrink-0'
 
 const row = (p) => {
-  const g = barGeometry(p.marginPct)
   const c = barColor(p.marginPct)
+  const isLoss = p.profit < 0
   return `
   <div class="flex items-center gap-3 py-2.5 -mx-2 px-2 rounded-lg">
     <div class="${COL_NAME}">
@@ -68,13 +75,12 @@ const row = (p) => {
     </div>
     <div class="flex-1 relative h-6">
       <div class="absolute inset-0 bg-[#F3F4F6] rounded"></div>
-      <div class="absolute top-0 bottom-0 rounded-sm" style="left:${g.leftPct}%;width:${g.widthPct}%;background:${c}"></div>
-      <div class="absolute top-[-3px] bottom-[-3px] w-[1.5px] opacity-30" style="left:${targetPos}%;background:#111"></div>
-      <div class="absolute top-[-5px] bottom-[-5px] w-[2px] opacity-70" style="left:${ZERO_X}%;background:#111"></div>
+      ${grid}
+      <div class="absolute top-0 bottom-0 left-0 rounded-sm" style="width:${barWidthPct(p.profit, axisMax)}%;background:${isLoss ? LOSS_FILL(c) : c}"></div>
     </div>
     <div class="text-right ${COL_VALUE}">
-      <div class="text-sm font-medium font-mono tabular-nums" style="color:${c}">${p.marginPct >= 0 ? '+' : ''}${p.marginPct.toFixed(1)}%</div>
-      <div class="text-xs text-[#6B7280] font-mono tabular-nums">${money(p.profit)}</div>
+      <div class="text-sm font-medium font-mono tabular-nums" style="color:${c}">${money(p.profit)}</div>
+      <div class="text-xs text-[#6B7280] font-mono tabular-nums">${p.marginPct >= 0 ? '+' : ''}${p.marginPct.toFixed(1)}%</div>
     </div>
   </div>`
 }
@@ -88,14 +94,11 @@ const html = `<!doctype html>
   <div class="bg-white border border-[#E5E7EB] rounded-xl p-6">
     <div class="text-sm font-medium text-[#111] mb-3">Completed projects</div>
 
-    <div class="flex items-center gap-3 pb-2 -mx-2 px-2">
+    <div class="flex items-end gap-3 pb-1 -mx-2 px-2">
       <div class="${COL_NAME}"></div>
       <div class="${COL_HOURS}"></div>
       <div class="flex-1 relative h-4">
-        <div class="absolute top-0 left-0 text-[10px] font-medium uppercase tracking-wide text-[#DC2626]">&minus;100% lost</div>
-        <div class="absolute top-0 text-[10px] font-medium uppercase tracking-wide text-[#6B7280] -translate-x-1/2" style="left:${ZERO_X}%">0</div>
-        <div class="absolute top-0 text-[10px] font-medium uppercase tracking-wide text-[#111] -translate-x-1/2 whitespace-nowrap" style="left:${targetPos}%">${TARGET}% target</div>
-        <div class="absolute top-0 right-0 text-[10px] font-medium uppercase tracking-wide text-[#059669]">+100% gained</div>
+        ${ticks.map((t, i) => `<div class="absolute bottom-0 text-[10px] font-medium tabular-nums text-[#9CA3AF] ${i === 0 ? '' : i === ticks.length - 1 ? '-translate-x-full' : '-translate-x-1/2'}" style="left:${t.pct}%">${t.label}</div>`).join('')}
       </div>
       <div class="${COL_VALUE}"></div>
     </div>
@@ -105,26 +108,25 @@ const html = `<!doctype html>
     <div class="flex items-center gap-3 py-2.5 -mx-2 px-2 mt-1 border-t-2 border-[#E5E7EB]">
       <div class="${COL_NAME}">
         <div class="text-sm font-semibold text-[#111]">Average</div>
-        <div class="text-xs text-[#6B7280]">${PROJECTS.length} jobs · blended</div>
+        <div class="text-xs text-[#6B7280]">${PROJECTS.length} jobs · per job</div>
       </div>
       <div class="${COL_HOURS}"></div>
       <div class="flex-1 relative h-6">
         <div class="absolute inset-0 bg-[#F3F4F6] rounded"></div>
-        <div class="absolute top-0 bottom-0 rounded-sm" style="left:${avgGeom.leftPct}%;width:${avgGeom.widthPct}%;background:${avgColor}"></div>
-        <div class="absolute top-[-3px] bottom-[-3px] w-[1.5px] opacity-30" style="left:${targetPos}%;background:#111"></div>
-        <div class="absolute top-[-5px] bottom-[-5px] w-[2px] opacity-70" style="left:${ZERO_X}%;background:#111"></div>
+        ${grid}
+        <div class="absolute top-0 bottom-0 left-0 rounded-sm" style="width:${barWidthPct(avgProfit, axisMax)}%;background:${avgColor}"></div>
       </div>
       <div class="text-right ${COL_VALUE}">
-        <div class="text-sm font-semibold font-mono tabular-nums" style="color:${avgColor}">+${blended.toFixed(1)}%</div>
-        <div class="text-xs text-[#6B7280] font-mono tabular-nums">${money(Math.round(avgProfit))}</div>
+        <div class="text-sm font-semibold font-mono tabular-nums" style="color:${avgColor}">${money(Math.round(avgProfit))}</div>
+        <div class="text-xs text-[#6B7280] font-mono tabular-nums">+${blended.toFixed(1)}%</div>
       </div>
     </div>
 
     <p class="text-xs text-[#6B7280] mt-2 leading-relaxed">
-      Bars show each job's margin on a fixed scale — 0 in the centre, 100% at either end, so
-      lengths mean the same thing on every row and in every period. Average shows a visual of the
-      blended rate: total profit ÷ total revenue across these ${PROJECTS.length} jobs, with profit
-      per job in dollars beneath it.
+      Bars show profit in dollars against the scale above — <span class="text-[#DC2626] font-medium">striped
+      red</span> is money lost, so a bar's length is how much money moved and its fill is which way.
+      Average is profit per job across these ${PROJECTS.length} jobs; the percentage beneath it is
+      the blended rate, total profit ÷ total revenue.
     </p>
   </div>
 
@@ -132,4 +134,4 @@ const html = `<!doctype html>
 
 fs.writeFileSync('/tmp/completed-chart.html', html)
 console.log(`\n  wrote /tmp/completed-chart.html`)
-console.log(`  0 at ${ZERO_X}%  ·  ${TARGET}% target tick at ${targetPos}%  ·  blended ${blended.toFixed(1)}%  ·  avg/job ${money(Math.round(avgProfit))}\n`)
+console.log(`  axis $0…${ticks[ticks.length - 1].label}  ·  blended ${blended.toFixed(1)}%  ·  avg/job ${money(Math.round(avgProfit))}\n`)
