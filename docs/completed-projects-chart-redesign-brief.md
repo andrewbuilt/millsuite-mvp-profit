@@ -19,10 +19,13 @@ threw away job size entirely: a $500k job and a $3k job at the same margin drew
 identically. Andrew: *"the original graph works because is money not percent."*
 
 **v3 — SHIPPED. Zero at the far left, every bar grows right, length is dollars,
-losses are red and striped, laddered axis with gradations.** Andrew: *"zero can
-to the far left. negative would just be red. i think we need to add some
-gradations on the top up to $100k? otherwise the scale would need to resize to
-accomidate larger and small values."*
+losses solid red, laddered axis with gradations, and the shop-level figures
+moved onto the card.** Andrew: *"zero can to the far left. negative would just
+be red. i think we need to add some gradations on the top up to $100k?
+otherwise the scale would need to resize to accomidate larger and small
+values."* Then: *"make the bar solid red not striped / remove the average
+section at the bottom and replace it with the total profit and avg margin so
+they're all on the same card."*
 
 ### ⚠️ What v3 knowingly gives up — read before "fixing" it
 
@@ -32,12 +35,23 @@ gains need to be visually distinguishable by more than color alone"), and it is
 back on purpose: on a dollar axis, length answers *how much money moved* and
 direction is carried by fill.
 
-⛔ **So the fill carries it, and TWO things do the work, not one.** Red *and* a
-stripe pattern. Red/green is the worst possible pair for colour-vision
-deficiency (~8% of men), and this chart is going on a marketing site — with hue
-as the only signal, roughly one reader in twelve sees a loss and a profit as
-identical grey bars. The verify script fails if `LOSS_FILL` stops being a
-repeating gradient or stops being applied to both row shapes.
+⚠️ **The fill is now the ONLY thing carrying it, and the fill is hue alone.**
+Losses were briefly striped as well; Andrew's call was solid red. Red/green is
+the worst possible pair for colour-vision deficiency (~8% of men) and this chart
+is going on a marketing site, so the only surviving non-colour cue is the minus
+sign on the figure at the end of the row. ⛔ **If this chart ever has to survive
+greyscale printing, or a reader with red-green CVD, the bar is not enough and a
+pattern or an explicit label has to come back.** Noted, not silently accepted.
+
+### The Average row is gone; the card carries the shop-level figures instead
+
+"Total profit" and "Avg margin" used to be two free-floating `KpiCard`s **above**
+the chart, fed by their own arithmetic on the page. That separation is precisely
+how the page came to show **23.8% amber up top against a 28.7% green summary row
+below it** — same seven jobs, two containers, opposite verdicts. They now render
+inside `CompletedProjects`, derived from the same `projects` array the bars are
+drawn from. ⛔ **Do not put a shop-level figure back on the page without
+deriving it from that same array.**
 
 ### The axis is a ladder, not a cap and not a fit
 

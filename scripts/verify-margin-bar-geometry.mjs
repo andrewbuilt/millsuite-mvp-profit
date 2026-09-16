@@ -20,7 +20,6 @@
 import {
   AXIS_LADDER,
   MIN_BAR_PCT,
-  averageProfit,
   barWidthPct,
   blendedMarginPct,
   chooseAxisMax,
@@ -145,22 +144,23 @@ check('⚠️ BY DESIGN: -$3,190 and +$3,190 draw identical lengths',
 
   check('no revenue: no divide-by-zero', blendedMarginPct([{ profit: 5, revenue: 0 }]) === 0)
   check('empty: blended is 0', blendedMarginPct([]) === 0)
-  check('average profit', near(averageProfit(BAYSIDE), 106498 / 7, 1e-6), `${averageProfit(BAYSIDE)}`)
-  check('average of nothing is 0, not NaN', averageProfit([]) === 0)
 }
 
-// ── 8. THE AVERAGE ROW SHARES THE ROWS' SCALE ────────────────────────────────
-// If it didn't, the one row meant to summarise the others would be the one row
-// you can't compare to them.
+// ── 8. THE SHOP-LEVEL FIGURES ARE DERIVED FROM THE ROWS THEMSELVES ──────────
+// ⛔ The card now carries "Total profit" and "Avg margin". Those used to be two
+// free-floating KpiCards ABOVE the chart, fed by a separate calculation — which
+// is exactly how the page came to show 23.8% amber up top against 28.7% green
+// below it. Same seven jobs, two containers, opposite verdicts.
 {
-  const avg = averageProfit(BAYSIDE)
-  const w = barWidthPct(avg, axisMax)
-  check('average bar sits on the track', w <= 100)
-  check('the average BAR is the average DOLLARS, same basis as every row',
-    near(w, (avg / axisMax) * 100))
-  check('average is shorter than the best job', w < barWidthPct(32730, axisMax))
-  check('average is longer than the smallest gain', w > barWidthPct(6480, axisMax))
-  check('average shares the rows\' axis', chooseAxisMax(BAYSIDE.map((p) => p.profit)) === axisMax)
+  const total = BAYSIDE.reduce((s, p) => s + p.profit, 0)
+  check('total profit sums the rows', total === 106498, `${total}`)
+  check('blended uses the same rows', near(blendedMarginPct(BAYSIDE), 28.7, 0.05))
+  // The figure and its colour must agree about the target, or the card says
+  // "28.7%" in the colour for "missed".
+  check('28.7% is on the BEAT side of a 25% target', blendedMarginPct(BAYSIDE) > 25)
+  const meanOfRatios = BAYSIDE.reduce((s, p) => s + p.marginPct, 0) / BAYSIDE.length
+  check('⚠️ and the mean of ratios would have said MISSED', meanOfRatios < 25,
+    `${meanOfRatios.toFixed(1)}%`)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -194,10 +194,10 @@ for (const name of ['COL_NAME', 'COL_HOURS', 'COL_VALUE']) {
   check(`${name} has no min-w`, !m[1].includes('min-w'), m[1])
 }
 
-// Every column must actually be USED by all three row shapes (legend, project
-// row, average row), or the track width differs between them and the legend's
-// "0" drifts off the 0 line it labels.
-for (const [name, expected] of [['COL_NAME', 3], ['COL_HOURS', 3], ['COL_VALUE', 3]]) {
+// Every column must be USED by both row shapes (the gradation header and the
+// project row), or the track width differs between them and the $ labels drift
+// off the grid lines they mark.
+for (const [name, expected] of [['COL_NAME', 2], ['COL_HOURS', 2], ['COL_VALUE', 2]]) {
   const uses = (src.match(new RegExp(`\\{?${name}\\}?`, 'g')) || []).length - 1 // minus the declaration
   check(`${name} used by all ${expected} row shapes`, uses >= expected, `${uses} uses`)
 }
@@ -223,24 +223,29 @@ check('⛔ the bar is anchored at the left edge', src.includes('bottom-0 left-0 
     moneyAt > -1 && pctAt > -1 && moneyAt < pctAt, `money@${moneyAt} pct@${pctAt}`)
 }
 
-// ⛔⛔ SIGN IS CARRIED BY COLOUR *AND* PATTERN, NOT COLOUR ALONE.
-// Every bar grows the same direction now, so a loss and a gain of equal size
-// are the same length. Red/green is the worst pair for colour-vision
-// deficiency (~8% of men) — drop the stripes and ~1 reader in 12 cannot tell
-// -$3,190 from +$3,190 at all. This is the check that keeps that from
-// happening quietly.
-check('⛔ LOSS_FILL (the stripe pattern) exists', src.includes('const LOSS_FILL'))
-check('⛔ LOSS_FILL is actually a repeating gradient, not a flat colour',
-  /LOSS_FILL[\s\S]{0,200}repeating-linear-gradient/.test(src))
-const lossUses = (src.match(/LOSS_FILL\(/g) || []).length
-check('⛔ the stripe is applied to project rows AND the average row',
-  lossUses >= 2, `${lossUses} uses`)
-check('⛔ sign comes from profit, not the percentage', src.includes('project.profit < 0'))
+// ⚠️ SIGN IS CARRIED BY COLOUR ALONE — solid red, Andrew's call 2026-09-16.
+// Not guarded, because there is nothing left to guard in the bar itself: every
+// bar grows the same direction from the same edge, so -$3,190 and +$3,190 are
+// the same rectangle in two hues. The only non-colour cue is the minus sign on
+// the figure at the end of the row, which check 9b below keeps in place.
+check('⚠️ the bar fill is a flat colour, no pattern', !src.includes('repeating-linear-gradient'))
+
+// ── 9b. THE SHOP-LEVEL FIGURES LIVE ON THIS CARD ────────────────────────────
+// ⛔ If these drift back onto the page as separate KpiCards fed by their own
+// arithmetic, the two-verdicts bug comes straight back.
+check('Total profit is rendered here', src.includes('Total profit'))
+check('Avg margin is rendered here', src.includes('Avg margin'))
+check('⛔ total profit is summed from the rows this card drew',
+  /totalProfit\s*=\s*projects\.reduce/.test(src))
+check('⛔ the margin figure is the blended one', src.includes('blendedMarginPct(projects)'))
+check('⛔ "Blended" is said out loud, so nobody averages the rows themselves',
+  src.includes('Blended · target'))
+check('the average ROW is gone (replaced by the figures)', !src.includes('per job'))
 
 // The laddered axis has to be SHOWN, or a reader cannot tell $50k from $5M.
 check('gradations are computed', src.includes('gradations(axisMax)'))
 const tickUses = (src.match(/ticks\./g) || []).length
-check('gradations are drawn in the header AND behind the bars', tickUses >= 3, `${tickUses} uses`)
+check('gradations are drawn in the header AND behind the bars', tickUses >= 2, `${tickUses} uses`)
 
 // Nothing from the abandoned centred/percent axis may survive.
 check('⛔ no leftover centred-axis geometry', !src.includes('ZERO_X') && !src.includes('targetX'))
@@ -252,15 +257,17 @@ check('the component was actually read', rawSrc.length > 2000 && src.includes('C
 console.log(`\n══ profit bar — zero at left, laddered axis ══\n`)
 const W = 54
 console.log(`  ${''.padEnd(22)} ${ticks.map((t) => t.label.padEnd(W / (ticks.length - 1))).join('')}`)
-for (const p of [...BAYSIDE, { name: 'AVERAGE (per job)', profit: averageProfit(BAYSIDE) }]) {
+for (const p of BAYSIDE) {
   const w = Math.max(1, Math.round((barWidthPct(p.profit, axisMax) / 100) * W))
-  const fill = p.profit < 0 ? '▨' : '█'
+  const fill = '█'
   console.log(
     `  ${p.name.padEnd(22)} ${fill.repeat(w)}${'·'.repeat(W - w)}  ` +
       `${p.profit < 0 ? '-$' : ' $'}${Math.abs(Math.round(p.profit)).toLocaleString()}`,
   )
 }
-console.log(`\n  axis $0 … ${shortMoney(axisMax)}   ▨ = striped (loss)`)
+const total = BAYSIDE.reduce((a, p) => a + p.profit, 0)
+console.log(`\n  axis $0 … ${shortMoney(axisMax)}`)
+console.log(`  card footer: TOTAL PROFIT $${total.toLocaleString()}  ·  AVG MARGIN ${blendedMarginPct(BAYSIDE).toFixed(1)}% (blended)`)
 
 console.log(`\n  ${pass} checks passed${fails.length ? `, ${fails.length} FAILED` : ''}`)
 if (fails.length) {

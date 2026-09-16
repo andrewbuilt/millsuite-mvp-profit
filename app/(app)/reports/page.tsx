@@ -8,7 +8,6 @@ import {
   computeShopGradeV2,
   type CompletedProject,
 } from '@/lib/reports/gradeCalculations'
-import { blendedMarginPct } from '@/lib/reports/margin-bar-geometry'
 import { getNextMonthKeys, type BookedProject } from '@/lib/reports/outlookCalculations'
 import { loadBookedProjects } from '@/lib/reports/bookedProjects'
 import {
@@ -28,7 +27,6 @@ import MarginsCard from './components/MarginsCard'
 import ShopGrade from './components/ShopGrade'
 import CompletedProjects from './components/CompletedProjects'
 import OutlookSection from './components/OutlookSection'
-import KpiCard from './components/KpiCard'
 import DiagnosticDrawer from './components/DiagnosticDrawer'
 import AiShopReport from './components/AiShopReport'
 import { loadPracticeProjectIds } from '@/lib/practice'
@@ -296,24 +294,6 @@ export default function ReportsPage() {
     [completedProjects, shopConfig.utilizationPct]
   )
 
-  const totalProfit = completedProjects.reduce((s, p) => s + p.profit, 0)
-
-  // ⛔ BLENDED (ΣProfit / ΣRevenue), NOT the mean of the per-job percentages.
-  // This card used to average the percentages, which is an average of RATIOS:
-  // a $5k job at 60% moved it exactly as hard as a $500k job at 20%.
-  //
-  // It had to change because the Completed Projects chart below now shows a
-  // blended Average row, and on the real Bayside set the two numbers are 23.8%
-  // and 28.7% — 4.9 points apart and ON OPPOSITE SIDES OF THE 25% TARGET. The
-  // page would have rendered "Avg margin 23.8%" in amber (missed) directly
-  // above an Average row reading 28.7% in green (beat), from the same seven
-  // jobs. Two numbers is a discrepancy; two opposite verdicts in two colours
-  // is the page arguing with itself — on the screen used for marketing shots.
-  //
-  // Blended is also the number that agrees with the "Total profit" card beside
-  // it: same numerator, over the revenue that produced it.
-  const avgMargin = blendedMarginPct(completedProjects)
-
   if (loading) {
     return (
       <>
@@ -350,37 +330,14 @@ export default function ReportsPage() {
 
           <ShopGrade grade={gradeResult} />
 
-          <div className="grid grid-cols-2 gap-3">
-            {completedProjects.length === 0 ? (
-              <>
-                <KpiCard
-                  label="Total profit"
-                  value="—"
-                  sub="Awaiting completed projects"
-                />
-                <KpiCard
-                  label="Avg margin"
-                  value="—"
-                  sub="Awaiting completed projects"
-                />
-              </>
-            ) : (
-              <>
-                <KpiCard
-                  label="Total profit"
-                  value={fmtMoney(totalProfit)}
-                  sub={`${completedProjects.length} project${completedProjects.length === 1 ? '' : 's'} completed`}
-                  valueColor={totalProfit >= 0 ? '#059669' : '#DC2626'}
-                />
-                <KpiCard
-                  label="Avg margin"
-                  value={`${avgMargin.toFixed(1)}%`}
-                  sub={`Blended · target ${shopConfig.marginTarget}%`}
-                  valueColor={avgMargin >= shopConfig.marginTarget ? '#059669' : avgMargin >= shopConfig.marginTarget - 5 ? '#D97706' : '#DC2626'}
-                />
-              </>
-            )}
-          </div>
+          {/* ⛔ THE "Total profit" / "Avg margin" KpiCards THAT USED TO SIT HERE
+              NOW LIVE INSIDE <CompletedProjects>, on the same card as the jobs
+              they summarise. They were two free-floating cards above the chart,
+              which is how the page came to show 23.8% in amber up here against
+              a 28.7% green summary row down there — the same seven jobs, two
+              containers, opposite verdicts. One card, one render, one source.
+              ⚠️ Do not reintroduce a shop-level figure on this page without
+              deriving it from the same `completedProjects` the chart draws. */}
 
           {/* Diagnostics drawer is Pro+ only — gate the click handler so
               Profit/Pro users see the table but can't open the margin

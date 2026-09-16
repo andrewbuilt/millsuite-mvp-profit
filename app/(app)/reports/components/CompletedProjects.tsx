@@ -4,31 +4,21 @@ import Link from 'next/link'
 import type { CompletedProject } from '@/lib/reports/gradeCalculations'
 import { marginBarColor } from '@/lib/reports/gradeCalculations'
 import {
-  averageProfit,
   barWidthPct,
   blendedMarginPct,
   chooseAxisMax,
   gradations,
 } from '@/lib/reports/margin-bar-geometry'
 
-// ⛔ LOSSES ARE STRIPED, NOT JUST RED — and this is load-bearing, not styling.
-// With the bar anchored at the left edge, a loss and a gain of the same size
-// draw the SAME LENGTH, so direction rests entirely on how the bar looks. Red
-// vs green is the worst possible pair for colour-vision deficiency (~8% of
-// men). Without the stripes, roughly one reader in twelve sees −$3,190 and
-// +$3,190 as identical bars. The pattern is the accessible half of the signal.
-const LOSS_FILL = (color: string) =>
-  `repeating-linear-gradient(135deg, ${color} 0 6px, rgba(255,255,255,.42) 6px 11px)`
-
 function fmtMoney(n: number): string {
   if (n < 0) return `-$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 }
 
-// ⛔ ONE SOURCE OF TRUTH FOR THE COLUMN WIDTHS — the legend, every project row
-// and the average row all read these, so the bar track (`flex-1`, i.e. whatever
-// is left over) is IDENTICAL in all of them by construction rather than by
-// three places happening to agree.
+// ⛔ ONE SOURCE OF TRUTH FOR THE COLUMN WIDTHS — the gradation header and every
+// project row read these, so the bar track (`flex-1`, i.e. whatever is left
+// over) is IDENTICAL in both by construction rather than by two places
+// happening to agree.
 //
 // EVERY ONE IS FIXED-WIDTH AND `flex-shrink-0`. That is the whole lesson of the
 // bar-width bug: the hours column was `min-w-[80px]` with no `flex-shrink-0`,
@@ -39,6 +29,15 @@ function fmtMoney(n: number): string {
 // `min-w-[70px]`, and `-$3,190` is one character wider than `$6,480`, so the
 // demo set was already drawing on two different track widths.
 // ⛔ DO NOT put `min-w-*` on a sibling of the track. Ever.
+//
+// ⚠️ SIGN LIVES ENTIRELY IN COLOUR NOW. Every bar grows the same direction from
+// the same left edge, so −$3,190 and +$3,190 are THE SAME LENGTH; red vs green
+// is the only thing in the bar that separates them. Losses were briefly striped
+// as well — Andrew's call 2026-09-16 was solid red — so the one remaining
+// non-colour cue is the minus sign on the figure at the end of the row. ⛔ If
+// this chart ever needs to survive being printed in greyscale, or read by
+// someone with red-green colour-vision deficiency (~8% of men), THE BAR IS NOT
+// ENOUGH and a pattern or a label has to come back.
 const COL_NAME = 'w-[140px] sm:w-[180px] flex-shrink-0'
 const COL_HOURS = 'w-[104px] flex-shrink-0 hidden sm:block' // fits "9999.5h actual"
 const COL_VALUE = 'w-[104px] flex-shrink-0' // fits "-$9,999,999" at text-sm
@@ -78,8 +77,8 @@ export default function CompletedProjects({
   // the SAME LENGTH. −$3,190 draws like +$3,190. That is the misread the
   // redesign brief was written to kill, and it is accepted here because on a
   // dollar axis length answers "how much money moved" and direction is carried
-  // by COLOUR **and PATTERN** (see LOSS_FILL — the pattern is what keeps it
-  // readable for the ~8% of men with colour-vision deficiency).
+  // by COLOUR ALONE — solid red, Andrew's call. See the note by the column
+  // constants for what that costs and when it has to be revisited.
   //
   // ⛔ THE DOLLARS ARE THE BIG NUMBER NOW AND THE PERCENT IS SECONDARY. The
   // previous build put the percentage next to a dollar-driven bar, which made
@@ -89,7 +88,7 @@ export default function CompletedProjects({
   const axisMax = chooseAxisMax(projects.map(p => p.profit))
   const ticks = gradations(axisMax)
   const blended = blendedMarginPct(projects)
-  const avgProfit = averageProfit(projects)
+  const totalProfit = projects.reduce((s, p) => s + p.profit, 0)
   const avgColor = marginBarColor(blended, marginTarget)
 
   return (
@@ -123,11 +122,6 @@ export default function CompletedProjects({
       <div className="divide-y divide-[#E5E7EB]">
         {projects.map(project => {
           const barColor = marginBarColor(project.marginPct, marginTarget)
-          // ⛔ SIGN COMES FROM THE PROFIT, NOT THE PERCENTAGE. They agree today,
-          // but a $0-revenue outcome can produce a 0% margin against a real
-          // negative profit, and then the bar would be drawn solid while the
-          // number beside it reads negative.
-          const isLoss = project.profit < 0
 
           // Click affordance only when onProjectClick is wired up. The
           // diagnostics drawer is gated to Pro+ in /reports/page.tsx —
@@ -180,7 +174,7 @@ export default function CompletedProjects({
                   className="absolute top-0 bottom-0 left-0 rounded-sm transition-colors duration-500"
                   style={{
                     width: `${barWidthPct(project.profit, axisMax)}%`,
-                    background: isLoss ? LOSS_FILL(barColor) : barColor,
+                    background: barColor,
                   }}
                 />
               </div>
@@ -201,55 +195,43 @@ export default function CompletedProjects({
         })}
       </div>
 
-      {/* Average — same visual language as the rows above it. */}
-      <div className="flex items-center gap-3 py-2.5 -mx-2 px-2 mt-1 border-t-2 border-[#E5E7EB]">
-        <div className={COL_NAME}>
-          <div className="text-sm font-semibold text-[#111]">Average</div>
-          <div className="text-xs text-[#6B7280]">
-            {projects.length} job{projects.length === 1 ? '' : 's'} · per job
+      {/* ⛔ THE SHOP-LEVEL FIGURES LIVE ON THIS CARD, NOT ABOVE IT. They used
+          to be two free-floating KpiCards over the chart, which put the
+          headline margin and the jobs it comes from in separate containers —
+          and made it easy to ship a page where the two disagreed (they did:
+          23.8% amber up top against a 28.7% green summary row down here).
+          Same card, same render, one source. */}
+      <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-[#E5E7EB]">
+        <div>
+          <div className="text-xs font-medium text-[#6B7280] uppercase tracking-wide mb-1">
+            Total profit
           </div>
-        </div>
-        <div className={COL_HOURS} />
-        <div className="flex-1 relative h-6">
-          <div className="absolute inset-0 bg-[#F3F4F6] rounded" />
-          {ticks.slice(1, -1).map(t => (
-            <div
-              key={t.value}
-              className="absolute top-0 bottom-0 w-px bg-[#E5E7EB]"
-              style={{ left: `${t.pct}%` }}
-            />
-          ))}
           <div
-            className="absolute top-0 bottom-0 left-0 rounded-sm transition-colors duration-500"
-            style={{
-              width: `${barWidthPct(avgProfit, axisMax)}%`,
-              background: avgProfit < 0 ? LOSS_FILL(avgColor) : avgColor,
-            }}
-          />
-        </div>
-        {/* ⚠️ The bar and the big number are BOTH average profit per job, so
-            they agree exactly like every row above. The percentage underneath
-            is the BLENDED margin (ΣProfit ÷ ΣRevenue) — a different question,
-            which is why the caption names it rather than leaving a reader to
-            assume it's the average of the percentages above it. It isn't:
-            those two differ by 4.9 points on the demo set. */}
-        <div className={`text-right ${COL_VALUE}`}>
-          <div className="text-sm font-semibold font-mono tabular-nums" style={{ color: avgColor }}>
-            {fmtMoney(avgProfit)}
+            className="text-xl font-medium font-mono tabular-nums"
+            style={{ color: totalProfit >= 0 ? '#059669' : '#DC2626' }}
+          >
+            {fmtMoney(totalProfit)}
           </div>
-          <div className="text-xs text-[#6B7280] font-mono tabular-nums">
-            {blended >= 0 ? '+' : ''}{blended.toFixed(1)}%
+          <div className="text-xs text-[#6B7280] mt-0.5">
+            {projects.length} project{projects.length === 1 ? '' : 's'} completed
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-medium text-[#6B7280] uppercase tracking-wide mb-1">
+            Avg margin
+          </div>
+          <div className="text-xl font-medium font-mono tabular-nums" style={{ color: avgColor }}>
+            {blended.toFixed(1)}%
+          </div>
+          {/* ⚠️ "Blended" is not decoration — it is the difference between
+              28.7% and 23.8% on this very data. Total profit ÷ total revenue,
+              NOT the mean of the percentages in the rows above, which a reader
+              would otherwise assume they could average themselves and get. */}
+          <div className="text-xs text-[#6B7280] mt-0.5">
+            Blended · target {marginTarget}%
           </div>
         </div>
       </div>
-
-      <p className="text-xs text-[#6B7280] mt-2 leading-relaxed">
-        Bars show profit in dollars against the scale above &mdash; <span className="text-[#DC2626] font-medium">striped
-        red</span> is money lost, so a bar&apos;s length is how much money moved and its fill is
-        which way. Average is profit per job across these {projects.length} job
-        {projects.length === 1 ? '' : 's'}; the percentage beneath it is the blended rate, total
-        profit &divide; total revenue.
-      </p>
     </div>
   )
 }

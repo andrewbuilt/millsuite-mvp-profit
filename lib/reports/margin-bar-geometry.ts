@@ -132,9 +132,3 @@ export function blendedMarginPct(rows: { profit: number; revenue: number }[]): n
   const profit = rows.reduce((s, r) => s + (Number(r.profit) || 0), 0)
   return (profit / revenue) * 100
 }
-
-/** Mean profit per job — the Average row's bar length and its big number. */
-export function averageProfit(rows: { profit: number }[]): number {
-  if (rows.length === 0) return 0
-  return rows.reduce((s, r) => s + (Number(r.profit) || 0), 0) / rows.length
-}

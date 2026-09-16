@@ -22,15 +22,12 @@
 
 import fs from 'fs'
 import {
-  averageProfit,
   barWidthPct,
   blendedMarginPct,
   chooseAxisMax,
   gradations,
 } from '../lib/reports/margin-bar-geometry.ts'
 
-const LOSS_FILL = (c) =>
-  `repeating-linear-gradient(135deg, ${c} 0 6px, rgba(255,255,255,.42) 6px 11px)`
 
 const PROJECTS = [
   { name: 'Meridian Storefront Build-out', date: 'Sep 2', est: 96, act: 121, profit: -3190, revenue: 21300, marginPct: -15.0 },
@@ -48,7 +45,7 @@ const money = (n) =>
   n < 0 ? `-$${Math.abs(n).toLocaleString()}` : `$${n.toLocaleString()}`
 
 const blended = blendedMarginPct(PROJECTS)
-const avgProfit = averageProfit(PROJECTS)
+const totalProfit = PROJECTS.reduce((a, p) => a + p.profit, 0)
 const avgColor = barColor(blended)
 const axisMax = chooseAxisMax(PROJECTS.map((p) => p.profit))
 const ticks = gradations(axisMax)
@@ -63,7 +60,6 @@ const COL_VALUE = 'w-[104px] flex-shrink-0'
 
 const row = (p) => {
   const c = barColor(p.marginPct)
-  const isLoss = p.profit < 0
   return `
   <div class="flex items-center gap-3 py-2.5 -mx-2 px-2 rounded-lg">
     <div class="${COL_NAME}">
@@ -76,7 +72,7 @@ const row = (p) => {
     <div class="flex-1 relative h-6">
       <div class="absolute inset-0 bg-[#F3F4F6] rounded"></div>
       ${grid}
-      <div class="absolute top-0 bottom-0 left-0 rounded-sm" style="width:${barWidthPct(p.profit, axisMax)}%;background:${isLoss ? LOSS_FILL(c) : c}"></div>
+      <div class="absolute top-0 bottom-0 left-0 rounded-sm" style="width:${barWidthPct(p.profit, axisMax)}%;background:${c}"></div>
     </div>
     <div class="text-right ${COL_VALUE}">
       <div class="text-sm font-medium font-mono tabular-nums" style="color:${c}">${money(p.profit)}</div>
@@ -105,33 +101,22 @@ const html = `<!doctype html>
 
     <div class="divide-y divide-[#E5E7EB]">${PROJECTS.map(row).join('')}</div>
 
-    <div class="flex items-center gap-3 py-2.5 -mx-2 px-2 mt-1 border-t-2 border-[#E5E7EB]">
-      <div class="${COL_NAME}">
-        <div class="text-sm font-semibold text-[#111]">Average</div>
-        <div class="text-xs text-[#6B7280]">${PROJECTS.length} jobs · per job</div>
+    <div class="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-[#E5E7EB]">
+      <div>
+        <div class="text-xs font-medium text-[#6B7280] uppercase tracking-wide mb-1">Total profit</div>
+        <div class="text-xl font-medium font-mono tabular-nums" style="color:${totalProfit >= 0 ? '#059669' : '#DC2626'}">${money(totalProfit)}</div>
+        <div class="text-xs text-[#6B7280] mt-0.5">${PROJECTS.length} projects completed</div>
       </div>
-      <div class="${COL_HOURS}"></div>
-      <div class="flex-1 relative h-6">
-        <div class="absolute inset-0 bg-[#F3F4F6] rounded"></div>
-        ${grid}
-        <div class="absolute top-0 bottom-0 left-0 rounded-sm" style="width:${barWidthPct(avgProfit, axisMax)}%;background:${avgColor}"></div>
-      </div>
-      <div class="text-right ${COL_VALUE}">
-        <div class="text-sm font-semibold font-mono tabular-nums" style="color:${avgColor}">${money(Math.round(avgProfit))}</div>
-        <div class="text-xs text-[#6B7280] font-mono tabular-nums">+${blended.toFixed(1)}%</div>
+      <div>
+        <div class="text-xs font-medium text-[#6B7280] uppercase tracking-wide mb-1">Avg margin</div>
+        <div class="text-xl font-medium font-mono tabular-nums" style="color:${avgColor}">${blended.toFixed(1)}%</div>
+        <div class="text-xs text-[#6B7280] mt-0.5">Blended &middot; target ${TARGET}%</div>
       </div>
     </div>
-
-    <p class="text-xs text-[#6B7280] mt-2 leading-relaxed">
-      Bars show profit in dollars against the scale above — <span class="text-[#DC2626] font-medium">striped
-      red</span> is money lost, so a bar's length is how much money moved and its fill is which way.
-      Average is profit per job across these ${PROJECTS.length} jobs; the percentage beneath it is
-      the blended rate, total profit ÷ total revenue.
-    </p>
   </div>
 
 </div></body></html>`
 
 fs.writeFileSync('/tmp/completed-chart.html', html)
 console.log(`\n  wrote /tmp/completed-chart.html`)
-console.log(`  axis $0…${ticks[ticks.length - 1].label}  ·  blended ${blended.toFixed(1)}%  ·  avg/job ${money(Math.round(avgProfit))}\n`)
+console.log(`  axis $0…${ticks[ticks.length - 1].label}  ·  total ${money(totalProfit)}  ·  blended ${blended.toFixed(1)}%\n`)
