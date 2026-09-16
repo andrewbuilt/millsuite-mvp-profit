@@ -79,8 +79,18 @@ export default function CompletedProjects({
               {/* Margin bar */}
               <div className="flex-1 relative h-6">
                 <div className="absolute inset-0 bg-[#F3F4F6] rounded" />
+                {/* ⛔ `transition-colors`, NOT `transition-all`. This animated
+                    WIDTH over 500ms, so for half a second after any re-render
+                    that changes the data a bar is a length that does not match
+                    the number printed beside it. On a page people screenshot
+                    and read financially, an in-between width IS a wrong
+                    number — and it's the only mechanism left that can make a
+                    bar disagree with its own percentage (the value path was
+                    verified correct end to end: one outcome row per project,
+                    numeric, and the same `marginPct` feeds both). Colour can
+                    animate; length is data. */}
                 <div
-                  className="absolute top-0 bottom-0 rounded transition-all duration-500"
+                  className="absolute top-0 bottom-0 rounded transition-colors duration-500"
                   style={{ width: `${Math.min(barWidth, 100)}%`, background: barColor }}
                 />
                 {/* Target line */}
