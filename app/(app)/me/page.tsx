@@ -134,21 +134,17 @@ export default function MePage() {
     [me, ptoPolicy, ptoRequests, todayISO],
   )
 
-  async function clockInJob(job: ScheduledJob) {
-    if (!orgId || !userId) return
-    await apiClockIn({
-      orgId,
-      userId,
-      projectId: job.projectId,
-      subprojectId: job.subprojectId,
-      departmentId: job.departmentId,
-    })
-    await refresh()
-  }
-
-  async function clockInProject(projectId: string) {
+  // One clock-in for the whole flow. The subproject tag is the point of the
+  // redesign — entries land subproject-tagged so the production fill bar and
+  // est-vs-actual can see them; departmentId comes through only when the
+  // flow could name it unambiguously.
+  async function clockInTarget(
+    projectId: string,
+    subprojectId: string | null,
+    departmentId: string | null,
+  ) {
     if (!orgId || !userId || !projectId) return
-    await apiClockIn({ orgId, userId, projectId })
+    await apiClockIn({ orgId, userId, projectId, subprojectId, departmentId })
     await refresh()
   }
 
@@ -191,11 +187,11 @@ export default function MePage() {
         <TodayTab
           active={active}
           now={now}
-          jobs={jobs.filter((j) => j.scheduledDate === todayISO)}
+          orgId={orgId!}
+          myDeptIds={me.dept_assignments || []}
           projects={projects}
           todayEntries={todayEntries}
-          onClockInJob={clockInJob}
-          onClockInProject={clockInProject}
+          onClockIn={clockInTarget}
           onClockOut={clockOut}
         />
       )}

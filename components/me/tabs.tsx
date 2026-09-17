@@ -14,7 +14,8 @@
 
 import { useState, useMemo } from 'react'
 import ChangePassword from '@/components/change-password'
-import { Clock, CalendarDays, Palmtree, ListChecks, Play, Square, Repeat, Trash2 } from 'lucide-react'
+import { Clock, CalendarDays, Palmtree, ListChecks, Trash2 } from 'lucide-react'
+import { ClockInFlow } from '@/components/me/clockin-flow'
 import {
   updateEntryMinutes,
   deleteEntry,
@@ -33,139 +34,45 @@ import { fmtActualHours } from '@/lib/actual-hours'
 export type Tab = 'today' | 'week' | 'pto' | 'history'
 
 // ── Today ──
+// The clock-in redesign (2026-09-17): the tab body is the three-screen flow in
+// components/me/clockin-flow.tsx — project select → subproject cards → timer
+// modal. The scheduled-jobs list and the old "Other work" select are gone per
+// Andrew's sketches (every project is one tap away now, and "Other work"
+// lives at the bottom of the subproject screen). Today's logged entries stay
+// below the flow.
 export function TodayTab({
   active,
   now,
-  jobs,
+  orgId,
+  myDeptIds,
   projects,
   todayEntries,
-  onClockInJob,
-  onClockInProject,
+  onClockIn,
   onClockOut,
 }: {
   active: TimeEntry | null
   now: number
-  jobs: ScheduledJob[]
+  orgId: string
+  myDeptIds: string[]
   projects: Array<{ id: string; name: string }>
   todayEntries: TimeEntry[]
-  onClockInJob: (j: ScheduledJob) => void
-  onClockInProject: (projectId: string) => void
-  onClockOut: () => void
+  onClockIn: (projectId: string, subprojectId: string | null, departmentId: string | null) => Promise<void>
+  onClockOut: () => Promise<void>
 }) {
-  const [otherProject, setOtherProject] = useState('')
-  const [busy, setBusy] = useState(false)
   const projName = (id: string | null) => projects.find((p) => p.id === id)?.name || 'Job'
-
-  const elapsedMin = active?.started_at
-    ? Math.max(0, Math.floor((now - new Date(active.started_at).getTime()) / 60000))
-    : 0
-  const elapsedSec = active?.started_at
-    ? Math.max(0, Math.floor((now - new Date(active.started_at).getTime()) / 1000)) % 60
-    : 0
   const todayTotal = todayEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0)
-
-  async function wrap(fn: () => Promise<void> | void) {
-    setBusy(true)
-    try {
-      await fn()
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <div className="space-y-5">
-      {active ? (
-        <div className="rounded-2xl bg-[#111] text-white p-5">
-          <div className="text-[11px] uppercase tracking-wider text-white/50 mb-1">Clocked in</div>
-          <div className="text-lg font-semibold">{projName(active.project_id)}</div>
-          <div className="text-4xl font-mono tabular-nums mt-2">
-            {String(Math.floor(elapsedMin / 60)).padStart(2, '0')}:
-            {String(elapsedMin % 60).padStart(2, '0')}:{String(elapsedSec).padStart(2, '0')}
-          </div>
-          <button
-            disabled={busy}
-            onClick={() => wrap(onClockOut)}
-            className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-xl bg-white text-[#111] font-semibold py-3 disabled:opacity-60"
-          >
-            <Square className="w-4 h-4" /> Clock out
-          </button>
-          <div className="text-[11px] text-white/50 mt-2 text-center">
-            Tap a job below to switch — it closes this one first.
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-[#E5E7EB] bg-[#F9FAFB] p-4 text-center text-sm text-[#6B7280]">
-          Not clocked in. Tap a scheduled job to start.
-        </div>
-      )}
-
-      <div>
-        <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
-          Today&apos;s jobs
-        </div>
-        {jobs.length === 0 ? (
-          <div className="text-xs text-[#9CA3AF] py-1">Nothing scheduled for your team today.</div>
-        ) : (
-          <div className="space-y-2">
-            {jobs.map((j) => {
-              const isActive = active?.subproject_id === j.subprojectId
-              return (
-                <button
-                  key={j.allocationId}
-                  disabled={busy}
-                  onClick={() => wrap(() => onClockInJob(j))}
-                  className={`w-full flex items-center justify-between rounded-xl border p-3 text-left disabled:opacity-60 ${
-                    isActive ? 'border-[#111] bg-[#F3F4F6]' : 'border-[#E5E7EB] bg-white hover:border-[#D1D5DB]'
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-[#111] truncate">{j.projectName}</div>
-                    <div className="text-[11px] text-[#9CA3AF] truncate">{j.subprojectName}</div>
-                  </div>
-                  <span className="flex-shrink-0 ml-2 inline-flex items-center gap-1 text-xs font-semibold text-[#2563EB]">
-                    {active ? <Repeat className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                    {active ? 'Switch' : 'Start'}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
-          Other work
-        </div>
-        {/* ⛔ `min-w-0` on the select is load-bearing, don't drop it. A flex item
-            defaults to min-width:auto, so the select refused to shrink below
-            its widest OPTION — a full project name like "Leonard – JW Marriott
-            – Lobby Bar Phase 1" — and pushed the Start button off the right
-            edge of the phone. That's the off-screen button Andrew reported:
-            clipped at 375px, entirely gone at 320px. */}
-        <div className="flex gap-2">
-          <select
-            value={otherProject}
-            onChange={(e) => setOtherProject(e.target.value)}
-            className="flex-1 min-w-0 px-3 py-2 text-sm border border-[#E5E7EB] rounded-xl bg-white outline-none focus:border-[#2563EB]"
-          >
-            <option value="">Pick a project…</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <button
-            disabled={busy || !otherProject}
-            onClick={() => wrap(() => onClockInProject(otherProject))}
-            className="flex-shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl bg-[#2563EB] text-white text-sm font-semibold disabled:opacity-50"
-          >
-            {active ? 'Switch' : 'Start'}
-          </button>
-        </div>
-      </div>
+      <ClockInFlow
+        orgId={orgId}
+        projects={projects}
+        active={active}
+        now={now}
+        myDeptIds={myDeptIds}
+        onClockIn={onClockIn}
+        onClockOut={onClockOut}
+      />
 
       {todayEntries.length > 0 && (
         <div>
