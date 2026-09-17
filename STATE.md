@@ -10,9 +10,13 @@
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-09-15)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-09-17)
 
-**NEW 2026-09-15 (Andrew, teed up for after the current queue): PORTAL FIXES + WORKER-APP CLOCK-IN REDESIGN.** Two batches, build in this order after the payments coherence batch + team page upgrade.
+**PORTAL FIXES + WORKER-APP CLOCK-IN REDESIGN — ⛔ THIS IS NOW THE NEXT BUILD. Both gates are cleared.** Scoped 2026-09-15 (Andrew); it was queued behind the **payments coherence batch** (✅ `0ae28d4`, all four items) and the **team page upgrade** (✅ `9138276` six items, then `0885523` reworked from Andrew's live look — *"looks great"*). Build A then B.
+
+⚠️ **The one other thing that could claim "next" is the DRAWING PARSER TEXT LAYER (down in Now) — and it should NOT jump this queue unattended.** It touches the sales-intake path every new job runs through, there is no regression harness, and its own note says to compare before/after on real sets (Kennedy, Forsythe, Murtagh) and **revert if it isn't clearly better**. That needs Andrew watching. This batch doesn't.
+
+⚠️ **A2 below needs Andrew before it can start:** the approvals bug says *"investigate against HIS portal (ask which project)"* — so **ask which project before touching it**, rather than guessing at a repro.
 
 **A. Client portal (one small feature + one bug):**
 1. **Delivery address, client-entered.** Show the delivery address on the portal project page; when the project has none, the CLIENT can enter it — a third portal write route (same service-role pattern as the existing two: validate token → write `projects.delivery_address`, length-capped, no other fields reachable). Shop sees it land on the project header like any address.
