@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-17 · **Branch:** `main`
 
-**Left off:** A1 (portal delivery address, `2f27a03`) and B (clock-in redesign, `d8a64a9` + `891e48e`) are **built and committed but ⛔ UNVERIFIED — a mid-session tooling outage blocked tsc, the dev-server look, and prod DB reads. Nothing is pushed.** Next step: `npx tsc --noEmit`, then eyeball `/dev/me-clockin` at 375/320px, then run `npx tsx scripts/inspect-portal-approvals.mjs killinger` for A2 (**Andrew named KILLINGER as the portal missing its approvals box**), fix A2, then push. **Andrew still owes: (1) ACCEPT PAJOT CO-01 — the acceptance half of CO v2 has never run on a real change order (then run `npx tsx scripts/inspect-co-live.mjs`); (2) eyeball /reports live.** The long history that used to live in this line is in CURRENT FOCUS below — traps and all.
+**Left off:** A1 (portal delivery address, `2f27a03`) and B (clock-in redesign, `d8a64a9` + `891e48e`) are built; **`npx tsc --noEmit` is CLEAN (Andrew ran it by hand — a session tooling outage blocked Claude from running anything) and ✅ A2 IS RESOLVED WITH NO CODE CHANGE: Killinger's approvals box renders (screenshot confirmed) — the slot just didn't exist yet when Andrew first looked.** Still owed before push: **eyeball `/dev/me-clockin` at 375/320px, then a worker-login pass** (clock in → entry lands subproject-tagged in /time). **Nothing is pushed.** **Andrew still owes: (1) ACCEPT PAJOT CO-01 — the acceptance half of CO v2 has never run on a real change order (then run `npx tsx scripts/inspect-co-live.mjs`); (2) eyeball /reports live.** The long history that used to live in this line is in CURRENT FOCUS below — traps and all.
 
 ---
 
@@ -24,16 +24,16 @@ keep it honest, and update it before the detail below.*
 | **Payments board** | ✅ **Done.** Coherence batch (`0ae28d4`) + the drift tray (`8ffbe6e`). |
 | **Change orders v2** | ✅ **Code done.** ⛔ **But it has never been run on a real change order** — Pajot CO-01 is built and sent and nobody has accepted it. |
 | **/reports chart + diagnostic drawer** | ✅ **Done** (`13ed90f` · `6d7c475` · `adb97c0`). ⚠️ Andrew hasn't looked at it live. |
-| **Client portal** | 🟡 **Half done, unverified.** Delivery address is BUILT (`2f27a03`: fill-only write route + entry card) but not type-checked or eyeballed — tooling outage. The approvals-box bug is NOT fixed: Andrew named **Killinger**; the diagnostic (`scripts/inspect-portal-approvals.mjs`) is written but hasn't run yet. |
-| **Worker app (`/me`) clock-in** | 🟡 **Built, unverified** (`d8a64a9` + `891e48e`). All three screens per the sketches; entries tag the subproject. ⛔ Not type-checked, not looked at at 375/320px (`/dev/me-clockin` fixture page exists for exactly that), not tried with a worker login. |
+| **Client portal** | ✅ **Done.** Delivery address BUILT (`2f27a03`: fill-only write route + entry card), tsc clean. **The approvals-box "bug" was NOT a bug**: Killinger's box renders (screenshot confirmed 2026-09-17) — the approval slot was created after Andrew first looked. `scripts/inspect-portal-approvals.mjs` stays for the next portal mystery. ⚠️ Portal look at the new card still worthwhile once deployed. |
+| **Worker app (`/me`) clock-in** | 🟡 **Built, tsc clean** (`d8a64a9` + `891e48e`). All three screens per the sketches; entries tag the subproject. ⛔ Not yet LOOKED at at 375/320px (`/dev/me-clockin` fixture page exists for exactly that) and no worker-login pass — do both before push. |
 | **Drawing parser text layer** | ⛔ **NOT STARTED**, and deliberately not next — see the warning below. |
 
-**Next step: VERIFY what 2026-09-17 built, then fix the Killinger approvals box.**
-In order: `npx tsc --noEmit` · look at `/dev/me-clockin` at 375px and 320px ·
-`npx tsx scripts/inspect-portal-approvals.mjs killinger` and fix what it shows ·
-worker-login end-to-end pass (clock in → entry lands subproject-tagged in /time) ·
-push. None of that ran on 2026-09-17 — the session hit a tooling outage right after
-the code landed, so the commits are local and unproven.
+**Next step: the two remaining eyeball passes, then push.** Look at `/dev/me-clockin`
+at 375px and 320px (over-budget dept red, long names truncate, timer sheet opaque with
+the footer visible) · worker-login end-to-end pass (clock in → entry lands
+subproject-tagged in /time and the production bar moves) · push. tsc is already clean
+and A2 needed no fix, so these two looks are all that stands between the local commits
+and the deploy.
 
 
 **PORTAL FIXES + WORKER-APP CLOCK-IN REDESIGN — ⛔ THIS IS NOW THE NEXT BUILD. Both gates are cleared.** Scoped 2026-09-15 (Andrew); it was queued behind the **payments coherence batch** (✅ `0ae28d4`, all four items) and the **team page upgrade** (✅ `9138276` six items, then `0885523` reworked from Andrew's live look — *"looks great"*). Build A then B.
@@ -44,7 +44,7 @@ the code landed, so the commits are local and unproven.
 
 **A. Client portal (one small feature + one bug):**
 1. ✅ **BUILT (`2f27a03`), unverified. Delivery address, client-entered.** The route is `app/api/portal/[token]/delivery-address/route.ts` — same `authorizePortalProject` pattern as the other two writes, **fill-only** (409 when an address exists; emptiness re-asserted in the UPDATE's WHERE + `.select()` so a zero-row write can't read as success), 200-char cap, whitespace collapsed. The card (`components/portal/DeliveryAddressCard.tsx`) renders ONLY when `siteLabel` is null — card and hero label are mutually exclusive by construction. Shop-side display needed nothing: the project header already shows `delivery_address`, and the hero already shows it as `siteLabel`.
-2. **⛔ BUG, NOT FIXED YET: the approvals box doesn't render on KILLINGER's portal.** `scripts/inspect-portal-approvals.mjs` is written and READ-ONLY — it prints which of the four possible causes it is (not portal-visible / no subprojects / no `approval_items` rows / rows exist so it's a render bug). It could not be run on 2026-09-17 (outage). ⚠️ Code-read finding while writing it: the portal approvals card reads ONLY `approval_items`; **drawing approvals appear ONLY under Documents** — if Killinger has drawing slots but no material/finish `approval_items`, the "missing box" is a modelling gap, not a query bug, and the fix conversation changes. Don't guess past the script's output.
+2. ✅ **RESOLVED 2026-09-17, NO CODE CHANGE — the Killinger approvals box was never broken.** `npx tsx scripts/inspect-portal-approvals.mjs killinger` showed one `approval_items` row (pending, ball=client) and Andrew's live screenshot shows the box + "For your review" banner rendering exactly as coded. The slot simply didn't exist yet when he first looked at the fresh portal — approval slots appear in the portal the moment they're created in-app, not when the portal is minted. The script stays for the next portal mystery (`npx tsx scripts/inspect-portal-approvals.mjs <name>` prints which of the four possible causes applies). ⚠️ Standing modelling fact surfaced by the read: the portal approvals card shows ONLY `approval_items` (material/finish slots); **drawing approvals appear ONLY under Documents** — if Andrew ever wants drawings IN the approvals box, that's a scoped feature, not a bug.
 
 **B. Worker app (`/me`) clock-in flow — ✅ BUILT (`d8a64a9` + `891e48e`), ⛔ UNVERIFIED.** Andrew's sketches (2026-09-15, the red mockups), all three screens, inside the /me shell (footer + week bar untouched):
 1. ✅ **Screen 1 — project select:** one list, project NAMES ONLY, ~56px rows. Replaces the Today tab's scheduled-jobs list and "Other work" select entirely (the sketch's call — every project is one tap away now; WeekTab still shows the schedule).
