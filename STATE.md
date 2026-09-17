@@ -12,6 +12,20 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-15)
 
+**NEW 2026-09-15 (Andrew, teed up for after the current queue): PORTAL FIXES + WORKER-APP CLOCK-IN REDESIGN.** Two batches, build in this order after the payments coherence batch + team page upgrade.
+
+**A. Client portal (one small feature + one bug):**
+1. **Delivery address, client-entered.** Show the delivery address on the portal project page; when the project has none, the CLIENT can enter it — a third portal write route (same service-role pattern as the existing two: validate token → write `projects.delivery_address`, length-capped, no other fields reachable). Shop sees it land on the project header like any address.
+2. **⛔ BUG: the finish/drawing approvals box doesn't render on a freshly-created portal.** Andrew made a new portal for a project and sees no approvals box. Investigate against HIS portal (ask which project): suspects — the `rich` layout gate (`photos || approvals || changeOrders`), a stage filter on the approvals query, or approvals that exist but are all-pending being filtered. Fix so a project with approval slots shows them regardless of state; sparse layout stays for projects with truly nothing.
+
+**B. Worker app (`/me`) clock-in flow — Andrew's sketches (2026-09-15, in chat; the red mockups). Three-screen flow, all inside the existing /me shell (same footer/nav, weekly-hours bar stays in the header with name + department):**
+1. **Screen 1 — project select:** ONE large dropdown/list, **project names only** (no client/meta clutter), big tap targets ("larger so it's easy to select").
+2. **Screen 2 — subproject cards:** after picking a project, the AVAILABLE subprojects render as **large scrollable cards**; each card shows **per-department time bars — used vs total** (Engineering / CNC / Assembly / Finish / Install), the numbers printed beside each bar ("87/100"), **red when over**. Data = the sub's rollup `hoursByDept` (est) vs actual minutes per dept (the actual-hours lib already splits both ways). Nav footer stays.
+3. **Screen 3 — the timer, as a MODAL on an opaque background** (his callout: opaque, not translucent): project + sub name, start/stop button, live timer. Clocking in through this flow tags the entry with the SUBPROJECT — which is exactly what the production fill bar and est-vs-actual need (untagged time was their blind spot, `45dec92`).
+   - Keep "Other work" reachable for non-subproject time (don't strand shop-floor hours that belong to no sub).
+   - 375px + 320px passes per the wave-3 lesson; thumb-sized targets throughout — this screen is used with sawdust on the glass.
+   - Verify with a real worker login on a phone: pick project → cards show believable per-dept numbers matching the subproject page → clock in → the timer modal runs → the entry lands subproject-tagged in /time and the production bar moves.
+
 **✅ 2026-09-16: KAYLIN'S FIVE LOGIN ROWS — CLEANED UP AND VERIFIED (`fe1c615`).** Found while debugging the PTO approve button, so it was NOT the bug Andrew reported, but it was a real one.
 
 ```
