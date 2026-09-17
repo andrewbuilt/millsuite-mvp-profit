@@ -12,6 +12,27 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-17)
 
+### Plain English: what's built, what isn't
+
+*Andrew had to ask "did you do the portal? did you do the team app?" on 2026-09-17,
+which means the rest of this file is failing at its job. Keep this block short,
+keep it honest, and update it before the detail below.*
+
+| Thing | Status |
+|---|---|
+| **Team page** | ✅ **Done and confirmed.** Six-item upgrade (`9138276`), then reworked from Andrew's screenshots (`0885523`) — shop rate gone, roster left, departments collapsible, cards cleaned up. Andrew: *"looks great."* |
+| **Payments board** | ✅ **Done.** Coherence batch (`0ae28d4`) + the drift tray (`8ffbe6e`). |
+| **Change orders v2** | ✅ **Code done.** ⛔ **But it has never been run on a real change order** — Pajot CO-01 is built and sent and nobody has accepted it. |
+| **/reports chart + diagnostic drawer** | ✅ **Done** (`13ed90f` · `6d7c475` · `adb97c0`). ⚠️ Andrew hasn't looked at it live. |
+| **Client portal** | ⛔ **NOT STARTED.** Nothing built. Two items: client-entered delivery address, and the approvals box that doesn't appear. |
+| **Worker app (`/me`) clock-in** | ⛔ **NOT STARTED.** Three-screen redesign from Andrew's sketches. |
+| **Drawing parser text layer** | ⛔ **NOT STARTED**, and deliberately not next — see the warning below. |
+
+**Next build: the client portal, then the worker app.** Nothing blocks the portal's
+first item. The second item needs one answer from Andrew: **which project's portal
+is missing its approvals box?**
+
+
 **PORTAL FIXES + WORKER-APP CLOCK-IN REDESIGN — ⛔ THIS IS NOW THE NEXT BUILD. Both gates are cleared.** Scoped 2026-09-15 (Andrew); it was queued behind the **payments coherence batch** (✅ `0ae28d4`, all four items) and the **team page upgrade** (✅ `9138276` six items, then `0885523` reworked from Andrew's live look — *"looks great"*). Build A then B.
 
 ⚠️ **The one other thing that could claim "next" is the DRAWING PARSER TEXT LAYER (down in Now) — and it should NOT jump this queue unattended.** It touches the sales-intake path every new job runs through, there is no regression harness, and its own note says to compare before/after on real sets (Kennedy, Forsythe, Murtagh) and **revert if it isn't clearly better**. That needs Andrew watching. This batch doesn't.
