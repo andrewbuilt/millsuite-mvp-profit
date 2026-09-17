@@ -4,9 +4,9 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-09-16 · **Branch:** `main`
+**Last updated:** 2026-09-17 · **Branch:** `main`
 
-**Left off:** Next build = **client portal fixes, then the worker-app clock-in redesign** (specs in CURRENT FOCUS; nothing blocking). Last sessions shipped: /reports chart + diagnostic drawer, drift tray, dead-code removal, CO v2 feature-complete (migrations 107-111 on prod), team page + payments coherence (both confirmed). **Andrew owes three things: (1) ACCEPT PAJOT CO-01 — the acceptance half of CO v2 has never run on a real change order (then run `npx tsx scripts/inspect-co-live.mjs`); (2) name WHICH project's portal is missing its approvals box (ask him in chat); (3) eyeball /reports live.** The long history that used to live in this line is in CURRENT FOCUS below — traps and all.
+**Left off:** A1 (portal delivery address, `2f27a03`) and B (clock-in redesign, `d8a64a9` + `891e48e`) are **built and committed but ⛔ UNVERIFIED — a mid-session tooling outage blocked tsc, the dev-server look, and prod DB reads. Nothing is pushed.** Next step: `npx tsc --noEmit`, then eyeball `/dev/me-clockin` at 375/320px, then run `npx tsx scripts/inspect-portal-approvals.mjs killinger` for A2 (**Andrew named KILLINGER as the portal missing its approvals box**), fix A2, then push. **Andrew still owes: (1) ACCEPT PAJOT CO-01 — the acceptance half of CO v2 has never run on a real change order (then run `npx tsx scripts/inspect-co-live.mjs`); (2) eyeball /reports live.** The long history that used to live in this line is in CURRENT FOCUS below — traps and all.
 
 ---
 
@@ -24,32 +24,33 @@ keep it honest, and update it before the detail below.*
 | **Payments board** | ✅ **Done.** Coherence batch (`0ae28d4`) + the drift tray (`8ffbe6e`). |
 | **Change orders v2** | ✅ **Code done.** ⛔ **But it has never been run on a real change order** — Pajot CO-01 is built and sent and nobody has accepted it. |
 | **/reports chart + diagnostic drawer** | ✅ **Done** (`13ed90f` · `6d7c475` · `adb97c0`). ⚠️ Andrew hasn't looked at it live. |
-| **Client portal** | ⛔ **NOT STARTED.** Nothing built. Two items: client-entered delivery address, and the approvals box that doesn't appear. |
-| **Worker app (`/me`) clock-in** | ⛔ **NOT STARTED.** Three-screen redesign from Andrew's sketches. |
+| **Client portal** | 🟡 **Half done, unverified.** Delivery address is BUILT (`2f27a03`: fill-only write route + entry card) but not type-checked or eyeballed — tooling outage. The approvals-box bug is NOT fixed: Andrew named **Killinger**; the diagnostic (`scripts/inspect-portal-approvals.mjs`) is written but hasn't run yet. |
+| **Worker app (`/me`) clock-in** | 🟡 **Built, unverified** (`d8a64a9` + `891e48e`). All three screens per the sketches; entries tag the subproject. ⛔ Not type-checked, not looked at at 375/320px (`/dev/me-clockin` fixture page exists for exactly that), not tried with a worker login. |
 | **Drawing parser text layer** | ⛔ **NOT STARTED**, and deliberately not next — see the warning below. |
 
-**Next build: the client portal, then the worker app.** Nothing blocks the portal's
-first item. The second item needs one answer from Andrew: **which project's portal
-is missing its approvals box?**
+**Next step: VERIFY what 2026-09-17 built, then fix the Killinger approvals box.**
+In order: `npx tsc --noEmit` · look at `/dev/me-clockin` at 375px and 320px ·
+`npx tsx scripts/inspect-portal-approvals.mjs killinger` and fix what it shows ·
+worker-login end-to-end pass (clock in → entry lands subproject-tagged in /time) ·
+push. None of that ran on 2026-09-17 — the session hit a tooling outage right after
+the code landed, so the commits are local and unproven.
 
 
 **PORTAL FIXES + WORKER-APP CLOCK-IN REDESIGN — ⛔ THIS IS NOW THE NEXT BUILD. Both gates are cleared.** Scoped 2026-09-15 (Andrew); it was queued behind the **payments coherence batch** (✅ `0ae28d4`, all four items) and the **team page upgrade** (✅ `9138276` six items, then `0885523` reworked from Andrew's live look — *"looks great"*). Build A then B.
 
 ⚠️ **The one other thing that could claim "next" is the DRAWING PARSER TEXT LAYER (down in Now) — and it should NOT jump this queue unattended.** It touches the sales-intake path every new job runs through, there is no regression harness, and its own note says to compare before/after on real sets (Kennedy, Forsythe, Murtagh) and **revert if it isn't clearly better**. That needs Andrew watching. This batch doesn't.
 
-⚠️ **A2 below needs Andrew before it can start:** the approvals bug says *"investigate against HIS portal (ask which project)"* — so **ask which project before touching it**, rather than guessing at a repro.
+✅ **A2's gate is cleared: Andrew answered in chat (2026-09-17) — the portal missing its approvals box is KILLINGER.**
 
 **A. Client portal (one small feature + one bug):**
-1. **Delivery address, client-entered.** Show the delivery address on the portal project page; when the project has none, the CLIENT can enter it — a third portal write route (same service-role pattern as the existing two: validate token → write `projects.delivery_address`, length-capped, no other fields reachable). Shop sees it land on the project header like any address.
-2. **⛔ BUG: the finish/drawing approvals box doesn't render on a freshly-created portal.** Andrew made a new portal for a project and sees no approvals box. Investigate against HIS portal (ask which project): suspects — the `rich` layout gate (`photos || approvals || changeOrders`), a stage filter on the approvals query, or approvals that exist but are all-pending being filtered. Fix so a project with approval slots shows them regardless of state; sparse layout stays for projects with truly nothing.
+1. ✅ **BUILT (`2f27a03`), unverified. Delivery address, client-entered.** The route is `app/api/portal/[token]/delivery-address/route.ts` — same `authorizePortalProject` pattern as the other two writes, **fill-only** (409 when an address exists; emptiness re-asserted in the UPDATE's WHERE + `.select()` so a zero-row write can't read as success), 200-char cap, whitespace collapsed. The card (`components/portal/DeliveryAddressCard.tsx`) renders ONLY when `siteLabel` is null — card and hero label are mutually exclusive by construction. Shop-side display needed nothing: the project header already shows `delivery_address`, and the hero already shows it as `siteLabel`.
+2. **⛔ BUG, NOT FIXED YET: the approvals box doesn't render on KILLINGER's portal.** `scripts/inspect-portal-approvals.mjs` is written and READ-ONLY — it prints which of the four possible causes it is (not portal-visible / no subprojects / no `approval_items` rows / rows exist so it's a render bug). It could not be run on 2026-09-17 (outage). ⚠️ Code-read finding while writing it: the portal approvals card reads ONLY `approval_items`; **drawing approvals appear ONLY under Documents** — if Killinger has drawing slots but no material/finish `approval_items`, the "missing box" is a modelling gap, not a query bug, and the fix conversation changes. Don't guess past the script's output.
 
-**B. Worker app (`/me`) clock-in flow — Andrew's sketches (2026-09-15, in chat; the red mockups). Three-screen flow, all inside the existing /me shell (same footer/nav, weekly-hours bar stays in the header with name + department):**
-1. **Screen 1 — project select:** ONE large dropdown/list, **project names only** (no client/meta clutter), big tap targets ("larger so it's easy to select").
-2. **Screen 2 — subproject cards:** after picking a project, the AVAILABLE subprojects render as **large scrollable cards**; each card shows **per-department time bars — used vs total** (Engineering / CNC / Assembly / Finish / Install), the numbers printed beside each bar ("87/100"), **red when over**. Data = the sub's rollup `hoursByDept` (est) vs actual minutes per dept (the actual-hours lib already splits both ways). Nav footer stays.
-3. **Screen 3 — the timer, as a MODAL on an opaque background** (his callout: opaque, not translucent): project + sub name, start/stop button, live timer. Clocking in through this flow tags the entry with the SUBPROJECT — which is exactly what the production fill bar and est-vs-actual need (untagged time was their blind spot, `45dec92`).
-   - Keep "Other work" reachable for non-subproject time (don't strand shop-floor hours that belong to no sub).
-   - 375px + 320px passes per the wave-3 lesson; thumb-sized targets throughout — this screen is used with sawdust on the glass.
-   - Verify with a real worker login on a phone: pick project → cards show believable per-dept numbers matching the subproject page → clock in → the timer modal runs → the entry lands subproject-tagged in /time and the production bar moves.
+**B. Worker app (`/me`) clock-in flow — ✅ BUILT (`d8a64a9` + `891e48e`), ⛔ UNVERIFIED.** Andrew's sketches (2026-09-15, the red mockups), all three screens, inside the /me shell (footer + week bar untouched):
+1. ✅ **Screen 1 — project select:** one list, project NAMES ONLY, ~56px rows. Replaces the Today tab's scheduled-jobs list and "Other work" select entirely (the sketch's call — every project is one tap away now; WeekTab still shows the schedule).
+2. ✅ **Screen 2 — subproject cards** (`components/me/clockin-flow.tsx` + `lib/worker-clockin.ts`): per-dept used/total bars, `2h 34m / 100h` beside each, red bar + number when over. Est = `computeSubprojectRollup().hoursByDept` with a ZEROED PricingContext (hours don't depend on rate; no money number can even be computed — this feeds a worker's phone). Actuals = `loadSubprojectActualHours` bridged to canonical depts by the same name heuristic as `lib/closed-jobs`/the subproject page (third copy now — worth consolidating someday). Unmapped-dept minutes print as their own "+ Xh in other departments" line so totals reconcile with /time.
+3. ✅ **Screen 3 — timer as a modal on an OPAQUE background** (`bg-[#F9FAFB]`, z-30 so the z-40 footer stays visible/tappable = "same footer everywhere"). Clock-ins tag the SUBPROJECT; ⚠️ **dept tags only when the worker has exactly ONE dept assignment** — a wrong dept guess is worse than an untagged one (judgment call, veto-able). "Other work" = the dashed no-subproject card at the bottom of screen 2. Closing the sheet keeps the clock running; starting over a running timer warns which one it closes.
+   - ⛔ **THE VERIFY LIST HAS NOT RUN** (outage): `/dev/me-clockin` (dev-only fixture page, 404s in prod) exists precisely for the 375/320px pass — over-budget dept, long names, the 87/100 case are all in its fixtures. Then the real-worker pass: pick project → cards match the subproject page's numbers → clock in → timer runs → entry lands subproject-tagged in /time and the production bar moves.
 
 **✅ 2026-09-16: KAYLIN'S FIVE LOGIN ROWS — CLEANED UP AND VERIFIED (`fe1c615`).** Found while debugging the PTO approve button, so it was NOT the bug Andrew reported, but it was a real one.
 
