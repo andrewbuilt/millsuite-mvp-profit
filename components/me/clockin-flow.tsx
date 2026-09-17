@@ -248,6 +248,7 @@ export function TimerSheet({
   running,
   timerLabel,
   busy,
+  switchFromLabel,
   onStart,
   onStop,
   onClose,
@@ -257,6 +258,9 @@ export function TimerSheet({
   running: boolean
   timerLabel: string
   busy: boolean
+  /** When ANOTHER entry is running, what starting this one will close —
+   *  the old flow said "it closes this one first" and so does this. */
+  switchFromLabel?: string | null
   onStart: () => void
   onStop: () => void
   onClose: () => void
@@ -306,11 +310,15 @@ export function TimerSheet({
               </button>
             )}
           </div>
-          {running && (
+          {running ? (
             <div className="mt-3 text-[11px] text-[#9CA3AF]">
               Closing this keeps the clock running.
             </div>
-          )}
+          ) : switchFromLabel ? (
+            <div className="mt-3 text-[11px] text-[#9CA3AF]">
+              Clocking in closes your {switchFromLabel} timer first.
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -467,6 +475,7 @@ export function ClockInFlow({
           running={timerMatchesActive}
           timerLabel={timerMatchesActive ? elapsedLabel(active!.started_at, now) : '00:00:00'}
           busy={busy}
+          switchFromLabel={active && !timerMatchesActive ? activeLabel : null}
           onStart={start}
           onStop={stop}
           onClose={() => setTimer(null)}
