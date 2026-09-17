@@ -17,14 +17,16 @@
 // written to kill ("losses and gains need to be visually distinguishable by
 // more than color alone"), and it is back by deliberate choice, because on a
 // DOLLAR axis the length now answers "how much money moved" and the direction
-// is carried elsewhere. Two things carry it, and both must survive:
-//   1. COLOUR — red for a loss (`marginBarColor` already does this).
-//   2. PATTERN — losses render with a striped fill, not a solid one.
-// ⛔ THE STRIPES ARE NOT DECORATION. Red/green is the single worst colour pair
-// for colour-vision deficiency (~8% of men, and this chart is going on a
-// marketing site). Without the pattern, ~1 reader in 12 sees a loss and a
-// profit as identical bars in identical grey. Do not remove it and leave hue
-// as the only signal.
+// is carried elsewhere.
+//
+// ⚠️ AND "ELSEWHERE" IS COLOUR ALONE — solid red, Andrew's call 2026-09-16.
+// Losses were briefly striped as well, precisely so that sign did not rest on
+// hue; that was removed. Red/green is the worst pair for colour-vision
+// deficiency (~8% of men) and this chart is going on a marketing site, so the
+// ONLY surviving non-colour cue is the minus sign on the figure at the end of
+// the row. ⛔ If this ever has to survive greyscale printing or a red-green
+// colour-blind reader, THE BAR IS NOT ENOUGH and a pattern or an explicit
+// label has to come back. Known and accepted, not overlooked.
 //
 // THE SCALE IS A LADDER, NOT A HARD CAP AND NOT A FREE FIT:
 //   · a hard $100k ceiling CLIPS a job that made $150k — silently, and a
@@ -70,7 +72,7 @@ export function chooseAxisMax(profits: number[]): number {
  * Bar width as a % of the track. ALWAYS anchored at the left edge.
  *
  * Losses use their magnitude — see the header. The caller is responsible for
- * rendering them red AND striped.
+ * rendering them red; length alone cannot tell them from a gain.
  */
 export function barWidthPct(profit: number, axisMax: number): number {
   const v = Number(profit)
