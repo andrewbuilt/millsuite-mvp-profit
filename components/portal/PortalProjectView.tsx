@@ -22,6 +22,7 @@
 import Link from 'next/link'
 import { portalDate, type PortalProject } from '@/lib/client-portal'
 import { ApproveItem } from '@/components/portal/ApproveItem'
+import { DeliveryAddressCard } from '@/components/portal/DeliveryAddressCard'
 import { SignChangeOrder } from '@/components/portal/SignChangeOrder'
 import {
   Card,
@@ -200,6 +201,11 @@ export function PortalProjectView({ token, p }: { token: string; p: PortalProjec
               {org.email ? <a href={`mailto:${org.email}`}>{org.email}</a> : null}
             </div>
           </Card>
+
+          {/* Delivery address — only when the shop has none on file. The hero
+              shows the address as its siteLabel once one exists, so this card
+              and that label are mutually exclusive by construction. */}
+          {!p.siteLabel ? <DeliveryAddressCard token={token} projectId={p.id} /> : null}
         </div>
 
         {/* ── Right column ────────────────────────────────────────────── */}
