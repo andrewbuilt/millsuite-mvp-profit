@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-09-17 · **Branch:** `main`
 
-**Left off:** A1 (portal delivery address, `2f27a03`) and B (clock-in redesign, `d8a64a9` + `891e48e`) are built; **`npx tsc --noEmit` is CLEAN (Andrew ran it by hand — a session tooling outage blocked Claude from running anything) and ✅ A2 IS RESOLVED WITH NO CODE CHANGE: Killinger's approvals box renders (screenshot confirmed) — the slot just didn't exist yet when Andrew first looked.** Still owed before push: **eyeball `/dev/me-clockin` at 375/320px, then a worker-login pass** (clock in → entry lands subproject-tagged in /time). **Nothing is pushed.** **Andrew still owes: (1) ACCEPT PAJOT CO-01 — the acceptance half of CO v2 has never run on a real change order (then run `npx tsx scripts/inspect-co-live.mjs`); (2) eyeball /reports live.** The long history that used to live in this line is in CURRENT FOCUS below — traps and all.
+**Left off:** The 2026-09-17 batch is **PUSHED** (`2f27a03` portal delivery address · `d8a64a9`+`891e48e` clock-in redesign · A2 resolved with no code change — Killinger's approvals box renders, the slot just post-dated Andrew's first look). tsc clean; sub-cards screen eyeballed by Andrew on the fixture page (red over-bars, truncation, footer all confirmed); timer sheet confirmed before push. **ONE VERIFY STEP REMAINS: the real worker pass on the live app — clock in through the new flow on a phone → the entry lands SUBPROJECT-TAGGED in /time and the production bar moves. If the flow is broken for workers, revert is one commit.** **Andrew still owes: (1) ACCEPT PAJOT CO-01 — the acceptance half of CO v2 has never run on a real change order (then run `npx tsx scripts/inspect-co-live.mjs`); (2) eyeball /reports live; (3) that worker pass above, or have Kaylin do a clock-in.** The long history that used to live in this line is in CURRENT FOCUS below — traps and all.
 
 ---
 
@@ -25,15 +25,13 @@ keep it honest, and update it before the detail below.*
 | **Change orders v2** | ✅ **Code done.** ⛔ **But it has never been run on a real change order** — Pajot CO-01 is built and sent and nobody has accepted it. |
 | **/reports chart + diagnostic drawer** | ✅ **Done** (`13ed90f` · `6d7c475` · `adb97c0`). ⚠️ Andrew hasn't looked at it live. |
 | **Client portal** | ✅ **Done.** Delivery address BUILT (`2f27a03`: fill-only write route + entry card), tsc clean. **The approvals-box "bug" was NOT a bug**: Killinger's box renders (screenshot confirmed 2026-09-17) — the approval slot was created after Andrew first looked. `scripts/inspect-portal-approvals.mjs` stays for the next portal mystery. ⚠️ Portal look at the new card still worthwhile once deployed. |
-| **Worker app (`/me`) clock-in** | 🟡 **Built, tsc clean** (`d8a64a9` + `891e48e`). All three screens per the sketches; entries tag the subproject. ⛔ Not yet LOOKED at at 375/320px (`/dev/me-clockin` fixture page exists for exactly that) and no worker-login pass — do both before push. |
+| **Worker app (`/me`) clock-in** | ✅ **Built, pushed, fixture-verified** (`d8a64a9` + `891e48e`). All three screens per the sketches; entries tag the subproject; Andrew confirmed the sub-cards screen (red over-bars, truncation) and timer sheet on `/dev/me-clockin`. ⚠️ **One check left: a real worker clock-in on a phone → entry subproject-tagged in /time.** |
 | **Drawing parser text layer** | ⛔ **NOT STARTED**, and deliberately not next — see the warning below. |
 
-**Next step: the two remaining eyeball passes, then push.** Look at `/dev/me-clockin`
-at 375px and 320px (over-budget dept red, long names truncate, timer sheet opaque with
-the footer visible) · worker-login end-to-end pass (clock in → entry lands
-subproject-tagged in /time and the production bar moves) · push. tsc is already clean
-and A2 needed no fix, so these two looks are all that stands between the local commits
-and the deploy.
+**Next step: the worker pass, then this batch is closed.** Someone clocks in through
+the new /me flow on a real phone → the entry lands subproject-tagged in /time and the
+production fill bar moves. Everything else shipped and was verified 2026-09-17
+(tsc clean · fixture eyeball confirmed by Andrew · pushed as `f9192d6..e6564a5`).
 
 
 **PORTAL FIXES + WORKER-APP CLOCK-IN REDESIGN — ⛔ THIS IS NOW THE NEXT BUILD. Both gates are cleared.** Scoped 2026-09-15 (Andrew); it was queued behind the **payments coherence batch** (✅ `0ae28d4`, all four items) and the **team page upgrade** (✅ `9138276` six items, then `0885523` reworked from Andrew's live look — *"looks great"*). Build A then B.
