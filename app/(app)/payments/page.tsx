@@ -53,6 +53,7 @@ import {
   monthLabel,
   monthLabelShort,
   parseLocalDate,
+  driftsWorthShowing,
   reconcileEverything,
   reschedulePayment,
   rescheduleTo,
@@ -149,7 +150,7 @@ export default function PaymentsPage() {
    * an overpayment, or any payment on a job with no schedule — would simply
    * not render. It used to survive because the board drew raw ledger rows.
    */
-  const { draws: derived, unapplied } = useMemo(
+  const { draws: derived, unapplied, driftByProject } = useMemo(
     () =>
       reconcileEverything(
         rows,
@@ -159,6 +160,22 @@ export default function PaymentsPage() {
       ),
     [rows, ledger, totals, soldProjects],
   )
+
+  /**
+   * Schedules whose stored draws don't add up to the contract.
+   *
+   * ⛔ THIS IS NOT THE SAME LIST AS "No payment schedule" ABOVE. That tray is
+   * jobs with NO draws; this is jobs WITH draws that don't foot. A project with
+   * no schedule is excluded by the lib on purpose — its storedSum is 0, so the
+   * arithmetic would report its whole contract as drift and every un-scheduled
+   * job would appear in both trays, the second one with a scarier number.
+   *
+   * ⚠️ Measured on prod before building this: 4 of 17 scheduled projects drift,
+   * and only ONE of those is a real Built job (Towers, $2,474). If this ever
+   * becomes most of the board, it has stopped being a tray and become
+   * wallpaper — revisit rather than let people learn to ignore it.
+   */
+  const drifting = useMemo(() => driftsWorthShowing(driftByProject), [driftByProject])
 
   /**
    * THIS month, regardless of where the pager is.
@@ -484,6 +501,69 @@ export default function PaymentsPage() {
                       </button>
                     ))}
                   </div>
+                </section>
+              )}
+
+              {/* ⛔ Schedules that don't foot. Change orders never touched the
+                  receivables table before migration 106, so every CO approved
+                  before then left a schedule that no longer sums to its
+                  contract — and `reconcileProject` silently grows the FINAL
+                  draw to cover the gap. The money is right; the presentation
+                  was a lie by omission. Now that new COs write their own
+                  labelled row, the old ones would have stayed quiet forever
+                  while the new ones were legible. */}
+              {drifting.length > 0 && (
+                <section className="mb-4 bg-white border border-[#FDE68A] rounded-xl overflow-hidden">
+                  <div className="px-4 py-2.5 bg-[#FFFBEB] border-b border-[#FDE68A] flex items-center gap-2 flex-wrap">
+                    <AlertTriangle className="w-3.5 h-3.5 text-[#92400E]" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#92400E]">
+                      Schedule doesn&apos;t match the contract · {drifting.length}
+                    </span>
+                    <span className="text-[11px] text-[#B45309]">
+                      the final draw is absorbing the difference
+                    </span>
+                  </div>
+                  <div className="p-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5">
+                    {drifting.map((d) => (
+                      <Link
+                        key={d.projectId}
+                        href={`/projects/${d.projectId}`}
+                        className="text-left rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 hover:border-[#FDE68A] hover:bg-[#FFFBEB] transition-colors"
+                      >
+                        <div className="text-[12.5px] font-medium text-[#111] truncate">
+                          {d.projectName}
+                        </div>
+                        {/* ⛔ TWO DIFFERENT SENTENCES, because they are two
+                            different problems. No contract value means drift is
+                            UNDEFINED, not large — the loader coerces a missing
+                            bid_total to 0, so subtracting makes the gap equal
+                            the entire schedule. Saying "$27,425 over contract"
+                            blames the schedule for a missing contract. */}
+                        {!d.contractKnown ? (
+                          <div className="text-[10.5px] text-[#B45309] truncate">
+                            No contract value · {money(d.storedSum)} of draws
+                          </div>
+                        ) : (
+                          <div className="text-[10.5px] text-[#6B7280] truncate">
+                            {money(d.storedSum)} of draws vs {money(d.contractTotal)}
+                          </div>
+                        )}
+                        <div
+                          className="text-[13px] font-semibold font-mono tabular-nums mt-0.5"
+                          style={{ color: d.contractKnown ? '#92400E' : '#B45309' }}
+                        >
+                          {d.contractKnown
+                            ? `${d.drift > 0 ? '+' : '−'}${money(Math.abs(d.drift))}`
+                            : '—'}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                  {/* ⚠️ NO "FIX IT" BUTTON, DELIBERATELY. Auto-writing CO rows
+                      for historical change orders would mean guessing their
+                      dates and labels, and this codebase has twice shipped a
+                      screen that silently rewrote money. Show the gap; let a
+                      human place the rows. */}
                 </section>
               )}
 

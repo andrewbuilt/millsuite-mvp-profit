@@ -24,6 +24,7 @@ import { ArrowUpRight, CalendarClock } from 'lucide-react'
 import {
   loadProjectDraws,
   loadProjectLedger,
+  DRIFT_EPS,
   reconcileProject,
   type LedgerEntry,
   type PaymentRow,
@@ -180,12 +181,28 @@ export function ProjectPaymentLedger({
               ))}
               {/* The stored rows not summing to the contract is how a phantom
                   dollar starts. Say it rather than letting the final draw
-                  quietly absorb it. */}
-              {Math.abs(recon.drift) >= 1 && (
+                  quietly absorb it.
+
+                  ⛔ TWO DIFFERENT MESSAGES, because they are two different
+                  problems. With no contract value recorded, `contractTotal` is
+                  0 (the loader coerces a missing `bid_total` with `|| 0`), so
+                  the subtraction makes drift equal the ENTIRE schedule and the
+                  old copy read "$27,425 over the contract" — blaming the
+                  schedule for a missing contract. UT - Public Arts is in
+                  exactly that state on prod today. */}
+              {contractTotal <= 0 ? (
                 <div className="px-2.5 py-1.5 bg-[#FFFBEB] text-[10.5px] text-[#92400E] leading-snug">
-                  The stored draws sum to {money(recon.drift > 0 ? contractTotal + recon.drift : contractTotal + recon.drift)},
-                  {' '}{money(Math.abs(recon.drift))} {recon.drift > 0 ? 'over' : 'under'} the contract.
+                  This project has no contract value, so these draws can&apos;t be checked against
+                  anything. Set the project total to see whether the schedule adds up.
                 </div>
+              ) : (
+                Math.abs(recon.drift) >= DRIFT_EPS && (
+                  <div className="px-2.5 py-1.5 bg-[#FFFBEB] text-[10.5px] text-[#92400E] leading-snug">
+                    The stored draws sum to {money(recon.storedSum)},
+                    {' '}{money(Math.abs(recon.drift))} {recon.drift > 0 ? 'over' : 'under'} the
+                    contract — the final draw is absorbing the difference.
+                  </div>
+                )
               )}
             </div>
           )}

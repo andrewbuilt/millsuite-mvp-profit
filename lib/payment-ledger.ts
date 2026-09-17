@@ -129,6 +129,11 @@ export interface ProjectReconciliation {
    * rather than pretend the schedule was always right.
    */
   drift: number
+  /** Sum of the STORED draw amounts. Exposed so a UI can print the real figure
+   *  instead of reconstructing it as `contractTotal + drift` — which is the
+   *  same number only while both are trustworthy, and drift is undefined when
+   *  there is no contract. */
+  storedSum: number
   /** True when the schedule has no draws at all — every other number is then
    *  meaningless and the caller should say "no schedule" rather than "$0". */
   empty: boolean
@@ -178,6 +183,7 @@ export function reconcileProject(
       draws: [],
       credit: round2(Math.max(0, received - contractTotal)),
       drift,
+      storedSum,
       empty: true,
       // No draws to attribute to: every payment is unapplied, and the board
       // still has to be able to render it.
@@ -272,6 +278,7 @@ export function reconcileProject(
     draws: out,
     credit: round2(Math.max(0, received - contractTotal)),
     drift,
+    storedSum,
     empty: false,
     unapplied,
   }
@@ -585,10 +592,63 @@ export function reconcileAll(
   return reconcileEverything(rows, entries, contractTotals).draws
 }
 
+/**
+ * One project's stored-draws-vs-contract gap, org-wide.
+ *
+ * ⛔ `contractKnown` IS THE WHOLE POINT OF THIS SHAPE. `loadOrgPayments` builds
+ * its totals with `Number(bid_total) || 0`, so a project with no contract value
+ * arrives as 0 — not as a missing key. Subtract and you get drift === the
+ * entire schedule: "UT - Public Arts is $27,425 over contract", when the truth
+ * is that nobody recorded a contract to be over. One says the schedule is
+ * wrong; the other says the project is. Callers MUST branch on this.
+ */
+export interface ProjectDrift {
+  projectId: string
+  projectName: string
+  contractTotal: number
+  storedSum: number
+  /** `storedSum − contractTotal`. MEANINGLESS when `contractKnown` is false. */
+  drift: number
+  /** False when the contract value is absent or zero while draws exist. */
+  contractKnown: boolean
+}
+
+/**
+ * Below this, a gap is the old per-row rounding rather than a real mismatch.
+ *
+ * ⚠️ Every generated schedule used to be $1 off (per-row rounding, fixed by
+ * `allocateRounded`); Schiller / Hunt / Murtagh were repaired on prod. A tray
+ * that shouts about $1 trains people to close the tray.
+ */
+export const DRIFT_EPS = 1
+
 /** What `reconcileAll` returns, plus the money that reached no draw. */
 export interface OrgReconciliation {
   draws: DerivedDraw[]
   unapplied: Array<AppliedPayment & { projectId: string; projectName: string }>
+  /**
+   * Every project that HAS a schedule, with its gap — drifting or not, so a
+   * caller can count both sides honestly.
+   *
+   * ⛔ PROJECTS WITH NO DRAWS ARE EXCLUDED ENTIRELY. Their storedSum is 0, so
+   * the arithmetic would report the full contract as "drift" and every
+   * un-scheduled job would appear here screaming — duplicating the "No payment
+   * schedule" tray with a scarier number attached. ~$600k of contracts are in
+   * that state (Leonard ×3, Kinser, Gus Bus). That tray already owns them.
+   */
+  driftByProject: ProjectDrift[]
+}
+
+/** The subset worth showing a human: a real gap, or no contract at all. */
+export function driftsWorthShowing(all: ProjectDrift[]): ProjectDrift[] {
+  return all
+    .filter((d) => !d.contractKnown || Math.abs(d.drift) >= DRIFT_EPS)
+    .sort((a, b) => {
+      // Unknown contracts first — a missing contract is a bigger problem than
+      // a schedule that's a few hundred dollars out.
+      if (a.contractKnown !== b.contractKnown) return a.contractKnown ? 1 : -1
+      return Math.abs(b.drift) - Math.abs(a.drift)
+    })
 }
 
 /**
@@ -622,6 +682,7 @@ export function reconcileEverything(
 
   const draws: DerivedDraw[] = []
   const unapplied: OrgReconciliation['unapplied'] = []
+  const driftByProject: ProjectDrift[] = []
 
   // The UNION of both sides, so a project that has only payments is included.
   const projectIds = new Set([...byProject.keys(), ...payByProject.keys()])
@@ -642,6 +703,24 @@ export function reconcileEverything(
     draws.push(...r.draws)
     const projectName = list[0]?.projectName || projectNames[projectId] || 'Project'
     for (const u of r.unapplied) unapplied.push({ ...u, projectId, projectName })
+
+    // ⛔ Only projects that actually HAVE a schedule. See the doc on
+    // `driftByProject` — including the empty ones would report each
+    // un-scheduled job's whole contract as drift.
+    if (list.length > 0) {
+      const storedSum = round2(list.reduce((s, d) => s + d.amount, 0))
+      const contractTotal = contractTotals[projectId] ?? storedSum
+      driftByProject.push({
+        projectId,
+        projectName,
+        contractTotal,
+        storedSum,
+        drift: round2(storedSum - contractTotal),
+        // ⚠️ `> 0`, not `!= null`. The loader coerces a missing bid_total to 0,
+        // so "absent" and "zero" are the same value by the time it reaches here.
+        contractKnown: contractTotal > 0,
+      })
+    }
   }
-  return { draws, unapplied }
+  return { draws, unapplied, driftByProject }
 }
