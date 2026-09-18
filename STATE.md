@@ -6,11 +6,16 @@
 
 **Last updated:** 2026-09-17 · **Branch:** `main`
 
-**Left off:** The 2026-09-17 batch is **PUSHED** (`2f27a03` portal delivery address · `d8a64a9`+`891e48e` clock-in redesign · A2 resolved with no code change — Killinger's approvals box renders, the slot just post-dated Andrew's first look). tsc clean; sub-cards screen eyeballed by Andrew on the fixture page (red over-bars, truncation, footer all confirmed); timer sheet confirmed before push. **ONE VERIFY STEP REMAINS: the real worker pass on the live app — clock in through the new flow on a phone → the entry lands SUBPROJECT-TAGGED in /time and the production bar moves. If the flow is broken for workers, revert is one commit.** **Andrew still owes: (1) ACCEPT PAJOT CO-01 — the acceptance half of CO v2 has never run on a real change order (then run `npx tsx scripts/inspect-co-live.mjs`); (2) eyeball /reports live; (3) that worker pass above, or have Kaylin do a clock-in.** The long history that used to live in this line is in CURRENT FOCUS below — traps and all.
+**Left off:** The 2026-09-17 batch is **PUSHED** (`2f27a03` portal delivery address · `d8a64a9`+`891e48e` clock-in redesign · A2 resolved with no code change — Killinger's approvals box renders, the slot just post-dated Andrew's first look). tsc clean; sub-cards screen eyeballed by Andrew on the fixture page (red over-bars, truncation, footer all confirmed); timer sheet confirmed before push. **ONE VERIFY STEP REMAINS: the real worker pass on the live app — clock in through the new flow on a phone → the entry lands SUBPROJECT-TAGGED in /time and the production bar moves. If the flow is broken for workers, revert is one commit.** **⚠️ PAJOT CO-01 IS CANCELED (Andrew, 2026-09-17) — the client killed the change. VOID the doc (don't delete; if there's no void affordance in the UI, add one — the status exists in the schema) and update the standing reminder: the ACCEPTANCE HALF OF CO v2 REMAINS UNTESTED until the next real change order arrives; run the full sequence then (`npx tsx scripts/inspect-co-live.mjs` after). Andrew still owes: (1) eyeball /reports live; (2) the worker clock-in pass above, or have Kaylin do one.** The long history that used to live in this line is in CURRENT FOCUS below — traps and all.
 
 ---
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-17)
+
+**NEW 2026-09-17 (Andrew): TASKS PANE — two small edits, scoped. Migration `112` for item 2. (A third bullet in his message was cut off — ask him what it was.)**
+1. **Alphabetize the projects dropdown** in the task editor (panel + /tasks + the project quick-create picker if it has its own list). Case-insensitive, locale compare.
+2. **"Past due" tag on stale Today tasks.** Buckets have no dates, so past-due = "sitting in Today since a previous day." Migration `112`: `tasks.bucket_changed_at` timestamptz default now(), REWRITTEN whenever `bucket` changes (touch every bucket-write path: drag, editor, quick moves; backfill existing rows with `updated_at`). Display: on Today tasks not done whose stamp is before today, a red chip **"Past due · Nd"** (N = calendar days since it entered Today; entered yesterday = 1d). Panel + /tasks + /pm's Today card. Completed tasks never show it. Verify: move a task into Today, backdate the stamp in SQL, chip reads the right day count; moving it out and back resets.
+
 
 ### Plain English: what's built, what isn't
 
