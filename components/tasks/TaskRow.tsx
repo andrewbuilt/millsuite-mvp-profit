@@ -29,6 +29,7 @@ import {
   deleteTask,
   formatDoneAt,
   listComments,
+  pastDueDays,
   setTaskDone,
   updateTask,
   type Task,
@@ -148,6 +149,12 @@ export function TaskRow({
 
   const doneLabel = useMemo(() => formatDoneAt(task.done_at), [task.done_at])
 
+  /** "Past due · Nd" — a not-done Today task that entered the bucket on a
+   *  previous day (migration 112). One computation here covers all three
+   *  surfaces that render this row: the drawer, /tasks and /pm's Today card.
+   *  0 everywhere it doesn't apply — other buckets, done, or no stamp. */
+  const pastDue = pastDueDays(task)
+
   async function saveLinks(next: TaskLink[]) {
     await onRun(() => updateTask(task.id, { links: next }, orgId))
   }
@@ -217,6 +224,18 @@ export function TaskRow({
             {task.title}
           </button>
           <div className="flex items-center gap-1.5 flex-wrap mt-1">
+            {pastDue > 0 && (
+              <span
+                title={
+                  task.bucket_changed_at
+                    ? `In Today since ${new Date(task.bucket_changed_at).toLocaleDateString()}`
+                    : undefined
+                }
+                className="text-[10px] px-1.5 py-0.5 rounded bg-[#FEF2F2] text-[#B91C1C] font-medium whitespace-nowrap"
+              >
+                Past due · {pastDue}d
+              </span>
+            )}
             {project ? (
               <Link
                 href={`/projects/${project.id}`}

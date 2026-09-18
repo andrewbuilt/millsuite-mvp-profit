@@ -63,6 +63,33 @@ export function formatDoneAt(iso: string | null, now = new Date()): string {
   })
 }
 
+/**
+ * How many calendar days a not-done TODAY task has sat since it entered the
+ * bucket — 0 means "no chip".
+ *
+ * "Past due" can't mean a missed date, because buckets have no dates (the 093
+ * design: a curated list, nothing auto-rolls). It means the daily pass hasn't
+ * touched this row: it entered Today on a PREVIOUS day and is still open. The
+ * count is CALENDAR days in local time — entered yesterday = 1d even at
+ * 12:01am, because "how many mornings has this survived" is the question, not
+ * elapsed hours. Math.round, not floor: a DST day is 23 or 25 hours and floor
+ * would miscount it.
+ *
+ * A null stamp (pre-112, or a hand-inserted row) → 0. A guessed chip is worse
+ * than none. Completed tasks are 0 by the done_at guard.
+ */
+export function pastDueDays(
+  task: Pick<Task, 'bucket' | 'done_at' | 'bucket_changed_at'>,
+  now = new Date(),
+): number {
+  if (task.bucket !== 'today' || task.done_at || !task.bucket_changed_at) return 0
+  const then = new Date(task.bucket_changed_at)
+  if (Number.isNaN(then.getTime())) return 0
+  const dayStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((dayStart(now) - dayStart(then)) / 86400000)
+  return days > 0 ? days : 0
+}
+
 /** "September 2026" — the Archive's month group headings. */
 export function archiveMonthLabel(iso: string | null): string {
   if (!iso) return 'Undated'
@@ -95,6 +122,9 @@ export interface Task {
   links: TaskLink[]
   /** Migration 098. Tag NAMES, not ids — see the registry note below. */
   tags: string[]
+  /** Migration 112. When the task last changed bucket — drives the "Past due"
+   *  chip on stale Today tasks. Null = unknown (pre-112): no chip. */
+  bucket_changed_at: string | null
 }
 
 export interface TaskComment {
@@ -144,9 +174,14 @@ export interface TaskAssignee {
 const TASK_COLUMNS_BASE =
   'id, org_id, project_id, title, bucket, assignee_ids, done_at, created_by, sort_order, created_at, updated_at'
 const TASK_COLUMNS_098 = `${TASK_COLUMNS_BASE}, links, tags`
+const TASK_COLUMNS_112 = `${TASK_COLUMNS_098}, bucket_changed_at`
 
 /** null = not probed yet, true = 098 present, false = pre-098. */
 let extras: boolean | null = null
+
+/** Same idea for 112 (`bucket_changed_at`). Pre-112 just means no past-due
+ *  chips and no stamping on bucket moves — everything else works. */
+let stamped: boolean | null = null
 
 /** False only once a query has actually come back 42703. The UI hides the
  *  links and tags affordances when this is false. */
@@ -155,7 +190,32 @@ export function extrasReady(): boolean {
 }
 
 function taskColumns(): string {
-  return extras === false ? TASK_COLUMNS_BASE : TASK_COLUMNS_098
+  if (extras === false) return TASK_COLUMNS_BASE
+  if (stamped === false) return TASK_COLUMNS_098
+  return TASK_COLUMNS_112
+}
+
+/**
+ * An unknown-column failure on `cols` narrows the ladder one rung:
+ * 112 → 098 → base. Records the verdict in the flags and returns the next
+ * column list to try, or null when there's nothing left to drop.
+ *
+ * One rung at a time on purpose: the error doesn't say WHICH column is
+ * missing in a way this file trusts matching on (see isUnknownColumn's note
+ * on loose matches), so a pre-098 database simply demotes twice. Setting
+ * `stamped = false` on the first rung is still correct there — migrations run
+ * in order, so pre-098 is also pre-112.
+ */
+function demoteColumns(cols: string): string | null {
+  if (cols === TASK_COLUMNS_112) {
+    stamped = false
+    return taskColumns()
+  }
+  if (cols === TASK_COLUMNS_098) {
+    extras = false
+    return TASK_COLUMNS_BASE
+  }
+  return null
 }
 
 /**
@@ -240,6 +300,8 @@ function normalizeTask(r: any): Task {
     // exactly right and needs no special case anywhere downstream.
     links: normalizeLinks(r.links),
     tags: normalizeTags(r.tags),
+    // Absent pre-112 — null means "unknown", and pastDueDays shows no chip.
+    bucket_changed_at: r.bucket_changed_at ?? null,
   }
 }
 
@@ -349,16 +411,25 @@ export async function listTasks(orgId: string): Promise<Task[]> {
   //     queries in flight, the second one saw the flag the first had just set,
   //     SKIPPED ITS OWN RETRY and returned an EMPTY LIST. Reachable: the
   //     Archive toggle is clickable while the first load is still running.
-  const cols = taskColumns()
+  let cols = taskColumns()
   let { data, error } = await run(cols)
-  if (error && cols !== TASK_COLUMNS_BASE && isUnknownColumn(error)) {
+  while (error && isUnknownColumn(error)) {
+    const next = demoteColumns(cols)
+    if (!next) break
     console.warn(
-      'listTasks: migration 098 (tasks.links / tasks.tags) has not been run — ' +
-        'links and tags are unavailable until it is.',
+      next === TASK_COLUMNS_BASE
+        ? 'listTasks: migration 098 (tasks.links / tasks.tags) has not been run — ' +
+            'links and tags are unavailable until it is.'
+        : 'listTasks: migration 112 (tasks.bucket_changed_at) has not been run — ' +
+            'past-due tags are unavailable until it is.',
     )
-    extras = false
-    ;({ data, error } = await run(TASK_COLUMNS_BASE))
-  } else if (!error && cols !== TASK_COLUMNS_BASE) {
+    cols = next
+    ;({ data, error } = await run(cols))
+  }
+  if (!error && cols === TASK_COLUMNS_112) {
+    stamped = true
+    extras = true
+  } else if (!error && cols === TASK_COLUMNS_098) {
     extras = true
   }
 
@@ -403,12 +474,18 @@ export async function listArchivedTasks(orgId: string): Promise<ArchivePage> {
       .limit(ARCHIVE_PAGE_SIZE + 1)
 
   // Same per-call rule as listTasks — see the long note there.
-  const cols = taskColumns()
+  let cols = taskColumns()
   let { data, error } = await run(cols)
-  if (error && cols !== TASK_COLUMNS_BASE && isUnknownColumn(error)) {
-    extras = false
-    ;({ data, error } = await run(TASK_COLUMNS_BASE))
-  } else if (!error && cols !== TASK_COLUMNS_BASE) {
+  while (error && isUnknownColumn(error)) {
+    const next = demoteColumns(cols)
+    if (!next) break
+    cols = next
+    ;({ data, error } = await run(cols))
+  }
+  if (!error && cols === TASK_COLUMNS_112) {
+    stamped = true
+    extras = true
+  } else if (!error && cols === TASK_COLUMNS_098) {
     extras = true
   }
 
@@ -529,12 +606,22 @@ export async function createTask(input: {
   const attempt = (cols: string, body: Record<string, unknown>) =>
     supabase.from('tasks').insert(body).select(cols).single()
 
-  const cols = taskColumns()
-  let { data, error } = await attempt(cols, row)
-  if (error && cols !== TASK_COLUMNS_BASE && isUnknownColumn(error)) {
-    extras = false
-    const { tags: _dropped, ...base } = row
-    ;({ data, error } = await attempt(TASK_COLUMNS_BASE, base))
+  // The same 112 → 098 → base ladder as the reads. `bucket_changed_at` is
+  // never in the INSERT body (the column's DEFAULT now() is the birth stamp),
+  // so only the RETURNING columns walk down; `tags` leaves the body at the
+  // base rung because pre-098 the column isn't there to write.
+  let cols = taskColumns()
+  let body: Record<string, unknown> = row
+  let { data, error } = await attempt(cols, body)
+  while (error && isUnknownColumn(error)) {
+    const next = demoteColumns(cols)
+    if (!next) break
+    cols = next
+    if (cols === TASK_COLUMNS_BASE) {
+      const { tags: _dropped, ...base } = body
+      body = base
+    }
+    ;({ data, error } = await attempt(cols, body))
   }
 
   if (error || !data) {
@@ -565,9 +652,26 @@ export async function updateTask(
     if (!t) throw new Error('A task needs a title.')
     update.title = t
   }
-  let q = supabase.from('tasks').update(update).eq('id', taskId)
-  if (orgId) q = q.eq('org_id', orgId)
-  const { data, error } = await q.select('id')
+  // ⛔ THE PAST-DUE STAMP RIDES EVERY BUCKET WRITE, HERE, NOT AT THE CALL
+  // SITES. Drag on both surfaces and the row editor's bucket buttons all
+  // funnel through this function (verified 2026-09-18: nothing else writes
+  // tasks.bucket), so one line covers them all and a future quick-move can't
+  // forget it. Pre-112 the retry below strips it back out — the bucket still
+  // moves, only the past-due clock is unavailable.
+  if (patch.bucket !== undefined && stamped !== false) {
+    update.bucket_changed_at = new Date().toISOString()
+  }
+  const attempt = () => {
+    let q = supabase.from('tasks').update(update).eq('id', taskId)
+    if (orgId) q = q.eq('org_id', orgId)
+    return q.select('id')
+  }
+  let { data, error } = await attempt()
+  if (error && isUnknownColumn(error) && update.bucket_changed_at !== undefined) {
+    stamped = false
+    delete update.bucket_changed_at
+    ;({ data, error } = await attempt())
+  }
   if (error) {
     console.error('updateTask', error)
     if (isUnknownColumn(error) && (patch.links !== undefined || patch.tags !== undefined)) {
