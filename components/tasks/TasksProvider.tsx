@@ -239,8 +239,17 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         .from('projects')
         .select('id, name')
         .eq('org_id', orgId)
-        .order('created_at', { ascending: false })
-      setProjects((data || []) as TaskProjectRef[])
+      // Alphabetical, sorted HERE so every picker built from this list agrees
+      // (the row editor, both quick-create forms). It was newest-first, which
+      // makes a dropdown a memory test — Andrew asked for A→Z (2026-09-17).
+      // Client-side localeCompare rather than the query's .order(): Postgres
+      // sorts by the column's collation, which is case-SENSITIVE ("Zeta"
+      // before "alpha") unless the database says otherwise.
+      setProjects(
+        ((data || []) as TaskProjectRef[]).sort((a, b) =>
+          (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }),
+        ),
+      )
     })()
     // Tag registry — its own isolated select, so a pre-098 org gets an empty
     // list rather than a failed read.
