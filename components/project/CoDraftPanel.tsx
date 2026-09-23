@@ -73,6 +73,9 @@ export default function CoDraftPanel({
   onPdf,
   onSend,
   onAddAdjustment,
+  onSaveDescription,
+  showLineDetail,
+  onToggleLineDetail,
 }: {
   doc: CoDoc
   items: CoDocItem[]
