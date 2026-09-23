@@ -33,6 +33,7 @@ import {
 import { useTasks, type TaskProjectRef } from './TasksProvider'
 import { TaskRow, taskFirstName as firstName } from './TaskRow'
 import { TaskArchive } from './TaskArchive'
+import CompletedForYou from './CompletedForYou'
 import { TaskTagChip } from './TaskTagChip'
 import { TagManager } from './TagManager'
 import { matchesTagFilter } from './use-tag-filter'
@@ -358,6 +359,9 @@ export default function TasksPanel() {
             {error}
           </div>
         )}
+
+        {/* Tasks you created that someone else finished — close-out (114). */}
+        <CompletedForYou variant="panel" />
 
         {/* New task */}
         <div className="px-4 py-2.5 border-b border-[#F3F4F6]">

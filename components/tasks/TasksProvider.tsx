@@ -26,9 +26,11 @@ import { useAuth } from '@/lib/auth-context'
 import { useTagFilterState } from './use-tag-filter'
 import { supabase } from '@/lib/supabase'
 import {
+  closeOutTask,
   extrasReady,
   listArchivedTasks,
   listAssignees,
+  listCompletedForMe,
   listTaskTags,
   listTasks,
   saveTaskTags,
@@ -62,6 +64,11 @@ interface TasksContextValue {
    *  their login isn't linked to a roster row. Computed once here because the
    *  badge, the panel and /tasks all need it and three copies would drift. */
   myAssigneeId: string | null
+  /** Tasks I created that someone ELSE completed and I haven't closed out —
+   *  the "Completed for you" strip (114). Empty pre-114. */
+  completedForMe: Task[]
+  /** The creator's "seen it" — drops a task out of the strip. */
+  closeOut: (taskId: string) => Promise<void>
   /** LOGIN id (users.id) → display name, for `created_by` and comment authors.
    *  ⛔ A DIFFERENT MAP FROM the roster-id one the assignee chips use — see the
    *  header of lib/tasks. Built from the roster because RLS forbids the browser
@@ -132,6 +139,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   const orgId = enabled ? org?.id ?? null : null
 
   const [tasks, setTasks] = useState<Task[]>([])
+  const [completedForMe, setCompletedForMe] = useState<Task[]>([])
   const [assignees, setAssignees] = useState<TaskAssignee[]>([])
   const [projects, setProjects] = useState<TaskProjectRef[]>([])
   const [loading, setLoading] = useState(true)
@@ -207,9 +215,17 @@ export function TasksProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (!orgId) return
-    const [t, a] = await Promise.all([listTasks(orgId), listAssignees(orgId)])
+    const [t, a, cfm] = await Promise.all([
+      listTasks(orgId),
+      listAssignees(orgId),
+      // ⚠️ AFTER listTasks in source order but concurrent in time — it probes
+      // the 114 columns itself and returns [] on a pre-114 database, so it
+      // can't blank anything else.
+      user?.id ? listCompletedForMe(orgId, user.id) : Promise.resolve([]),
+    ])
     setTasks(t)
     setAssignees(a)
+    setCompletedForMe(cfm)
     // listTasks probes for 098 — read the verdict once it has answered.
     setExtrasAvailable(extrasReady())
     setLoading(false)
@@ -217,7 +233,16 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     // archive is already on screen it has to follow, or the task vanishes from
     // both lists and looks deleted.
     if (archiveLoadedRef.current) await pullArchive(orgId)
-  }, [orgId, pullArchive])
+  }, [orgId, user?.id, pullArchive])
+
+  const closeOut = useCallback(
+    async (taskId: string) => {
+      if (!orgId) return
+      await closeOutTask(taskId, orgId)
+      await refresh()
+    },
+    [orgId, refresh],
+  )
 
   const saveTags = useCallback(
     async (tags: TaskTag[]) => {
@@ -329,6 +354,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     () => ({
       enabled,
       tasks,
+      completedForMe,
+      closeOut,
       assignees,
       projects,
       loading,
@@ -357,6 +384,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     [
       enabled,
       tasks,
+      completedForMe,
+      closeOut,
       assignees,
       projects,
       loading,

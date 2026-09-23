@@ -57,6 +57,7 @@ import {
   sumTeamAnnualComp,
 } from '@/lib/shop-rate-setup'
 import { useTasks } from '@/components/tasks/TasksProvider'
+import CompletedForYou from '@/components/tasks/CompletedForYou'
 import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
 import { BUCKET_LABEL, TASK_TAG_COLORS, createTask, type Task } from '@/lib/tasks'
 import {
@@ -106,6 +107,9 @@ export default function PmPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           <div className="lg:col-span-2 space-y-4">
+            {/* Tasks you created that someone else finished — your close-out
+                (114). Renders nothing when there's nothing to acknowledge. */}
+            <CompletedForYou variant="page" />
             <TodayCard />
             {/* Sold-but-not-started, new sales badged loud (2026-09-23).
                 Renders nothing when the queue is empty — day-one rule. */}

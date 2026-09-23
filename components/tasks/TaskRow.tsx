@@ -209,7 +209,9 @@ export function TaskRow({
     >
       <div className="flex items-start gap-2 px-1.5 py-1.5">
         <button
-          onClick={() => void onRun(() => setTaskDone(task.id, !task.done_at, orgId))}
+          // `userId` = who's clicking — stamps completed_by for the creator's
+          // "Completed for you" strip (114).
+          onClick={() => void onRun(() => setTaskDone(task.id, !task.done_at, orgId, userId))}
           disabled={busy}
           title={task.done_at ? 'Restore' : 'Mark done'}
           className="mt-0.5 w-4 h-4 rounded border border-[#D1D5DB] hover:border-[#059669] hover:bg-[#ECFDF5] flex-shrink-0 transition-colors"

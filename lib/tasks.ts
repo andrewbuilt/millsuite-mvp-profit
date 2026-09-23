@@ -125,6 +125,12 @@ export interface Task {
   /** Migration 112. When the task last changed bucket — drives the "Past due"
    *  chip on stale Today tasks. Null = unknown (pre-112): no chip. */
   bucket_changed_at: string | null
+  /** Migration 114. LOGIN id (users.id — created_by's id space, NOT the
+   *  roster's) of whoever completed it. Null pre-114 or pre-completion. */
+  completed_by: string | null
+  /** Migration 114. The creator's "seen it" on a task someone else finished.
+   *  Null + foreign completed_by = sits in the "Completed for you" strip. */
+  acknowledged_at: string | null
 }
 
 export interface TaskComment {
@@ -175,6 +181,7 @@ const TASK_COLUMNS_BASE =
   'id, org_id, project_id, title, bucket, assignee_ids, done_at, created_by, sort_order, created_at, updated_at'
 const TASK_COLUMNS_098 = `${TASK_COLUMNS_BASE}, links, tags`
 const TASK_COLUMNS_112 = `${TASK_COLUMNS_098}, bucket_changed_at`
+const TASK_COLUMNS_114 = `${TASK_COLUMNS_112}, completed_by, acknowledged_at`
 
 /** null = not probed yet, true = 098 present, false = pre-098. */
 let extras: boolean | null = null
@@ -182,6 +189,10 @@ let extras: boolean | null = null
 /** Same idea for 112 (`bucket_changed_at`). Pre-112 just means no past-due
  *  chips and no stamping on bucket moves — everything else works. */
 let stamped: boolean | null = null
+
+/** And for 114 (`completed_by` / `acknowledged_at`). Pre-114 just means no
+ *  "Completed for you" strip — completion itself still works. */
+let loop: boolean | null = null
 
 /** False only once a query has actually come back 42703. The UI hides the
  *  links and tags affordances when this is false. */
@@ -192,21 +203,26 @@ export function extrasReady(): boolean {
 function taskColumns(): string {
   if (extras === false) return TASK_COLUMNS_BASE
   if (stamped === false) return TASK_COLUMNS_098
-  return TASK_COLUMNS_112
+  if (loop === false) return TASK_COLUMNS_112
+  return TASK_COLUMNS_114
 }
 
 /**
  * An unknown-column failure on `cols` narrows the ladder one rung:
- * 112 → 098 → base. Records the verdict in the flags and returns the next
- * column list to try, or null when there's nothing left to drop.
+ * 114 → 112 → 098 → base. Records the verdict in the flags and returns the
+ * next column list to try, or null when there's nothing left to drop.
  *
  * One rung at a time on purpose: the error doesn't say WHICH column is
  * missing in a way this file trusts matching on (see isUnknownColumn's note
- * on loose matches), so a pre-098 database simply demotes twice. Setting
- * `stamped = false` on the first rung is still correct there — migrations run
- * in order, so pre-098 is also pre-112.
+ * on loose matches), so an older database simply demotes more than once.
+ * Setting the higher flag false on an earlier rung is still correct —
+ * migrations run in order, so pre-098 is also pre-112 and pre-114.
  */
 function demoteColumns(cols: string): string | null {
+  if (cols === TASK_COLUMNS_114) {
+    loop = false
+    return taskColumns()
+  }
   if (cols === TASK_COLUMNS_112) {
     stamped = false
     return taskColumns()
@@ -216,6 +232,20 @@ function demoteColumns(cols: string): string | null {
     return TASK_COLUMNS_BASE
   }
   return null
+}
+
+/** Success on a column list proves every rung at or below it. */
+function recordColumnsVerdict(cols: string): void {
+  if (cols === TASK_COLUMNS_114) {
+    loop = true
+    stamped = true
+    extras = true
+  } else if (cols === TASK_COLUMNS_112) {
+    stamped = true
+    extras = true
+  } else if (cols === TASK_COLUMNS_098) {
+    extras = true
+  }
 }
 
 /**
@@ -302,6 +332,9 @@ function normalizeTask(r: any): Task {
     tags: normalizeTags(r.tags),
     // Absent pre-112 — null means "unknown", and pastDueDays shows no chip.
     bucket_changed_at: r.bucket_changed_at ?? null,
+    // Absent pre-114 — null keeps the task out of the close-the-loop strip.
+    completed_by: r.completed_by ?? null,
+    acknowledged_at: r.acknowledged_at ?? null,
   }
 }
 
@@ -420,18 +453,16 @@ export async function listTasks(orgId: string): Promise<Task[]> {
       next === TASK_COLUMNS_BASE
         ? 'listTasks: migration 098 (tasks.links / tasks.tags) has not been run — ' +
             'links and tags are unavailable until it is.'
-        : 'listTasks: migration 112 (tasks.bucket_changed_at) has not been run — ' +
-            'past-due tags are unavailable until it is.',
+        : next === TASK_COLUMNS_098
+          ? 'listTasks: migration 112 (tasks.bucket_changed_at) has not been run — ' +
+              'past-due tags are unavailable until it is.'
+          : 'listTasks: migration 114 (tasks.completed_by / acknowledged_at) has not ' +
+              'been run — the "Completed for you" strip is unavailable until it is.',
     )
     cols = next
     ;({ data, error } = await run(cols))
   }
-  if (!error && cols === TASK_COLUMNS_112) {
-    stamped = true
-    extras = true
-  } else if (!error && cols === TASK_COLUMNS_098) {
-    extras = true
-  }
+  if (!error) recordColumnsVerdict(cols)
 
   if (error) {
     console.error('listTasks', error)
@@ -482,12 +513,7 @@ export async function listArchivedTasks(orgId: string): Promise<ArchivePage> {
     cols = next
     ;({ data, error } = await run(cols))
   }
-  if (!error && cols === TASK_COLUMNS_112) {
-    stamped = true
-    extras = true
-  } else if (!error && cols === TASK_COLUMNS_098) {
-    extras = true
-  }
+  if (!error) recordColumnsVerdict(cols)
 
   if (error) {
     console.error('listArchivedTasks', error)
@@ -683,10 +709,93 @@ export async function updateTask(
   if (!data || data.length === 0) throw new Error('Could not save the task.')
 }
 
-/** Flip completion. Passing `done: false` clears the stamp, which is what
- *  restores a row out of the Archive. */
-export async function setTaskDone(taskId: string, done: boolean, orgId?: string): Promise<void> {
-  await updateTask(taskId, { done_at: done ? new Date().toISOString() : null }, orgId)
+/**
+ * Flip completion. Passing `done: false` clears the stamp, which is what
+ * restores a row out of the Archive.
+ *
+ * `completedBy` (LOGIN id) rides along for the close-the-loop strip (114):
+ * completing stamps who did it and RE-ARMS the alert (acknowledged_at null);
+ * restoring clears both — a restored task never sits in the strip as
+ * "completed", and its next completion alerts afresh. Pre-114 the retry
+ * strips the loop fields and completion still works.
+ */
+export async function setTaskDone(
+  taskId: string,
+  done: boolean,
+  orgId?: string,
+  completedBy?: string | null,
+): Promise<void> {
+  const base: Record<string, unknown> = {
+    done_at: done ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(),
+  }
+  const withLoop: Record<string, unknown> = {
+    ...base,
+    completed_by: done ? completedBy ?? null : null,
+    acknowledged_at: null,
+  }
+  const attempt = (body: Record<string, unknown>) => {
+    let q = supabase.from('tasks').update(body).eq('id', taskId)
+    if (orgId) q = q.eq('org_id', orgId)
+    return q.select('id')
+  }
+  let { data, error } = await attempt(loop === false ? base : withLoop)
+  if (error && isUnknownColumn(error)) {
+    loop = false
+    ;({ data, error } = await attempt(base))
+  }
+  if (error) {
+    console.error('setTaskDone', error)
+    throw new Error(error.message || 'Could not save the task.')
+  }
+  if (!data || data.length === 0) throw new Error('Could not save the task.')
+}
+
+/**
+ * Tasks I created that someone ELSE completed and I haven't closed out —
+ * the "Completed for you" strip (114). Empty pre-114 (unknown column reads
+ * as "feature not available", never as an error), and empty for tasks
+ * completed before 114 ran (their completed_by is null — see the migration's
+ * no-backfill note).
+ */
+export async function listCompletedForMe(orgId: string, myUserId: string): Promise<Task[]> {
+  if (loop === false) return []
+  const { data, error } = await supabase
+    .from('tasks')
+    .select(TASK_COLUMNS_114)
+    .eq('org_id', orgId)
+    .eq('created_by', myUserId)
+    .not('done_at', 'is', null)
+    .not('completed_by', 'is', null)
+    .neq('completed_by', myUserId)
+    .is('acknowledged_at', null)
+    .order('done_at', { ascending: false })
+  if (error) {
+    if (isUnknownColumn(error)) {
+      loop = false
+      return []
+    }
+    console.error('listCompletedForMe', error)
+    return []
+  }
+  return ((data || []) as any[]).map(normalizeTask)
+}
+
+/** The creator's "seen it" — stamps acknowledged_at and drops the task out
+ *  of the strip (it stays in the Archive; close-out is an acknowledgment,
+ *  not a second completion). */
+export async function closeOutTask(taskId: string, orgId?: string): Promise<void> {
+  let q = supabase
+    .from('tasks')
+    .update({ acknowledged_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', taskId)
+  if (orgId) q = q.eq('org_id', orgId)
+  const { data, error } = await q.select('id')
+  if (error) {
+    console.error('closeOutTask', error)
+    throw new Error(error.message || 'Could not close that out.')
+  }
+  if (!data || data.length === 0) throw new Error('Could not close that out.')
 }
 
 export async function deleteTask(taskId: string, orgId?: string): Promise<void> {
