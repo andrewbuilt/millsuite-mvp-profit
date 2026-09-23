@@ -262,6 +262,7 @@ export function TimerSheet({
   timerLabel,
   busy,
   switchFromLabel,
+  backLabel,
   onStart,
   onStop,
   onClose,
