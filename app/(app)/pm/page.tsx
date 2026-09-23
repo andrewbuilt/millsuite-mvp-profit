@@ -48,6 +48,7 @@ import PreProductionCard from '@/components/pm/PreProductionCard'
 import ProjectsAtRiskCard from '@/components/pm/ProjectsAtRiskCard'
 import ReceivablesCard from '@/components/pm/ReceivablesCard'
 import { useAuth } from '@/lib/auth-context'
+import { usePaymentsVisibility } from '@/lib/payments-visibility'
 import { hasAccess } from '@/lib/feature-flags'
 import { computeGoal, deriveMonthlyFixed, goalProgress, type Goal } from '@/lib/sales-goal'
 import { loadGoalSettings } from '@/lib/sales-goal-data'
@@ -83,8 +84,11 @@ export default function PmPage() {
   const { user, org } = useAuth()
   // The money card links to /payments, which is gated on 'invoices' in the
   // nav. Showing it to a plan that can't open that page would be an invitation
-  // to a dead end, so it follows the same gate.
-  const canSeePayments = hasAccess(org?.plan || 'starter', 'invoices')
+  // to a dead end, so it follows the same gate — AND the per-person payments
+  // allowlist (115): an unlisted manager gets no money cards at all, matching
+  // the RLS that would blank their data anyway.
+  const payVis = usePaymentsVisibility()
+  const canSeePayments = hasAccess(org?.plan || 'starter', 'invoices') && payVis.canSee
 
   return (
     <PlanGate requires="projects">
@@ -112,8 +116,11 @@ export default function PmPage() {
             <CompletedForYou variant="page" />
             <TodayCard />
             {/* Sold-but-not-started, new sales badged loud (2026-09-23).
-                Renders nothing when the queue is empty — day-one rule. */}
-            <PreProductionCard orgId={org?.id} />
+                Renders nothing when the queue is empty — day-one rule.
+                Money hidden for anyone off the payments allowlist (115) —
+                the queue and its ages are for every manager, the dollars
+                aren't. */}
+            <PreProductionCard orgId={org?.id} showMoney={payVis.canSee} />
             <ProjectsAtRiskCard orgId={org?.id} shopRate={org?.shop_rate ?? 0} />
           </div>
           <div className="space-y-4">

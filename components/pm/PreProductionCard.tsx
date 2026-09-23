@@ -61,7 +61,17 @@ function weeksLabel(row: PreProdRow): string {
   return row.weeksWaiting < 1 ? '<1w' : `${row.weeksWaiting}w`
 }
 
-export default function PreProductionCard({ orgId }: { orgId: string | undefined }) {
+export default function PreProductionCard({
+  orgId,
+  showMoney = true,
+}: {
+  orgId: string | undefined
+  /** False for anyone off the payments allowlist (115): the queue, ages and
+   *  approvals stay — every manager needs those — but the dollar figures go.
+   *  Contract values aren't RLS-gated (Andrew's call: contract stays
+   *  visible), so this is a display decision from the same spec line. */
+  showMoney?: boolean
+}) {
   const [rows, setRows] = useState<PreProdRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -151,8 +161,13 @@ export default function PreProductionCard({ orgId }: { orgId: string | undefined
           Pre-production
         </span>
         <span className="text-xs text-[#6B7280]">
-          {rows.length} job{rows.length === 1 ? '' : 's'} ·{' '}
-          <span className="font-mono tabular-nums">{money(total)}</span>
+          {rows.length} job{rows.length === 1 ? '' : 's'}
+          {showMoney && (
+            <>
+              {' '}
+              · <span className="font-mono tabular-nums">{money(total)}</span>
+            </>
+          )}
         </span>
       </div>
 
@@ -181,9 +196,11 @@ export default function PreProductionCard({ orgId }: { orgId: string | undefined
               </div>
             </div>
             <div className="text-right flex-shrink-0">
-              <div className="text-[12.5px] font-mono tabular-nums text-[#374151]">
-                {money(r.value)}
-              </div>
+              {showMoney && (
+                <div className="text-[12.5px] font-mono tabular-nums text-[#374151]">
+                  {money(r.value)}
+                </div>
+              )}
               <div
                 title={
                   r.soldAt

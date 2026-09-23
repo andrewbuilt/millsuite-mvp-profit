@@ -31,6 +31,7 @@ import PlanGate from '@/components/plan-gate'
 import GoalBanner from '@/components/payments/GoalBanner'
 import DefineDrawsModal, { type DrawDraft } from '@/components/payments/DefineDrawsModal'
 import { useAuth } from '@/lib/auth-context'
+import { usePaymentsVisibility } from '@/lib/payments-visibility'
 import { deriveMonthlyFixed } from '@/lib/sales-goal'
 import { loadGoalSettings, type GoalSettings } from '@/lib/sales-goal-data'
 import {
@@ -90,6 +91,10 @@ interface PayTarget {
 
 export default function PaymentsPage() {
   const { org, user } = useAuth()
+  // Who sees money movement (115). RLS already blanks the data for the
+  // unlisted; this gate replaces a board of confusing zero rows with a
+  // sentence. Owner never waits on it.
+  const payVis = usePaymentsVisibility()
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [totals, setTotals] = useState<Record<string, number>>({})
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
@@ -369,6 +374,22 @@ export default function PaymentsPage() {
         amount: d.outstanding,
       }),
   })
+
+  // The allowlist gate (115). AFTER the hooks above — a conditional return
+  // before them would break the rules of hooks; the data loads harmlessly
+  // (RLS returns zero rows for the unlisted anyway).
+  if (!payVis.loading && !payVis.canSee) {
+    return (
+      <PlanGate requires="invoices">
+        <div className="min-h-screen flex items-center justify-center px-6 text-center">
+          <p className="text-sm text-[#6B7280] max-w-sm">
+            Payments aren&rsquo;t part of your view. Ask the shop owner to add you on
+            Settings → Who can see payments.
+          </p>
+        </div>
+      </PlanGate>
+    )
+  }
 
   return (
     <PlanGate requires="invoices">
