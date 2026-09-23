@@ -67,6 +67,25 @@ function stripRow<T extends Record<string, unknown>>(row: T): Record<string, unk
   return rest
 }
 
+/**
+ * Apply an override ONLY when the source row actually carries that column.
+ *
+ * ⛔ THE INSERT DIES ON THE FIRST NAME THE LIVE SCHEMA LACKS (PGRST204) — and
+ * a null-out list hand-checked against migration files is exactly how
+ * `production_phase` (dropped in 016) and `source_lead_id` (dropped in 004)
+ * got onto the first version of this list and broke the copy in prod. The
+ * `select('*')` row IS the live schema; keying every override on it means a
+ * dropped column silently stops being named instead of failing the feature.
+ */
+function overrideExisting(
+  row: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): void {
+  for (const [k, v] of Object.entries(patch)) {
+    if (k in row) row[k] = v
+  }
+}
+
 export async function duplicateProject(sourceProjectId: string, newName: string): Promise<string> {
   const name = newName.trim()
   if (!name) throw new Error('The copy needs a name.')
@@ -118,9 +137,13 @@ export async function duplicateProject(sourceProjectId: string, newName: string)
     name,
     // A fresh option re-enters the pipeline — never lands post-sold.
     stage: duplicateTargetStage(String((src as Record<string, unknown>).stage || '')),
-    // History the copy hasn't earned. bid_total CARRIES (same lines, same
-    // total — the board and dashboards read it before any recompute runs);
-    // actual_total resets because no hours or invoices exist here yet.
+  }
+  // History the copy hasn't earned. bid_total CARRIES (same lines, same
+  // total — the board and dashboards read it before any recompute runs);
+  // actual_total resets because no hours or invoices exist here yet.
+  // Conditional on the live row — see overrideExisting.
+  // ⚠️ imported_at deliberately NOT nulled — see the freeze note above.
+  overrideExisting(projectRow, {
     actual_total: 0,
     sold_at: null,
     completed_at: null,
@@ -128,29 +151,29 @@ export async function duplicateProject(sourceProjectId: string, newName: string)
     estimate_sent_at: null,
     approvals_complete_date: null,
     target_start_date: null,
-    production_phase: null,
-    source_lead_id: null,
     drive_folder_id: null,
     drive_folder_url: null,
-    // ⚠️ imported_at deliberately NOT nulled — see the freeze note above.
-  }
+  })
 
   const subIdMap = new Map<string, string>()
   const subRows = srcSubs.map((s) => {
     const newId = crypto.randomUUID()
     subIdMap.set(s.id as string, newId)
-    return {
+    const row: Record<string, unknown> = {
       ...stripRow(s),
       id: newId,
       project_id: newProjectId,
-      // Production/approval state resets; scope + pricing (price_frozen
-      // included) carries.
+    }
+    // Production/approval state resets; scope + pricing (price_frozen
+    // included) carries. Conditional for the same PGRST204 reason as above.
+    overrideExisting(row, {
       ready_for_production: false,
       selections_confirmed: false,
       selections_confirmed_date: null,
       drive_folder_id: null,
       drive_approval_folder_id: null,
-    }
+    })
+    return row
   })
 
   const lineIdMap = new Map<string, string>()
