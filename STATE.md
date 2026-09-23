@@ -4,13 +4,13 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-09-18 · **Branch:** `main`
+**Last updated:** 2026-09-23 · **Branch:** `main`
 
 **Left off:** The 2026-09-18 tasks-pane batch is **PUSHED and VERIFIED** (`1778f10` A→Z project pickers · `070eac0` past-due chip + migration `112`, which **Andrew already ran on prod**; tsc clean, all 12 `verify-task-past-due` checks pass — Andrew ran both during the outage). One optional eyeball left on it: backdate a `bucket_changed_at` in SQL and confirm the chip's day count on a live Today task. Next build: **VOID PAJOT CO-01** — ⚠️ **CANCELED (Andrew, 2026-09-17), the client killed the change. VOID the doc (don't delete; if there's no void affordance in the UI, add one — the status exists in the schema)** and update the standing reminder: the ACCEPTANCE HALF OF CO v2 REMAINS UNTESTED until the next real change order arrives; run the full sequence then (`npx tsx scripts/inspect-co-live.mjs` after). Andrew still owes: (1) eyeball /reports live; (2) the real worker pass — clock in through the new /me flow on a phone → the entry lands SUBPROJECT-TAGGED in /time and the production bar moves (revert is one commit if broken), or have Kaylin do one. ⚠️ The Bash-classifier outage recurred 2026-09-18 (git + read-only greps work; anything else Andrew runs in his terminal and pastes) — retest before assuming tools work.
 
 ---
 
-## ⛔ CURRENT FOCUS — read this first (updated 2026-09-18)
+## ⛔ CURRENT FOCUS — read this first (updated 2026-09-23)
 
 **NEW 2026-09-23 (Andrew): SALES + CO BATCH — three edits, scoped. Build in order; no migrations expected.**
 1. **Kanban column sums.** Each pipeline column header shows its summed value next to the count (New Lead · 5 · $427k). Derived from the loaded cards; Lost shows no sum. (If Andrew meant ONE total for the whole board, that's a one-line change — ask when showing it.)
@@ -33,20 +33,39 @@ keep it honest, and update it before the detail below.*
 |---|---|
 | **Team page** | ✅ **Done and confirmed.** Six-item upgrade (`9138276`), then reworked from Andrew's screenshots (`0885523`) — shop rate gone, roster left, departments collapsible, cards cleaned up. Andrew: *"looks great."* |
 | **Payments board** | ✅ **Done.** Coherence batch (`0ae28d4`) + the drift tray (`8ffbe6e`). |
-| **Change orders v2** | ✅ **Code done.** ⛔ **But it has never been run on a real change order** — Pajot CO-01 is built and sent and nobody has accepted it. |
+| **Change orders v2** | ✅ **Code done.** ⛔ **The ACCEPTANCE half has still never run on a real change order** — Pajot CO-01 was CANCELED by the client (2026-09-17), so it needs VOIDING, not accepting. Waits for the next real CO. |
 | **/reports chart + diagnostic drawer** | ✅ **Done** (`13ed90f` · `6d7c475` · `adb97c0`). ⚠️ Andrew hasn't looked at it live. |
 | **Client portal** | ✅ **Done.** Delivery address BUILT (`2f27a03`: fill-only write route + entry card), tsc clean. **The approvals-box "bug" was NOT a bug**: Killinger's box renders (screenshot confirmed 2026-09-17) — the approval slot was created after Andrew first looked. `scripts/inspect-portal-approvals.mjs` stays for the next portal mystery. ⚠️ Portal look at the new card still worthwhile once deployed. |
 | **Worker app (`/me`) clock-in** | ✅ **Built, pushed, fixture-verified** (`d8a64a9` + `891e48e`). All three screens per the sketches; entries tag the subproject; Andrew confirmed the sub-cards screen (red over-bars, truncation) and timer sheet on `/dev/me-clockin`. ⚠️ **One check left: a real worker clock-in on a phone → entry subproject-tagged in /time.** |
 | **Tasks pane (2 edits)** | ✅ **Done and verified** (`1778f10` + `070eac0`). Project pickers A→Z; "Past due · Nd" chip on stale Today tasks (migration `112` — already run on prod). tsc clean, 12/12 verify checks. |
 | **Drawing parser text layer** | ⛔ **NOT STARTED**, and deliberately not next — see the warning below. |
 
-**Next step: the worker pass, then this batch is closed.** Someone clocks in through
-the new /me flow on a real phone → the entry lands subproject-tagged in /time and the
-production fill bar moves. Everything else shipped and was verified 2026-09-17
-(tsc clean · fixture eyeball confirmed by Andrew · pushed as `f9192d6..e6564a5`).
+### The focus, in Andrew's order (set 2026-09-23)
 
+**1. SALES + CO BATCH — ⛔ THIS IS THE BUILD.** Three edits, scoped at the top of this
+file (kanban column sums · copy-project for customer options · editable client-facing CO
+descriptions). No migrations expected. Build in order.
 
-**PORTAL FIXES + WORKER-APP CLOCK-IN REDESIGN — ⛔ THIS IS NOW THE NEXT BUILD. Both gates are cleared.** Scoped 2026-09-15 (Andrew); it was queued behind the **payments coherence batch** (✅ `0ae28d4`, all four items) and the **team page upgrade** (✅ `9138276` six items, then `0885523` reworked from Andrew's live look — *"looks great"*). Build A then B.
+**2. CLIENT PORTAL — ✅ built, ⚠️ not yet seen live.** Delivery address shipped
+(`2f27a03`). The approvals "bug" turned out not to be one — Killinger's box renders; the
+slot was simply created after Andrew first looked. **What's left is Andrew's: open a
+portal and look at the new delivery-address card once deployed.** No code queued.
+
+**3. WORKER APP (`/me`) CLOCK-IN — ✅ built, ⚠️ one real-world check left.** All three
+screens shipped (`d8a64a9` + `891e48e`), fixture-verified on `/dev/me-clockin`, Andrew
+confirmed the sub-cards screen and timer sheet. **What's left is one real clock-in on a
+phone** → the entry lands subproject-tagged in `/time` and the production fill bar moves.
+Have Kaylin do one if that's faster. Revert is one commit if it misbehaves.
+
+⛔ **2 AND 3 ARE NOT BUILD WORK — THEY ARE ANDREW'S EYEBALLS.** Listing them as focus
+means "these are unconfirmed in the real world", not "these need code". Don't reopen
+either one looking for something to fix; if a real look turns up a defect, that's a new
+scoped item.
+
+<details><summary>How this queue got here, for the record</summary>
+
+**PORTAL FIXES + WORKER-APP CLOCK-IN REDESIGN** — scoped 2026-09-15 (Andrew), queued behind the **payments coherence batch** (✅ `0ae28d4`) and the **team page upgrade** (✅ `9138276`, then `0885523` reworked from Andrew's live look — *"looks great"*). Both gates cleared 2026-09-17; both batches then built 2026-09-17→18. The detail for A and B is below.
+</details>
 
 ⚠️ **The one other thing that could claim "next" is the DRAWING PARSER TEXT LAYER (down in Now) — and it should NOT jump this queue unattended.** It touches the sales-intake path every new job runs through, there is no regression harness, and its own note says to compare before/after on real sets (Kennedy, Forsythe, Murtagh) and **revert if it isn't clearly better**. That needs Andrew watching. This batch doesn't.
 
