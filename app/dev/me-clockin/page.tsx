@@ -110,6 +110,7 @@ export default function MeClockinFixture() {
           running={screen === '3-running'}
           timerLabel={screen === '3-running' ? '03:41:07' : '00:00:00'}
           busy={false}
+          backLabel="Subprojects"
           onStart={() => setScreen('3-running')}
           onStop={() => setScreen(2)}
           onClose={() => setScreen(2)}

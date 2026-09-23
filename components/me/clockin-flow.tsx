@@ -27,7 +27,7 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, Play, Square, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Play, Square } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { loadSubClockCards, type SubClockCard } from '@/lib/worker-clockin'
 import { LABOR_DEPTS, LABOR_DEPT_LABEL, type LaborDept } from '@/lib/rate-book-seed'
@@ -145,6 +145,27 @@ function DeptBar({ dept, estHours, actualMinutes }: { dept: LaborDept; estHours:
   )
 }
 
+/**
+ * The flow's ONE back affordance — a full-width, thumb-height labeled bar.
+ *
+ * ⛔ It says WHERE IT GOES ("Projects", "Subprojects"), not just "<". The
+ * first cut used two different small chevrons (a `<` here, an `X` on the
+ * timer) and Andrew's live pass called them out: too small for a shop-floor
+ * thumb, and an unlabeled `<` makes you guess what's behind it. 52px tall,
+ * full width, same rounded-2xl card language as everything else in /me.
+ */
+function BackBar({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full min-h-[52px] inline-flex items-center gap-2 rounded-2xl border border-[#E5E7EB] bg-white px-4 text-[15px] font-semibold text-[#374151] active:bg-[#F3F4F6]"
+    >
+      <ChevronLeft className="w-5 h-5 text-[#6B7280] flex-shrink-0" />
+      {label}
+    </button>
+  )
+}
+
 export function SubCardsScreen({
   projectName,
   cards,
@@ -162,16 +183,8 @@ export function SubCardsScreen({
 }) {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-1">
-        <button
-          onClick={onBack}
-          aria-label="Back to projects"
-          className="min-h-[44px] min-w-[44px] -ml-3 inline-flex items-center justify-center text-[#6B7280]"
-        >
-          <ChevronLeft className="w-6 h-6" />
-        </button>
-        <div className="text-base font-semibold text-[#111] truncate">{projectName}</div>
-      </div>
+      <BackBar label="Projects" onClick={onBack} />
+      <div className="text-base font-semibold text-[#111] truncate px-1">{projectName}</div>
 
       {loading ? (
         <div className="rounded-2xl border border-[#E5E7EB] bg-white p-6 text-center text-sm text-[#9CA3AF]">
@@ -261,6 +274,11 @@ export function TimerSheet({
   /** When ANOTHER entry is running, what starting this one will close —
    *  the old flow said "it closes this one first" and so does this. */
   switchFromLabel?: string | null
+  /** What the back bar names — "Subprojects" normally, "Projects" when the
+   *  sheet was opened from the active-timer row on screen 1 (going back
+   *  lands there, and a bar naming a screen you won't reach is worse than a
+   *  chevron). */
+  backLabel: string
   onStart: () => void
   onStop: () => void
   onClose: () => void
@@ -270,15 +288,9 @@ export function TimerSheet({
     // sheet — "same footer everywhere". bg is SOLID per the sketch callout.
     <div className="fixed inset-0 z-30 bg-[#F9FAFB] flex flex-col">
       <div className="max-w-md w-full mx-auto flex-1 flex flex-col px-4 pt-4 pb-28">
-        <div className="flex justify-end">
-          <button
-            onClick={onClose}
-            aria-label="Close timer"
-            className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-[#6B7280]"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
+        {/* Going back never stops the clock — the caption under the button
+            says so. Same BackBar as screen 2: one nav language. */}
+        <BackBar label={backLabel} onClick={onClose} />
 
         <div className="flex-1 flex flex-col items-center justify-center text-center">
           <div className="text-[11px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
@@ -476,6 +488,7 @@ export function ClockInFlow({
           timerLabel={timerMatchesActive ? elapsedLabel(active!.started_at, now) : '00:00:00'}
           busy={busy}
           switchFromLabel={active && !timerMatchesActive ? activeLabel : null}
+          backLabel={picked ? 'Subprojects' : 'Projects'}
           onStart={start}
           onStop={stop}
           onClose={() => setTimer(null)}
