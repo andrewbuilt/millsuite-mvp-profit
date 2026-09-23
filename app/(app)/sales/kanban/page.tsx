@@ -59,6 +59,16 @@ function fmtMoney(n: number | null | undefined) {
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 }
 
+/** "$427k" / "$1.2M" — the column-header sum (Andrew's spec example, 2026-09-23).
+ *  Compact on purpose: five full dollar figures in an 11px header row is a wall
+ *  of digits, and the header answers "how much is sitting in this column", not
+ *  "to the dollar". The card itself still shows the full number. */
+function fmtColumnSum(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+  if (n >= 1000) return `$${Math.round(n / 1000)}k`
+  return `$${Math.round(n)}`
+}
+
 const COLUMN_HINT: Record<SalesStage, string> = {
   new_lead: 'Just came in',
   fifty_fifty: 'Could go either way',
@@ -236,6 +246,15 @@ function KanbanInner() {
             {SALES_STAGES.map((stage) => {
               const isOver = dragOver === stage
               const cards = columns[stage]
+              // The header sum. Same value the card shows (bid_total, falling
+              // back to estimated_price), summed over the cards ACTUALLY IN
+              // THE COLUMN — so a search narrows the sum with the board, and
+              // the two can't disagree. Lost gets no sum (Andrew's spec):
+              // totalling dead deals under a live pipeline reads as money.
+              const columnSum =
+                stage === 'lost'
+                  ? 0
+                  : cards.reduce((s, p) => s + (p.bid_total || p.estimated_price || 0), 0)
               return (
                 <div
                   key={stage}
@@ -253,6 +272,9 @@ function KanbanInner() {
                       </div>
                       <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF]">
                         {cards.length}
+                        {columnSum > 0 && (
+                          <span className="text-[#6B7280]"> · {fmtColumnSum(columnSum)}</span>
+                        )}
                       </div>
                     </div>
                     <div className="text-[10px] text-[#9CA3AF] mt-0.5">{COLUMN_HINT[stage]}</div>
