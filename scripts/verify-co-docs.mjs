@@ -24,6 +24,7 @@ import {
   editIsEmpty,
   introducedLines,
   touchedLineIds,
+  itemAutoDescription,
   itemHeadline,
   nextCoNumber,
   nextItemOrder,
@@ -453,6 +454,51 @@ if (portalReadsDocs && !portalGatesOnSent) {
   console.log(
     '\n   ⛔ An OPEN doc is the shop still composing. Showing one in the portal\n' +
       '   asks the client to sign scope that is still moving.',
+  )
+}
+
+// ── itemAutoDescription — the client-description prefill (sales+CO batch) ──
+// The editor prefills from "today's auto text" so the operator edits jargon
+// away instead of reconstructing scope from a blank box. Pin the shapes.
+{
+  const line = (desc, qty, unit) => ({ key: 'k', composer: {}, row: { description: desc, quantity: qty, unit } })
+  check(
+    'add_sub prefill lists its lines with qty and unit',
+    itemAutoDescription({
+      kind: 'add_sub',
+      description: null,
+      draft: { name: 'Wall Panels', defaults: {}, lines: [line('3/4" Shinnoki Standard 1S', 45, 'sqft')] },
+    }),
+    '3/4" Shinnoki Standard 1S — 45 sqft',
+  )
+  check(
+    'edit_sub prefill counts removals and names additions',
+    itemAutoDescription({
+      kind: 'edit_sub',
+      description: null,
+      draft: {
+        subprojectId: 's1',
+        defaults: {},
+        removeLineIds: ['a', 'b'],
+        addLines: [line('Maple face frames', 12, 'lf')],
+        reviseLines: [],
+      },
+    }),
+    'Removes 2 lines from the contract scope\nAdds: Maple face frames — 12 lf',
+  )
+  check(
+    'remove_sub prefill names the scope and the credit basis',
+    itemAutoDescription({ kind: 'remove_sub', description: null, draft: {} }, 'Vanity'),
+    'Remove Vanity — credited at its original contract value',
+  )
+  check(
+    'a qty-less line prints without a dangling dash',
+    itemAutoDescription({
+      kind: 'add_sub',
+      description: null,
+      draft: { name: 'X', defaults: {}, lines: [line('Site visit', 0, null)] },
+    }),
+    'Site visit',
   )
 }
 

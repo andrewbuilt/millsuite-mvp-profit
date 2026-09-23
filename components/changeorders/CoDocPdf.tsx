@@ -198,7 +198,21 @@ export function CoDocPdf({
               <Text style={S.itemTitle}>{pdfSafe(item.headline)}</Text>
               <Text style={S.itemAmount}>{money(item.delta)}</Text>
             </View>
-            {item.description ? <Text style={S.itemDesc}>{pdfSafe(item.description)}</Text> : null}
+            {/* The edited client-facing text. Split on newlines into one Text
+                per line — the editor is a textarea, and trusting the renderer
+                to honour \n inside a single Text is the kind of thing that
+                silently collapses a scope list into a paragraph. */}
+            {item.description
+              ? item.description
+                  .split('\n')
+                  .map((ln) => ln.trim())
+                  .filter(Boolean)
+                  .map((ln, k) => (
+                    <Text key={k} style={S.itemDesc}>
+                      {pdfSafe(ln)}
+                    </Text>
+                  ))
+              : null}
             {/* New scope lists what it's made of. A number with nothing behind
                 it is what the v1 modal produced, and what Andrew called
                 guessing. */}

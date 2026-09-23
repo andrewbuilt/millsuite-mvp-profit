@@ -35,7 +35,7 @@ import {
 } from 'lucide-react'
 import {
   coLabel,
-  itemHeadline,
+  itemAutoDescription,
   summarizeDoc,
   type AddSubDraft,
   type CoDoc,
@@ -87,9 +87,19 @@ export default function CoDraftPanel({
   onSend: () => void
   /** Negative = credit. The sign comes from the UI, not from typing a minus. */
   onAddAdjustment: (amount: number, description: string) => void
+  /** Save the client-facing description on one item — what the PDF prints
+   *  under the scope line (sales+CO batch, 2026-09-23). */
+  onSaveDescription: (item: CoDocItem, text: string) => void
+  /** Migration 113: whether the PDF prints per-line material/qty detail rows.
+   *  Hidden by default — the raw composer text is shop internals. */
+  showLineDetail: boolean
+  onToggleLineDetail: (next: boolean) => void
 }) {
   const [confirmAccept, setConfirmAccept] = useState(false)
   const [adding, setAdding] = useState(false)
+  /** Which item's client description is being edited, and the draft text. */
+  const [descFor, setDescFor] = useState<string | null>(null)
+  const [descDraft, setDescDraft] = useState('')
   const [adjNote, setAdjNote] = useState('')
   const [adjAmount, setAdjAmount] = useState('')
   /** Defaults to CREDIT: taking money off is the common case on an imported
@@ -217,10 +227,85 @@ export default function CoDraftPanel({
                           ? 'A flat amount — no line items behind it'
                           : `${lineCount} line${lineCount === 1 ? '' : 's'} · priced at today’s rates`}
                   </div>
-                  {item.description && !removal && (
-                    <div className="text-[11px] text-[#9CA3AF] mt-0.5 truncate">
-                      {itemHeadline(item, subName)}
+                  {/* ── The client-facing description — what the PDF prints
+                      under the scope line. Editable on EVERY item (Andrew,
+                      2026-09-23: the auto slot text is shop internals on a
+                      client document). Prefilled from the auto text so the
+                      operator edits jargon away instead of reconstructing
+                      scope from a blank box. */}
+                  {descFor === item.id ? (
+                    <div className="mt-2">
+                      <textarea
+                        autoFocus
+                        value={descDraft}
+                        onChange={(e) => setDescDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setDescFor(null)
+                          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                            onSaveDescription(item, descDraft)
+                            setDescFor(null)
+                          }
+                        }}
+                        rows={3}
+                        placeholder="What the client reads on the PDF…"
+                        className="w-full text-[12px] border border-[#C4B5FD] rounded-md px-2 py-1.5 outline-none focus:border-[#7C3AED] resize-y"
+                      />
+                      <div className="flex items-center gap-2 mt-1">
+                        <button
+                          onClick={() => {
+                            onSaveDescription(item, descDraft)
+                            setDescFor(null)
+                          }}
+                          disabled={busy}
+                          className="px-2.5 py-1 rounded-md bg-[#7C3AED] text-white text-[11px] font-medium hover:bg-[#6D28D9] disabled:opacity-40"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setDescFor(null)}
+                          className="px-2 py-1 text-[11px] text-[#6B7280] hover:text-[#111]"
+                        >
+                          Cancel
+                        </button>
+                        <span className="text-[10px] text-[#9CA3AF]">⌘↩ saves · prints on the PDF</span>
+                      </div>
                     </div>
+                  ) : item.kind === 'adjustment' ? (
+                    // An adjustment's description IS its title above — offer
+                    // the edit without printing the same text twice.
+                    <button
+                      onClick={() => {
+                        setDescFor(item.id)
+                        setDescDraft(item.description || '')
+                      }}
+                      disabled={busy}
+                      className="mt-1 inline-flex items-center gap-1 text-[11px] text-[#9CA3AF] hover:text-[#7C3AED]"
+                    >
+                      <Pencil className="w-3 h-3" /> Edit wording
+                    </button>
+                  ) : item.description ? (
+                    <button
+                      onClick={() => {
+                        setDescFor(item.id)
+                        setDescDraft(item.description || '')
+                      }}
+                      disabled={busy}
+                      title="Edit the client-facing description"
+                      className="mt-1.5 w-full text-left text-[11.5px] text-[#374151] whitespace-pre-line rounded-md border border-transparent hover:border-[#DDD6FE] hover:bg-[#FAF5FF] px-1.5 py-1 -mx-1.5 transition-colors"
+                    >
+                      {item.description}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setDescFor(item.id)
+                        setDescDraft(itemAutoDescription(item, subName))
+                      }}
+                      disabled={busy}
+                      className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-[#7C3AED] hover:text-[#5B21B6]"
+                    >
+                      <Pencil className="w-3 h-3" /> Write the client description
+                    </button>
                   )}
                 </div>
                 <div className="flex items-start gap-2 flex-shrink-0">
@@ -404,6 +489,21 @@ export default function CoDraftPanel({
             >
               <FileText className="w-3.5 h-3.5" /> PDF
             </button>
+            {/* Line detail is OPT-IN (113): the per-line material/qty rows are
+                shop internals by default; a GC asking for backup flips this. */}
+            <label
+              title="Print the per-line material/qty rows under each item on the PDF"
+              className="inline-flex items-center gap-1.5 text-[11px] text-[#6B7280] cursor-pointer select-none"
+            >
+              <input
+                type="checkbox"
+                checked={showLineDetail}
+                disabled={busy}
+                onChange={(e) => onToggleLineDetail(e.target.checked)}
+                className="accent-[#7C3AED] w-3.5 h-3.5"
+              />
+              Line detail on PDF
+            </label>
             {/* ⛔ SENDING IS WHAT MAKES IT VISIBLE IN THE PORTAL. Until then the
                 client sees nothing — an open doc is the shop composing, and
                 showing a half-written document invites a signature on scope

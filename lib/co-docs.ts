@@ -686,6 +686,63 @@ export async function setCoDocTitle(docId: string, title: string): Promise<boole
 }
 
 /**
+ * The client-facing description on one item — what the PDF prints under the
+ * scope line instead of raw composer slot text (sales+CO batch, 2026-09-23).
+ *
+ * ⛔ OPEN DOCS ONLY, enforced in the WHERE via the parent doc. An accepted
+ * doc's items are the snapshot behind a signed document; editing their wording
+ * after the fact would change what the client agreed to. The doc-status join
+ * can't be expressed in one PostgREST update, so the guard is: read the item's
+ * doc status first, refuse unless open — and the .select() still catches an
+ * RLS-blocked write pretending to succeed.
+ */
+export async function setCoDocItemDescription(
+  itemId: string,
+  description: string,
+): Promise<boolean> {
+  const { data: item } = await supabase
+    .from('co_doc_items')
+    .select('doc_id')
+    .eq('id', itemId)
+    .maybeSingle()
+  if (!item) return false
+  const { data: doc } = await supabase
+    .from('co_docs')
+    .select('status')
+    .eq('id', (item as { doc_id: string }).doc_id)
+    .maybeSingle()
+  if (!doc || (doc as { status: string }).status !== 'open') return false
+
+  const { data, error } = await supabase
+    .from('co_doc_items')
+    .update({
+      description: description.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', itemId)
+    .select('id')
+  if (error) console.error('setCoDocItemDescription', error)
+  return !error && !!data && data.length > 0
+}
+
+/**
+ * Per-doc: does the PDF print the per-line material/qty detail rows?
+ * (Migration 113 — default false; the toggle is for the GC who wants backup.)
+ * Open docs only for the same snapshot reason as above. Returns false when
+ * 113 hasn't run (PGRST204), which the caller surfaces rather than swallows.
+ */
+export async function setCoDocShowLineDetail(docId: string, show: boolean): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('co_docs')
+    .update({ show_line_detail: show, updated_at: new Date().toISOString() })
+    .eq('id', docId)
+    .eq('status', 'open')
+    .select('id')
+  if (error) console.error('setCoDocShowLineDetail', error)
+  return !error && !!data && data.length > 0
+}
+
+/**
  * Mark a doc as sent to the client — which is what makes it visible in the
  * portal at all.
  *

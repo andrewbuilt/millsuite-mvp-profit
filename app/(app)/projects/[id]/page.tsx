@@ -158,6 +158,8 @@ import {
   loadCoDocsWithItems,
   loadProjectPricing,
   priceAddition,
+  setCoDocItemDescription,
+  setCoDocShowLineDetail,
   updateNewScopeDraft,
   voidCoDoc,
 } from '@/lib/co-docs'
@@ -2179,6 +2181,21 @@ export default function ProjectCoverPage() {
                       )
                     }
                     onEditDraft={(item) => setScopeDraftFor({ item })}
+                    onSaveDescription={(item, text) =>
+                      void runCo(async () =>
+                        (await setCoDocItemDescription(item.id, text))
+                          ? null
+                          : 'Could not save that description.',
+                      )
+                    }
+                    showLineDetail={!!coDoc.show_line_detail}
+                    onToggleLineDetail={(next) =>
+                      void runCo(async () =>
+                        (await setCoDocShowLineDetail(coDoc.id, next))
+                          ? null
+                          : 'Could not change the PDF setting — has migration 113 run?',
+                      )
+                    }
                     onRemoveItem={(item) =>
                       void runCo(async () =>
                         (await deleteCoDocItem(item.id))

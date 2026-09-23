@@ -52,6 +52,10 @@ export interface CoDoc {
    *  as accepted. Writing one over the other destroys the blank-signature PDF
    *  the shop already emailed. */
   signed_pdf_url?: string | null
+  /** Migration 113. Whether the PDF prints per-line material/qty detail rows.
+   *  Optional so a pre-113 read still satisfies the type; absent reads as
+   *  false — detail hidden, which is the 113 default and the Bonzer fix. */
+  show_line_detail?: boolean
 }
 
 /**
@@ -343,6 +347,53 @@ export function itemHeadline(item: CoDocItem, subName?: string | null): string {
       // The description IS the item — the branch above already returned it,
       // so reaching here means somebody saved one without a reason.
       return 'Adjustment'
+  }
+}
+
+/**
+ * The PREFILL for the client-facing description editor — "today's auto text",
+ * i.e. what the PDF's detail rows would say, flattened to editable lines.
+ *
+ * This is deliberately the RAW composer text ("3/4" Shinnoki Standard 1S ·
+ * 45 sqft") — the shop internals Andrew is editing AWAY. Offering them as the
+ * starting point beats a blank box: the operator deletes jargon instead of
+ * reconstructing scope from memory, and nothing the document used to say can
+ * get silently lost.
+ *
+ * Pure and draft-only on purpose: an edit_sub's REMOVED contract lines live in
+ * the database, not the draft, so they appear as a count here rather than by
+ * name. The description is prose for the client, not an audit trail — the PDF
+ * detail rows (toggle, 113) remain the exact listing.
+ */
+export function itemAutoDescription(item: CoDocItem, subName?: string | null): string {
+  const lineText = (l: CoDraftLine | undefined): string => {
+    const desc = (l?.row?.description || '').trim()
+    const qty = Number(l?.row?.quantity) || 0
+    const unit = (l?.row?.unit || '').trim()
+    if (!desc) return ''
+    return qty > 0 ? `${desc} — ${qty}${unit ? ` ${unit}` : ''}` : desc
+  }
+  switch (item.kind) {
+    case 'add_sub': {
+      const d = item.draft as AddSubDraft
+      const lines = (d?.lines || []).map(lineText).filter(Boolean)
+      return lines.join('\n')
+    }
+    case 'edit_sub': {
+      const d = item.draft as unknown as EditSubDraft
+      const removed = touchedLineIds(d).length
+      const added = introducedLines(d).map(lineText).filter(Boolean)
+      const parts: string[] = []
+      if (removed > 0) {
+        parts.push(`Removes ${removed} line${removed === 1 ? '' : 's'} from the contract scope`)
+      }
+      parts.push(...added.map((t) => `Adds: ${t}`))
+      return parts.join('\n')
+    }
+    case 'remove_sub':
+      return `Remove ${subName || 'this scope'} — credited at its original contract value`
+    case 'adjustment':
+      return item.description?.trim() || ''
   }
 }
 

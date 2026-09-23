@@ -127,10 +127,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     for (const s of (subs || []) as any[]) subNames.set(s.id, s.name)
   }
 
+  // ── Line detail is OPT-IN per doc (migration 113) ──
+  // The detail rows print raw composer slot summaries ("Wall Panels (Square
+  // Foot) · 3/4\" Shinnoki Standard 1S · 45 sqft") — shop internals on a
+  // client document (Andrew's Bonzer draft, 2026-09-23). The client-facing
+  // text is the ITEM DESCRIPTION the editor now offers; the exact line listing
+  // appears only when the doc's "show line detail" toggle is on (a GC asking
+  // for backup). Absent column (pre-113) reads false — hidden.
+  const showDetail = !!(doc as any).show_line_detail
+
   // ⛔ A REVISION HAS TO SAY WHAT WAS REMOVED, not just what was added. The
   // client is being credited for those lines; showing only the new ones makes
   // the credit look like an unexplained discount. So the removed lines are
-  // read back by id and listed with the rest.
+  // read back by id and listed with the rest — when detail prints at all.
   const removedIds = rows.flatMap((r) =>
     r.kind === 'edit_sub'
       ? [
@@ -140,7 +149,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       : [],
   )
   const removedLines = new Map<string, { description: string; quantity: number; unit: string | null }>()
-  if (removedIds.length > 0) {
+  if (showDetail && removedIds.length > 0) {
     const { data: els } = await supabaseAdmin
       .from('estimate_lines')
       .select('id, description, quantity, unit')
@@ -168,7 +177,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     })
 
     let lines: CoDocPdfItem['lines']
-    if (r.kind === 'add_sub' && Array.isArray(draft.lines)) {
+    if (!showDetail) {
+      lines = undefined
+    } else if (r.kind === 'add_sub' && Array.isArray(draft.lines)) {
       lines = draft.lines.map(asLine)
     } else if (r.kind === 'edit_sub') {
       const removed = [
@@ -187,10 +198,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       lines = [...removed, ...added]
     }
 
+    // ⚠️ Suppress the UNTOUCHED default description on the PDF. addNewScopeDraft
+    // stamps `Add ${name}` when nobody wrote one, and printing that under a
+    // headline that already says the name (with the kind label above it) is
+    // "Wall Panels / ADD / Add Wall Panels". Anything the operator actually
+    // typed prints verbatim.
+    let description = r.description || null
+    if (r.kind === 'add_sub' && description === `Add ${draft.name}`) description = null
+
     return {
       kind: r.kind,
       headline,
-      description: r.description || null,
+      description,
       delta: Number(r.delta_amount) || 0,
       lines,
     }
