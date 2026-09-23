@@ -140,6 +140,7 @@ import {
 } from '@/lib/subproject-status'
 import ClientPicker from '@/components/project/ClientPicker'
 import NewSubprojectModal from '@/components/project/NewSubprojectModal'
+import { DuplicateProjectModal } from '@/components/project/DuplicateProjectModal'
 import CoDraftPanel from '@/components/project/CoDraftPanel'
 import NewScopeDraftModal from '@/components/project/NewScopeDraftModal'
 import ReviseScopeModal, { type ContractLine } from '@/components/project/ReviseScopeModal'
@@ -443,6 +444,10 @@ export default function ProjectCoverPage() {
   const [renaming, setRenaming] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [renameSaving, setRenameSaving] = useState(false)
+  // "Copy project" — options for the customer (2026-09-23). The modal and the
+  // copy itself live in components/project/DuplicateProjectModal +
+  // lib/duplicate-project, shared with the kanban card menu.
+  const [dupOpen, setDupOpen] = useState(false)
   const [invoices, setInvoices] = useState<Invoice[]>([])
   // Item 1 of post-sale-2: per-sub readiness map from
   // subproject_approval_status. Drives the AttentionStrip banner +
@@ -1748,6 +1753,13 @@ export default function ProjectCoverPage() {
             {/* Quick-capture pre-linked to this project, plus a count that
                 opens the panel filtered to it. Renders nothing for workers. */}
             <div className="flex items-center justify-end gap-2 mt-3">
+              <button
+                onClick={() => setDupOpen(true)}
+                title="Copy this project as another option for the customer"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] text-[#374151] border border-[#E5E7EB] rounded-md hover:bg-[#F9FAFB] transition-colors"
+              >
+                <Copy className="w-3 h-3 text-[#9CA3AF]" /> Duplicate
+              </button>
               <ProjectTaskButton projectId={projectId} />
               {/* Hidden until asked for (wave-3 item 6) — a history log is
                   something you go looking for, not something to keep on
@@ -3180,6 +3192,18 @@ export default function ProjectCoverPage() {
           orgId={org.id}
           orgConsumablePct={org.consumable_markup_pct ?? null}
           onClose={() => setNewSubOpen(false)}
+        />
+      )}
+
+      {dupOpen && (
+        <DuplicateProjectModal
+          project={{ id: projectId, name: project.name, stage: project.stage }}
+          onClose={() => setDupOpen(false)}
+          onDone={(newId) => {
+            setDupOpen(false)
+            // Land ON the copy — the next thing Andrew does is reprice it.
+            router.push(`/projects/${newId}`)
+          }}
         />
       )}
 

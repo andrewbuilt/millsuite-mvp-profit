@@ -28,7 +28,8 @@ import { useConfirm } from '@/components/confirm-dialog'
 import NewProjectModal from '@/components/sales/NewProjectModal'
 import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
-import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus, Search, X } from 'lucide-react'
+import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus, Search, X, Copy } from 'lucide-react'
+import { DuplicateProjectModal } from '@/components/project/DuplicateProjectModal'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
 import ImportedBadge from '@/components/imported-badge'
 import { coverStageOf, COVER_STAGE_LABEL, STAGE_COLORS } from '@/components/project/StagePill'
@@ -98,6 +99,7 @@ function KanbanInner() {
   const [dragOver, setDragOver] = useState<SalesStage | null>(null)
   const [noteFor, setNoteFor] = useState<SalesProject | null>(null)
   const [noteBody, setNoteBody] = useState('')
+  const [dupFor, setDupFor] = useState<SalesProject | null>(null)
   const [savingNote, setSavingNote] = useState(false)
   const [newOpen, setNewOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -294,6 +296,7 @@ function KanbanInner() {
                           isTourProject={p.id === tourProjectId}
                           onOpen={() => router.push(`/projects/${p.id}`)}
                           onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
+                          onDuplicate={() => setDupFor(p)}
                           onDelete={async () => {
                             const ok = await confirm({
                               title: 'Delete this project?',
@@ -381,6 +384,24 @@ function KanbanInner() {
         </div>
       )}
 
+      {dupFor && (
+        <DuplicateProjectModal
+          project={dupFor}
+          onClose={() => setDupFor(null)}
+          onDone={async (newId) => {
+            setDupFor(null)
+            // Reload rather than hand-rolling a SalesProject — the copy's
+            // card must carry exactly what loadSalesProjects computes (LF,
+            // badges), and duplicating that shaping here would drift.
+            if (org?.id) {
+              const { projects: fresh } = await loadSalesProjects(org.id)
+              setProjects(fresh)
+            }
+            void newId
+          }}
+        />
+      )}
+
       {newOpen && org?.id && (
         <NewProjectModal
           orgId={org.id}
@@ -401,6 +422,7 @@ function KanbanCard({
   isTourProject,
   onOpen,
   onQuickNote,
+  onDuplicate,
   onDelete,
   onDragStart,
   onDragEnd,
@@ -412,6 +434,7 @@ function KanbanCard({
   isTourProject: boolean
   onOpen: () => void
   onQuickNote: () => void
+  onDuplicate: () => void
   onDelete: () => void
   onDragStart: () => void
   onDragEnd: () => void
@@ -517,6 +540,13 @@ function KanbanCard({
             >
               <ArrowRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
               Open project
+            </button>
+            <button
+              onClick={() => { setMenuOpen(false); onDuplicate() }}
+              className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
+            >
+              <Copy className="w-3.5 h-3.5 text-[#9CA3AF]" />
+              Duplicate
             </button>
             <div className="my-1 border-t border-[#F3F4F6]" />
             <button
