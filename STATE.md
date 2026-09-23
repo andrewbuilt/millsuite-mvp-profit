@@ -12,6 +12,12 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-09-23)
 
+**NEW 2026-09-23 (Andrew): TASKS + WORKER-NAV BATCH — three items, scoped.**
+1. **"New task" button on `/pm`'s Today card** — quick-create right from the dashboard: title + the usual pickers, defaults bucket=Today, assignee=viewer; lands in the list without leaving the page.
+2. **Close-the-loop on assigned tasks (needs a small migration — next number).** When an ASSIGNEE completes a task, the CREATOR gets an in-app alert and the final say: a **"Completed for you"** strip on `/pm` + the task panel (count badge on the nav trigger) listing tasks you created that someone else finished, each with a **"Close out"** button. Close-out stamps an acknowledgment (`acknowledged_at` or similar) and drops it into Archive; until then it stays in the strip. Your own self-completed tasks skip the strip (no self-alerts). In-app only — no email/push (none is connected).
+3. **Worker app back-nav is too small** — the clock-in flow's only back nav is two different small `<` chevrons. Replace with large, labeled, thumb-height back buttons ("← Projects", "← Subprojects") consistent across both screens; hit area ≥ 44px; part of the same footer/nav language. Verify at 375px and 320px on the fixture render.
+
+
 **✅ 2026-09-23: PRE-PRODUCTION CARD ON `/pm` — BUILT, PUSHED, tsc clean (`315fb2b`).** No migration. `components/pm/PreProductionCard.tsx`, mounted between Today and the watch list.
 1. ✅ **SOLD THIS WEEK** — sold_at within 7 days → green-tinted row at the top, solid green badge, newest first; the age cell reads "new".
 2. ✅ **Weeks waiting** — everything else longest-first: value · "n of m subs ready" (⛔ the SAME `subproject_approval_status` → `ready_for_scheduling` count the pre-prod page uses — one derivation, so card and page can't disagree) · "3w" from `sold_at`, **amber at 4w+**. Null `sold_at` shows "—" and sorts LAST (unknown ≠ shortest). Rows link to the pre-production page.
