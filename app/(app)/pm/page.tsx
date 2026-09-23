@@ -44,6 +44,7 @@ import InvoiceParser from '@/components/invoice-parser'
 import SetupChecklist from '@/components/onboarding/SetupChecklist'
 import { WELCOME_TOAST_EVENT, WELCOME_TOAST_KEY } from '@/lib/welcome-toast'
 import FirstProjectPrompt from '@/components/pm/FirstProjectPrompt'
+import PreProductionCard from '@/components/pm/PreProductionCard'
 import ProjectsAtRiskCard from '@/components/pm/ProjectsAtRiskCard'
 import ReceivablesCard from '@/components/pm/ReceivablesCard'
 import { useAuth } from '@/lib/auth-context'
@@ -106,6 +107,9 @@ export default function PmPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           <div className="lg:col-span-2 space-y-4">
             <TodayCard />
+            {/* Sold-but-not-started, new sales badged loud (2026-09-23).
+                Renders nothing when the queue is empty — day-one rule. */}
+            <PreProductionCard orgId={org?.id} />
             <ProjectsAtRiskCard orgId={org?.id} shopRate={org?.shop_rate ?? 0} />
           </div>
           <div className="space-y-4">
