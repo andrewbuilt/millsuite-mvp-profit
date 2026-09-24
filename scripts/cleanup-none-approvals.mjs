@@ -17,9 +17,21 @@
 // ============================================================================
 
 import { createClient } from '@supabase/supabase-js'
+import fs from 'node:fs'
+import path from 'node:path'
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+// Same .env.local self-load every other hand-run script uses (see
+// inspect-portal-approvals) — nothing exports these into the shell.
+const env = Object.fromEntries(
+  fs
+    .readFileSync(path.join(process.cwd(), '.env.local'), 'utf8')
+    .split('\n')
+    .filter((l) => l.includes('='))
+    .map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]),
+)
+
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE_KEY
 if (!url || !key) {
   console.error('Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (see .env.local).')
   process.exit(1)
