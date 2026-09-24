@@ -26,6 +26,9 @@
 
 import { randomBytes } from 'crypto'
 import { supabaseAdmin } from './supabase-admin'
+// Pure (no supabase import) — the SAME reconciliation the /payments board and
+// the project panel run, so the portal can't tell a different money story.
+import { reconcileProject, type LedgerEntry } from './payment-ledger'
 
 // ── Phases ──────────────────────────────────────────────────────────────────
 // The seven client-facing phases from the design pass. These are NOT the
@@ -354,6 +357,9 @@ interface ProjectSignals {
   depositReceived: boolean
   drawingsApproved: boolean
   contractInvoice: { id: string; total: number; amount_received: number } | null
+  /** Sum of the payments-v2 LEDGER (`project_payments`, 099) — what the board
+   *  and the project page count as received. See the coherence note below. */
+  ledgerReceived: number
 }
 
 async function loadSignals(p: RawProject): Promise<ProjectSignals> {
@@ -416,14 +422,33 @@ async function loadSignals(p: RawProject): Promise<ProjectSignals> {
       rows.every((r) => Number(r.latest_drawing_revisions) > 0 && Number(r.latest_drawings_approved) === Number(r.latest_drawing_revisions))
   }
 
+  // ⛔ THE LEDGER IS WHERE THE MONEY ACTUALLY IS. Payments logged on the
+  // /payments board land in `project_payments` (payments v2, 099) — NOT on
+  // the contract invoice. This loader predates v2 and read only the invoice,
+  // so Oliveira's portal said "$0 paid" and "waiting on the deposit" while
+  // the shop showed $17,000 received and the deposit paid (2026-09-23).
+  // Every money signal below must consider BOTH sides.
+  let ledgerReceived = 0
+  const { data: led, error: ledErr } = await supabaseAdmin
+    .from('project_payments')
+    .select('amount')
+    .eq('project_id', p.id)
+  if (!ledErr) {
+    ledgerReceived = ((led as { amount: number | null }[] | null) || []).reduce(
+      (s, e) => s + (Number(e.amount) || 0),
+      0,
+    )
+  }
+
   const received = Number(contract?.amount_received) || 0
   return {
     subprojectIds,
-    depositReceived: received > 0 || !!p.deposit_override,
+    depositReceived: received > 0 || ledgerReceived > 0 || !!p.deposit_override,
     drawingsApproved,
     contractInvoice: contract
       ? { id: contract.id, total: Number(contract.total) || 0, amount_received: received }
       : null,
+    ledgerReceived,
   }
 }
 
@@ -465,8 +490,14 @@ export async function loadPortalHome(token: string): Promise<PortalHome | null> 
       const needsYouCount = await countNeedsYou(sig.subprojectIds, p.id)
       const phase = PORTAL_PHASES[index - 1]
 
-      const total = sig.contractInvoice?.total || Number(p.bid_total) || 0
-      const paid = sig.contractInvoice?.amount_received || 0
+      // ⛔ bid_total FIRST. The contract invoice's `total` is a snapshot
+      // stamped when the invoice was created; change orders and re-prices
+      // move `bid_total` and never touch it — Oliveira read "$34,446" on a
+      // $44,055 contract. The invoice is only the fallback for a project
+      // whose bid_total is empty. Paid = max of the ledger and the invoice
+      // (max, not sum — internal mode can record the same money on both).
+      const total = Number(p.bid_total) || sig.contractInvoice?.total || 0
+      const paid = Math.max(sig.ledgerReceived, sig.contractInvoice?.amount_received || 0)
       const paymentLine = total > 0 ? `${money(paid)} paid of ${money(total)}` : null
 
       return {
@@ -520,7 +551,9 @@ export async function loadPortalProject(token: string, projectId: string): Promi
     loadScheduleDates(sig.subprojectIds),
   ])
 
-  const contractTotal = sig.contractInvoice?.total || Number(p.bid_total) || 0
+  // bid_total first — the invoice total is a stale snapshot after any CO or
+  // re-price. Same rule as the home card's paymentLine; keep them identical.
+  const contractTotal = Number(p.bid_total) || sig.contractInvoice?.total || 0
 
   // "LAST · …" — the most recent thing that actually happened, from the rows we
   // already have in hand. No extra query, and nothing invented: if there's no
@@ -880,7 +913,8 @@ async function loadDocuments(p: RawProject, subprojectIds: string[]): Promise<Po
 }
 
 async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalPayments> {
-  const total = sig.contractInvoice?.total || Number(p.bid_total) || 0
+  // bid_total first — same staleness rule as everywhere else in this file.
+  const total = Number(p.bid_total) || sig.contractInvoice?.total || 0
 
   const rows: PortalPaymentRow[] = []
 
@@ -901,9 +935,16 @@ async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalP
   // entirely — the one record that existed was the one thing being ignored.
   //
   // So: every milestone renders, and its own status says whether it's paid.
+  //
+  // ⛔ PLUS THE LEDGER (2026-09-23, Oliveira). Payments v2 doesn't flip a
+  // draw's stored status at all — paid-ness is DERIVED by the board's
+  // reconciliation over `project_payments`. The stored-status path below is
+  // kept for legacy orgs whose money lives in milestone flips or invoice
+  // payments; the moment the ledger has entries, the derived view wins and
+  // this page shows exactly what the board and the project panel show.
   const { data: ms } = await supabaseAdmin
     .from('cash_flow_receivables')
-    .select('milestone_label, amount, status, expected_date, received_date')
+    .select('milestone_label, amount, status, expected_date, received_date, notes, created_at')
     .eq('project_id', p.id)
     .eq('type', 'receivable')
     .order('created_at', { ascending: true })
@@ -915,9 +956,75 @@ async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalP
           status: string
           expected_date: string | null
           received_date: string | null
+          notes: string | null
+          created_at: string | null
         }[]
       | null) || []
   ).filter((m) => m.status !== 'cancelled')
+
+  const { data: led } = await supabaseAdmin
+    .from('project_payments')
+    .select('id, amount, payment_date')
+    .eq('project_id', p.id)
+  const ledger: LedgerEntry[] = ((led as { id: string; amount: number | null; payment_date: string | null }[] | null) || [])
+    .map((e) => ({
+      id: e.id,
+      projectId: p.id,
+      amount: Number(e.amount) || 0,
+      paymentDate: e.payment_date || '',
+      method: null,
+      reference: null,
+      notes: null,
+    }))
+
+  if (ledger.length > 0 && milestones.length > 0) {
+    // ── The board's own math, verbatim ──
+    // Same PaymentRow shaping and the same sort as reconcileAll (order:N from
+    // notes → created_at → label), then the same pure reconcileProject — so
+    // the portal cannot tell a different story than /payments about the same
+    // job. `scheduled` (post-balancing) is the amount to SHOW: it's what the
+    // final draw actually absorbs after COs and re-prices.
+    const draws = milestones
+      .map((m, i) => ({
+        id: String(i),
+        projectId: p.id,
+        projectName: '',
+        clientName: null,
+        stage: 'sold' as const,
+        label: m.milestone_label || 'Milestone',
+        amount: Number(m.amount) || 0,
+        status: (m.status as 'projected' | 'invoiced' | 'received') || 'projected',
+        expectedDate: m.expected_date,
+        receivedDate: m.received_date,
+        sortOrder: Number(/order:(\d+)/.exec(m.notes || '')?.[1] ?? Number.MAX_SAFE_INTEGER),
+        createdAt: m.created_at || '',
+      }))
+      .sort(
+        (a, b) =>
+          a.sortOrder - b.sortOrder ||
+          a.createdAt.localeCompare(b.createdAt) ||
+          a.label.localeCompare(b.label),
+      )
+    const recon = reconcileProject(draws, ledger, total)
+    for (const d of recon.draws) {
+      const paid = d.state === 'paid'
+      const lastPaid = d.applied.length > 0 ? d.applied[d.applied.length - 1].entry.paymentDate : null
+      rows.push({
+        label: d.row.label,
+        sublabel: paid
+          ? `Paid${portalDate(lastPaid) ? ` ${portalDate(lastPaid)}` : ''}`
+          : d.state === 'partial'
+            ? `${money(d.covered)} in · ${money(d.outstanding)} to go`
+            : d.row.expectedDate
+              ? `Due ${portalDate(d.row.expectedDate)}`
+              : 'Due on schedule',
+        amount: d.scheduled,
+        paid,
+        due: !paid && !!d.row.expectedDate,
+      })
+    }
+    return { total, paid: Math.max(recon.received, Number(sig.contractInvoice?.amount_received) || 0), rows }
+  }
 
   milestones.forEach((m) => {
     const paid = m.status === 'received'
@@ -973,7 +1080,9 @@ async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalP
   // so adding them would double the figure on a client-facing page. In QB mode
   // only the milestone side moves until the watcher posts, and after it posts
   // only the invoice side may be complete — max is right in every combination.
-  const paid = Math.max(paidFromInvoice, paidFromMilestones)
+  // The ledger joins the max for a project with payments but no schedule.
+  const ledgerSum = ledger.reduce((s, e) => s + e.amount, 0)
+  const paid = Math.max(paidFromInvoice, paidFromMilestones, ledgerSum)
 
   return { total, paid, rows }
 }
