@@ -856,6 +856,23 @@ export async function acceptDoc(input: {
   const totalBefore = Number((before as { bid_total: number | null } | null)?.bid_total) || 0
 
   const agreed = items.reduce((a, i) => a + (Number(i.delta_amount) || 0), 0)
+
+  // ⚠️ RETRY HONESTY. Acceptance is re-runnable after a partial failure (see
+  // the header), and items materialised by an EARLIER run are skipped — their
+  // contract movement happened before this run's `totalBefore` was read. The
+  // drift check below must not count them as "agreed but didn't move", or a
+  // retry reports a large phantom drift on a change order that's actually
+  // fine (first observed on Oliveira CO-01: two subs landed, the adjustment
+  // failed, and the retry would have cried a $6,639 drift). `agreed` itself
+  // stays the FULL doc — that's what the client signed and what gets billed.
+  const preApplied = items.reduce(
+    (a, i) =>
+      a +
+      ((i.kind === 'add_sub' || i.kind === 'adjustment') && i.subproject_id
+        ? Number(i.delta_amount) || 0
+        : 0),
+    0,
+  )
   const created: string[] = []
 
   // ── 1. Materialise the additions ──
@@ -949,7 +966,15 @@ export async function acceptDoc(input: {
       `${coLabel(doc)} — ${item.description || 'Adjustment'}`,
       amount,
     )
-    if (!subId) return fail(`Could not apply "${item.description}". Nothing else was changed.`)
+    if (!subId) {
+      // ⚠️ NOT "nothing was changed" — additions materialised above may have
+      // landed (they stamp their items, so a retry skips them). Say what's
+      // actually true, or the operator reads a half-applied contract as
+      // untouched.
+      return fail(
+        `Could not apply "${item.description}". Scope already applied stays applied — fix this and accept again to finish.`,
+      )
+    }
     created.push(subId)
     await supabase.from('co_doc_items').update({ subproject_id: subId }).eq('id', item.id)
   }
@@ -967,8 +992,11 @@ export async function acceptDoc(input: {
   }
 
   // ── 3. Recompute, and measure the gap ──
+  // `moved` covers THIS run only, so pre-applied items are backed out of the
+  // expectation — see the retry-honesty note at `preApplied`.
   const after = await recomputeProjectBidTotal(doc.project_id)
   const moved = (after ?? totalBefore) - totalBefore
+  const expectedMove = agreed - preApplied
 
   // ── 4. Lock it ──
   const nowIso = new Date().toISOString()
@@ -994,7 +1022,7 @@ export async function acceptDoc(input: {
       created,
       agreed,
       moved,
-      drift: agreed - moved,
+      drift: expectedMove - moved,
     }
   }
 
@@ -1020,7 +1048,7 @@ export async function acceptDoc(input: {
     console.error('acceptDoc: draw row', e)
   }
 
-  return { ok: true, reason: null, created, agreed, moved, drift: agreed - moved }
+  return { ok: true, reason: null, created, agreed, moved, drift: expectedMove - moved }
 }
 
 /**
@@ -1192,9 +1220,15 @@ async function materialiseAdjustment(
       name: name.slice(0, 200),
       sort_order: nextOrder,
       price_frozen: true,
-      // ⚠️ No dept assignments and no hours — it must not reach the schedule
-      // or the capacity plan. It's money, not work.
-      dept_assignments: [],
+      // ⚠️ No hours anywhere on it — its one line carries null
+      // dept_hour_overrides — so it can't reach the schedule or the capacity
+      // plan. It's money, not work.
+      // ⛔ DO NOT "helpfully" add columns here. The first live acceptance
+      // (Oliveira CO-01, 2026-09-23) died on exactly that: this insert named
+      // `dept_assignments`, which exists in NO migration — dept assignment
+      // lives on people, not subprojects — and PGRST204 fails the whole
+      // insert on one unknown name. materialiseDraft never named it, which
+      // is why the add-scope items applied while the adjustment failed.
     })
     .select('id')
     .single()
