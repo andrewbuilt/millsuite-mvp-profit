@@ -21,7 +21,6 @@
 
 import Link from 'next/link'
 import { portalDate, type PortalProject } from '@/lib/client-portal'
-import { ApproveItem } from '@/components/portal/ApproveItem'
 import { DeliveryAddressCard } from '@/components/portal/DeliveryAddressCard'
 import { SignChangeOrder } from '@/components/portal/SignChangeOrder'
 import {
@@ -44,9 +43,21 @@ import {
 export function PortalProjectView({ token, p }: { token: string; p: PortalProject }) {
   const { org } = p
   const withYou = p.approvals.filter((a) => a.waitingOn === 'you' && !a.approved)
-  const settled = p.approvals.filter((a) => a.waitingOn !== 'you' || a.approved)
   const unsignedCos = p.changeOrders.filter((c) => c.awaitingSignature)
   const reviewCount = withYou.length + unsignedCos.length
+
+  // Approvals grouped by subproject, in the shop's subproject order (the
+  // loader pre-sorts; consecutive grouping preserves it). Within a group the
+  // not-yet-approved rows lead — they're what the walkthrough is about.
+  const approvalGroups: Array<{ name: string | null; items: typeof p.approvals }> = []
+  for (const a of p.approvals) {
+    const last = approvalGroups[approvalGroups.length - 1]
+    if (last && last.name === (a.subName ?? null)) last.items.push(a)
+    else approvalGroups.push({ name: a.subName ?? null, items: [a] })
+  }
+  for (const g of approvalGroups) {
+    g.items.sort((a, b) => Number(a.approved) - Number(b.approved))
+  }
 
   // A project with no photos, no approvals and no change orders has nothing to
   // fill a second column with — and the two-column layout turned that into a
@@ -248,49 +259,55 @@ export function PortalProjectView({ token, p }: { token: string; p: PortalProjec
             </Card>
           ) : null}
 
-          {/* Approvals & selections */}
+          {/* Approvals & selections — GROUPED BY SUBPROJECT, read-only.
+              Andrew, 2026-09-23: "condense … organized by subproject. Remove
+              the approve and ask-a-question buttons — we will approve in
+              person for now. Just show that they've not been approved."
+              A flat list of eleven identical cards with two buttons each read
+              as noise; this is a checklist the client and the shop walk
+              through together. ApproveItem stays in the repo for the day
+              in-portal approval comes back. */}
           {p.approvals.length > 0 ? (
             <Card>
               <div id="approvals" className="scroll-mt-20" />
               <Eyebrow>Approvals &amp; selections</Eyebrow>
 
-              {withYou.map((a) => (
-                <ApproveItem
-                  key={a.id}
-                  token={token}
-                  projectId={p.id}
-                  itemId={a.id}
-                  label={a.label}
-                  detail={a.detail}
-                  contactEmail={org.email}
-                  projectName={p.name}
-                />
-              ))}
-
-              {settled.map((a, i) => (
-                <div key={a.id}>
-                  {i > 0 || withYou.length > 0 ? <div className="my-4 h-px" style={{ background: '#EDEAE3' }} /> : <div className="mt-4" />}
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-[13.5px] font-semibold">
-                        {a.detail ? `${a.label} · ${a.detail}` : a.label}
+              {approvalGroups.map((g, gi) => (
+                <div key={g.name ?? `group-${gi}`}>
+                  {gi > 0 ? (
+                    <div className="my-5 h-px" style={{ background: '#EDEAE3' }} />
+                  ) : (
+                    <div className="mt-4" />
+                  )}
+                  <div
+                    className="mb-2 text-[9.5px] uppercase"
+                    style={{ ...mono, letterSpacing: '0.2em', color: FAINT }}
+                  >
+                    {g.name || 'Project'}
+                  </div>
+                  <div className="flex flex-col gap-[10px]">
+                    {g.items.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 text-[13px] font-semibold leading-snug">
+                          {a.detail ? `${a.label} · ${a.detail}` : a.label}
+                        </div>
+                        {a.approved ? (
+                          <div
+                            className="whitespace-nowrap text-[9.5px] uppercase"
+                            style={{ ...mono, letterSpacing: '0.14em', color: FAINT }}
+                          >
+                            Approved{portalDate(a.stampedAt) ? ` ${portalDate(a.stampedAt)}` : ''}
+                          </div>
+                        ) : (
+                          <div
+                            className="flex h-[22px] flex-shrink-0 items-center whitespace-nowrap rounded-full border px-[9px] text-[9px] uppercase"
+                            style={{ ...mono, letterSpacing: '0.14em', color: MUTED, borderColor: '#E0DCD3' }}
+                          >
+                            Not yet approved
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    {a.approved ? (
-                      <div
-                        className="whitespace-nowrap text-[9.5px] uppercase"
-                        style={{ ...mono, letterSpacing: '0.14em', color: FAINT }}
-                      >
-                        {portalDate(a.stampedAt) || 'Approved'}
-                      </div>
-                    ) : (
-                      <div
-                        className="flex h-[22px] items-center whitespace-nowrap rounded-full border px-[9px] text-[9px] uppercase"
-                        style={{ ...mono, letterSpacing: '0.14em', color: MUTED, borderColor: '#E0DCD3' }}
-                      >
-                        With {a.waitingOn === 'vendor' ? 'the vendor' : org.name}
-                      </div>
-                    )}
+                    ))}
                   </div>
                 </div>
               ))}

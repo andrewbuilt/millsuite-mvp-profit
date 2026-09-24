@@ -39,7 +39,7 @@ import { reconcileProject, type LedgerEntry } from './payment-ledger'
 export const PORTAL_PHASES = [
   { key: 'estimate', label: 'Estimate', blurb: 'Your estimate is with you for review.' },
   { key: 'deposit', label: 'Deposit', blurb: 'We start scheduling as soon as the deposit lands.' },
-  { key: 'drawings', label: 'Drawings', blurb: 'Shop drawings and selections are being worked out with you.' },
+  { key: 'drawings', label: 'Drawings', blurb: 'We are preparing shop drawings for your approval.' },
   { key: 'production', label: 'In production', blurb: 'Your cabinets are being cut and assembled on the shop floor.' },
   { key: 'finishing', label: 'Finishing', blurb: 'Everything is built. Finish is going on now.' },
   { key: 'installation', label: 'Installation', blurb: 'Installed. We are working through the punch list.' },
@@ -106,6 +106,9 @@ export interface PortalApprovalItem {
   approved: boolean
   /** The date that matters for this row — approved-on, or last state change. */
   stampedAt: string | null
+  /** The subproject this selection belongs to — the portal groups by it
+   *  (Andrew, 2026-09-23: a flat list of eleven cards reads as noise). */
+  subName: string | null
 }
 
 export interface PortalChangeOrder {
@@ -611,14 +614,30 @@ async function loadApprovals(subprojectIds: string[]): Promise<PortalApprovalIte
   // already shows on the approvals board. The cost columns on this table
   // (custom_material_cost_per_lf, custom_labor_hours_*) are deliberately not
   // selected — they are exactly the numbers a client must never see.
-  const { data } = await supabaseAdmin
-    .from('approval_items')
-    .select('id, label, material, finish, state, ball_in_court, last_state_change_at')
-    .in('subproject_id', subprojectIds)
-    .order('last_state_change_at', { ascending: false })
-  const rows =
+  const [{ data }, { data: subs }] = await Promise.all([
+    supabaseAdmin
+      .from('approval_items')
+      .select('id, subproject_id, label, material, finish, state, ball_in_court, last_state_change_at')
+      .in('subproject_id', subprojectIds)
+      .order('last_state_change_at', { ascending: false }),
+    // Names + sort_order so the portal's groups appear in the same order the
+    // shop shows the subprojects — not whichever selection changed last.
+    supabaseAdmin
+      .from('subprojects')
+      .select('id, name, sort_order')
+      .in('id', subprojectIds)
+      .order('sort_order', { ascending: true }),
+  ])
+  const subName = new Map<string, string>()
+  for (const s of (subs as { id: string; name: string }[] | null) || []) {
+    subName.set(s.id, s.name)
+  }
+  const subRank = new Map<string, number>()
+  ;((subs as { id: string }[] | null) || []).forEach((s, i) => subRank.set(s.id, i))
+  const rows = (
     (data as {
       id: string
+      subproject_id: string | null
       label: string
       material: string | null
       finish: string | null
@@ -626,6 +645,15 @@ async function loadApprovals(subprojectIds: string[]): Promise<PortalApprovalIte
       ball_in_court: string | null
       last_state_change_at: string | null
     }[] | null) || []
+  )
+    .slice()
+    // Group-stable: subproject order first (the shop's sort_order), then the
+    // existing recency order within a group.
+    .sort(
+      (a, b) =>
+        (subRank.get(a.subproject_id || '') ?? Number.MAX_SAFE_INTEGER) -
+        (subRank.get(b.subproject_id || '') ?? Number.MAX_SAFE_INTEGER),
+    )
 
   // ⛔ Items with a DRAFT change order hanging off them are not one-click
   // approvable, and this is deliberate. In the app, approving such an item runs
@@ -659,6 +687,7 @@ async function loadApprovals(subprojectIds: string[]): Promise<PortalApprovalIte
               : 'shop',
       approved,
       stampedAt: r.last_state_change_at,
+      subName: r.subproject_id ? subName.get(r.subproject_id) ?? null : null,
     }
   })
 }
