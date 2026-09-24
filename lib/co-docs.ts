@@ -38,6 +38,7 @@ import {
   type PricingProjectSource,
 } from './pricing'
 import { recomputeProjectBidTotal } from './project-totals'
+import { seedApprovalItemsFromEstimate } from './approvals'
 import { createInvoice } from './invoices'
 import { coDrawSlot } from './payment-schedule'
 import type { ComposerDefaults } from './composer'
@@ -1033,6 +1034,17 @@ export async function acceptDoc(input: {
   // idempotent (`co_docs.qbo_invoice_id`, `uniq_receivable_co_doc`), so the
   // fix for either is to accept again — which is safe by construction.
   const accepted: CoDoc = { ...doc, status: 'accepted' }
+  // ⛔ SEED THE APPROVAL SLOTS FOR WHAT JUST MATERIALISED. Seeding otherwise
+  // runs only at sold-handoff and on pre-production page loads — so a
+  // CO-added subproject had specs on paper and zero approval cards until
+  // someone happened to open pre-production (Oliveira's floating shelves,
+  // 2026-09-23). Best-effort like the billing below: the scope is applied
+  // and the doc locked; the pre-pro self-heal re-seed remains the backstop.
+  try {
+    await seedApprovalItemsFromEstimate(doc.project_id, doc.org_id)
+  } catch (e) {
+    console.error('acceptDoc: approval seeding', e)
+  }
   try {
     await invoiceAcceptedDoc(accepted, agreed)
   } catch (e) {

@@ -442,6 +442,12 @@ export function resolveComposerSlotNames(
   carcassMaterial: { id: string; name: string } | null
   doorMaterial: { id: string; name: string } | null
   exteriorFinish: { id: string; name: string } | null
+  backPanelMaterial: { id: string; name: string } | null
+  interiorFinish: { id: string; name: string } | null
+  /** "2 × Dovetail" — count + resolved style, or null when no drawers. */
+  drawerSpec: string | null
+  /** "15 LF LED COB strip", "Face frame" — resolved feature rows + toggles. */
+  features: string[]
 } {
   const carcass = slots.carcassMaterial
     ? rateBook.carcassMaterials.find((m) => m.id === slots.carcassMaterial) ?? null
@@ -452,11 +458,48 @@ export function resolveComposerSlotNames(
   const finish = slots.doorFinishId
     ? rateBook.doorTypeMaterialFinishes.find((f) => f.id === slots.doorFinishId) ?? null
     : null
+  const back = slots.backPanelMaterial
+    ? rateBook.backPanelMaterials.find((m) => m.id === slots.backPanelMaterial) ?? null
+    : null
+  const interior = slots.interiorFinish
+    ? rateBook.finishes.find((f) => f.id === slots.interiorFinish) ?? null
+    : null
+  const drawerStyle =
+    slots.drawerCount > 0 && slots.drawerStyle
+      ? rateBook.drawerStyles.find((d) => d.id === slots.drawerStyle) ?? null
+      : null
+  const features: string[] = []
+  for (const row of slots.featureRuns ?? []) {
+    const lf = Number(row?.lf) || 0
+    const f = row?.typeId ? rateBook.cabinetFeatures.find((x) => x.id === row.typeId) : null
+    if (f && lf > 0) features.push(`${lf} LF ${f.name}`)
+  }
+  for (const id of slots.featureToggles ?? []) {
+    const f = rateBook.cabinetFeatures.find((x) => x.id === id)
+    if (f) features.push(f.name)
+  }
   return {
     carcassMaterial: carcass ? { id: carcass.id, name: carcass.name } : null,
     doorMaterial: door ? { id: door.id, name: door.material_name } : null,
     exteriorFinish: finish ? { id: finish.id, name: finish.finish_name } : null,
+    backPanelMaterial: back ? { id: back.id, name: back.name } : null,
+    interiorFinish: interior ? { id: interior.id, name: interior.name } : null,
+    drawerSpec: drawerStyle ? `${slots.drawerCount} × ${drawerStyle.name}` : null,
+    features,
   }
+}
+
+/**
+ * ⛔ A "NONE" ENTRY IS THE ABSENCE OF A DECISION, NOT A SPEC. Rate books carry
+ * literal "None" / "No Door" rows so the composer can price an open cabinet —
+ * and the seeder used to turn them into approval cards reading "Door/drawer
+ * material · None", which the client was then asked to approve (Andrew's
+ * Oliveira report, 2026-09-23). Nothing named like this ever proposes.
+ */
+export function isNoneLikeSpecName(name: string | null | undefined): boolean {
+  const n = (name || '').trim().toLowerCase()
+  if (!n) return true
+  return n === 'none' || n === 'n/a' || n === 'no door' || n.startsWith('no ') || n === '-'
 }
 
 /**
@@ -491,7 +534,10 @@ export function proposeSlotsFromComposerLine(
     rate_book_material_variant_id: null as string | null,
     owner: 'client' as const,
   }
-  if (resolved.carcassMaterial) {
+  // ⛔ EVERY spec on the line proposes, EXCEPT None-likes (Andrew's rule,
+  // 2026-09-23). Before this, only the first three ever did — LED runs,
+  // drawer specs and tambour finishes never reached the approval list.
+  if (resolved.carcassMaterial && !isNoneLikeSpecName(resolved.carcassMaterial.name)) {
     out.push({
       ...baseRow,
       label: 'Carcass material',
@@ -499,7 +545,7 @@ export function proposeSlotsFromComposerLine(
       finish: null,
     })
   }
-  if (resolved.doorMaterial) {
+  if (resolved.doorMaterial && !isNoneLikeSpecName(resolved.doorMaterial.name)) {
     out.push({
       ...baseRow,
       label: 'Door/drawer material',
@@ -507,12 +553,47 @@ export function proposeSlotsFromComposerLine(
       finish: null,
     })
   }
-  if (resolved.exteriorFinish) {
+  if (resolved.exteriorFinish && !isNoneLikeSpecName(resolved.exteriorFinish.name)) {
     out.push({
       ...baseRow,
       label: 'Exterior finish',
       material: null,
       finish: resolved.exteriorFinish.name,
+    })
+  }
+  if (resolved.backPanelMaterial && !isNoneLikeSpecName(resolved.backPanelMaterial.name)) {
+    out.push({
+      ...baseRow,
+      label: 'Back panel material',
+      material: resolved.backPanelMaterial.name,
+      finish: null,
+    })
+  }
+  if (resolved.interiorFinish && !isNoneLikeSpecName(resolved.interiorFinish.name)) {
+    out.push({
+      ...baseRow,
+      label: 'Interior finish',
+      material: null,
+      finish: resolved.interiorFinish.name,
+    })
+  }
+  if (resolved.drawerSpec && !isNoneLikeSpecName(resolved.drawerSpec)) {
+    out.push({
+      ...baseRow,
+      label: 'Drawer spec',
+      material: resolved.drawerSpec,
+      finish: null,
+    })
+  }
+  for (const f of resolved.features) {
+    if (isNoneLikeSpecName(f)) continue
+    // Distinct feature strings survive the (sub, label, material, finish)
+    // write-time dedup because the material differs per feature.
+    out.push({
+      ...baseRow,
+      label: 'Feature',
+      material: f,
+      finish: null,
     })
   }
   return out

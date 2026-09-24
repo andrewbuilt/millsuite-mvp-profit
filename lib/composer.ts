@@ -497,9 +497,23 @@ export function countFinishSpecsFromSlots(
 ): number {
   if (!slots) return 0
   let count = 0
+  // ⛔ THE SAME SET the approval seeder proposes (Andrew's every-spec rule,
+  // 2026-09-23) — two different answers to "how many specs" is how the
+  // project card said "0 finish specs" over a sub whose own page listed them.
+  // ⚠️ Counts by SLOT PRESENCE, not resolved name: this runs without a rate
+  // book, so a slot pointing at a "None" entry counts here but won't propose
+  // — a small overcount on open-cabinet lines, preferred over loading the
+  // rate book on every card render.
   if (slots.carcassMaterial) count++
   if (slots.doorMaterialId) count++
   if (slots.doorFinishId) count++
+  if (slots.backPanelMaterial) count++
+  if (slots.interiorFinish) count++
+  if ((slots.drawerCount || 0) > 0 && slots.drawerStyle) count++
+  for (const row of slots.featureRuns ?? []) {
+    if ((Number(row?.lf) || 0) > 0 && row?.typeId) count++
+  }
+  count += (slots.featureToggles ?? []).length
   return count
 }
 
