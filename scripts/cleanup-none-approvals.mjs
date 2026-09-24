@@ -26,6 +26,12 @@ if (!url || !key) {
 }
 const db = createClient(url, key)
 const APPLY = process.argv.includes('--apply')
+// ⚠️ Approved cards are records someone signed off on, so they're skipped by
+// default. Andrew's case (2026-09-23): he'd bulk-approved the None cards just
+// to clear them BEFORE the generation fix existed — that's not a spec
+// decision worth preserving, and he asked for them gone. This flag is that
+// deliberate, human decision; the script still never makes it for you.
+const INCLUDE_APPROVED = process.argv.includes('--include-approved')
 
 const NONE_LIKE = (s) => {
   const n = (s || '').trim().toLowerCase()
@@ -46,27 +52,28 @@ const candidates = (data || []).filter((r) => {
   const vals = [r.material, r.finish].filter((v) => (v || '').trim() !== '')
   return vals.length > 0 && vals.every(NONE_LIKE)
 })
-const pending = candidates.filter((r) => r.state !== 'approved')
 const approved = candidates.filter((r) => r.state === 'approved')
+const doomed = INCLUDE_APPROVED ? candidates : candidates.filter((r) => r.state !== 'approved')
+const skipped = INCLUDE_APPROVED ? [] : approved
 
-for (const r of pending) {
+for (const r of doomed) {
   console.log(`${APPLY ? 'DELETE' : 'would delete'}  ${r.label} · ${r.material || r.finish}  (${r.state})  ${r.id}`)
 }
-for (const r of approved) {
-  console.log(`SKIP (approved — decide by hand)  ${r.label} · ${r.material || r.finish}  ${r.id}`)
+for (const r of skipped) {
+  console.log(`SKIP (approved — add --include-approved to delete)  ${r.label} · ${r.material || r.finish}  ${r.id}`)
 }
-console.log(`\n${pending.length} pending None card(s)${approved.length ? ` · ${approved.length} approved skipped` : ''}.`)
+console.log(`\n${doomed.length} None card(s) targeted${skipped.length ? ` · ${skipped.length} approved skipped` : ''}.`)
 
-if (APPLY && pending.length > 0) {
+if (APPLY && doomed.length > 0) {
   const { error: delErr } = await db
     .from('approval_items')
     .delete()
-    .in('id', pending.map((r) => r.id))
+    .in('id', doomed.map((r) => r.id))
   if (delErr) {
     console.error(delErr.message)
     process.exit(1)
   }
   console.log('Deleted.')
-} else if (!APPLY && pending.length > 0) {
+} else if (!APPLY && doomed.length > 0) {
   console.log('Dry run — re-run with --apply to delete.')
 }
