@@ -130,8 +130,14 @@ function KanbanInner() {
       lost: [],
     }
     const q = normalizeQuery(query)
+    const cutoff = Date.now() - 30 * 86400000
     for (const p of projects) {
       if (!matchesProjectSearch(p, q)) continue
+      // Lost cards leave the LIVE board after 30 days — the archive
+      // (/sales/lost) keeps them forever. A null lost_at (pre-116, no event
+      // to backfill from) STAYS visible: unknown age isn't old age, and a
+      // re-drag or the archive is how it gets resolved.
+      if (p.stage === 'lost' && p.lost_at && new Date(p.lost_at).getTime() < cutoff) continue
       out[p.stage]?.push(p)
     }
     return out
@@ -285,7 +291,15 @@ function KanbanInner() {
                         )}
                       </div>
                     </div>
-                    <div className="text-[10px] text-[#9CA3AF] mt-0.5">{COLUMN_HINT[stage]}</div>
+                    <div className="text-[10px] text-[#9CA3AF] mt-0.5">
+                      {stage === 'lost' ? (
+                        <Link href="/sales/lost" className="text-[#2563EB] hover:underline">
+                          Archive →
+                        </Link>
+                      ) : (
+                        COLUMN_HINT[stage]
+                      )}
+                    </div>
                   </div>
 
                   <div className="p-2 space-y-2">

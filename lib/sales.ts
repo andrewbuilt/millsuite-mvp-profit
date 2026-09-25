@@ -83,6 +83,10 @@ export interface SalesProject {
   estimate_sent_at: string | null
   created_at: string
   updated_at: string
+  /** Migration 116 — when it died. The board hides lost cards older than
+   *  30 days (the archive keeps them); optional so createBlankLeadProject's
+   *  return needn't carry it. */
+  lost_at?: string | null
 }
 
 export interface SubprojectSummary {
@@ -104,7 +108,7 @@ export async function loadSalesProjects(
     .from('projects')
     .select(
       `id, name, client_name, client_id, delivery_address, stage,
-       bid_total, estimated_price, estimate_sent_at, created_at, updated_at, imported_at,
+       bid_total, estimated_price, estimate_sent_at, created_at, updated_at, imported_at, lost_at,
        subprojects(id, linear_feet)`
     )
     .eq('org_id', orgId)
@@ -141,6 +145,7 @@ export async function loadSalesProjects(
       estimate_sent_at: (row as any).estimate_sent_at ?? null,
       created_at: row.created_at,
       updated_at: row.updated_at,
+      lost_at: (row as any).lost_at ?? null,
     })
   }
   return { projects, summaries }
