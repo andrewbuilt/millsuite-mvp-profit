@@ -153,11 +153,15 @@ export default function SalesCard() {
           </div>
           <div className="flex items-end gap-1.5" style={{ height: CHART_H + 18 }}>
             {seasonalityValue.map((s) => {
-              const segs: Array<{ k: Segment; count: number; value: number }> = [
+              // Typed BEFORE the .filter — an annotation doesn't reach
+              // through a method call, so the literal widened k to string
+              // and Vercel's (stricter) tsc failed the build.
+              const all: Array<{ k: Segment; count: number; value: number }> = [
                 { k: 'lost', count: s.lostCount, value: s.lostValue },
                 { k: 'won', count: s.wonCount, value: s.wonValue },
                 { k: 'open', count: s.openCount, value: s.openValue },
-              ].filter((x) => segments[x.k] && x.value > 0)
+              ]
+              const segs = all.filter((x) => segments[x.k] && x.value > 0)
               return (
                 <div key={s.month} className="flex-1 flex flex-col items-center justify-end gap-0.5 h-full">
                   {/* col-reverse: first segment renders at the BOTTOM of the
