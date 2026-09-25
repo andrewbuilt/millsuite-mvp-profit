@@ -734,6 +734,17 @@ export async function updateProjectStage(
     if (row && !row.sold_at) patch.sold_at = new Date().toISOString()
   }
 
+  // Sales intelligence (116): lost gets the same treatment as sold — stamp on
+  // the transition in, CLEAR on the way out (a revived deal is not a lost
+  // one, and a stale lost_at would put a live job in the lost archive). No
+  // first-transition guard like sold_at: re-losing a revived deal is a new
+  // loss with a new date.
+  if (stage === 'lost') {
+    patch.lost_at = new Date().toISOString()
+  } else {
+    patch.lost_at = null
+  }
+
   let { error } = await supabase.from('projects').update(patch).eq('id', projectId)
 
   // ⛔ Pre-094 fallback. PostgREST answers 42703 for an unknown column and
@@ -744,6 +755,13 @@ export async function updateProjectStage(
   if (error && 'sold_at' in patch && String((error as { code?: string }).code) === '42703') {
     console.warn('updateProjectStage: sold_at missing — run migration 094')
     delete patch.sold_at
+    ;({ error } = await supabase.from('projects').update(patch).eq('id', projectId))
+  }
+  // Same pre-migration fallback for 116's lost_at — a missing column must
+  // not break every stage change, only skip the stamp.
+  if (error && 'lost_at' in patch && String((error as { code?: string }).code) === '42703') {
+    console.warn('updateProjectStage: lost_at missing — run migration 116')
+    delete patch.lost_at
     ;({ error } = await supabase.from('projects').update(patch).eq('id', projectId))
   }
 
