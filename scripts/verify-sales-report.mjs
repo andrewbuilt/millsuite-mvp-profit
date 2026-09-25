@@ -81,8 +81,8 @@ ck('unsent lead absent from per-client bids',
 ck('per-source: Facebook 1/1 won at 10d',
   rep.perSource.find((s) => s.source === 'Facebook'),
   { source: 'Facebook', bids: 1, wins: 1, winPct: 100, avgDaysToClose: 10, totalValue: 100 })
-ck('no-source bucket exists for the untagged open bid',
-  rep.perSource.find((s) => s.source === '(no source)')?.bids, 1)
+ck('no-source bucket collects every untagged bid (open c + D’s three)',
+  rep.perSource.find((s) => s.source === '(no source)')?.bids, 4)
 ck('seasonality July: 3 bids sent, 0 wins',
   rep.seasonality[6], { month: 7, bids: 3, wins: 0 })
 ck('honesty window starts at the earliest stamp used', rep.window.from, '2026-07-01T00:00:00Z')
