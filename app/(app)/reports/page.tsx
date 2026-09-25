@@ -29,7 +29,6 @@ import CompletedProjects from './components/CompletedProjects'
 import OutlookSection from './components/OutlookSection'
 import DiagnosticDrawer from './components/DiagnosticDrawer'
 import AiShopReport from './components/AiShopReport'
-import SalesCard from './components/SalesCard'
 import { loadPracticeProjectIds } from '@/lib/practice'
 
 // ── Period selector ──
@@ -355,11 +354,6 @@ export default function ReportsPage() {
 
           {/* ═══ DIVIDER ═══ */}
           <div className="border-t border-[#E5E7EB]" />
-
-          {/* Sales intelligence (116) — the bid/win/lost view. After "what
-              happened" and before the narrative, because it IS what happened
-              on the front end of the funnel. */}
-          <SalesCard />
 
           {/* Moved off /dashboard 2026-09-12. Sits between what happened and
               what's coming because it narrates both. */}

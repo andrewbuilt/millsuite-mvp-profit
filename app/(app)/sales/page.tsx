@@ -16,6 +16,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import PlanGate from '@/components/plan-gate'
+import SalesCard from '@/app/(app)/reports/components/SalesCard'
 import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
 import {
@@ -130,6 +131,9 @@ function SalesInner() {
   const [summaries, setSummaries] = useState<Record<string, SubprojectSummary>>({})
   const [loading, setLoading] = useState(true)
   const [dragOver, setDragOver] = useState(false)
+  // The parser hero, behind a toggle since the report took the headline
+  // (2026-09-23). State, not deletion — this page is the parser's only door.
+  const [showParser, setShowParser] = useState(false)
 
   // Parser flow state.
   const [parsing, setParsing] = useState(false)
@@ -481,17 +485,37 @@ function SalesInner() {
   return (
     <>
       <div className="max-w-6xl mx-auto px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight text-[#111]">Sales</h1>
-          <p className="text-sm text-[#6B7280] mt-1">
-            New work starts here. Drop drawings and we'll start the project for you.
-          </p>
+        <div className="mb-6 flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-[#111]">Sales</h1>
+            <p className="text-sm text-[#6B7280] mt-1">
+              How the funnel is doing — and where new work starts.
+            </p>
+          </div>
+          {/* The parser hero is DEMOTED, not deleted (Andrew, 2026-09-23:
+              "remove the pdf drop … move the sales report here"). This page
+              is the drawings parser's only entry point, so it lives behind
+              this toggle rather than dying — the report leads now. */}
+          <button
+            onClick={() => setShowParser((v) => !v)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-[#E5E7EB] rounded-lg text-[#374151] hover:bg-[#F9FAFB] transition-colors"
+          >
+            <Plus className="w-4 h-4 text-[#9CA3AF]" />
+            {showParser ? 'Hide new-project panel' : 'New project / drop drawings'}
+          </button>
+        </div>
+
+        {/* THE SALES REPORT — moved from /reports (2026-09-23), leads the page. */}
+        <div className="mb-8">
+          <SalesCard />
         </div>
 
         {/* HERO: parser drop zone (Pro+) OR new-lead CTA (Pro). Same shell,
             different content — Pro+ gets the drawing parser as the primary
             entry point; Pro still has the leads kanban but creates leads
-            manually via the blank form below. */}
+            manually via the blank form below. Collapsed by default since the
+            report took the headline. */}
+        {showParser && (
         <div
           className={`relative bg-white border border-[#E5E7EB] rounded-2xl p-8 mb-8 overflow-hidden transition-colors ${
             dragOver ? 'border-[#2563EB] bg-[#F5F9FF]' : ''
@@ -725,6 +749,7 @@ function SalesInner() {
             )}
           </div>
         </div>
+        )}
 
         {/* PIPELINE */}
         <div className="flex items-center justify-between mb-3">

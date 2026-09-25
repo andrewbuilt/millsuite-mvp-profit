@@ -85,6 +85,11 @@ ck('no-source bucket collects every untagged bid (open c + D’s three)',
   rep.perSource.find((s) => s.source === '(no source)')?.bids, 4)
 ck('seasonality July: 3 bids sent, 0 wins',
   rep.seasonality[6], { month: 7, bids: 3, wins: 0 })
+ck('value seasonality Sep: won a ($100) + open c ($70), segments stack to total',
+  rep.seasonalityValue[8],
+  { month: 9, wonCount: 1, wonValue: 100, lostCount: 0, lostValue: 0, openCount: 1, openValue: 70 })
+ck('value seasonality: a lost bid lands in the month it was SENT (Aug), not lost (Sep)',
+  rep.seasonalityValue[7].lostValue, 50)
 ck('honesty window starts at the earliest stamp used', rep.window.from, '2026-07-01T00:00:00Z')
 ck('empty shop → null rates, no fake zeroes',
   (() => { const r = buildSalesReport([], NOW); return [r.kpis.winRatePct, r.kpis.avgDaysToClose, r.window.from] })(),

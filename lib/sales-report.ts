@@ -103,6 +103,23 @@ export interface SeasonRow {
   wins: number
 }
 
+/**
+ * Value-weighted calendar month (all years), segmented by OUTCOME of the bids
+ * SENT that month — so won + lost + open sums to the month's total bid value
+ * and a stacked bar is honest arithmetic, not double counting. (The trend
+ * table groups by DECISION month; this groups by SENT month — a bid sent in
+ * August and lost in September is August's red segment here.)
+ */
+export interface SeasonValueRow {
+  month: number
+  wonCount: number
+  wonValue: number
+  lostCount: number
+  lostValue: number
+  openCount: number
+  openValue: number
+}
+
 export interface SourceRow {
   source: string
   bids: number
@@ -120,6 +137,7 @@ export interface SalesReport {
   monthly: MonthlyRow[]
   perClient: ClientRow[]
   seasonality: SeasonRow[]
+  seasonalityValue: SeasonValueRow[]
   perSource: SourceRow[]
 }
 
@@ -220,6 +238,32 @@ export function buildSalesReport(rows: SalesFactRow[], now: Date): SalesReport {
     if (r.soldAt) seasonality[Number(r.soldAt.slice(5, 7)) - 1].wins++
   }
 
+  // Value-weighted, outcome-segmented — every bid lands in ONE segment of the
+  // month it was SENT, so segments stack to the month's total bid value.
+  const seasonalityValue: SeasonValueRow[] = Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1,
+    wonCount: 0,
+    wonValue: 0,
+    lostCount: 0,
+    lostValue: 0,
+    openCount: 0,
+    openValue: 0,
+  }))
+  for (const r of bids) {
+    const s = seasonalityValue[Number(r.estimateSentAt!.slice(5, 7)) - 1]
+    const o = bidOutcome(r)
+    if (o === 'won') {
+      s.wonCount++
+      s.wonValue += r.value
+    } else if (o === 'lost') {
+      s.lostCount++
+      s.lostValue += r.value
+    } else {
+      s.openCount++
+      s.openValue += r.value
+    }
+  }
+
   // ── Per lead source — the advertising scoreboard ──
   const sources = new Map<
     string,
@@ -253,5 +297,13 @@ export function buildSalesReport(rows: SalesFactRow[], now: Date): SalesReport {
     }))
     .sort((a, b) => b.totalValue - a.totalValue)
 
-  return { window: { from, to: now.toISOString() }, kpis, monthly, perClient, seasonality, perSource }
+  return {
+    window: { from, to: now.toISOString() },
+    kpis,
+    monthly,
+    perClient,
+    seasonality,
+    seasonalityValue,
+    perSource,
+  }
 }
