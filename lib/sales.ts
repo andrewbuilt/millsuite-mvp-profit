@@ -204,20 +204,28 @@ export async function createBlankLeadProject(input: {
   client_id?: string | null
   client_name?: string | null
   delivery_address?: string | null
+  /** Where the job came from (116) — a NAME from orgs.lead_sources. */
+  lead_source?: string | null
 }): Promise<SalesProject | null> {
-  const { data, error } = await supabase
-    .from('projects')
-    .insert({
-      org_id: input.org_id,
-      name: input.name,
-      client_id: input.client_id ?? null,
-      client_name: input.client_name ?? null,
-      delivery_address: input.delivery_address ?? null,
-      stage: 'new_lead' as ProjectStage,
-      bid_total: 0,
-    })
-    .select()
-    .single()
+  const row: Record<string, unknown> = {
+    org_id: input.org_id,
+    name: input.name,
+    client_id: input.client_id ?? null,
+    client_name: input.client_name ?? null,
+    delivery_address: input.delivery_address ?? null,
+    stage: 'new_lead' as ProjectStage,
+    bid_total: 0,
+  }
+  if (input.lead_source) row.lead_source = input.lead_source
+  let { data, error } = await supabase.from('projects').insert(row).select().single()
+  // Pre-116 fallback: an unknown column fails the WHOLE insert (the ghost-
+  // column family). Creation must survive a lagging migration; only the
+  // source tag is dropped.
+  if (error && 'lead_source' in row && ['42703', 'PGRST204'].includes(String((error as { code?: string }).code))) {
+    console.warn('createBlankLeadProject: lead_source missing — run migration 116')
+    delete row.lead_source
+    ;({ data, error } = await supabase.from('projects').insert(row).select().single())
+  }
   if (error) {
     console.error('createBlankLeadProject', error)
     throw new Error(error.message || 'Failed to create project')

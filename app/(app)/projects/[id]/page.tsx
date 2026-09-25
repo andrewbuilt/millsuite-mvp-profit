@@ -141,6 +141,7 @@ import {
 import ClientPicker from '@/components/project/ClientPicker'
 import NewSubprojectModal from '@/components/project/NewSubprojectModal'
 import { DuplicateProjectModal } from '@/components/project/DuplicateProjectModal'
+import LeadSourcePill from '@/components/project/LeadSourcePill'
 import CoDraftPanel from '@/components/project/CoDraftPanel'
 import NewScopeDraftModal from '@/components/project/NewScopeDraftModal'
 import ReviseScopeModal, { type ContractLine } from '@/components/project/ReviseScopeModal'
@@ -1729,6 +1730,15 @@ export default function ProjectCoverPage() {
                 <span className="px-2.5 py-1 bg-[#F3F4F6] rounded-full text-[#374151]">
                   {project.delivery_address}
                 </span>
+              )}
+              {/* Lead source (116) — editable here because most projects
+                  predate the create-time picker. */}
+              {org?.id && (
+                <LeadSourcePill
+                  projectId={projectId}
+                  orgId={org.id}
+                  initial={(project as { lead_source?: string | null }).lead_source ?? null}
+                />
               )}
               <span className="text-[#9CA3AF]">·</span>
               <span className="text-[#9CA3AF]">

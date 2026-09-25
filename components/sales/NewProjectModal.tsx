@@ -9,6 +9,7 @@
 import { useState } from 'react'
 import { X, Plus } from 'lucide-react'
 import NewProjectClientPicker from '@/components/sales/NewProjectClientPicker'
+import LeadSourcePicker from '@/components/sales/LeadSourcePicker'
 import { createBlankLeadProject, type SalesProject } from '@/lib/sales'
 
 export default function NewProjectModal({
@@ -23,6 +24,7 @@ export default function NewProjectModal({
   const [name, setName] = useState('')
   const [clientName, setClientName] = useState('')
   const [clientId, setClientId] = useState<string | null>(null)
+  const [leadSource, setLeadSource] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,6 +38,7 @@ export default function NewProjectModal({
         name: name.trim(),
         client_id: clientId,
         client_name: clientId ? clientName.trim() || null : null,
+        lead_source: leadSource,
       })
       if (!p) throw new Error('Could not create the project.')
       onCreated(p)
@@ -97,6 +100,17 @@ export default function NewProjectModal({
               }}
               onSubmitForm={handleCreate}
             />
+          </div>
+          {/* Where the job came from (116) — captured at entry because
+              nobody backfills it later; the advertising scoreboard depends
+              on this moment. Optional, never blocks creation. */}
+          <div className="mb-1 mt-3">
+            <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+              Lead source (optional)
+            </label>
+            <div className="mt-1">
+              <LeadSourcePicker orgId={orgId} value={leadSource} onChange={setLeadSource} />
+            </div>
           </div>
 
           {error && (

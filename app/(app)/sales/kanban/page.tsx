@@ -30,6 +30,7 @@ import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
 import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus, Search, X, Copy } from 'lucide-react'
 import { DuplicateProjectModal } from '@/components/project/DuplicateProjectModal'
+import { setProjectLostReason } from '@/lib/lead-sources'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
 import ImportedBadge from '@/components/imported-badge'
 import { coverStageOf, COVER_STAGE_LABEL, STAGE_COLORS } from '@/components/project/StagePill'
@@ -100,6 +101,8 @@ function KanbanInner() {
   const [noteFor, setNoteFor] = useState<SalesProject | null>(null)
   const [noteBody, setNoteBody] = useState('')
   const [dupFor, setDupFor] = useState<SalesProject | null>(null)
+  const [lostReasonFor, setLostReasonFor] = useState<SalesProject | null>(null)
+  const [lostReason, setLostReason] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [newOpen, setNewOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -177,6 +180,9 @@ function KanbanInner() {
       await updateProjectStage(project.id, targetStage)
       // The sell-it guide waits on the card actually landing in Sold.
       if (targetStage === 'sold') announce('ms:project-sold')
+      // Why did it die? Asked AFTER the stage write succeeds — capture must
+      // never block the drag (the spec's one hard rule). Skippable.
+      if (targetStage === 'lost') setLostReasonFor(project)
     } catch (err) {
       console.error('updateProjectStage failed', err)
       // Reload to resync on failure.
@@ -378,6 +384,64 @@ function KanbanInner() {
                 className="px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50"
               >
                 {savingNote ? 'Saving…' : 'Save note (⌘↩)'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {lostReasonFor && (
+        <div
+          className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4"
+          onClick={() => { setLostReasonFor(null); setLostReason('') }}
+        >
+          <div
+            className="bg-white border border-[#E5E7EB] rounded-xl w-full max-w-md p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              Marked lost
+            </div>
+            <div className="text-base font-semibold text-[#111] truncate">{lostReasonFor.name}</div>
+            <div className="mt-1 text-[12px] text-[#6B7280]">
+              Why did it die? Optional — feeds the lost archive and the sales report.
+            </div>
+            <textarea
+              autoFocus
+              value={lostReason}
+              onChange={(e) => setLostReason(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { setLostReasonFor(null); setLostReason('') }
+              }}
+              rows={3}
+              placeholder="Went with another shop on price. Project shelved. Never answered."
+              className="mt-3 w-full text-sm bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 outline-none focus:border-[#2563EB] resize-none"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                onClick={() => { setLostReasonFor(null); setLostReason('') }}
+                className="px-3 py-2 text-sm text-[#6B7280] hover:text-[#111]"
+              >
+                Skip
+              </button>
+              <button
+                onClick={async () => {
+                  const p = lostReasonFor
+                  const reason = lostReason.trim()
+                  setLostReasonFor(null)
+                  setLostReason('')
+                  if (p && reason) {
+                    try {
+                      await setProjectLostReason(p.id, reason)
+                    } catch (err) {
+                      console.error('setProjectLostReason', err)
+                    }
+                  }
+                }}
+                disabled={!lostReason.trim()}
+                className="px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50"
+              >
+                Save reason
               </button>
             </div>
           </div>
