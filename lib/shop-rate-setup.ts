@@ -132,6 +132,88 @@ export function deptDailyHoursByTeam(
   return out
 }
 
+/** A capacity_overrides row, as far as capacity math cares (045). */
+export interface CapacityOverrideRow {
+  override_date: string
+  team_member_id: string | null
+  department_id: string | null
+  reason?: string | null
+  hours_reduction: number | null
+}
+
+/**
+ * Hours each override takes out of each department, per day — the
+ * subtraction half of `deptDailyHoursByTeam`, using the SAME even split so
+ * the two can never disagree (October batch item 7).
+ *
+ * Returns `date → deptId → hours`.
+ *
+ *   · Individual PTO (team_member_id set): the member's hours_reduction (0 →
+ *     their own daily hours) split evenly across their dept_assignments —
+ *     exactly the share they ADDED to each dept. Skipped when the member
+ *     doesn't count toward capacity at all (non-billable, inactive, no
+ *     depts, off the roster): their day off removes nothing that was there.
+ *     Capped at the member's own day so a stray 24h row can't eat a dept.
+ *   · Company holiday (no member, no dept): every dept loses its whole day.
+ *   · Dept-scoped holiday (no member, dept set): that dept loses its whole day.
+ *   · "Reassigned to …" rows move a person, they don't remove one — skipped,
+ *     same as the schedule engine's headcount builder.
+ *
+ * Callers clamp at zero after subtracting; this just reports what's out.
+ */
+export function capacityReductionsByDay(
+  overrides: CapacityOverrideRow[],
+  team: TeamMember[],
+  defaultHrsPerWeek = 40,
+): Record<string, Record<string, number>> {
+  const dailyByDept = deptDailyHoursByTeam(team, defaultHrsPerWeek)
+  const byId = new Map((team || []).map((m) => [m.id, m]))
+  const out: Record<string, Record<string, number>> = {}
+  const add = (date: string, deptId: string, h: number) => {
+    if (!(h > 0)) return
+    const day = (out[date] ||= {})
+    day[deptId] = (day[deptId] || 0) + h
+  }
+  // A holiday already removes the whole dept-day; PTO on the same day must
+  // not subtract on top of it.
+  const holidayDepts: Record<string, Set<string> | 'all'> = {}
+
+  for (const ov of overrides || []) {
+    if (ov.team_member_id) continue
+    if (ov.reason?.startsWith('Reassigned to')) continue
+    if (!ov.department_id) {
+      holidayDepts[ov.override_date] = 'all'
+      for (const [deptId, h] of Object.entries(dailyByDept)) add(ov.override_date, deptId, h)
+    } else {
+      const cur = holidayDepts[ov.override_date]
+      if (cur === 'all') continue
+      const set = cur || new Set<string>()
+      if (set.has(ov.department_id)) continue
+      set.add(ov.department_id)
+      holidayDepts[ov.override_date] = set
+      add(ov.override_date, ov.department_id, dailyByDept[ov.department_id] || 0)
+    }
+  }
+
+  for (const ov of overrides || []) {
+    if (!ov.team_member_id) continue
+    if (ov.reason?.startsWith('Reassigned to')) continue
+    const m = byId.get(ov.team_member_id)
+    if (!m || !m.billable || m.active === false) continue
+    const depts = m.dept_assignments || []
+    if (depts.length === 0) continue
+    const daily = memberDailyHours(m, defaultHrsPerWeek)
+    const raw = Number(ov.hours_reduction) || 0
+    const hours = Math.min(raw > 0 ? raw : daily, daily)
+    const hol = holidayDepts[ov.override_date]
+    for (const deptId of depts) {
+      if (hol === 'all' || (hol && hol.has(deptId))) continue
+      add(ov.override_date, deptId, hours / depts.length)
+    }
+  }
+  return out
+}
+
 export interface BillableHoursInputs {
   hrs_per_week: number
   weeks_per_year: number

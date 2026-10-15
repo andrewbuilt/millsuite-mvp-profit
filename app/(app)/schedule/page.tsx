@@ -8,7 +8,13 @@ import { supabase } from '@/lib/supabase'
 import { loadSubprojectStatusMap, SubprojectStatus } from '@/lib/subproject-status'
 import { seedAllocationsForProduction } from '@/lib/schedule-seed'
 import DivideBlockModal from '@/components/schedule/DivideBlockModal'
-import { loadShopRateSetup, deptDailyHoursByTeam } from '@/lib/shop-rate-setup'
+import {
+  loadShopRateSetup,
+  deptDailyHoursByTeam,
+  capacityReductionsByDay,
+  type CapacityOverrideRow,
+} from '@/lib/shop-rate-setup'
+import { isoDate as isoDay } from '@/lib/time-filters'
 
 // =====================================================
 // TYPES
@@ -419,7 +425,9 @@ function WeekHeaders({ numWeeks, weekZero, weekOffset = 0, departments, capacity
   weekOffset?: number
   departments: Department[]
   capacityMap: Record<string, number>
-  effectiveCapacity: (deptId: string) => number
+  /** Capacity for a dept; pass the VIEW week to get that week's PTO/holiday-
+   *  reduced figure (October batch item 7). Omit it for the base h/wk. */
+  effectiveCapacity: (deptId: string, week?: number) => number
   onWeekClick?: (weekIndex: number) => void
 }) {
   const getWeekLabel = (i: number): string => {
@@ -440,7 +448,7 @@ function WeekHeaders({ numWeeks, weekZero, weekOffset = 0, departments, capacity
     <>
       {Array.from({ length: numWeeks }, (_, i) => {
         const wt = departments.reduce((s, d) => s + (capacityMap[`${d.id}::${i}`] || 0), 0)
-        const wc = departments.reduce((s, d) => s + effectiveCapacity(d.id), 0)
+        const wc = departments.reduce((s, d) => s + effectiveCapacity(d.id, i), 0)
         const wp = wc > 0 ? Math.round((wt / wc) * 100) : 0
         const dotC = capColor(wp)
         return (
@@ -469,13 +477,14 @@ function CapacityRow({ numWeeks, departments, capacityMap, effectiveCapacity, de
   numWeeks: number
   departments: Department[]
   capacityMap: Record<string, number>
-  effectiveCapacity: (deptId: string) => number
+  /** Capacity for a dept; pass the VIEW week to get that week's PTO/holiday-
+   *  reduced figure (October batch item 7). Omit it for the base h/wk. */
+  effectiveCapacity: (deptId: string, week?: number) => number
   deptColors: Record<string, { bg: string; light: string; text: string }>
   labelWidth: number
   top: number
 }) {
   const usePill = numWeeks > 26
-  const totalCap = departments.reduce((s, d) => s + effectiveCapacity(d.id), 0)
   return (
     <div style={{ display: 'flex', position: 'sticky', top, zIndex: 9, background: '#FAFAFA', borderBottom: '1px solid #E5E7EB' }}>
       <div style={{ width: labelWidth, minWidth: labelWidth, flexShrink: 0, position: 'sticky', left: 0, zIndex: 12, background: '#FAFAFA', borderRight: '1px solid #E5E7EB', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
@@ -491,6 +500,7 @@ function CapacityRow({ numWeeks, departments, capacityMap, effectiveCapacity, de
       </div>
       {Array.from({ length: numWeeks }, (_, i) => {
         const wt = departments.reduce((s, d) => s + (capacityMap[`${d.id}::${i}`] || 0), 0)
+        const totalCap = departments.reduce((s, d) => s + effectiveCapacity(d.id, i), 0)
         const wp = totalCap > 0 ? Math.round((wt / totalCap) * 100) : 0
         const c = capColor(wp)
         return (
@@ -518,7 +528,9 @@ function FlowView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete, de
   deptColors: Record<string, { bg: string; light: string; text: string }>
   projectColors: Record<string, { bg: string; light: string; text: string; border: string }>
   capacityMap: Record<string, number>
-  effectiveCapacity: (deptId: string) => number
+  /** Capacity for a dept; pass the VIEW week to get that week's PTO/holiday-
+   *  reduced figure (October batch item 7). Omit it for the base h/wk. */
+  effectiveCapacity: (deptId: string, week?: number) => number
   filter: string | null
   highlightKey: string | null
   dragState: DragStateType | null
@@ -584,11 +596,15 @@ function FlowView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete, de
               const ck = `${dept.id}::${wi}`
               const cellBlks = visibleCellMap[ck] || []
               const th = capacityMap[ck] || 0
-              const oc = th > cap
-              const overflow = oc ? th - cap : 0
+              // This week's capacity — the base minus anyone's PTO/holiday.
+              const weekCap = effectiveCapacity(dept.id, wi)
+              const timeOff = Math.max(0, cap - weekCap)
+              const oc = th > weekCap
+              const overflow = oc ? th - weekCap : 0
               return (
                 <div key={wi} style={{ width: WEEK_WIDTH, minWidth: WEEK_WIDTH, flexShrink: 0, minHeight: ROW_HEIGHT, position: 'relative', borderRight: '1px solid #F3F4F6', background: oc ? '#FEF2F2' : wi % 2 === 0 ? '#FFF' : '#FAFBFC', padding: '14px 3px 3px', display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'flex-start', transition: 'background 0.2s' }}>
-                  {th > 0 && <div style={{ position: 'absolute', top: 2, right: 5, fontSize: 8, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: oc ? '#DC2626' : (th / cap) > 0.8 ? '#D97706' : '#C4C4C4' }}>{hrs(th)}h{overflow > 0 && <span style={{ color: '#DC2626' }}> (+{hrs(overflow)})</span>}</div>}
+                  {timeOff > 0.05 && <div title={`Time off this week: ${hrs(cap)}h → ${hrs(weekCap)}h`} style={{ position: 'absolute', top: 2, left: 5, fontSize: 8, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: '#7C3AED' }}>−{hrs(timeOff)}h off</div>}
+                  {th > 0 && <div style={{ position: 'absolute', top: 2, right: 5, fontSize: 8, fontWeight: 600, fontFamily: "'SF Mono', monospace", color: oc ? '#DC2626' : weekCap > 0 && (th / weekCap) > 0.8 ? '#D97706' : '#C4C4C4' }}>{hrs(th)}h{overflow > 0 && <span style={{ color: '#DC2626' }}> (+{hrs(overflow)})</span>}</div>}
                   {cellBlks.map(block => {
                     const c = projectColors[block.project] || COLOR_PALETTE[0]
                     const sk = getSubKey(block)
@@ -661,7 +677,9 @@ function SwimlaneView({ blocks, numWeeks, weekZero, weekOffset, onToggleComplete
   deptIndex: Record<string, number>
   deptShortMap: Record<string, string>
   capacityMap: Record<string, number>
-  effectiveCapacity: (deptId: string) => number
+  /** Capacity for a dept; pass the VIEW week to get that week's PTO/holiday-
+   *  reduced figure (October batch item 7). Omit it for the base h/wk. */
+  effectiveCapacity: (deptId: string, week?: number) => number
   filter: string | null
   highlightKey: string | null
   dragState: DragStateType | null
@@ -993,6 +1011,9 @@ export default function SchedulePage() {
   // Per-dept daily capacity hours (hours_per_week / 5 summed over the dept's
   // active billable members). Shared definition with /capacity + /team.
   const [dailyHoursByDept, setDailyHoursByDept] = useState<Record<string, number>>({})
+  /** `${deptId}::${absoluteWeek}` → hours of PTO/holiday out that week, from
+   *  capacity_overrides via the shared `capacityReductionsByDay`. */
+  const [capacityOutByWeek, setCapacityOutByWeek] = useState<Record<string, number>>({})
 
   // --- UI state ---
   const [dragState, setDragState] = useState<DragStateType | null>(null)
@@ -1157,10 +1178,17 @@ export default function SchedulePage() {
     [whatIfBlocks, blocks, weekOffset],
   )
 
-  const effectiveCapacity = useCallback((deptId: string) => {
+  // ⛔ PTO + HOLIDAYS COME OFF HERE (October batch item 7). /schedule used to
+  // treat every week as a full week — approved time off wrote its
+  // capacity_overrides rows and nothing on this page ever read them.
+  // `capacityOutByWeek` is ABSOLUTE-week keyed; `week` arrives in view space.
+  // A sim-mode what-if override still wins outright (it's a hypothetical).
+  const effectiveCapacity = useCallback((deptId: string, week?: number) => {
     if (capacityOverrides[deptId] != null) return capacityOverrides[deptId]
-    return deptCapacities[deptId] || 0
-  }, [capacityOverrides, deptCapacities])
+    const base = deptCapacities[deptId] || 0
+    if (week == null) return base
+    return Math.max(0, base - (capacityOutByWeek[`${deptId}::${week + weekOffset}`] || 0))
+  }, [capacityOverrides, deptCapacities, capacityOutByWeek, weekOffset])
 
   const capacityMap = useMemo(() => {
     const m: Record<string, number> = {}
@@ -1318,9 +1346,40 @@ export default function SchedulePage() {
     // dept they're assigned to. Non-billable/inactive members don't count
     // toward capacity (billable still counts toward the shop-rate numerator).
     const setup = await loadShopRateSetup(org.id)
-    setDailyHoursByDept(
-      deptDailyHoursByTeam(setup.team, Number(setup.billable?.hrs_per_week) || 40),
-    )
+    const orgHpw = Number(setup.billable?.hrs_per_week) || 40
+    setDailyHoursByDept(deptDailyHoursByTeam(setup.team, orgHpw))
+
+    // Time off → per-dept, per-week capacity reductions. Same helper
+    // /capacity uses, so the two pages subtract identically. A wide window
+    // (half a year back, two ahead) because paging moves the view freely.
+    {
+      const from = new Date(originMonday)
+      from.setDate(from.getDate() - 26 * 7)
+      const to = new Date(originMonday)
+      to.setDate(to.getDate() + 104 * 7)
+      const { data: ovs, error: ovErr } = await supabase
+        .from('capacity_overrides')
+        .select('override_date, team_member_id, department_id, reason, hours_reduction')
+        .eq('org_id', org.id)
+        .gte('override_date', isoDay(from))
+        .lte('override_date', isoDay(to))
+      if (ovErr) console.warn('/schedule: capacity_overrides', ovErr)
+      const perDay = capacityReductionsByDay((ovs || []) as CapacityOverrideRow[], setup.team, orgHpw)
+      const out: Record<string, number> = {}
+      for (const [date, byDept] of Object.entries(perDay)) {
+        const d = new Date(date + 'T00:00:00')
+        const dow = d.getDay()
+        if (dow === 0 || dow === 6) continue
+        // Round the day count: a DST week is 167/169 hours, not 168.
+        const days = Math.round((d.getTime() - originMonday.getTime()) / 86400000)
+        const absWeek = Math.floor(days / 7)
+        for (const [deptId, h] of Object.entries(byDept)) {
+          const k = `${deptId}::${absWeek}`
+          out[k] = (out[k] || 0) + h
+        }
+      }
+      setCapacityOutByWeek(out)
+    }
 
     // Load allocations
     if (allSubIds.length === 0) {
@@ -1958,7 +2017,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
   const totalHours = useMemo(() => displayBlocks.reduce((s, b) => s + b.hours, 0), [displayBlocks])
   const overCapCount = useMemo(() => {
     let c = 0
-    for (const d of departments) { const cap = effectiveCapacity(d.id); for (let w = 0; w < numWeeks; w++) if ((capacityMap[`${d.id}::${w}`] || 0) > cap) c++ }
+    for (const d of departments) { for (let w = 0; w < numWeeks; w++) if ((capacityMap[`${d.id}::${w}`] || 0) > effectiveCapacity(d.id, w)) c++ }
     return c
   }, [capacityMap, effectiveCapacity, departments, numWeeks])
 
@@ -2191,7 +2250,7 @@ CRITICAL: Start with { end with }. No markdown. No backticks.`
                     const deptBlocks = weekBlocks.filter(b => b.dept === dept.id)
                     if (deptBlocks.length === 0) return null
                     const deptH = deptBlocks.reduce((s, b) => s + b.hours, 0)
-                    const cap = effectiveCapacity(dept.id)
+                    const cap = effectiveCapacity(dept.id, selectedWeek)
                     const pct = cap > 0 ? Math.round((deptH / cap) * 100) : 0
                     const dc = deptColors[dept.id] || DEPT_COLOR_PALETTE[0]
 

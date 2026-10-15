@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth-context'
 import { ChevronLeft, ChevronRight, X, RefreshCw, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { loadProjectDeptHours } from '@/lib/project-hours'
-import { loadShopRateSetup, deptDailyHoursByTeam, type TeamMember } from '@/lib/shop-rate-setup'
+import { loadShopRateSetup, deptDailyHoursByTeam, capacityReductionsByDay, type TeamMember } from '@/lib/shop-rate-setup'
 import { loadPracticeProjectIds } from '@/lib/practice'
 
 interface Department { id: string; name: string; color: string; hours_per_day: number }
@@ -266,6 +266,7 @@ function CapacityContent() {
       // Department-scoped holidays only knock days off that one dept; the
       // common case (company-wide) has department_id NULL.
       const monthOverrides = capacityOverrides.filter((o) => o.override_date.startsWith(month))
+      const monthReductions = capacityReductionsByDay(monthOverrides, team, orgHrsPerWeek)
       const holidays = monthOverrides.filter((o) => o.team_member_id == null)
       const ptos = monthOverrides.filter((o) => o.team_member_id != null)
 
@@ -310,30 +311,36 @@ function CapacityContent() {
         a.date.localeCompare(b.date),
       )
 
+      // ⛔ PER-DEPT, FROM THE SHARED HELPER (October batch item 7). PTO used
+      // to come off the shop-wide TOTAL only — every dept row kept its full
+      // hours through someone's week off — and it subtracted non-billable
+      // people's days, which never counted toward capacity in the first
+      // place. `capacityReductionsByDay` takes each day off the member's
+      // depts in the SAME even split `deptDailyHoursByTeam` added them with
+      // (holidays too), so /capacity and /schedule subtract identically.
+      // Weekdays only: `workingDays` already excludes weekends.
+      const deptOut: Record<string, number> = {}
+      for (const [date, byDept] of Object.entries(monthReductions)) {
+        const dow = new Date(date + 'T12:00:00').getDay()
+        if (dow === 0 || dow === 6) continue
+        for (const [deptId, h] of Object.entries(byDept)) deptOut[deptId] = (deptOut[deptId] || 0) + h
+      }
+      // The card's "PTO hours" figure = what PTO alone actually removed
+      // (a non-billable person's day off is no longer counted here either).
+      const ptoHours = Object.values(capacityReductionsByDay(ptos, team, orgHrsPerWeek)).reduce(
+        (sum, byDept) => sum + Object.values(byDept).reduce((a, b) => a + b, 0),
+        0,
+      )
       const deptCapacity: Record<string, number> = {}
       let totalCapacity = 0
       for (const dept of departments) {
         // Per-day capacity hours contributed by the dept's members
-        // (hours_per_week / 5 each). Supersedes the old
-        // headcount × dept.hours_per_day; a 40h/wk member = 8h/day, so
-        // seeded 8h/day depts are unchanged.
+        // (hours_per_week / 5 each, split evenly across their depts).
         const deptDailyHours = dailyHoursByDept[dept.id] || 0
-        const deptHolidayCount = holidays.filter(
-          (h) => h.department_id == null || h.department_id === dept.id,
-        ).length
-        const effectiveDays = Math.max(0, workingDays - deptHolidayCount)
-        const cap = deptDailyHours * effectiveDays
+        const cap = Math.max(0, deptDailyHours * workingDays - (deptOut[dept.id] || 0))
         deptCapacity[dept.id] = cap
         totalCapacity += cap
       }
-
-      // PTO subtracts from the shop-wide total. Per-dept attribution would
-      // require knowing each member's primary dept; deferred to PR-B.
-      const ptoHours = ptos.reduce((sum, p) => {
-        const h = Number(p.hours_reduction) || 0
-        return sum + (h > 0 ? h : DEFAULT_DAY_HOURS)
-      }, 0)
-      totalCapacity = Math.max(0, totalCapacity - ptoHours)
 
       // Surfaced on the month card header.
       const holidayCount = holidays.length
@@ -400,7 +407,7 @@ function CapacityContent() {
         daySummaries,
       }
     })
-  }, [departments, dailyHoursByDept, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById])
+  }, [departments, dailyHoursByDept, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById, team, orgHrsPerWeek])
 
   // Unscheduled projects (not in any month). Pipeline-stage projects only
   // appear in the tray when the toggle is on — so they're only draggable
