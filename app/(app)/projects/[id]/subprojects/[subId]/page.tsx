@@ -80,6 +80,7 @@ import type { ProductKey } from '@/lib/products'
 import {
   bulkRefreshStaleLines,
   findStaleLines,
+  staleLineMath,
 } from '@/lib/composer-staleness'
 import { isPresold, type ProjectStage } from '@/lib/types'
 import CreateChangeOrderModal from '@/components/changeorders/CreateChangeOrderModal'
@@ -732,6 +733,17 @@ export default function SubprojectEditorPage() {
     })
   }, [staleLines, lines])
 
+  // ⛔ A NO-CHANGE FIRE, FOUND AND FIXED (October batch item 8). The
+  // composer's waste/consumables knobs save to subprojects.defaults, but this
+  // page read the defaults ONCE at load. Change waste in the composer, save a
+  // line, and the line just written at the new waste % was recomputed here
+  // at the old one — "out of date" on a line nobody had touched since. Re-read
+  // whenever the composer closes (cancel too: the knobs persist on blur).
+  async function reloadComposerDefaults() {
+    const sd = await loadSubprojectDefaults(subId)
+    setComposerDefaults(sd ?? initialSubprojectDefaults(org?.consumable_markup_pct ?? null))
+  }
+
   async function handleRefreshStale() {
     if (staleLines.length === 0) return
     setRefreshingStale(true)
@@ -1012,6 +1024,52 @@ export default function SubprojectEditorPage() {
                   {staleLines.length} composer line{staleLines.length === 1 ? '' : 's'} out of date.
                   Recompute against the current rate book to push the new numbers into the lines.
                 </div>
+                {/* ⛔ THE BANNER SHOWS ITS MATH (October batch item 8). It used
+                    to assert "rates changed" with nothing behind it, so a
+                    real change (a sheet price edited after the lines were
+                    saved) and a phantom were indistinguishable. Every line,
+                    stored vs recomputed, the $ it would move, and the
+                    current prices the recompute used. */}
+                <details className="mt-1.5 text-[11.5px] text-[#78350F]">
+                  <summary className="cursor-pointer font-medium hover:underline">Show the math</summary>
+                  <div className="mt-1.5 space-y-2">
+                    {staleLines.map((st) => {
+                      const line = lines.find((l) => l.id === st.lineId)
+                      const m = staleLineMath(st, shopRate)
+                      const money = (n: number) =>
+                        `${n < 0 ? '−' : '+'}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
+                      return (
+                        <div key={st.lineId} className="rounded-md bg-white/60 border border-[#FDE68A] px-2.5 py-1.5">
+                          <div className="font-medium text-[#451A03] [overflow-wrap:anywhere]">
+                            {line?.description || st.productKey} · qty {st.qty}
+                            <span className={`ml-2 font-mono ${m.dollarDelta < 0 ? 'text-[#047857]' : 'text-[#B91C1C]'}`}>
+                              {money(m.dollarDelta)} on this line
+                            </span>
+                          </div>
+                          {m.material && (
+                            <div className="font-mono text-[11px]">
+                              Material/unit: ${m.material.stored.toFixed(2)} saved → ${m.material.fresh.toFixed(2)} now
+                              <span className="text-[#92400E]"> (incl. {st.wastePct}% waste, before consumables)</span>
+                            </div>
+                          )}
+                          {m.hours.map((h) => (
+                            <div key={h.dept} className="font-mono text-[11px]">
+                              {h.dept} hrs/unit: {h.stored.toFixed(2)} saved → {h.fresh.toFixed(2)} now
+                            </div>
+                          ))}
+                          {m.hours.length > 0 && (
+                            <div className="text-[10.5px] text-[#92400E]">Hours priced at ${m.rate.toFixed(2)}/hr.</div>
+                          )}
+                          {st.freshMaterialNotes.length > 0 && (
+                            <div className="text-[10.5px] text-[#92400E] mt-0.5">
+                              Current rate book: {st.freshMaterialNotes.join(' · ')}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </details>
                 <div className="text-[11px] text-[#78350F] mt-1 italic">
                   {staleHasDoorSlots && staleHasNonDoor
                     ? 'Cabinet door pricing also changed — re-pick door type/material/finish on those lines.'
@@ -1453,11 +1511,12 @@ export default function SubprojectEditorPage() {
           onCancel={() => {
             setComposerOpen(false)
             setEditingLineId(null)
+            void reloadComposerDefaults()
           }}
           onLineSaved={async () => {
             setComposerOpen(false)
             setEditingLineId(null)
-            const fresh = await loadEstimateLines(subId)
+            const [fresh] = await Promise.all([loadEstimateLines(subId), reloadComposerDefaults()])
             setLines(fresh)
           }}
         />

@@ -94,6 +94,54 @@ export interface StaleLineInfo {
    *  display alongside storedHoursByDept / storedMaterial. */
   freshHoursByDept: { eng: number; cnc: number; assembly: number; finish: number; install: number }
   freshMaterial: number
+  /** What the recompute priced the material WITH, from the current rate
+   *  book — "Carcass: 0.90 sht × $180". The banner shows these so a fire is
+   *  diagnosable on sight (October batch item 8): the operator sees today's
+   *  price and recognises it's not the price they quoted. */
+  freshMaterialNotes: string[]
+  /** The waste % the recompute used (baked into lump_cost_override). */
+  wastePct: number
+}
+
+const DEPT_LABEL: Record<keyof StaleLineInfo['storedHoursByDept'], string> = {
+  eng: 'Eng',
+  cnc: 'CNC',
+  assembly: 'Assembly',
+  finish: 'Finish',
+  install: 'Install',
+}
+
+/** The diff the banner prints — one call so the panel can't do its own math. */
+export interface StaleLineMath {
+  /** Per-dept PER-UNIT hours that moved: label, stored, fresh. */
+  hours: Array<{ dept: string; stored: number; fresh: number }>
+  /** PER-UNIT material (before consumables), stored vs fresh. Null when it
+   *  didn't move past the threshold. */
+  material: { stored: number; fresh: number } | null
+  /** Whole-line $ change if refreshed: Δmaterial×qty + Δhours×qty×rate.
+   *  Before consumables (the rollup re-applies them on top). */
+  dollarDelta: number
+  /** The labour rate the hours delta was priced at. */
+  rate: number
+}
+
+export function staleLineMath(info: StaleLineInfo, shopRate: number): StaleLineMath {
+  const hours: StaleLineMath['hours'] = []
+  let hoursDelta = 0
+  for (const k of Object.keys(DEPT_LABEL) as Array<keyof typeof DEPT_LABEL>) {
+    const st = info.storedHoursByDept[k]
+    const fr = info.freshHoursByDept[k]
+    if (Math.abs(st - fr) > EPS_HR) hours.push({ dept: DEPT_LABEL[k], stored: st, fresh: fr })
+    hoursDelta += fr - st
+  }
+  const matMoved = Math.abs(info.storedMaterial - info.freshMaterial) > EPS_DOLLARS
+  const rate = Number(shopRate) || 0
+  return {
+    hours,
+    material: matMoved ? { stored: info.storedMaterial, fresh: info.freshMaterial } : null,
+    dollarDelta: (info.freshMaterial - info.storedMaterial) * info.qty + hoursDelta * info.qty * rate,
+    rate,
+  }
 }
 
 /**
@@ -244,10 +292,24 @@ export function checkLineStaleness(
     })
   }
 
+  const notes: string[] = []
+  const note = (label: string, detail: string | null | undefined) => {
+    if (detail) notes.push(`${label}: ${detail}`)
+  }
+  note('Carcass', fresh.carcassMaterialDetail)
+  note('Back', fresh.backPanelMaterialDetail)
+  note('Doors', fresh.doorMaterialDetail)
+  note('Drawers', fresh.drawerMaterialDetail)
+  note('Features', fresh.featureDetail)
+  note('Interior finish', fresh.interiorFinishDetail)
+  note('Exterior finish', fresh.exteriorFinishDetail)
+
   return {
     lineId: line.id,
     productKey: line.product_key as ProductKey,
     qty,
+    freshMaterialNotes: notes,
+    wastePct: Number(defaults.wastePct) || 0,
     freshStorage,
     freshHoursByDept,
     freshMaterial: freshStorage.lumpCostOverride,
