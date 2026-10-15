@@ -22,7 +22,7 @@
 import { supabase } from '../supabase'
 import { loadProjectDeptHours } from '../project-hours'
 import type { BookedProject } from './outlookCalculations'
-import { loadPracticeProjectIds } from '@/lib/practice'
+import { loadExcludedProjectIds } from '@/lib/practice'
 
 interface ProjectRow {
   id: string
@@ -53,7 +53,7 @@ export async function loadBookedProjects(orgId: string): Promise<BookedProject[]
   // up in the booked-work outlook as real revenue. Ids come from a separate
   // best-effort query (see lib/practice.ts) so a pre-088 database just reports
   // no practice projects rather than failing the chart.
-  const practice = await loadPracticeProjectIds(orgId)
+  const practice = await loadExcludedProjectIds(orgId)
   const projects = ((projData || []) as ProjectRow[]).filter((p) => !practice.has(p.id))
   if (projects.length === 0) return []
 

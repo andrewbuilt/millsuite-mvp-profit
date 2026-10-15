@@ -22,7 +22,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { loadPracticeProjectIds } from '@/lib/practice'
+import { loadExcludedProjectIds } from '@/lib/practice'
 
 interface Risk {
   id: string
@@ -75,7 +75,7 @@ export default function ProjectsAtRiskCard({
       // rate book, so they'd show up here as real overruns. Loaded separately
       // so a pre-088 database degrades to "no practice projects" instead of
       // failing the card.
-      const practice = await loadPracticeProjectIds(orgId)
+      const practice = await loadExcludedProjectIds(orgId)
       if (cancelled) return
 
       const projects = (projRes.data || []).filter((p) => !practice.has(p.id))

@@ -15,6 +15,7 @@ import {
   type CapacityOverrideRow,
 } from '@/lib/shop-rate-setup'
 import { isoDate as isoDay } from '@/lib/time-filters'
+import { loadTempProjectIds } from '@/lib/temp-projects'
 
 // =====================================================
 // TYPES
@@ -1296,7 +1297,11 @@ export default function SchedulePage() {
       .in('stage', ['production', 'installed'])
       .order('name')
 
-    const projs: Project[] = projData || []
+    // Temp projects (117) are hours-only tracking jobs: kept off the
+    // schedule entirely — and, critically, out of the self-heal below, which
+    // would otherwise SEED allocations for them as production jobs.
+    const tempIds = await loadTempProjectIds(org.id)
+    const projs: Project[] = (projData || []).filter((p) => !tempIds.has(p.id))
     setProjects(projs)
 
     // Self-heal: any production project that advanced under the PR1 stub

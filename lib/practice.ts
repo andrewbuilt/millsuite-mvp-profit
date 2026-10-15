@@ -20,6 +20,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { deleteProject } from '@/lib/sales'
+import { loadTempProjectIds } from '@/lib/temp-projects'
 
 export interface PracticeProject {
   id: string
@@ -47,6 +48,14 @@ export async function loadPracticeProjectIds(orgId: string): Promise<Set<string>
     .not('practice_at', 'is', null)
   if (error || !data) return new Set()
   return new Set(data.map((r) => r.id as string))
+}
+
+/** Practice ∪ temp (117): every project that must never reach a number
+ *  anyone makes a decision on — reports, capacity, schedule, payments, sales,
+ *  the /pm money cards. Same best-effort contract: empty set on failure. */
+export async function loadExcludedProjectIds(orgId: string): Promise<Set<string>> {
+  const [practice, temp] = await Promise.all([loadPracticeProjectIds(orgId), loadTempProjectIds(orgId)])
+  return new Set([...practice, ...temp])
 }
 
 export async function listPracticeProjects(orgId: string): Promise<PracticeProject[]> {

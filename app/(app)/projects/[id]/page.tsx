@@ -190,6 +190,7 @@ import ProjectTaskButton from '@/components/tasks/ProjectTaskButton'
 import TimelineDrawer from '@/components/project/TimelineDrawer'
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
+import TempProjectView from '@/components/projects/TempProjectView'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
 
 interface Project {
@@ -1653,6 +1654,13 @@ export default function ProjectCoverPage() {
         </div>
       </>
     )
+  }
+
+  // Temp project (117): hours only — the whole money page is replaced by a
+  // name, its subs and est vs tracked. `select('*')` above carries temp_at
+  // once the column exists; pre-117 it's simply undefined.
+  if ((project as { temp_at?: string | null }).temp_at && org?.id) {
+    return <TempProjectView orgId={org.id} projectId={projectId} name={project.name} />
   }
 
   return (

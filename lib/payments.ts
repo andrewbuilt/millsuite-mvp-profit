@@ -10,6 +10,7 @@
 // piggyback on the receivables table with `type='receivable'` (lib/milestones).
 // ============================================================================
 
+import { loadTempProjectIds } from './temp-projects'
 import { supabase } from './supabase'
 import { POSTSOLD_STAGES, type ProjectStage } from './types'
 import { formatLocalDate, type PaymentRow } from './payment-schedule'
@@ -359,7 +360,9 @@ export async function loadSoldProjects(orgId: string): Promise<SoldProjectRef[]>
     console.error('loadSoldProjects', error)
     return []
   }
-  return (data || []).map((r: any) => ({
+  // Temp projects (117) carry hours only — no contract, no draws.
+  const tempIds = await loadTempProjectIds(orgId)
+  return (data || []).filter((r: any) => !tempIds.has(r.id)).map((r: any) => ({
     id: r.id,
     name: r.name || 'Untitled project',
     clientName: r.client_name ?? null,

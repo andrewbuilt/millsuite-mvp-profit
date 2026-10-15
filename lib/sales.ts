@@ -10,6 +10,7 @@
 import { supabase } from './supabase'
 import { recordProjectEvent } from './project-events'
 import { fireAutoTask } from './auto-tasks'
+import { loadTempProjectIds } from './temp-projects'
 import type { ProjectStage } from './types'
 import type { ParsedScopeItem } from './pdf-parser'
 import { recomputeProjectBidTotal } from './project-totals'
@@ -119,10 +120,12 @@ export async function loadSalesProjects(
     console.error('loadSalesProjects', error)
     return { projects: [], summaries: {} }
   }
+  // Temp projects (117) are hours-only tracking jobs — never on the board.
+  const tempIds = await loadTempProjectIds(orgId)
 
   const projects: SalesProject[] = []
   const summaries: Record<string, SubprojectSummary> = {}
-  for (const row of data || []) {
+  for (const row of (data || []).filter((r: { id: string }) => !tempIds.has(r.id))) {
     const subs = (row as any).subprojects || []
     const lf = subs.reduce(
       (sum: number, s: any) => sum + (Number(s.linear_feet) || 0),

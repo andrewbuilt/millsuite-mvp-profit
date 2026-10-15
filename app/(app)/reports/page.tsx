@@ -29,7 +29,7 @@ import CompletedProjects from './components/CompletedProjects'
 import OutlookSection from './components/OutlookSection'
 import DiagnosticDrawer from './components/DiagnosticDrawer'
 import AiShopReport from './components/AiShopReport'
-import { loadPracticeProjectIds } from '@/lib/practice'
+import { loadExcludedProjectIds } from '@/lib/practice'
 
 // ── Period selector ──
 
@@ -233,7 +233,7 @@ export default function ReportsPage() {
 
       // Completed practice jobs would otherwise teach the learning loop from
       // work that never happened.
-      const practice = await loadPracticeProjectIds(org!.id)
+      const practice = await loadExcludedProjectIds(org!.id)
       const outcomes = (outcomesRes.data || []).filter(
         (o: any) => !practice.has(o.project_id),
       )

@@ -37,6 +37,8 @@ import { loadProjectActuals } from '@/lib/actual-hours'
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
+import { useTempProjects } from '@/hooks/useTempProjects'
+import TempProjectModal from '@/components/projects/TempProjectModal'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
 
 interface ProjectRow {
@@ -131,8 +133,10 @@ function useDebounced<T>(value: T, delay: number): T {
 
 export default function ProjectsPage() {
   const router = useRouter()
-  const { org } = useAuth()
+  const { org, user } = useAuth()
   const practiceIds = usePracticeProjects(org?.id)
+  const tempIds = useTempProjects(org?.id)
+  const [tempOpen, setTempOpen] = useState(false)
 
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [enriched, setEnriched] = useState<Record<string, Enriched>>({})
@@ -288,7 +292,21 @@ export default function ProjectsPage() {
   return (
     <div className="max-w-[1400px] mx-auto px-6 py-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#111]">Projects</h1>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h1 className="text-2xl font-semibold text-[#111]">Projects</h1>
+          {/* TEMP-PROJECT-BUTTON — temporary (October batch item 9): hours-only
+              jobs so the crew can track time on old work. Delete this button
+              (and the modal mount below) once the shop has cycled through the
+              old jobs; existing temp projects keep working without it. */}
+          {org?.id && user?.role !== 'member' && (
+            <button
+              onClick={() => setTempOpen(true)}
+              className="px-3 py-1.5 text-[13px] rounded-lg border border-dashed border-[#D1D5DB] text-[#4B5563] hover:border-[#2563EB] hover:text-[#2563EB]"
+            >
+              + Temp project
+            </button>
+          )}
+        </div>
         <p className="text-sm text-[#6B7280] mt-1">
           Everything sold and moving through the shop — pre-production through
           complete. Click any card to open the project.
@@ -371,12 +389,20 @@ export default function ProjectsPage() {
               key={p.id}
               project={p}
               isPractice={practiceIds.has(p.id)}
+              isTemp={tempIds.has(p.id)}
               enriched={enriched[p.id]}
               openCos={coOpen[p.id] || 0}
               onOpen={() => router.push(`/projects/${p.id}`)}
             />
           ))}
         </div>
+      )}
+      {tempOpen && org?.id && (
+        <TempProjectModal
+          orgId={org.id}
+          onClose={() => setTempOpen(false)}
+          onCreated={(id) => router.push(`/projects/${id}`)}
+        />
       )}
     </div>
   )
@@ -398,12 +424,14 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 function ProjectCard({
   project: p,
   isPractice,
+  isTemp,
   enriched: e,
   openCos,
   onOpen,
 }: {
   project: ProjectRow
   isPractice: boolean
+  isTemp: boolean
   enriched: Enriched | undefined
   openCos: number
   onOpen: () => void
@@ -424,6 +452,14 @@ function ProjectCard({
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <ImportedBadge importedAt={p.imported_at} />
           {isPractice && <PracticeBadge />}
+          {isTemp && (
+            <span
+              title="Temp project — hours only, for tracking time on an old job. Left out of sales, reports, capacity and the schedule."
+              className="inline-flex items-center text-[9.5px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]"
+            >
+              Temp
+            </span>
+          )}
           {openCos > 0 && (
             <span
               className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded-full border"
@@ -454,10 +490,14 @@ function ProjectCard({
         <div className="text-[12px] text-[#6B7280] truncate">{p.client_name}</div>
       )}
 
-      {/* Line 3: value */}
-      <div className="font-mono tabular-nums text-[#111] text-[15px] font-semibold">
-        {fmtMoney(p.bid_total)}
-      </div>
+      {/* Line 3: value — a temp project has none, and $0 would read as one. */}
+      {isTemp ? (
+        <div className="text-[12px] text-[#6B7280]">Hours only</div>
+      ) : (
+        <div className="font-mono tabular-nums text-[#111] text-[15px] font-semibold">
+          {fmtMoney(p.bid_total)}
+        </div>
+      )}
 
       {/* Line 4: stage-specific context */}
       <CardContext project={p} enriched={e} />

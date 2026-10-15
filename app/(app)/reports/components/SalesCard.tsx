@@ -14,6 +14,7 @@
 // numbers are computed from; nothing extrapolates.
 // ============================================================================
 
+import { loadTempProjectIds } from '@/lib/temp-projects'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { TrendingUp } from 'lucide-react'
@@ -53,6 +54,8 @@ export default function SalesCard() {
     if (!org?.id) return
     let cancelled = false
     ;(async () => {
+      // Temp projects (117) are hours-only tracking jobs, never sales.
+      const tempIds = await loadTempProjectIds(org.id)
       const { data, error } = await supabase
         .from('projects')
         .select(
@@ -64,7 +67,7 @@ export default function SalesCard() {
       if (error) console.error('SalesCard', error)
       else
         setRows(
-          ((data || []) as any[]).map((r) => ({
+          ((data || []) as any[]).filter((r) => !tempIds.has(r.id)).map((r) => ({
             id: r.id,
             name: r.name || '',
             clientName: r.client_name ?? null,

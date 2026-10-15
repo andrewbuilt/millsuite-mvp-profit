@@ -34,7 +34,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Hammer } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { loadPracticeProjectIds } from '@/lib/practice'
+import { loadExcludedProjectIds } from '@/lib/practice'
 import { loadSubprojectStatusMap } from '@/lib/subproject-status'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
@@ -85,7 +85,7 @@ export default function PreProductionCard({
           .select('id, name, bid_total, estimated_price, sold_at')
           .eq('org_id', orgId)
           .eq('stage', 'sold'),
-        loadPracticeProjectIds(orgId),
+        loadExcludedProjectIds(orgId),
       ])
       // Practice projects are the walkthrough's — a tutorial job wearing a
       // SOLD THIS WEEK badge on the real dashboard is noise dressed as news.
