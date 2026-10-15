@@ -14,6 +14,12 @@ import { triggerPhaseAdvance, triggerProjectRollup } from '@/lib/phase-client'
 import { useAuth } from '@/lib/auth-context'
 import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen, Download, Search } from 'lucide-react'
 import { fmtActualHours } from '@/lib/actual-hours'
+import {
+  loadActiveEntry,
+  clockIn,
+  clockOut,
+  type TimeEntry as WorkerTimeEntry,
+} from '@/lib/worker-time'
 
 // ─── Types ────────────────────────────────────────────────────────────
 interface Project {
@@ -50,12 +56,20 @@ interface TimeEntry {
   started_at: string | null
   ended_at: string | null
   created_at: string
+  /** Migration 117 — last manual edit on this page. Absent pre-117. */
+  edited_by?: string | null
+  edited_at?: string | null
   project?: Project
   subproject?: Subproject
   department?: Department
 }
 
-interface TimerState {
+// ⛔ THE RUNNING TIMER IS THE OPEN time_entries ROW (ended_at null) — the
+// same row /me's clock-in writes. This page used to keep its timer in
+// localStorage and only insert a row on Stop, so a timer started here was
+// invisible to the phone (and vice versa) — the October-batch item 4 bug.
+// The old key is read ONCE, to adopt a timer that was running at deploy time.
+interface LegacyTimerState {
   projectId: string
   subprojectId: string
   departmentId: string
@@ -63,7 +77,11 @@ interface TimerState {
   notes: string
 }
 
-const TIMER_KEY = 'millsuite_timer'
+const LEGACY_TIMER_KEY = 'millsuite_timer'
+
+/** How often to re-read the open row while the page is visible — so a timer
+ *  started or stopped on another device shows up within seconds. */
+const TIMER_POLL_MS = 15000
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 // Tracked time renders through the shared fmtActualHours ("2h 34m"). The local
@@ -148,6 +166,9 @@ export default function TimePage() {
   const [timerDepartmentId, setTimerDepartmentId] = useState('')
   const [timerNotes, setTimerNotes] = useState('')
   const [timerStartedAt, setTimerStartedAt] = useState<Date | null>(null)
+  /** The open row this timer IS. Null when stopped. */
+  const [activeEntry, setActiveEntry] = useState<WorkerTimeEntry | null>(null)
+  const [timerError, setTimerError] = useState<string | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [saved, setSaved] = useState(false)
@@ -164,6 +185,10 @@ export default function TimePage() {
   // Inline edit state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editHours, setEditHours] = useState('')
+  const [editProjectId, setEditProjectId] = useState('')
+  const [editSubprojectId, setEditSubprojectId] = useState('')
+  const [editDepartmentId, setEditDepartmentId] = useState('')
+  const [editError, setEditError] = useState<string | null>(null)
 
   // ── Fetch projects ────────────────────────────────────────────────
   const fetchProjects = useCallback(async () => {
@@ -225,7 +250,8 @@ export default function TimePage() {
       .gte('created_at', windowStart.toISOString())
       .order('created_at', { ascending: false })
 
-    if (data) setEntries(data as TimeEntry[])
+    // The open row is the running timer (shown above), not a 0-minute entry.
+    if (data) setEntries((data as TimeEntry[]).filter((e) => e.ended_at !== null))
   }, [])
 
   // ── Roster, for resolving who tracked each entry ──────────────────
@@ -299,24 +325,97 @@ export default function TimePage() {
     })
   }, [entries, filter, memberByUserId, entryDay])
 
-  // ── Restore timer from localStorage ───────────────────────────────
-  useEffect(() => {
-    const raw = localStorage.getItem(TIMER_KEY)
-    if (raw) {
-      try {
-        const state: TimerState = JSON.parse(raw)
-        setTimerProjectId(state.projectId)
-        setTimerSubprojectId(state.subprojectId)
-        setTimerDepartmentId(state.departmentId || '')
-        setTimerNotes(state.notes || '')
-        setTimerStartedAt(new Date(state.startedAt))
-        setTimerActive(true)
-        if (state.projectId) fetchSubprojects(state.projectId)
-      } catch {
-        localStorage.removeItem(TIMER_KEY)
-      }
+  // ── Sync the timer from the open row ──────────────────────────────
+  /** Make the timer UI mirror the open row (or its absence). */
+  const activeIdRef = useRef<string | null>(null)
+  const applyActive = useCallback((row: WorkerTimeEntry | null) => {
+    activeIdRef.current = row?.id ?? null
+    setActiveEntry(row)
+    if (row && row.started_at) {
+      setTimerProjectId(row.project_id)
+      setTimerSubprojectId(row.subproject_id || '')
+      setTimerDepartmentId(row.department_id || '')
+      setTimerNotes(row.notes || '')
+      setTimerStartedAt(new Date(row.started_at))
+      setTimerActive(true)
+      if (row.project_id) fetchSubprojects(row.project_id)
+    } else {
+      setTimerActive(false)
+      setTimerStartedAt(null)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchSubprojects])
+
+  const syncTimer = useCallback(async () => {
+    if (!user?.id) return
+    const row = await loadActiveEntry(user.id)
+    // A different open row (or none) than we're showing → another device
+    // started/stopped/switched. Same row → leave local edits (notes) alone.
+    if ((row?.id ?? null) !== activeIdRef.current) {
+      applyActive(row)
+      fetchEntries()
+    }
+  }, [user?.id, applyActive, fetchEntries])
+
+  // First load: adopt the open row; if there is none but this browser still
+  // holds a pre-fix localStorage timer, turn THAT into the open row once so
+  // nobody loses the span that was running when this shipped.
+  useEffect(() => {
+    if (!user?.id || !org?.id) return
+    let alive = true
+    void (async () => {
+      let row = await loadActiveEntry(user.id)
+      let legacy: LegacyTimerState | null = null
+      try {
+        const raw = localStorage.getItem(LEGACY_TIMER_KEY)
+        if (raw) legacy = JSON.parse(raw)
+      } catch { /* unreadable → ignore */ }
+      if (!row && legacy?.projectId && legacy.startedAt) {
+        try {
+          const { data } = await supabase
+            .from('time_entries')
+            .insert({
+              org_id: org.id,
+              user_id: user.id,
+              project_id: legacy.projectId,
+              subproject_id: legacy.subprojectId || null,
+              department_id: legacy.departmentId || null,
+              notes: legacy.notes || null,
+              started_at: legacy.startedAt,
+              ended_at: null,
+              duration_minutes: 0,
+            })
+            .select('*')
+            .single()
+          row = (data as WorkerTimeEntry) || null
+        } catch (e) {
+          console.error('adopt legacy timer', e)
+        }
+      }
+      try { localStorage.removeItem(LEGACY_TIMER_KEY) } catch { /* noop */ }
+      if (alive) applyActive(row)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [user?.id, org?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-read on focus / tab-visible, and poll while visible.
+  useEffect(() => {
+    if (!user?.id) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void syncTimer()
+    }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') void syncTimer()
+    }, TIMER_POLL_MS)
+    return () => {
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(t)
+    }
+  }, [user?.id, syncTimer])
 
   // ── Tick the timer ────────────────────────────────────────────────
   useEffect(() => {
@@ -351,53 +450,66 @@ export default function TimePage() {
   }, [manualProjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Start timer ───────────────────────────────────────────────────
-  function handleStart() {
-    if (!timerProjectId) return
-    const now = new Date()
-    setTimerStartedAt(now)
-    setTimerActive(true)
-    localStorage.setItem(TIMER_KEY, JSON.stringify({
-      projectId: timerProjectId,
-      subprojectId: timerSubprojectId,
-      departmentId: timerDepartmentId,
-      startedAt: now.toISOString(),
-      notes: timerNotes,
-    } as TimerState))
+  // clockIn closes any other open row for this login first — the same
+  // one-running-timer rule the phone follows.
+  async function handleStart() {
+    if (!timerProjectId || !org?.id || !user?.id) return
+    setTimerError(null)
+    try {
+      const row = await clockIn({
+        orgId: org.id,
+        userId: user.id,
+        projectId: timerProjectId,
+        subprojectId: timerSubprojectId || null,
+        departmentId: timerDepartmentId || null,
+        notes: timerNotes || null,
+      })
+      applyActive(row)
+      fetchEntries()
+    } catch (e) {
+      setTimerError(e instanceof Error ? e.message : 'Could not start the timer.')
+    }
   }
 
   // ── Stop timer ────────────────────────────────────────────────────
   async function handleStop() {
-    if (!timerStartedAt) return
-    const ended = new Date()
-    const durationMinutes = Math.round((ended.getTime() - timerStartedAt.getTime()) / 60000)
-
-    await supabase.from('time_entries').insert({
-      org_id: org?.id,
-      user_id: user?.id,
-      project_id: timerProjectId,
-      subproject_id: timerSubprojectId || null,
-      department_id: timerDepartmentId || null,
-      duration_minutes: Math.max(durationMinutes, 1),
-      notes: timerNotes || null,
-      started_at: timerStartedAt.toISOString(),
-      ended_at: ended.toISOString(),
-    })
-
-    // Fire-and-forget: recompute project actuals + try to advance phase.
-    if (timerProjectId) {
-      void triggerProjectRollup(timerProjectId)
-      void triggerPhaseAdvance(timerProjectId)
+    if (!activeEntry) return
+    setTimerError(null)
+    const projectId = activeEntry.project_id
+    try {
+      // Re-read first: if another device already stopped it, don't stamp an
+      // end on a row that's closed (or clobber a newer one).
+      const current = user?.id ? await loadActiveEntry(user.id) : null
+      if (current && current.id === activeEntry.id) {
+        // Carry the mid-span department / notes edits onto the row.
+        await supabase
+          .from('time_entries')
+          .update({ department_id: timerDepartmentId || null })
+          .eq('id', current.id)
+        await clockOut(current, timerNotes || null)
+        // Sub-minute spans still count as a minute, as before.
+        const mins = Math.round((Date.now() - new Date(current.started_at || Date.now()).getTime()) / 60000)
+        if (mins < 1) {
+          await supabase.from('time_entries').update({ duration_minutes: 1 }).eq('id', current.id)
+        }
+        setSaved(true)
+        setTimeout(() => setSaved(false), 3000)
+      }
+    } catch (e) {
+      setTimerError(e instanceof Error ? e.message : 'Could not stop the timer.')
+      return
     }
 
-    // Reset
-    setTimerActive(false)
-    setTimerStartedAt(null)
+    // Fire-and-forget: recompute project actuals + try to advance phase.
+    if (projectId) {
+      void triggerProjectRollup(projectId)
+      void triggerPhaseAdvance(projectId)
+    }
+
     setTimerNotes('')
     setTimerDepartmentId('')
     setElapsed(0)
-    localStorage.removeItem(TIMER_KEY)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+    applyActive(null)
     fetchEntries()
   }
 
@@ -433,12 +545,64 @@ export default function TimePage() {
     fetchEntries()
   }
 
-  // ── Inline edit hours ─────────────────────────────────────────────
-  async function handleEditSave(id: string) {
-    const durationMinutes = Math.round(parseFloat(editHours) * 60)
-    if (isNaN(durationMinutes) || durationMinutes <= 0) return
+  // ── Inline edit (hours · project/subproject · department) ─────────
+  // October batch item 3: any manager can correct an entry, not just its
+  // hours. /time is already owner+manager only (RoleGate sends workers to
+  // /me) and time_entries' policy is org-wide (100), so there is no extra
+  // gate to open — the gap was the editor itself.
+  function startEdit(entry: TimeEntry) {
+    setEditingId(entry.id)
+    setEditError(null)
+    setEditHours((entry.duration_minutes / 60).toFixed(2))
+    setEditProjectId(entry.project_id)
+    setEditSubprojectId(entry.subproject_id || '')
+    setEditDepartmentId(entry.department_id || '')
+    if (entry.project_id) fetchSubprojects(entry.project_id)
+  }
 
-    await supabase.from('time_entries').update({ duration_minutes: durationMinutes }).eq('id', id)
+  useEffect(() => {
+    if (editProjectId) fetchSubprojects(editProjectId)
+  }, [editProjectId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleEditSave(entry: TimeEntry) {
+    const durationMinutes = Math.round(parseFloat(editHours) * 60)
+    if (isNaN(durationMinutes) || durationMinutes <= 0 || !editProjectId) return
+    setEditError(null)
+
+    const patch: Record<string, unknown> = {
+      duration_minutes: durationMinutes,
+      project_id: editProjectId,
+      subproject_id: editSubprojectId || null,
+      department_id: editDepartmentId || null,
+      // Cheap honesty, not an audit trail (117): who last touched it, when.
+      edited_by: user?.id ?? null,
+      edited_at: new Date().toISOString(),
+    }
+    // Keep ended_at consistent with the new duration so anything reading the
+    // span (rather than duration_minutes) agrees with what was typed.
+    if (entry.started_at) {
+      patch.ended_at = new Date(new Date(entry.started_at).getTime() + durationMinutes * 60000).toISOString()
+    }
+    const run = (body: Record<string, unknown>) =>
+      supabase.from('time_entries').update(body).eq('id', entry.id).select('id')
+    let { data, error } = await run(patch)
+    // Pre-117: the stamps don't exist yet — save the edit without them.
+    if (error && String((error as { code?: string }).code) === '42703') {
+      const { edited_by: _b, edited_at: _a, ...rest } = patch
+      ;({ data, error } = await run(rest))
+    }
+    if (error || !data || data.length === 0) {
+      setEditError(error?.message || 'The database refused the edit.')
+      return
+    }
+
+    // Both jobs' actuals move when an entry changes project.
+    for (const pid of new Set([entry.project_id, editProjectId])) {
+      if (pid) {
+        void triggerProjectRollup(pid)
+        void triggerPhaseAdvance(pid)
+      }
+    }
     setEditingId(null)
     fetchEntries()
   }
@@ -449,22 +613,31 @@ export default function TimePage() {
     fetchEntries()
   }
 
-  // ── Persist timer notes + department to localStorage ──────────────
-  // Users can switch department mid-span if they realize they miscategorized
-  // — keep localStorage in sync so a page refresh doesn't lose the change.
+  // ── Persist mid-span department / notes onto the open row ─────────
+  // Users can switch department mid-span if they realise they miscategorised.
+  // Debounced write to the row itself, so the phone sees it too.
   useEffect(() => {
-    if (timerActive) {
-      const raw = localStorage.getItem(TIMER_KEY)
-      if (raw) {
-        try {
-          const state: TimerState = JSON.parse(raw)
-          state.notes = timerNotes
-          state.departmentId = timerDepartmentId
-          localStorage.setItem(TIMER_KEY, JSON.stringify(state))
-        } catch { /* noop */ }
-      }
-    }
-  }, [timerNotes, timerDepartmentId, timerActive])
+    if (!timerActive || !activeEntry) return
+    if (
+      (activeEntry.notes || '') === timerNotes &&
+      (activeEntry.department_id || '') === timerDepartmentId
+    ) return
+    const t = setTimeout(() => {
+      void supabase
+        .from('time_entries')
+        .update({ notes: timerNotes || null, department_id: timerDepartmentId || null })
+        .eq('id', activeEntry.id)
+        .is('ended_at', null)
+        .then(() =>
+          setActiveEntry((cur) =>
+            cur && cur.id === activeEntry.id
+              ? { ...cur, notes: timerNotes || null, department_id: timerDepartmentId || null }
+              : cur,
+          ),
+        )
+    }, 800)
+    return () => clearTimeout(t)
+  }, [timerNotes, timerDepartmentId, timerActive, activeEntry])
 
   // ── Shared styles ─────────────────────────────────────────────────
   const selectClass =
@@ -503,6 +676,11 @@ export default function TimePage() {
           {saved && (
             <div className="mb-6 px-4 py-2 bg-[#ECFDF5] text-[#059669] text-sm font-medium rounded-xl">
               Time saved!
+            </div>
+          )}
+          {timerError && (
+            <div className="mb-6 px-4 py-2 bg-[#FEF2F2] text-[#B91C1C] text-sm rounded-xl">
+              {timerError}
             </div>
           )}
 
@@ -662,6 +840,11 @@ export default function TimePage() {
             <Clock className="w-4 h-4 text-[#6B7280]" />
             <h2 className="text-sm font-semibold text-[#6B7280] uppercase tracking-wider">Timer</h2>
           </div>
+          {timerError && (
+            <div className="mb-4 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] text-[#B91C1C] text-sm rounded-lg">
+              {timerError}
+            </div>
+          )}
 
           {/* Selects row — Phase 8: department is now a required dimension
               for actuals-by-dept rollups. The select itself stays optional
@@ -901,10 +1084,8 @@ export default function TimePage() {
 
                     <div className="space-y-2">
                       {dayEntries.map(entry => (
-                        <div
-                          key={entry.id}
-                          className="flex items-center gap-4 px-4 py-3 bg-[#F9FAFB] rounded-xl group"
-                        >
+                        <div key={entry.id} className="bg-[#F9FAFB] rounded-xl group">
+                        <div className="flex items-center gap-4 px-4 py-3">
                           {/* Project / subproject / department */}
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium text-[#111] truncate">
@@ -948,52 +1129,32 @@ export default function TimePage() {
                             </div>
                           </div>
 
-                          {/* Hours (editable) */}
+                          {/* Hours (editable — the full editor opens below the row) */}
                           <div className="flex items-center gap-1.5">
-                            {editingId === entry.id ? (
-                              <>
-                                <input
-                                  type="number"
-                                  step="0.25"
-                                  min="0.25"
-                                  className="w-20 px-2 py-1 text-sm font-mono border border-[#E5E7EB] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
-                                  value={editHours}
-                                  onChange={e => setEditHours(e.target.value)}
-                                  autoFocus
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter') handleEditSave(entry.id)
-                                    if (e.key === 'Escape') setEditingId(null)
-                                  }}
-                                />
-                                <button
-                                  onClick={() => handleEditSave(entry.id)}
-                                  className="p-1 rounded-lg text-green-600 hover:bg-green-50 transition-colors"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => setEditingId(null)}
-                                  className="p-1 rounded-lg text-[#9CA3AF] hover:bg-[#F3F4F6] transition-colors"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <span className="text-sm font-mono font-medium text-[#111] min-w-[60px] text-right">
-                                  {fmtActualHours(entry.duration_minutes)}
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    setEditingId(entry.id)
-                                    setEditHours((entry.duration_minutes / 60).toFixed(2))
-                                  }}
-                                  className="p-1 rounded-lg text-[#9CA3AF] hover:text-[#6B7280] hover:bg-[#F3F4F6] opacity-0 group-hover:opacity-100 transition-all"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                              </>
+                            <span className="text-sm font-mono font-medium text-[#111] min-w-[60px] text-right">
+                              {fmtActualHours(entry.duration_minutes)}
+                            </span>
+                            {entry.edited_at && (
+                              <span
+                                className="text-[10px] text-[#9CA3AF] italic"
+                                title={`Edited ${new Date(entry.edited_at).toLocaleString()}${
+                                  entry.edited_by && memberByUserId.get(entry.edited_by)
+                                    ? ` by ${memberByUserId.get(entry.edited_by)!.name}`
+                                    : ''
+                                }`}
+                              >
+                                edited
+                              </span>
                             )}
+                            <button
+                              onClick={() => (editingId === entry.id ? setEditingId(null) : startEdit(entry))}
+                              className={`p-1 rounded-lg text-[#9CA3AF] hover:text-[#6B7280] hover:bg-[#F3F4F6] transition-all ${
+                                editingId === entry.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                              }`}
+                              aria-label="Edit entry"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
                           </div>
 
                           {/* Delete */}
@@ -1003,6 +1164,83 @@ export default function TimePage() {
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
+                        </div>
+                        {editingId === entry.id && (
+                          <div className="px-4 pb-3 flex items-end gap-2 flex-wrap border-t border-[#E5E7EB] pt-3">
+                            <label className="flex flex-col gap-1 min-w-[160px] flex-1">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Project</span>
+                              <select
+                                value={editProjectId}
+                                onChange={(e) => {
+                                  setEditProjectId(e.target.value)
+                                  setEditSubprojectId('')
+                                }}
+                                className="px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg bg-white"
+                              >
+                                {projects.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="flex flex-col gap-1 min-w-[140px] flex-1">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Subproject</span>
+                              <select
+                                value={editSubprojectId}
+                                onChange={(e) => setEditSubprojectId(e.target.value)}
+                                className="px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg bg-white"
+                              >
+                                <option value="">—</option>
+                                {(subprojectsMap[editProjectId] || []).map((sp) => (
+                                  <option key={sp.id} value={sp.id}>{sp.name}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="flex flex-col gap-1 min-w-[120px]">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Department</span>
+                              <select
+                                value={editDepartmentId}
+                                onChange={(e) => setEditDepartmentId(e.target.value)}
+                                className="px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg bg-white"
+                              >
+                                <option value="">—</option>
+                                {departments.map((d) => (
+                                  <option key={d.id} value={d.id}>{d.name}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="flex flex-col gap-1 w-20">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Hours</span>
+                              <input
+                                type="number"
+                                step="0.25"
+                                min="0.25"
+                                className="px-2 py-1.5 text-sm font-mono border border-[#E5E7EB] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
+                                value={editHours}
+                                onChange={(e) => setEditHours(e.target.value)}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') void handleEditSave(entry)
+                                  if (e.key === 'Escape') setEditingId(null)
+                                }}
+                              />
+                            </label>
+                            <button
+                              onClick={() => void handleEditSave(entry)}
+                              className="px-3 py-1.5 text-sm font-medium rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] inline-flex items-center gap-1"
+                            >
+                              <Check className="w-3.5 h-3.5" /> Save
+                            </button>
+                            <button
+                              onClick={() => setEditingId(null)}
+                              className="px-3 py-1.5 text-sm rounded-lg border border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F3F4F6] inline-flex items-center gap-1"
+                            >
+                              <X className="w-3.5 h-3.5" /> Cancel
+                            </button>
+                            {editError && (
+                              <div className="w-full text-[11.5px] text-[#B91C1C]">{editError}</div>
+                            )}
+                          </div>
+                        )}
                         </div>
                       ))}
                     </div>

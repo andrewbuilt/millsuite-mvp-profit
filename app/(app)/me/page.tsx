@@ -7,7 +7,7 @@
 // worker's dept allocations for the week.
 // ============================================================================
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { TodayTab, WeekTab, PtoTab, HistoryTab, BottomTabs, type Tab } from '@/components/me/tabs'
 import type { TeamMember } from '@/lib/shop-rate-setup'
@@ -53,6 +53,8 @@ export default function MePage() {
   const [ptoPolicy, setPtoPolicy] = useState<PtoPolicy | null>(null)
   const [ready, setReady] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  const activeIdRef = useRef<string | null>(null)
+  activeIdRef.current = active?.id ?? null
 
   const todayISO = useMemo(() => isoDate(new Date()), [])
   const weekStart = useMemo(() => mondayOf(new Date()), [])
@@ -121,6 +123,32 @@ export default function MePage() {
       cancelled = true
     }
   }, [orgId, userId, refresh])
+
+  // ⛔ STAY IN SYNC WITH OTHER DEVICES (October batch item 4). This page
+  // used to load once and never look again, so a timer started on the
+  // desktop never appeared on a phone that already had /me open. The open
+  // time_entries row is the one truth — re-read it when the app comes back
+  // to the foreground, and poll while it's on screen.
+  useEffect(() => {
+    if (!ready) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    // The poll reads ONLY the open row; the full refresh runs when it moved.
+    const t = setInterval(() => {
+      if (document.visibilityState !== 'visible' || !userId) return
+      void loadActiveEntry(userId).then((row) => {
+        if ((row?.id ?? null) !== (activeIdRef.current ?? null)) void refresh()
+      })
+    }, 15000)
+    return () => {
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(t)
+    }
+  }, [ready, refresh, userId])
 
   // Tick the elapsed clock while a timer is running.
   useEffect(() => {
