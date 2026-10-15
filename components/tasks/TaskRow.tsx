@@ -221,7 +221,10 @@ export function TaskRow({
         <div className="flex-1 min-w-0">
           <button
             onClick={onToggleExpand}
-            className="w-full text-left cursor-pointer text-[13px] text-[#111] leading-snug"
+            // Wraps, never truncates (October batch item 6): the full title
+            // always reads. `whitespace-normal` + overflow-wrap so a pasted
+            // URL or long part number breaks instead of running off the row.
+            className="w-full text-left cursor-pointer text-[13px] text-[#111] leading-snug whitespace-normal [overflow-wrap:anywhere]"
           >
             {task.title}
           </button>
@@ -246,7 +249,7 @@ export function TaskRow({
                 onClick={(e) => e.stopPropagation()}
                 draggable={false}
                 title={`Open ${project.name}`}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-[#EFF6FF] text-[#1E40AF] max-w-[160px] truncate hover:bg-[#DBEAFE] hover:underline"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-[#EFF6FF] text-[#1E40AF] max-w-full whitespace-normal [overflow-wrap:anywhere] text-left hover:bg-[#DBEAFE] hover:underline"
               >
                 {project.name}
               </Link>

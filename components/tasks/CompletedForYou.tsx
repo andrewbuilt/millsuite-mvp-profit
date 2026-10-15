@@ -69,7 +69,7 @@ export default function CompletedForYou({ variant }: { variant: 'page' | 'panel'
           return (
             <div key={t.id} className="px-4 py-2.5 flex items-center gap-3">
               <div className="min-w-0 flex-1">
-                <div className="text-[12.5px] text-[#065F46] leading-snug">{t.title}</div>
+                <div className="text-[12.5px] text-[#065F46] leading-snug [overflow-wrap:anywhere]">{t.title}</div>
                 <div className="text-[10.5px] text-[#059669] mt-0.5">
                   {/* An unlinked login can't be named client-side (see the
                       two-name-spaces rule) — "Someone" beats a wrong guess. */}

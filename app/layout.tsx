@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { DM_Sans, DM_Mono } from 'next/font/google'
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
+import NumberWheelGuard from '@/components/number-wheel-guard'
 
 const dmSans = DM_Sans({
   subsets: ['latin'],
@@ -42,6 +43,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${dmSans.variable} ${dmMono.variable}`}>
       <body className="antialiased min-h-screen" style={{ fontFamily: 'var(--font-dm-sans), -apple-system, BlinkMacSystemFont, sans-serif' }}>
+        {/* No scroll-to-increment on number fields, anywhere (Oct batch #5). */}
+        <NumberWheelGuard />
         <AuthProvider>
           {children}
         </AuthProvider>

@@ -116,7 +116,7 @@ export function TaskArchive({
                           <Check className="w-3 h-3" />
                         </button>
                         <div className="min-w-0 flex-1">
-                          <div className="line-through truncate">{t.title}</div>
+                          <div className="line-through whitespace-normal [overflow-wrap:anywhere]">{t.title}</div>
                           <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                             {/* When it was finished — the point of keeping it. */}
                             <span className="text-[10px] text-[#C9CED6]">
