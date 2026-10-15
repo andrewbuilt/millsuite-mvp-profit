@@ -9,6 +9,7 @@
 
 import { supabase } from './supabase'
 import { recordProjectEvent } from './project-events'
+import { fireAutoTask } from './auto-tasks'
 import type { ProjectStage } from './types'
 import type { ParsedScopeItem } from './pdf-parser'
 import { recomputeProjectBidTotal } from './project-totals'
@@ -720,11 +721,12 @@ export async function updateProjectStage(
   // EVERY stage change needs org_id to log an event against.
   const { data } = await supabase
     .from('projects')
-    .select('org_id, locked_shop_rate, sold_at')
+    .select('org_id, name, locked_shop_rate, sold_at')
     .eq('id', projectId)
     .maybeSingle()
   const row = data as {
     org_id: string | null
+    name?: string | null
     locked_shop_rate: number | null
     sold_at?: string | null
   } | null
@@ -781,6 +783,17 @@ export async function updateProjectStage(
   if (error) {
     console.error('updateProjectStage', error)
     throw error
+  }
+
+  // Auto-task (October batch item 1): the pre-production coordinator gets a
+  // Today task on the FIRST transition into sold — the same `!sold_at` test
+  // that guards the stamp above, so re-dragging a sold card never re-fires.
+  // `row` is null when the read failed (incl. pre-094) → no task, by design.
+  if (stage === 'sold' && orgId && row && !row.sold_at) {
+    void fireAutoTask(orgId, 'preprod_coordinator', {
+      title: `Start pre-production · ${(row.name || 'Project').trim()}`,
+      projectId,
+    })
   }
 
   // Best-effort, after the write has succeeded — never before, or a logged

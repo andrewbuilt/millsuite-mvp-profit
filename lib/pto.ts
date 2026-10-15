@@ -1,7 +1,8 @@
 // ============================================================================
 // lib/pto.ts — PTO requests, policies, balances (chunk B)
 // ============================================================================
-// Workers request time off; owners approve/deny on /team. Approving a
+// Workers request time off; any manager (or the owner) approves/denies on
+// /team — nothing here or in the 062 policies is owner-gated. Approving a
 // request writes one capacity_overrides row per weekday in the range so
 // /capacity + /schedule subtract those days automatically (045). Denying or
 // deleting removes them. team_member_id is the orgs.team_members jsonb id,
@@ -10,6 +11,8 @@
 
 import { supabase } from './supabase'
 import { memberDailyHours, type TeamMember } from './shop-rate-setup'
+import { fireAutoTask, formatDateRange } from './auto-tasks'
+import { listAssignees } from './tasks'
 
 export type PtoReason = 'PTO' | 'Sick' | 'Personal' | 'Other'
 export type PtoStatus = 'pending' | 'approved' | 'denied'
@@ -191,6 +194,17 @@ export async function createPtoRequest(args: {
     notes: args.notes ?? null,
   })
   if (error) throw error
+
+  // Auto-task (October batch item 2): the PTO coordinator gets a Today task.
+  // Best-effort and not awaited by the requester's success — fireAutoTask
+  // never throws, and the request is already saved.
+  void (async () => {
+    const roster = await listAssignees(args.orgId)
+    const name = roster.find((m) => m.id === args.teamMemberId)?.name || 'Team member'
+    await fireAutoTask(args.orgId, 'pto_coordinator', {
+      title: `PTO request · ${name} · ${formatDateRange(args.startDate, args.endDate)}`,
+    })
+  })()
 }
 
 /** Remove the capacity_overrides this request would have written (used on

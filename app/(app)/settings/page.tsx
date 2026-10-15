@@ -41,6 +41,7 @@ import {
 import BillingSection from '@/components/billing-section'
 import SalesGoalCard from '@/components/settings/SalesGoalCard'
 import PaymentsVisibilityCard from '@/components/settings/PaymentsVisibilityCard'
+import AutoTasksCard from '@/components/settings/AutoTasksCard'
 
 const inputClass =
   'w-32 text-right px-3 py-2 text-sm font-mono tabular-nums bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-colors'
@@ -1134,6 +1135,9 @@ export default function SettingsPage() {
         {/* Who can see payments (115). Renders for the OWNER only — the card
             itself is information. */}
         <PaymentsVisibilityCard orgId={org?.id} />
+
+        {/* Automatic tasks (117) — coordinators for the sold + PTO rules. */}
+        <AutoTasksCard orgId={org?.id} />
 
         {/* Subscription / Billing */}
         <BillingSection />
