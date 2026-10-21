@@ -9,10 +9,11 @@ import { ChevronLeft, ChevronRight, X, RefreshCw, ExternalLink } from 'lucide-re
 import Link from 'next/link'
 import { loadProjectDeptHours } from '@/lib/project-hours'
 import { loadShopRateSetup, deptDailyHoursByTeam, capacityReductionsByDay, type TeamMember } from '@/lib/shop-rate-setup'
-import { loadExcludedProjectIds } from '@/lib/practice'
+import { loadPracticeProjectIds } from '@/lib/practice'
+import { loadTempProjectIds } from '@/lib/temp-projects'
 
 interface Department { id: string; name: string; color: string; hours_per_day: number }
-interface Project { id: string; name: string; client_name: string | null; stage: string; bid_total: number }
+interface Project { id: string; name: string; client_name: string | null; stage: string; bid_total: number; isTemp?: boolean; tempHours?: number }
 interface Subproject { id: string; project_id: string; name: string }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
 interface MonthAllocation { id: string; project_id: string; month_date: string; hours_allocated: number; department_hours: Record<string, number> | null; display_order: number; split_index?: number; split_total?: number; split_group_id?: string; hours_refreshed_at?: string | null }
@@ -56,6 +57,15 @@ function weekdaysInMonth(year: number, month0: number): number {
     if (dow !== 0 && dow !== 6) count++
   }
   return count
+}
+
+/** Same TEMP marker the /projects card wears. */
+function TempBadge() {
+  return (
+    <span className="px-1 py-px text-[7px] font-semibold uppercase tracking-wider text-[#4B5563] bg-[#F3F4F6] border border-[#E5E7EB] rounded">
+      Temp
+    </span>
+  )
 }
 
 function fmtMoney(n: number) { return `$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` }
@@ -213,9 +223,26 @@ function CapacityContent() {
     ])
     // Walkthrough scratch work must not consume shop capacity — see the
     // note in lib/practice.ts for why the ids come from a separate query.
-    const practice = await loadExcludedProjectIds(org!.id)
+    // ⛔ PRACTICE ONLY, not loadExcludedProjectIds (2026-10-21): temp jobs
+    // are real shop hours, so /capacity lies without them. They schedule
+    // like sold work; the card wears TEMP and shows hours instead of a $0
+    // bid. Every other surface (schedule, payments, sales, reports) still
+    // excludes them via loadExcludedProjectIds.
+    const [practice, temp] = await Promise.all([
+      loadPracticeProjectIds(org!.id),
+      loadTempProjectIds(org!.id),
+    ])
+    const kept = (projs || []).filter((p) => !practice.has(p.id))
+    const tempHours = new Map<string, number>()
+    await Promise.all(
+      kept
+        .filter((p) => temp.has(p.id))
+        .map(async (p) => tempHours.set(p.id, (await loadProjectDeptHours(org!.id, p.id)).totalHours)),
+    )
     setDepartments(depts || [])
-    setProjects((projs || []).filter((p) => !practice.has(p.id)))
+    setProjects(
+      kept.map((p) => (temp.has(p.id) ? { ...p, isTemp: true, tempHours: tempHours.get(p.id) || 0 } : p)),
+    )
     setSubprojects(subs || [])
     setDeptAllocations(allocs || [])
     setMonthAllocations(monthAllocs || [])
@@ -864,11 +891,14 @@ function CapacityContent() {
                             {pipelineStageLabel(proj.stage)}
                           </span>
                         )}
+                        {proj.isTemp && <TempBadge />}
                         <span className="text-xs font-medium text-[#111]">{proj.name}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         {proj.client_name && <span className="text-[10px] text-[#9CA3AF] truncate max-w-[120px]">{proj.client_name}</span>}
-                        <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">{fmtMoney(proj.bid_total)}</span>
+                        <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">
+                          {proj.isTemp ? `${Math.round(proj.tempHours || 0)}h` : fmtMoney(proj.bid_total)}
+                        </span>
                       </div>
                     </div>
                   )
@@ -1071,6 +1101,7 @@ function ProjectCard({
           {pipelineStageLabel(card.stage)}
         </span>
       )}
+      {card.isTemp && <span className="inline-block mb-0.5 ml-0.5"><TempBadge /></span>}
       <div className="text-[11px] font-medium text-[#111] truncate">{card.name}</div>
       {subprojectNames.length > 0 && (
         <div className="text-[8px] text-[#9CA3AF] truncate">{subprojectNames.join(', ')}</div>
@@ -1201,7 +1232,7 @@ function ProjectSidePane({
               <div className="text-xs text-[#6B7280] truncate">{project.client_name}</div>
             )}
             <div className="text-[11px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
-              {fmtMoney(project.bid_total)} bid
+              {project.isTemp ? 'Temp project · hours only' : `${fmtMoney(project.bid_total)} bid`}
             </div>
           </div>
           <button

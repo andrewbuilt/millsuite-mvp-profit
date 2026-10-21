@@ -454,7 +454,7 @@ function ProjectCard({
           {isPractice && <PracticeBadge />}
           {isTemp && (
             <span
-              title="Temp project — hours only, for tracking time on an old job. Left out of sales, reports, capacity and the schedule."
+              title="Temp project — hours only, for tracking time on an old job. Left out of sales, reports and the schedule; counts on the capacity calendar."
               className="inline-flex items-center text-[9.5px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]"
             >
               Temp
