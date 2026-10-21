@@ -1652,6 +1652,9 @@ function ShopRateModal({
             For a first-principles recalibration (overhead, team comp, billable
             hours), re-run the shop rate walkthrough from onboarding.
           </p>
+          <p className="text-[12px] text-[#111] font-medium leading-relaxed">
+            Changing your rate never reprices existing work by itself. Open bids will offer the new rate; you choose per project.
+          </p>
           <div className="flex items-center gap-2">
             <span className="text-[#9CA3AF] text-sm">$</span>
             <input

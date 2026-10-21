@@ -80,8 +80,15 @@ import type { ProductKey } from '@/lib/products'
 import {
   bulkRefreshStaleLines,
   findStaleLines,
+  ignoreStaleLines,
+  loadIgnoredStaleSigs,
   staleLineMath,
+  staleLineOverrides,
+  staleSignature,
+  type StaleLineInfo,
 } from '@/lib/composer-staleness'
+import { computeProjectPrice } from '@/lib/project-totals'
+import { sentQuote } from '@/lib/shop-rate-gateway'
 import { isPresold, type ProjectStage } from '@/lib/types'
 import CreateChangeOrderModal from '@/components/changeorders/CreateChangeOrderModal'
 
@@ -133,6 +140,10 @@ interface ProjectRow {
   // 6c-2: non-null = imported from Built OS → FROZEN pricing. The line's
   // stored lump IS the quoted price, so nothing may be layered on top.
   imported_at: string | null
+  // The sent-price guard on the staleness banner (shop-rate audit, 118).
+  estimate_sent_at?: string | null
+  estimate_number?: string | null
+  estimate_snapshot_json?: unknown
 }
 
 // True when this subproject's activity type is "install" — the install
@@ -282,7 +293,7 @@ export default function SubprojectEditorPage() {
       const [projRes, subRes, siblingsRes, linesData, rb, opts, lineOpts, subActuals, deptRes, composerRb, composerSubDefaults] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, client_name, stage, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at')
+          .select('id, name, client_name, stage, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at, estimate_sent_at, estimate_number, estimate_snapshot_json')
           .eq('id', projectId)
           .single(),
         supabase
@@ -697,10 +708,25 @@ export default function SubprojectEditorPage() {
 
   // Phase 12 item 10 — staleness against current rate book. Gated to
   // pre-sold stages; post-sold subprojects freeze at their saved values.
+  // ⛔ THE GATEWAY'S IGNORE (shop-rate audit, 118). A line the operator
+  // declined stays quiet while the rate book offers the SAME fresh values;
+  // a new rate-book move re-offers it. Pre-118 → nothing is ever ignored.
+  const [ignoredStale, setIgnoredStale] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let cancelled = false
+    loadIgnoredStaleSigs(subId).then((m) => {
+      if (!cancelled) setIgnoredStale(m)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [subId])
   const staleLines = useMemo(() => {
     if (!composerRateBook || !composerDefaults) return []
-    return findStaleLines(lines, composerDefaults, composerRateBook)
-  }, [lines, composerRateBook, composerDefaults])
+    return findStaleLines(lines, composerDefaults, composerRateBook).filter(
+      (st) => ignoredStale[st.lineId] !== staleSignature(st),
+    )
+  }, [lines, composerRateBook, composerDefaults, ignoredStale])
   const showStaleBanner =
     staleLines.length > 0 && !!project?.stage && isPresold(project.stage)
 
@@ -744,11 +770,13 @@ export default function SubprojectEditorPage() {
     setComposerDefaults(sd ?? initialSubprojectDefaults(org?.consumable_markup_pct ?? null))
   }
 
-  async function handleRefreshStale() {
-    if (staleLines.length === 0) return
+  // Refresh is explicit and can be per line: pass one line, or none for all.
+  async function handleRefreshStale(only?: StaleLineInfo) {
+    const target = only ? [only] : staleLines
+    if (target.length === 0) return
     setRefreshingStale(true)
     try {
-      await bulkRefreshStaleLines(staleLines)
+      await bulkRefreshStaleLines(target)
       const fresh = await loadEstimateLines(subId)
       setLines(fresh)
     } catch (err: any) {
@@ -758,6 +786,44 @@ export default function SubprojectEditorPage() {
       setRefreshingStale(false)
     }
   }
+
+  // Ignore: nothing is repriced; the choice is remembered (see above).
+  async function handleIgnoreStale(only?: StaleLineInfo) {
+    const target = only ? [only] : staleLines
+    if (target.length === 0) return
+    setRefreshingStale(true)
+    try {
+      await ignoreStaleLines(target)
+      setIgnoredStale((m) => {
+        const next = { ...m }
+        for (const st of target) next[st.lineId] = staleSignature(st)
+        return next
+      })
+    } catch (err: any) {
+      alert(err?.message || 'Could not save that.')
+    } finally {
+      setRefreshingStale(false)
+    }
+  }
+
+  // The sent-price guard: once the estimate is sent, the banner says what
+  // updating would do to the QUOTE, in dollars, before anyone clicks.
+  const sentEstimate = sentQuote(project)
+  const [staleQuoteTotal, setStaleQuoteTotal] = useState<number | null>(null)
+  const staleKey = staleLines.map((st) => `${st.lineId}:${staleSignature(st)}`).join('|')
+  useEffect(() => {
+    setStaleQuoteTotal(null)
+    if (!sentEstimate || staleLines.length === 0 || !isPresold((project?.stage ?? 'sold') as ProjectStage)) return
+    let cancelled = false
+    computeProjectPrice(projectId, { lineOverrides: staleLineOverrides(staleLines) }).then((r) => {
+      if (!cancelled && r) setStaleQuoteTotal(r.priceTotal)
+    })
+    return () => {
+      cancelled = true
+    }
+    // staleKey captures the stale set; the rest is stable per page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleKey, !!sentEstimate, projectId])
 
   if (loading) {
     return (
@@ -1022,8 +1088,18 @@ export default function SubprojectEditorPage() {
                 </div>
                 <div className="text-[12px] text-[#78350F] mt-0.5">
                   {staleLines.length} composer line{staleLines.length === 1 ? '' : 's'} out of date.
-                  Recompute against the current rate book to push the new numbers into the lines.
+                  Nothing changes unless you choose to — update a line, update all, or ignore and keep today&apos;s prices.
                 </div>
+                {sentEstimate && (
+                  <div className="text-[12px] text-[#7C2D12] font-medium mt-1">
+                    You sent {sentEstimate.number || 'the estimate'}
+                    {sentEstimate.total != null ? ` at $${Math.round(sentEstimate.total).toLocaleString()}` : ''} on{' '}
+                    {new Date(sentEstimate.sentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.
+                    Updating all of these changes this quote to{' '}
+                    {staleQuoteTotal != null ? `$${staleQuoteTotal.toLocaleString()}` : '…'} — the PDF you sent stays as
+                    issued; re-send if you want the client to see the new number.
+                  </div>
+                )}
                 {/* ⛔ THE BANNER SHOWS ITS MATH (October batch item 8). It used
                     to assert "rates changed" with nothing behind it, so a
                     real change (a sheet price edited after the lines were
@@ -1044,6 +1120,24 @@ export default function SubprojectEditorPage() {
                             {line?.description || st.productKey} · qty {st.qty}
                             <span className={`ml-2 font-mono ${m.dollarDelta < 0 ? 'text-[#047857]' : 'text-[#B91C1C]'}`}>
                               {money(m.dollarDelta)} on this line
+                            </span>
+                            <span className="ml-2 inline-flex gap-1.5 align-middle">
+                              <button
+                                type="button"
+                                onClick={() => handleRefreshStale(st)}
+                                disabled={refreshingStale}
+                                className="px-1.5 py-px text-[10.5px] font-semibold rounded border border-[#D97706] text-[#92400E] bg-white hover:bg-[#FEF3C7] disabled:opacity-50"
+                              >
+                                Update line
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleIgnoreStale(st)}
+                                disabled={refreshingStale}
+                                className="px-1.5 py-px text-[10.5px] font-semibold rounded border border-[#FDE68A] text-[#92400E] bg-white hover:bg-[#FEF3C7] disabled:opacity-50"
+                              >
+                                Ignore
+                              </button>
                             </span>
                           </div>
                           {m.material && (
@@ -1078,14 +1172,24 @@ export default function SubprojectEditorPage() {
                       : 'Click Update to latest rates to push the new numbers in.'}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleRefreshStale}
-                disabled={refreshingStale}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#D97706] rounded-md hover:bg-[#B45309] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {refreshingStale ? 'Updating…' : 'Update to latest rates'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleIgnoreStale()}
+                  disabled={refreshingStale}
+                  className="px-3 py-1.5 text-[12px] font-semibold text-[#92400E] bg-white border border-[#FDE68A] rounded-md hover:bg-[#FEF3C7] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Ignore all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRefreshStale()}
+                  disabled={refreshingStale}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white bg-[#D97706] rounded-md hover:bg-[#B45309] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {refreshingStale ? 'Updating…' : 'Update all to latest rates'}
+                </button>
+              </div>
             </div>
           )}
 

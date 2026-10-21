@@ -179,6 +179,7 @@ import { isReadyForProduction, startProduction, forceStartProduction, isDepositR
 // ── Types ──
 
 import { isPresold, type ProjectStage } from '@/lib/types'
+import ShopRateBanner from '@/components/project/ShopRateBanner'
 import StageStrip from '@/components/project/StageStrip'
 import StagePill, {
   coverStageOf,
@@ -1829,6 +1830,16 @@ export default function ProjectCoverPage() {
 
       {!isPresold(project.stage) && <SoldLockBanner projectId={projectId} />}
       {org && org.shop_rate == null && <ShopRateNotConfiguredBanner />}
+      {/* The shop-rate gateway (118): an open bid prices at its own pinned
+          rate; a new org rate is OFFERED here, never applied by itself. */}
+      {org && (
+        <ShopRateBanner
+          project={project as unknown as Parameters<typeof ShopRateBanner>[0]['project']}
+          orgShopRate={orgShopRate}
+          currentTotal={proj.priceTotal}
+          onChanged={reload}
+        />
+      )}
       {(() => {
         const openCos = changeOrders.filter(
           (c) => c.state === 'draft' || c.state === 'sent_to_client',

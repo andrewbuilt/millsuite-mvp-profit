@@ -13,9 +13,10 @@
 //   - dept_hour_overrides  — PER-UNIT hours by dept
 //   - lump_cost_override   — PER-UNIT (materialSubtotal + waste, no
 //                            consumables — the rollup re-applies them)
-// Labor $ is computed live at read time (computeSubprojectRollup reads
-// current orgs.shop_rate), so a shop-rate edit alone is NOT stale —
-// every displayed labor cost already reflects the new rate.
+// Labor $ is hours × the JOB's pinned rate (projects.locked_shop_rate,
+// stamped at creation since 118), so a shop-rate edit alone is NOT stale
+// here and moves nothing by itself — the project page's ShopRateBanner
+// (lib/shop-rate-gateway) offers the new rate per project instead.
 //
 // Staleness is triggered by:
 //   - Walkthrough recalibration (base cab, door, finish) — shifts the
@@ -360,4 +361,62 @@ export async function bulkRefreshStaleLines(stale: StaleLineInfo[]): Promise<num
     void recomputeProjectBidTotalForLine(stale[0].lineId)
   }
   return updated
+}
+
+// ── The ignore (2026-10-21 shop-rate audit) ─────────────────────────────────
+// "Ignore" must cost nothing forever: the banner used to re-fire identically
+// on every visit with no way to decline. Declining a line stores the
+// SIGNATURE of the fresh values it was offered (estimate_lines
+// .stale_ignored_sig, migration 118). The line stays quiet while the rate
+// book keeps offering that same number, and speaks up again only when the
+// rate book moves it somewhere NEW.
+
+const r4 = (n: number) => Math.round((Number(n) || 0) * 10000) / 10000
+
+/** Stable signature of what a refresh would write for this line. */
+export function staleSignature(s: StaleLineInfo): string {
+  const h = s.freshHoursByDept
+  return JSON.stringify([r4(h.eng), r4(h.cnc), r4(h.assembly), r4(h.finish), r4(h.install), r4(s.freshMaterial)])
+}
+
+/** lineId → ignored signature for one subproject. Empty on any failure,
+ *  including a pre-118 database (nothing ignored = today's behaviour). */
+export async function loadIgnoredStaleSigs(subprojectId: string): Promise<Record<string, string>> {
+  const { data, error } = await supabase
+    .from('estimate_lines')
+    .select('id, stale_ignored_sig')
+    .eq('subproject_id', subprojectId)
+    .not('stale_ignored_sig', 'is', null)
+  if (error || !data) return {}
+  const out: Record<string, string> = {}
+  for (const r of data as Array<{ id: string; stale_ignored_sig: string }>) out[r.id] = r.stale_ignored_sig
+  return out
+}
+
+/** Decline these lines' offers. Nothing is repriced. */
+export async function ignoreStaleLines(stale: StaleLineInfo[]): Promise<void> {
+  for (const s of stale) {
+    const { error } = await supabase
+      .from('estimate_lines')
+      .update({ stale_ignored_sig: staleSignature(s) })
+      .eq('id', s.lineId)
+    if (error) {
+      throw new Error(
+        /stale_ignored_sig/.test(error.message) ? 'Run migration 118 to remember this choice.' : error.message,
+      )
+    }
+  }
+}
+
+/** What each stale line's fresh storage would write — the what-if input for
+ *  computeProjectPrice, so the sent-price guard can show the new total. */
+export function staleLineOverrides(stale: StaleLineInfo[]): Record<string, Partial<EstimateLine>> {
+  const out: Record<string, Partial<EstimateLine>> = {}
+  for (const s of stale) {
+    out[s.lineId] = {
+      dept_hour_overrides: s.freshStorage.deptHourOverrides as EstimateLine['dept_hour_overrides'],
+      lump_cost_override: s.freshStorage.lumpCostOverride,
+    }
+  }
+  return out
 }

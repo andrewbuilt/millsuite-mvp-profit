@@ -858,6 +858,9 @@ export default function SettingsPage() {
                       ? `Update to ${fmtRate(derivedRate)}`
                       : 'Save as my shop rate'}
                 </button>
+                <div className="text-[11px] text-[#6B7280] mt-2 max-w-[260px] ml-auto leading-snug">
+                  Changing your rate never reprices existing work by itself. Open bids will offer the new rate; you choose per project.
+                </div>
                 {rateSavedAt && Date.now() - rateSavedAt < 4000 && (
                   <div className="text-[10.5px] text-[#059669] font-medium mt-1.5">Saved.</div>
                 )}
