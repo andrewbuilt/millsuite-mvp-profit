@@ -36,6 +36,7 @@ export default function NewScopeDraftModal({
   projectId,
   orgId,
   orgConsumablePct,
+  jobShopRate,
   coLabel,
   /** Present = editing an existing draft rather than creating one. */
   initial,
@@ -48,6 +49,7 @@ export default function NewScopeDraftModal({
   projectId: string
   orgId: string
   orgConsumablePct: number | null
+  jobShopRate?: number | null
   coLabel: string
   initial?: AddSubDraft | null
   saving: boolean
@@ -126,6 +128,7 @@ export default function NewScopeDraftModal({
             subprojectId={null}
             orgId={orgId}
             orgConsumablePct={orgConsumablePct}
+            jobShopRate={jobShopRate}
             hasExistingLinesInSubproject={lines.length > 0}
             draftMode={{
               onComposed: handleComposed,

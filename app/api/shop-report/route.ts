@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
       supabaseAdmin.from('orgs').select('*').eq('id', org_id).single(),
       supabaseAdmin
         .from('projects')
-        .select('id, name, stage, bid_total, actual_total, created_at, sold_at, completed_at')
+        .select('id, name, stage, bid_total, actual_total, created_at, sold_at, completed_at, locked_shop_rate')
         .eq('org_id', org_id),
       supabaseAdmin.from('time_entries').select('project_id, duration_minutes, created_at').eq('org_id', org_id),
       supabaseAdmin.from('invoices').select('project_id, total_amount, created_at').eq('org_id', org_id),
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       active_projects: activeProjects.map(p => {
         const laborMins = (timeEntries || []).filter(t => t.project_id === p.id).reduce((s, t) => s + t.duration_minutes, 0)
         const materialCost = (invoices || []).filter(i => i.project_id === p.id).reduce((s, i) => s + i.total_amount, 0)
-        const actualCost = (laborMins / 60) * (org?.shop_rate ?? 0) + materialCost
+        const actualCost = (laborMins / 60) * (Number(p.locked_shop_rate) || (org?.shop_rate ?? 0)) + materialCost
         const margin = p.bid_total > 0 ? ((p.bid_total - actualCost) / p.bid_total) * 100 : 0
         return { name: p.name, bid: p.bid_total, actual: Math.round(actualCost), margin: Math.round(margin) }
       }),

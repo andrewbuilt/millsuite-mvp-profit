@@ -67,6 +67,7 @@ interface Project {
   labor_margin_pct: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
+  locked_shop_rate: number | null
 }
 
 /** One open thing standing between this project and production. Derived
@@ -161,7 +162,7 @@ export default function PreProductionPage() {
     const [projRes, subsRes] = await Promise.all([
       supabase
         .from('projects')
-        .select('id, name, client_name, delivery_address, stage, bid_total, sold_at, target_start_date, labor_margin_pct, material_margin_pct, consumable_margin_pct')
+        .select('id, name, client_name, delivery_address, stage, bid_total, sold_at, target_start_date, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate')
         .eq('id', projectId)
         .single(),
       supabase
@@ -435,7 +436,9 @@ export default function PreProductionPage() {
   const drawingsApproved = subs.reduce((n, s) => n + (statusMap[s.id]?.latest_drawings_approved || 0), 0)
 
   const pricing: PricingInputs = {
-    shopRate: org?.shop_rate ?? 0,
+    // The job's pinned rate (118), never the org's current one — a change
+    // order on a sold job prices new hours at the rate the job sold at.
+    shopRate: Number(project.locked_shop_rate) || (org?.shop_rate ?? 0),
     consumableMarkupPct: org?.consumable_markup_pct ?? 10,
     profitMarginPct: org?.profit_margin_pct ?? 35,
     // Per-bucket margins (052) so CO repricing matches the project total.

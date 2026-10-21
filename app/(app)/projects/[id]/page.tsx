@@ -633,7 +633,11 @@ export default function ProjectCoverPage() {
         ratePerHour: sub.install_rate_per_hour,
         included: sub.install_included ?? false,
       }
-      const installPrefillCost = computeInstallCost(installPrefill, shopRate)
+      // Same per-sub rate as the rollup above, off the LOADED row — the
+      // render-time `shopRate` is a tick behind on first load (it fell back to
+      // the org's current rate), and it isn't per-sub (108). Matches
+      // lib/project-totals, which prices a frozen sub's install at 0.
+      const installPrefillCost = computeInstallCost(installPrefill, perSubCtx.shopRate)
       const installPrefillHours = computeInstallHours(installPrefill)
       return {
         sub,
@@ -3249,6 +3253,7 @@ export default function ProjectCoverPage() {
           projectId={projectId}
           orgId={org.id}
           orgConsumablePct={org.consumable_markup_pct ?? null}
+          jobShopRate={Number(project?.locked_shop_rate) || null}
           coLabel={coLabel(coDoc)}
           initial={
             scopeDraftFor.item ? (scopeDraftFor.item.draft as AddSubDraft) : null
@@ -3283,6 +3288,7 @@ export default function ProjectCoverPage() {
           contractLines={reviseFor.lines}
           orgId={org.id}
           orgConsumablePct={org.consumable_markup_pct ?? null}
+          jobShopRate={Number(project?.locked_shop_rate) || null}
           coLabel={coLabel(coDoc)}
           // ⛔ A FROZEN SUB CANNOT TAKE NEW LINES — they'd price with no labor
           // and no margin (108's bug, one level down). The gate lives in the

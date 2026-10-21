@@ -51,6 +51,7 @@ export default function ReviseScopeModal({
   contractLines,
   orgId,
   orgConsumablePct,
+  jobShopRate,
   coLabel,
   /** False when the sub is frozen — new lines can't go inside it. */
   canAddLines,
@@ -69,6 +70,7 @@ export default function ReviseScopeModal({
   contractLines: ContractLine[]
   orgId: string
   orgConsumablePct: number | null
+  jobShopRate?: number | null
   coLabel: string
   canAddLines: boolean
   addLinesBlockedReason?: string | null
@@ -149,6 +151,7 @@ export default function ReviseScopeModal({
             subprojectId={null}
             orgId={orgId}
             orgConsumablePct={orgConsumablePct}
+            jobShopRate={jobShopRate}
             hasExistingLinesInSubproject={contractLines.length > 0}
             draftMode={{
               onComposed: handleComposed,

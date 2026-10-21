@@ -122,6 +122,11 @@ interface Props {
   /** Current org.consumable_markup_pct — used for the "no subproject
    *  defaults row yet" fallback. */
   orgConsumablePct: number | null
+  /** The JOB's pinned labor rate (projects.locked_shop_rate, 118). When set,
+   *  the preview prices hours at it instead of the org's current rate, so
+   *  the $ the composer shows matches what the job will price at. Only
+   *  hours + material are stored on the line, so this is display-only. */
+  jobShopRate?: number | null
   /** True when the subproject already has at least one saved line. On
    *  the first line of a fresh subproject the composer opens with empty
    *  slots so the operator isn't staring at a pre-priced table before
@@ -172,12 +177,15 @@ export default function AddLineComposer({
   subprojectId,
   orgId,
   orgConsumablePct,
+  jobShopRate,
   hasExistingLinesInSubproject,
   editingLineId,
   draftMode,
   onLineSaved,
   onCancel,
 }: Props) {
+  const forJob = (rb: ComposerRateBook): ComposerRateBook =>
+    jobShopRate && jobShopRate > 0 ? { ...rb, shopRate: jobShopRate } : rb
   // In draft mode "editing" means an in-memory payload, not a row id.
   const isEditMode = !!editingLineId || !!draftMode?.editing
   // ── Data load ──
@@ -200,7 +208,7 @@ export default function AddLineComposer({
           subprojectId ? loadSubprojectDefaults(subprojectId) : Promise.resolve(null),
         ])
         if (cancelled) return
-        setRateBook(withPrefinishedSentinel(rb))
+        setRateBook(withPrefinishedSentinel(forJob(rb)))
         setLastUsed(lu)
         setDefaults(
           draftMode?.defaults ?? sd ?? initialSubprojectDefaults(orgConsumablePct),
@@ -316,7 +324,7 @@ export default function AddLineComposer({
   async function refreshRateBook() {
     try {
       const rb = await loadComposerRateBook(orgId)
-      setRateBook(withPrefinishedSentinel(rb))
+      setRateBook(withPrefinishedSentinel(forJob(rb)))
     } catch (err: any) {
       setSaveError(err?.message || 'Failed to refresh rate book')
     }

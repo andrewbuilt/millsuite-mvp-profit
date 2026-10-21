@@ -1312,7 +1312,7 @@ export default function SubprojectEditorPage() {
             <div className="mb-6">
               <InstallPrefill
                 subprojectId={subId}
-                installRatePerHour={org?.shop_rate ?? 0}
+                installRatePerHour={shopRate}
                 onChange={setInstallValues}
               />
             </div>
@@ -1353,7 +1353,7 @@ export default function SubprojectEditorPage() {
                         key={d}
                         label={LABOR_DEPT_LABEL[d]}
                         hours={rollup.hoursByDept[d]}
-                        rate={org?.shop_rate ?? 0}
+                        rate={shopRate}
                         actualMinutes={actualByKey[d]}
                       />
                     ))}
@@ -1506,6 +1506,7 @@ export default function SubprojectEditorPage() {
           subprojectId={subId}
           orgId={org.id}
           orgConsumablePct={org?.consumable_markup_pct ?? null}
+          jobShopRate={shopRate}
           hasExistingLinesInSubproject={lines.length > 0}
           editingLineId={editingLineId}
           onCancel={() => {

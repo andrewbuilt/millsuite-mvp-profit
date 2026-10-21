@@ -211,7 +211,10 @@ export default function SlotCoEditor({
   onChange: (result: SlotCoResult | null) => void
 }) {
   // Local rate book so "+ Add new" can refresh it after writing a material.
-  const [rb, setRb] = useState(rateBook)
+  // ⛔ The CO's labor delta prices at the JOB's rate (pricing.shopRate), not
+  // the org's current one the composer rate book carries — a sold job's
+  // change order must not quietly bill new hours at a rate set after the sale.
+  const [rb, setRb] = useState<ComposerRateBook>(() => ({ ...rateBook, shopRate: pricing.shopRate }))
   useEffect(() => setRb(rateBook), [rateBook])
 
   const [slotKey, setSlotKey] = useState<string>('')
@@ -338,7 +341,7 @@ export default function SlotCoEditor({
         newId = f?.id ?? ''
       }
       const fresh = await loadComposerRateBook(orgId)
-      setRb(fresh)
+      setRb({ ...fresh, shopRate: pricing.shopRate })
       setProposed(newId)
       setAddName('')
       setAddA('')

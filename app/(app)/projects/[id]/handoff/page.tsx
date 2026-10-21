@@ -293,7 +293,8 @@ function HandoffPageInner() {
             ratePerHour: sub.install_rate_per_hour,
             included: sub.install_included ?? false,
           }
-          installCost[sub.id] = computeInstallCost(prefill, shopRate)
+          // Per-sub rate off the loaded row, same as the rollup (and project-totals).
+          installCost[sub.id] = computeInstallCost(prefill, perSubCtx.shopRate)
           installHours[sub.id] = computeInstallHours(prefill)
         })
       )

@@ -59,7 +59,7 @@ export default function ProjectsAtRiskCard({
       const [projRes, subRes, entryRes, invRes] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, stage, bid_total')
+          .select('id, name, stage, bid_total, locked_shop_rate')
           .eq('org_id', orgId)
           .in('stage', ['sold', 'production', 'installed']),
         supabase.from('subprojects').select('id, project_id, name, labor_hours').eq('org_id', orgId),
@@ -88,7 +88,9 @@ export default function ProjectsAtRiskCard({
           const laborMinutes = entries
             .filter((e) => e.project_id === p.id)
             .reduce((s, e) => s + (e.duration_minutes || 0), 0)
-          const laborCost = (laborMinutes / 60) * shopRate
+          // The job's pinned rate (118), so a shop-rate change doesn't move
+          // every job's spent % overnight.
+          const laborCost = (laborMinutes / 60) * (Number(p.locked_shop_rate) || shopRate)
           const materialCost = vendorInvoices
             .filter((i) => i.project_id === p.id)
             .reduce((s, i) => s + (i.total_amount || 0), 0)
