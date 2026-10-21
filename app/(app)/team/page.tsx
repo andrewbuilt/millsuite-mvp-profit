@@ -30,7 +30,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { announce } from '@/lib/tour-events'
 import { useConfirm } from '@/components/confirm-dialog'
-import { Trash2, ArrowRight, ChevronRight, Search } from 'lucide-react'
+import { Trash2, ArrowRight, ChevronRight, Search, X } from 'lucide-react'
 import { mondayOf, weekBar } from '@/lib/time-filters'
 import { fmtActualHours } from '@/lib/actual-hours'
 import Link from 'next/link'
@@ -50,8 +50,10 @@ import {
   approvePtoRequest,
   denyPtoRequest,
   deletePtoRequest,
+  createPtoRequest,
   computeBalance,
   type PtoRequest,
+  type PtoReason,
   type PtoPolicy,
   type PtoBand,
 } from '@/lib/pto'
@@ -861,6 +863,9 @@ function TeamContent() {
             the same reason the pending-PTO queue had to become a banner. */}
         {ptoReady && (
           <PtoSection
+            orgId={org?.id || null}
+            myMember={user?.id ? team.find((m) => m.user_id === user.id) : undefined}
+            onRequested={reloadPto}
             requests={ptoRequests}
             policy={ptoPolicy}
             team={team}
@@ -1332,6 +1337,9 @@ function PtoBalanceLine({
 
 // PTO section — pending queue (approve/deny) + the tenure-band policy editor.
 function PtoSection({
+  orgId,
+  myMember,
+  onRequested,
   requests,
   policy,
   team,
@@ -1341,6 +1349,9 @@ function PtoSection({
   onDelete,
   onSaveBands,
 }: {
+  orgId: string | null
+  myMember: TeamMember | undefined
+  onRequested: () => Promise<void>
   requests: PtoRequest[]
   policy: PtoPolicy | null
   team: TeamMember[]
@@ -1369,6 +1380,7 @@ function PtoSection({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Requests */}
         <div>
+          {orgId && <RequestMyTimeOff orgId={orgId} myMember={myMember} onRequested={onRequested} />}
           <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
             Pending ({pending.length})
           </div>
@@ -1457,6 +1469,147 @@ function PtoSection({
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// Managers request their OWN time off here (2026-10-21) — before this only
+// /me could, and managers never see /me. "Yourself" = the roster row holding
+// this login (same login → roster rule as `myLoginUnclaimed`, never by name).
+// Same `createPtoRequest` path as /me, so it lands in the same queue, fires
+// the same PTO-coordinator auto-task, and subtracts from capacity on approval.
+// Self-approval stays possible on purpose: small-shop trust, same as the
+// shared sheet this replaced.
+function RequestMyTimeOff({
+  orgId,
+  myMember,
+  onRequested,
+}: {
+  orgId: string
+  myMember: TeamMember | undefined
+  onRequested: () => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+  const [reason, setReason] = useState<PtoReason>('PTO')
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function submit() {
+    if (!myMember) return
+    if (!start) {
+      setErr('Pick a date')
+      return
+    }
+    const endDate = end || start
+    if (endDate < start) {
+      setErr('The end date is before the start date')
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    try {
+      await createPtoRequest({
+        orgId,
+        teamMemberId: myMember.id,
+        startDate: start,
+        endDate,
+        reason,
+        notes: notes.trim() || null,
+      })
+      setStart('')
+      setEnd('')
+      setNotes('')
+      setOpen(false)
+      await onRequested()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not submit')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mb-4 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#E5E7EB] bg-white text-[#111] hover:border-[#2563EB]"
+      >
+        Request time off
+      </button>
+    )
+  }
+
+  return (
+    <div className="mb-4 bg-white border border-[#E5E7EB] rounded-xl p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide">
+          Request time off{myMember ? ` · ${myMember.name || 'you'}` : ''}
+        </div>
+        <button onClick={() => setOpen(false)} className="text-[#9CA3AF] hover:text-[#111]" aria-label="Close">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      {!myMember ? (
+        // ⛔ Explain, don't fail silently: with no roster row on this login
+        // there is no one to file the request for.
+        <div className="text-[12px] text-[#6B7280]">
+          Your login isn&apos;t linked to anyone on the team list yet, so there&apos;s no one to file this for.
+          Find your own row under Team members and use <strong>Link existing</strong> to pick this login, then request here.
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            <label className="flex-1 min-w-0 text-[11px] text-[#9CA3AF]">
+              From
+              <input
+                type="date"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                className="mt-0.5 w-full px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+              />
+            </label>
+            <label className="flex-1 min-w-0 text-[11px] text-[#9CA3AF]">
+              To (optional)
+              <input
+                type="date"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                className="mt-0.5 w-full px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+              />
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={reason}
+              onChange={(e) => setReason(e.target.value as PtoReason)}
+              className="px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg bg-white outline-none focus:border-[#2563EB]"
+            >
+              {(['PTO', 'Sick', 'Personal', 'Other'] as PtoReason[]).map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Notes (optional)"
+              className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+            />
+          </div>
+          {err && <div className="text-[11px] text-[#DC2626]">{err}</div>}
+          <button
+            onClick={submit}
+            disabled={busy}
+            className="w-full py-2 rounded-lg bg-[#2563EB] text-white text-sm font-semibold disabled:opacity-60"
+          >
+            {busy ? 'Submitting…' : 'Submit request'}
+          </button>
+        </>
+      )}
     </div>
   )
 }
