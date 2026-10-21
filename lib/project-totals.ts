@@ -117,6 +117,9 @@ export async function recomputeProjectBidTotal(
  *     subs stay at 0 either way).
  *   · `lineOverrides` patches individual estimate lines (the fresh composer
  *     values a refresh would write).
+ *   · `orgShopRate` pretends the ORG's rate is this — what
+ *     scripts/verify-shop-rate-change uses to prove a rate change moves
+ *     nothing, without writing the real org row.
  * Returns null when the project can't be read.
  */
 export async function computeProjectPrice(
@@ -124,12 +127,13 @@ export async function computeProjectPrice(
   whatIf: {
     shopRate?: number
     lineOverrides?: Record<string, Partial<EstimateLine>>
+    orgShopRate?: number
   } = {},
 ): Promise<{ priceTotal: number; stored: number } | null> {
   const { data: projData, error: projErr } = await supabase
     .from('projects')
     .select(
-      'id, org_id, bid_total, locked_shop_rate, imported_at, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct',
+      'id, org_id, bid_total, locked_shop_rate, imported_at, temp_at, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct',
     )
     .eq('id', projectId)
     .single()
@@ -137,8 +141,12 @@ export async function computeProjectPrice(
     console.error('computeProjectPrice: project lookup', projErr)
     return null
   }
-  const project = projData as ProjectRow
+  const project = projData as ProjectRow & { temp_at?: string | null }
   if (!project.org_id) return { priceTotal: Number(project.bid_total) || 0, stored: Number(project.bid_total) || 0 }
+  // A TEMP project (117) is hours only: its "Estimated hours" lines would
+  // otherwise price at hours × rate and land a real-looking number in
+  // bid_total. It has no price, ever.
+  if (project.temp_at) return { priceTotal: 0, stored: Number(project.bid_total) || 0 }
 
   // Pull the org's consumable_markup_pct + shop_rate for the rollup
   // context, plus the three per-bucket margin defaults (migration 052).
@@ -169,6 +177,8 @@ export async function computeProjectPrice(
       ? whatIf.shopRate
       : lockedRate > 0
         ? lockedRate
+        : whatIf.orgShopRate != null
+        ? whatIf.orgShopRate
         : Number(orgRow?.shop_rate ?? 0)
 
   // ── MIGRATED SUBPROJECTS price FROZEN (6c-2, narrowed by 108) ──────────

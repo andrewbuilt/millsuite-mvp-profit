@@ -58,6 +58,14 @@ UPDATE public.projects p
    AND o.shop_rate IS NOT NULL
    AND o.shop_rate > 0;
 
+-- Temp projects (117) are hours only, but the project page's bid_total
+-- writeback priced their "Estimated hours" lines at hours × rate (Ya Laford
+-- carried $29,485). The code no longer does; clear what it wrote.
+UPDATE public.projects
+   SET bid_total = 0
+ WHERE temp_at IS NOT NULL
+   AND COALESCE(bid_total, 0) <> 0;
+
 -- Stamp on insert. SECURITY DEFINER only to read the one org row; the
 -- inserting user's own RLS still governs the projects insert itself.
 CREATE OR REPLACE FUNCTION public.stamp_project_shop_rate()

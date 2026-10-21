@@ -1278,6 +1278,8 @@ export default function ProjectCoverPage() {
   // don't block render.
   useEffect(() => {
     if (!project) return
+    // Temp projects (117) are hours only — never write a price for them.
+    if ((project as { temp_at?: string | null }).temp_at) return
     if (proj.priceTotal <= 0) return
     const stored = Number(project.bid_total) || 0
     if (Math.abs(stored - proj.priceTotal) <= 1) return
