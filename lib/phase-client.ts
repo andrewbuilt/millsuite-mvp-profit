@@ -23,7 +23,7 @@ async function postProjectRoute(projectId: string, path: string): Promise<void> 
   }
 }
 
-/** Recompute projects.bid_total + actual_total from current inputs.
+/** Recompute projects.actual_total from current inputs (never bid_total).
  *  Replaces the old POST to /api/projects/[id], which hit a route that
  *  doesn't exist (404) — so actuals silently never refreshed (M6). */
 export function triggerProjectRollup(projectId: string): Promise<void> {
