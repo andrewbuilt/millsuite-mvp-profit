@@ -3,6 +3,10 @@
 // ============================================================================
 // Run: npx tsx scripts/verify-shop-rate-change.mjs            (static + live, READ ONLY)
 //      npx tsx scripts/verify-shop-rate-change.mjs --static   (no database)
+//      npx tsx scripts/verify-shop-rate-change.mjs --assume-118
+//          (before 118 is on prod: applies its backfill IN MEMORY — pin every
+//           unpinned project at today's org rate — and proves (a) the backfill
+//           moves no number and (b) after it, a rate change moves nothing)
 //
 // Andrew's rule (2026-10-21): change the rate whenever; it must not touch
 // anything being priced or already priced. This script is the audit's proof.
@@ -34,6 +38,7 @@ import path from 'path'
 import { execSync } from 'child_process'
 
 const STATIC_ONLY = process.argv.includes('--static')
+const ASSUME_118 = process.argv.includes('--assume-118')
 let failures = 0
 const fail = (msg) => {
   failures++
@@ -108,7 +113,7 @@ const { computeProjectPrice } = await import('../lib/project-totals.ts')
 const { effectiveShopRate } = await import('../lib/pricing.ts')
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
-console.log('\nPART 2 — every project, org rate vs org rate + $1 (read only)')
+console.log(`\nPART 2 — every project, org rate vs org rate + $1 (read only)${ASSUME_118 ? ' · ASSUMING 118 (in-memory backfill)' : ''}`)
 const { data: orgs } = await sb.from('orgs').select('id, name, shop_rate')
 const { data: projects } = await sb
   .from('projects')
@@ -134,10 +139,26 @@ for (const org of orgs || []) {
     tally[g].n++
     const problems = []
 
+    // --assume-118: the backfill pins an unpinned project at today's rate.
+    const pinned = Number(p.locked_shop_rate) || 0
+    if (ASSUME_118 && !(pinned > 0)) p.locked_shop_rate = rate
     const a = await computeProjectPrice(p.id, { orgShopRate: rate })
-    const b = await computeProjectPrice(p.id, { orgShopRate: bumped })
+    const b = await computeProjectPrice(
+      p.id,
+      ASSUME_118 && !(pinned > 0) ? { shopRate: rate, orgShopRate: bumped } : { orgShopRate: bumped },
+    )
     if (a && b && Math.abs(a.priceTotal - b.priceTotal) > 0) problems.push(`price $${a.priceTotal} → $${b.priceTotal}`)
-    if (a && Math.abs(a.priceTotal - (Number(p.bid_total) || 0)) > 1 && g !== 'temp') drift++
+    if (ASSUME_118 && !(pinned > 0)) {
+      // (a) the backfill itself: pinned-at-today must equal today's price.
+      const pinnedNow = await computeProjectPrice(p.id, { shopRate: rate, orgShopRate: rate })
+      if (a && pinnedNow && a.priceTotal !== pinnedNow.priceTotal)
+        problems.push(`118 backfill moves price $${a.priceTotal} → $${pinnedNow.priceTotal}`)
+    }
+    if (a && Math.abs(a.priceTotal - (Number(p.bid_total) || 0)) > 1 && g !== 'temp') {
+      drift++
+      if (process.argv.includes('--drift'))
+        console.log(`  (drift) ${g.padEnd(8)} stored $${Number(p.bid_total) || 0} · live $${a.priceTotal}  ${p.name}`)
+    }
 
     for (const s of subsByProject[p.id] || []) {
       const r1 = effectiveShopRate(p, rate, s)
