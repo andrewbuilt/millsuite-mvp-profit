@@ -186,18 +186,27 @@ function money(n: number): string {
  *   $2,967.75, and rounding to $2,968 prints "4 × $2,968 = $11,871".
  *
  *   ⛔ Some divisions CANNOT reconcile at any precision. $10,000 over 3 is
- *   $3,333.33…, which multiplies back to $9,999.99. There is no rate to print
- *   that is true. So we print none — the row still reads "3 · — · $10,000",
- *   which is honest. `amount` stays authoritative because it's what keeps the
- *   estimate total equal to the project total; the rate is the derived value
- *   and therefore the one allowed to be withheld.
+ *   $3,333.33…, which multiplies back to $9,999.99. There is no exact rate to
+ *   print. It used to print "—", which was honest but READ as flaky (Andrew,
+ *   EST-0036: $16,709÷5 printed a rate, $17,336÷7 printed nothing). Now it
+ *   prints the rate to the cent WITH A MARKER: "~$2,476.57". A client who
+ *   multiplies lands within a dollar, and the ~ says why. `amount` stays
+ *   authoritative (it keeps the estimate total equal to the project total);
+ *   the rate is derived from it, never the reverse.
+ *
+ *   ⛔ THE MARKER IS "~", NOT "≈". ≈ (U+2248) is outside WinAnsi and the
+ *   built-in Courier/Helvetica render it as "H" — "H$2,476.57" on a client's
+ *   estimate. Rendered and checked 2026-10-22; see lib/pdf-text.
  */
 function rateCell(unitPrice: number, quantity: number, amount: number): string {
   const q = Number(quantity) || 1
   const v = Number(unitPrice) || 0
   if (q <= 1) return money(v)
   const cents = Math.round(v * 100) / 100
-  if (Math.abs(cents * q - (Number(amount) || 0)) > 0.005) return '—'
+  if (Math.abs(cents * q - (Number(amount) || 0)) > 0.005) {
+    const derived = Math.round(((Number(amount) || 0) / q) * 100) / 100
+    return '~$' + derived.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
   return Math.abs(cents - Math.round(cents)) < 0.005
     ? money(cents)
     : '$' + cents.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -316,7 +325,12 @@ export function EstimatePdf({
               ))}
             </Text>
             <Text style={[styles.monoRight, styles.cellQty]}>{li.quantity}</Text>
-            <Text style={[styles.bodyText, styles.cellUnit, { textAlign: 'right' }]}>{li.unit ?? '—'}</Text>
+            {/* A quantity line is N of something: "ea" unless the line says
+                otherwise. Applied here, not in the payload, so re-rendered
+                snapshots of already-sent estimates get it too. */}
+            <Text style={[styles.bodyText, styles.cellUnit, { textAlign: 'right' }]}>
+              {li.unit ?? ((Number(li.quantity) || 1) > 1 ? 'ea' : '—')}
+            </Text>
             <Text style={[styles.monoRight, styles.cellRate]}>
               {rateCell(li.unit_price, li.quantity, li.amount)}
             </Text>

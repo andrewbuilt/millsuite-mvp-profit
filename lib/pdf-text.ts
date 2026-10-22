@@ -21,6 +21,7 @@
 //   ⁄  U+2044 frac slash → /       …  U+2026 ellipsis
 //   ‐ ‑ ‒ U+2010/11/12 (vanished)  °  U+00B0 degree
 //   → ⇒ U+2192/21D2 → " to "       ×  U+00D7 times
+//   ≈  U+2248 → ~ (prints as "H")
 //                                  ½ ¼ ¾, •  U+2022 bullet
 //
 // Don't add a replacement without rendering it first — several characters that
@@ -37,6 +38,7 @@ const REPLACEMENTS: Array<[RegExp, string]> = [
   [/″/g, '"'], // double prime
   [/⁄/g, '/'], // fraction slash
   [/[‐‑‒−]/g, '-'], // hyphen, non-breaking hyphen, figure dash, minus
+  [/≈/g, '~'], // almost-equal — rendered as "H" (checked 2026-10-22)
 ]
 
 /**
