@@ -1280,6 +1280,19 @@ export default function ProjectCoverPage() {
     if (!project) return
     // Temp projects (117) are hours only — never write a price for them.
     if ((project as { temp_at?: string | null }).temp_at) return
+    // ⛔ NEVER ON SOLD WORK (2026-10-22). Past sold, bid_total is the CONTRACT:
+    // the handoff writes it at the sale and change-order acceptance moves it
+    // through lib/project-totals on purpose. A difference seen here is drift
+    // (a pricing-path bug, a settings change, bad data), and writing it would
+    // silently re-price a signed job just because someone opened the page —
+    // Batia · Final would have dropped $232,891 → $208,251. Leave it, say so.
+    if (!isPresold(project.stage)) {
+      const stored = Number(project.bid_total) || 0
+      if (proj.priceTotal > 0 && Math.abs(stored - proj.priceTotal) > 1) {
+        console.warn(`bid_total drift on a sold job — stored ${stored}, live ${Math.round(proj.priceTotal)}; not written`)
+      }
+      return
+    }
     if (proj.priceTotal <= 0) return
     const stored = Number(project.bid_total) || 0
     if (Math.abs(stored - proj.priceTotal) <= 1) return
@@ -1295,7 +1308,7 @@ export default function ProjectCoverPage() {
       }
       setProject((prev) => (prev ? { ...prev, bid_total: next } : prev))
     })()
-  }, [project?.id, project?.bid_total, proj.priceTotal])
+  }, [project?.id, project?.bid_total, project?.stage, proj.priceTotal])
 
   // ── Actions ──
 
