@@ -6,7 +6,9 @@
 
 **Last updated:** 2026-10-22 · **Branch:** `main`
 
-**Left off (2026-10-22):** COS guard + root fix, qty-line polish and project archive BUILT and ALL PUSHED. **Migration `119` ✅ ON PROD AND VERIFIED**; **bid-total repair ✅ RUN by Andrew** (COS Systems $208,064 → $691,684, Leonard Lobby Bar Ph 1 $0 → $172,563). **Batia SOLVED + FIXED (`2632d15`, pushed):** `project-totals` zeroed a frozen sub's install prefill; Batia now computes to its $232,891 contract exactly. Drift list = only the 5 demo seeds; rate proof passes (0 move). Next: the live verify list → scope "pin margins per project" in Cowork.
+**Left off (2026-10-22, later):** Standard estimate/CO formatting pass BUILT (`a4c7aca`), **held unpushed until Andrew OKs the before/after renders.** Earlier today: COS/Batia fixes + one-page archive all pushed.
+
+**Earlier (2026-10-22):** COS guard + root fix, qty-line polish and project archive BUILT and ALL PUSHED. **Migration `119` ✅ ON PROD AND VERIFIED**; **bid-total repair ✅ RUN by Andrew** (COS Systems $208,064 → $691,684, Leonard Lobby Bar Ph 1 $0 → $172,563). **Batia SOLVED + FIXED (`2632d15`, pushed):** `project-totals` zeroed a frozen sub's install prefill; Batia now computes to its $232,891 contract exactly. Drift list = only the 5 demo seeds; rate proof passes (0 move). Next: the live verify list → scope "pin margins per project" in Cowork.
 
 **Previously (2026-10-21):** 10-21 BLOCK — all three items BUILT, PUSHED, tsc + `next build` clean; **migration `118` ✅ ON PROD AND VERIFIED** (columns in the schema cache, 0 unpinned projects, temp bid_totals 0) and **`verify-shop-rate-change.mjs` PASSES on prod: a $1 change moves 0 of 75 projects** (39 before 118). Next step: open **Kinser** + **Leonard Lobby Bar Ph 1** project pages (their bid_total is $0 from the /time bug; the page writes the real price back) → the live verify list in CURRENT FOCUS → a Cowork look at the 12 stored-vs-live bid_total drifts.
 
@@ -16,11 +18,19 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
-**NEW 2026-10-22 (Andrew's EST-0036 look): STANDARD ESTIMATE/CO FORMATTING PASS — scoped. Both docs share the template path; fix once, verify both PDFs.**
-1. **Drop the `~` approx marker** — print the rounded rate plain ("$2,524.17"). The amount column stays authoritative and rates stay derived-never-reverse (keep that code comment); we accept the universal invoice convention that unit rates round. (The marker was the 10-22 polish's honesty tic; Andrew saw it and it reads as noise — veto-able if he ever wants it back.)
-2. **Typographic cleanup — the body reads messy.** One deliberate pass, no layout change: a single type scale (title / section label / body / numerals), consistent gray ramp (labels one gray, body darker, no stray third grays), uniform spacing rhythm between DESCRIPTION / DETAILS / EXCLUSIONS blocks and between line sections (the current gaps are uneven), numerals aligned on one tabular column grid. **Render before/after with the preview-script pattern and LOOK at both** — the wave-2 lesson; show Andrew the after before pushing.
-3. **Logo/name redundancy:** when the org has a logo, do NOT print the org-name heading under it (the wordmark IS the name) — keep the address block; orgs without a logo keep the name heading. Applies to estimate + CO headers (and check the invoice PDF if it shares the header block).
-Verify: regenerate EST-0036 + the Bonzer CO — no tilde, no doubled "Built", spacing reads calm; a no-logo org (Bayside demo) still prints its name.
+**✅ 2026-10-22: STANDARD ESTIMATE/CO FORMATTING PASS — BUILT, committed `a4c7aca`, ⛔ NOT PUSHED: waiting on Andrew's look at the before/after renders (sent in chat).** tsc clean.
+1. ✅ **No `~`.** Rates print plain to the cent, ALWAYS ("$2,524.17"; "$4,200.00" on a qty-1 line), derived from amount, never the reverse (comment kept). Rendered finding: in a table, "~$2,524.17" read as a MINUS sign. Every rate now has 2 decimals so the Rate column lines up (it mixed "$2,524" and "$1,293.25"). Veto-able: whole dollars on qty-1 rates.
+2. ✅ **Type cleanup — one shared system, `components/pdf/standard-doc.tsx`**, used by EstimatePdf + CoDocPdf so they can't drift:
+   - THREE grays (ink = titles + numbers, fg = body + contact lines, dim = labels); the 4th "meta" gray is gone.
+   - ONE small-caps label style; numbers in Helvetica, not Courier (equal-width digits, so columns still align).
+   - More space BETWEEN line items (10 + 10 around the hairline) than within one.
+   - CO description lines no longer spaced like paragraphs (the 4pt gap sat on every line).
+   - ⛔ **Measured, kept in code comments:** react-pdf applies `lineHeight` to EVERY line of a cell, blank section breaks included, so it inflates the gaps inside an item. The in-item rhythm (label tight to its body, one blank line between sections) was already right and stays.
+   - Page counts unchanged: EST-0036 10, Bonzer CO 2.
+3. ✅ **Logo OR name.** The shared `OrgHeader` prints the logo alone when there is one, and the name heading when there isn't. Applied to the estimate, the CO, and the invoice header (invoice header only; its type is untouched). No-logo check: a no-logo org's render ("Cab shop") still prints its name.
+- **Preview:** `npx tsx scripts/preview-standard-docs.tsx <label>` renders EST-0036 (COS · Systems), the Bonzer CO and a no-logo estimate from PROD, read only, into `$TMPDIR/stdpdf/<label>/`.
+- ⚠️ Found in passing, not fixed: **three COS copies share EST-0036.** Copy-project carries `estimate_number`, so a copy re-issues the source's number. Should a copy get a fresh number on its first PDF? Small; Andrew's call.
+- Next: Andrew OKs the look → push. Then regenerate the real EST-0036 + Bonzer CO PDFs in the app.
 
 
 **✅ 2026-10-22: COS GUARD + ROOT FIX · QTY-LINE POLISH · PROJECT ARCHIVE — ALL BUILT, tsc + `next build` clean.** ALL PUSHED; **migration `119` ✅ on prod and verified; the bid-total repair ✅ run.**
