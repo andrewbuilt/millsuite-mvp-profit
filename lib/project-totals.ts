@@ -67,6 +67,9 @@ interface SubRow {
   /** Migration 108. `undefined` = the column wasn't selected (pre-108 retry
    *  path), which `isSubFrozen` resolves to the old project-level answer. */
   price_frozen?: boolean | null
+  /** Migration 097 — the "(QTY N)" multiplier. `undefined` = not selected
+   *  (pre-097 retry path) → priced ×1, the pre-097 answer. */
+  quantity?: number | null
   consumable_markup_pct: number | null
   install_guys: number | null
   install_days: number | null
@@ -209,11 +212,21 @@ export async function computeProjectPrice(
   const SUB_COLS =
     'id, consumable_markup_pct, install_guys, install_days, install_complexity_pct, install_rate_per_hour, install_included'
   let subsData: SubRow[] | null = null
+  // ⛔ `quantity` (097) WAS NEVER SELECTED HERE — found 2026-10-22 off the COS
+  // banner. The rollup below reads `sub.quantity ?? 1`, so every "(QTY N)"
+  // subproject priced ×1 in this file while the project page priced it ×N:
+  // every line edit wrote the ×1 total into bid_total (the page wrote ×N back
+  // on its next open), and the shop-rate banner offered COS Laminate at
+  // $341,940 against its real $1,022,901. Ladder: 108+097 → 097 → base.
   const withFlag = await supabase
     .from('subprojects')
-    .select(`${SUB_COLS}, price_frozen`)
+    .select(`${SUB_COLS}, price_frozen, quantity`)
     .eq('project_id', projectId)
   subsData = (withFlag.data as SubRow[] | null) ?? null
+  if (!subsData) {
+    const qtyOnly = await supabase.from('subprojects').select(`${SUB_COLS}, quantity`).eq('project_id', projectId)
+    subsData = (qtyOnly.data as SubRow[] | null) ?? null
+  }
   if (!subsData) {
     // ⛔ PRE-108 FALLBACK. PostgREST fails the WHOLE select on ONE unknown
     // column (42703), so asking for `price_frozen` before the migration runs
@@ -263,7 +276,7 @@ export async function computeProjectPrice(
       rateBook.itemsById,
       new Map(),
       ctx,
-      (sub as { quantity?: number }).quantity ?? 1,
+      sub.quantity ?? 1,
     )
     const installPrefill = {
       guys: sub.install_guys,
