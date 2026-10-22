@@ -57,7 +57,7 @@ import {
   sumOverheadAnnual,
   sumTeamAnnualComp,
 } from '@/lib/shop-rate-setup'
-import { useTasks } from '@/components/tasks/TasksProvider'
+import { pickableProjects, useTasks } from '@/components/tasks/TasksProvider'
 import CompletedForYou from '@/components/tasks/CompletedForYou'
 import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
 import { BUCKET_LABEL, TASK_TAG_COLORS, createTask, type Task } from '@/lib/tasks'
@@ -378,7 +378,7 @@ function TodayCard() {
             className="w-full px-2 py-1.5 text-[12px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
           >
             <option value="">No project</option>
-            {projects.map((p) => (
+            {pickableProjects(projects, newProjectId).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>

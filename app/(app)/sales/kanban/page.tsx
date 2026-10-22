@@ -28,7 +28,8 @@ import { useConfirm } from '@/components/confirm-dialog'
 import NewProjectModal from '@/components/sales/NewProjectModal'
 import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
-import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus, Search, X, Copy } from 'lucide-react'
+import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus, Search, X, Copy, Archive } from 'lucide-react'
+import { canArchive, confirmAndArchive } from '@/lib/project-archive'
 import { DuplicateProjectModal } from '@/components/project/DuplicateProjectModal'
 import { setProjectLostReason } from '@/lib/lead-sources'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
@@ -317,6 +318,18 @@ function KanbanInner() {
                           onOpen={() => router.push(`/projects/${p.id}`)}
                           onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
                           onDuplicate={() => setDupFor(p)}
+                          onArchive={
+                            canArchive(p.stage)
+                              ? async () => {
+                                  try {
+                                    if (await confirmAndArchive(p))
+                                      setProjects((prev) => prev.filter((x) => x.id !== p.id))
+                                  } catch (err) {
+                                    window.alert(err instanceof Error ? err.message : 'Could not archive.')
+                                  }
+                                }
+                              : undefined
+                          }
                           onDelete={async () => {
                             const ok = await confirm({
                               title: 'Delete this project?',
@@ -501,6 +514,7 @@ function KanbanCard({
   onOpen,
   onQuickNote,
   onDuplicate,
+  onArchive,
   onDelete,
   onDragStart,
   onDragEnd,
@@ -513,6 +527,8 @@ function KanbanCard({
   onOpen: () => void
   onQuickNote: () => void
   onDuplicate: () => void
+  /** Present only on archivable (lost) cards — 119. */
+  onArchive?: () => void
   onDelete: () => void
   onDragStart: () => void
   onDragEnd: () => void
@@ -626,6 +642,15 @@ function KanbanCard({
               <Copy className="w-3.5 h-3.5 text-[#9CA3AF]" />
               Duplicate
             </button>
+            {onArchive && (
+              <button
+                onClick={() => { setMenuOpen(false); onArchive() }}
+                className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
+              >
+                <Archive className="w-3.5 h-3.5 text-[#9CA3AF]" />
+                Archive
+              </button>
+            )}
             <div className="my-1 border-t border-[#F3F4F6]" />
             <button
               onClick={() => { setMenuOpen(false); onDelete() }}

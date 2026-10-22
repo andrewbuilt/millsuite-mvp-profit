@@ -7,7 +7,7 @@
 //   Sales ▾    → /sales (click), dropdown: Kanban · Invoices · Clients
 //   Projects ▾ → /projects (click), dropdown: Schedule · Capacity
 //   Manage ▾   → (not a link) dropdown: My day · Tasks · Reports · Suggestions ·
-//                Rate book · Supplies · Team · Time · Guides
+//                Rate book · Supplies · Team · Time · Guides · Archive
 // Click-the-parent / hover-the-chevron: Sales & Projects labels are real links;
 // Manage's label is the dropdown trigger (no parent route). Hover opens the menu
 // for pointer users; the chevron is the touch/keyboard escape. Gating mirrors
@@ -88,6 +88,8 @@ const NAV: GroupSpec[] = [
       // Ungated on purpose: the walkthroughs are how someone learns the app,
       // so they can't sit behind a plan feature flag.
       { href: '/guides', label: 'Guides' },
+      // 119: completed + lost projects filed off the board. Display only.
+      { href: '/archive', label: 'Archive' },
     ],
   },
 ]

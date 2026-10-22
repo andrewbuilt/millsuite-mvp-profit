@@ -29,6 +29,7 @@ export const RESERVED_SLUGS = new Set([
   'cancellation-policy',
   'reset-password',
   // App routes
+  'archive', // 119 — Manage → Archive
   'capacity',
   'change-orders',
   'clients',

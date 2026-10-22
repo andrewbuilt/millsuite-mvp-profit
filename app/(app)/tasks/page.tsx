@@ -16,7 +16,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
-import { useTasks } from '@/components/tasks/TasksProvider'
+import { pickableProjects, useTasks } from '@/components/tasks/TasksProvider'
 import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
 import { TaskArchive } from '@/components/tasks/TaskArchive'
 import { TaskTagChip } from '@/components/tasks/TaskTagChip'
@@ -348,7 +348,7 @@ export default function TasksPage() {
                         className="w-full px-2 py-1.5 text-[12px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
                       >
                         <option value="">No project</option>
-                        {projects.map((p) => (
+                        {pickableProjects(projects, newProjectId).map((p) => (
                           <option key={p.id} value={p.id}>
                             {p.name}
                           </option>

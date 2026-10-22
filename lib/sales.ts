@@ -11,6 +11,7 @@ import { supabase } from './supabase'
 import { recordProjectEvent } from './project-events'
 import { fireAutoTask } from './auto-tasks'
 import { loadTempProjectIds } from './temp-projects'
+import { loadArchivedProjectIds } from './project-archive'
 import type { ProjectStage } from './types'
 import type { ParsedScopeItem } from './pdf-parser'
 import { recomputeProjectBidTotal } from './project-totals'
@@ -121,11 +122,13 @@ export async function loadSalesProjects(
     return { projects: [], summaries: {} }
   }
   // Temp projects (117) are hours-only tracking jobs — never on the board.
-  const tempIds = await loadTempProjectIds(orgId)
+  // Archived projects (119) live on Manage → Archive. The sales REPORT reads
+  // projects on its own and keeps counting them — archiving is display only.
+  const [tempIds, archivedIds] = await Promise.all([loadTempProjectIds(orgId), loadArchivedProjectIds(orgId)])
 
   const projects: SalesProject[] = []
   const summaries: Record<string, SubprojectSummary> = {}
-  for (const row of (data || []).filter((r: { id: string }) => !tempIds.has(r.id))) {
+  for (const row of (data || []).filter((r: { id: string }) => !tempIds.has(r.id) && !archivedIds.has(r.id))) {
     const subs = (row as any).subprojects || []
     const lf = subs.reduce(
       (sum: number, s: any) => sum + (Number(s.linear_feet) || 0),

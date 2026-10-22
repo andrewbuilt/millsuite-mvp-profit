@@ -38,7 +38,7 @@ import {
   type TaskTag,
 } from '@/lib/tasks'
 import { linkDisplayText, linkifyParts, normalizeLinkUrl } from '@/lib/task-links'
-import type { TaskProjectRef } from './TasksProvider'
+import { pickableProjects, type TaskProjectRef } from './TasksProvider'
 import { TaskTagChip } from './TaskTagChip'
 
 /** Chips are tight — a first name is enough to tell people apart in a shop. */
@@ -340,7 +340,7 @@ export function TaskRow({
               className="w-full mt-0.5 px-2 py-1.5 text-[12.5px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
             >
               <option value="">No project</option>
-              {projects.map((p) => (
+              {pickableProjects(projects, task.project_id).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>

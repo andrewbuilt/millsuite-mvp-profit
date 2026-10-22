@@ -25,6 +25,7 @@ import {
 import { useAuth } from '@/lib/auth-context'
 import { useTagFilterState } from './use-tag-filter'
 import { supabase } from '@/lib/supabase'
+import { loadArchivedProjectIds } from '@/lib/project-archive'
 import {
   closeOutTask,
   extrasReady,
@@ -43,6 +44,15 @@ import {
 export interface TaskProjectRef {
   id: string
   name: string
+  /** Archived (119): still here so existing tasks' chips keep their name,
+   *  but pickers leave it out — filter with `pickableProjects`. */
+  archived?: boolean
+}
+
+/** The projects a picker should offer: everything but archived, plus the one
+ *  already selected (so an archived project's task doesn't show a blank). */
+export function pickableProjects(projects: TaskProjectRef[], selectedId?: string | null): TaskProjectRef[] {
+  return projects.filter((p) => !p.archived || p.id === selectedId)
 }
 
 interface TasksContextValue {
@@ -260,10 +270,10 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     // rather than reusing loadSalesProjects — that pulls subprojects and
     // pricing this panel has no use for.
     ;(async () => {
-      const { data } = await supabase
-        .from('projects')
-        .select('id, name')
-        .eq('org_id', orgId)
+      const [{ data }, archived] = await Promise.all([
+        supabase.from('projects').select('id, name').eq('org_id', orgId),
+        loadArchivedProjectIds(orgId),
+      ])
       // Alphabetical, sorted HERE so every picker built from this list agrees
       // (the row editor, both quick-create forms). It was newest-first, which
       // makes a dropdown a memory test — Andrew asked for A→Z (2026-09-17).
@@ -271,7 +281,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       // sorts by the column's collation, which is case-SENSITIVE ("Zeta"
       // before "alpha") unless the database says otherwise.
       setProjects(
-        ((data || []) as TaskProjectRef[]).sort((a, b) =>
+        ((data || []) as TaskProjectRef[])
+          .map((p) => (archived.has(p.id) ? { ...p, archived: true } : p))
+          .sort((a, b) =>
           (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }),
         ),
       )

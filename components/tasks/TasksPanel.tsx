@@ -30,7 +30,7 @@ import {
   type Task,
   type TaskBucket,
 } from '@/lib/tasks'
-import { useTasks, type TaskProjectRef } from './TasksProvider'
+import { pickableProjects, useTasks, type TaskProjectRef } from './TasksProvider'
 import { TaskRow, taskFirstName as firstName } from './TaskRow'
 import { TaskArchive } from './TaskArchive'
 import CompletedForYou from './CompletedForYou'
@@ -409,7 +409,7 @@ export default function TasksPanel() {
                   className="w-full px-2 py-1.5 text-[12.5px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
                 >
                   <option value="">No project</option>
-                  {projects.map((p) => (
+                  {pickableProjects(projects, newProjectId).map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
                     </option>

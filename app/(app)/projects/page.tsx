@@ -40,6 +40,7 @@ import { usePracticeProjects } from '@/hooks/usePracticeProjects'
 import { useTempProjects } from '@/hooks/useTempProjects'
 import TempProjectModal from '@/components/projects/TempProjectModal'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
+import { canArchive, confirmAndArchive, loadArchivedProjectIds } from '@/lib/project-archive'
 
 interface ProjectRow {
   id: string
@@ -173,7 +174,10 @@ export default function ProjectsPage() {
         console.warn('/projects: sold_at missing — run migration 094')
         ;({ data, error } = await load(BASE_COLS))
       }
-      const rows = (data || []) as unknown as ProjectRow[]
+      // Archived projects (119) live on Manage → Archive, not here. Separate
+      // id set, never a column filter — see lib/project-archive.
+      const archived = await loadArchivedProjectIds(orgId)
+      const rows = ((data || []) as unknown as ProjectRow[]).filter((r) => !archived.has(r.id))
       if (cancelled) return
       setProjects(rows)
 
@@ -393,6 +397,17 @@ export default function ProjectsPage() {
               enriched={enriched[p.id]}
               openCos={coOpen[p.id] || 0}
               onOpen={() => router.push(`/projects/${p.id}`)}
+              onArchive={
+                canArchive(p.stage)
+                  ? async () => {
+                      try {
+                        if (await confirmAndArchive(p)) setProjects((prev) => prev.filter((x) => x.id !== p.id))
+                      } catch (err) {
+                        window.alert(err instanceof Error ? err.message : 'Could not archive.')
+                      }
+                    }
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -428,6 +443,7 @@ function ProjectCard({
   enriched: e,
   openCos,
   onOpen,
+  onArchive,
 }: {
   project: ProjectRow
   isPractice: boolean
@@ -435,6 +451,8 @@ function ProjectCard({
   enriched: Enriched | undefined
   openCos: number
   onOpen: () => void
+  /** Present only on archivable (completed) cards. */
+  onArchive?: () => void
 }) {
   const pill = e ? BUCKET_PILL[e.bucket] : null
   // A CO on an in-production job is the loud case.
@@ -501,6 +519,31 @@ function ProjectCard({
 
       {/* Line 4: stage-specific context */}
       <CardContext project={p} enriched={e} />
+
+      {/* Archive (119) — completed cards only. A span, not a button: the
+          whole card is already a <button>, and buttons can't nest. */}
+      {onArchive && (
+        <div className="pt-1 flex justify-end">
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(ev) => {
+              ev.stopPropagation()
+              onArchive()
+            }}
+            onKeyDown={(ev) => {
+              if (ev.key === 'Enter' || ev.key === ' ') {
+                ev.preventDefault()
+                ev.stopPropagation()
+                onArchive()
+              }
+            }}
+            className="text-[11px] font-medium text-[#6B7280] hover:text-[#111] px-1.5 py-0.5 rounded hover:bg-[#F3F4F6]"
+          >
+            Archive
+          </span>
+        </div>
+      )}
       {/* Quiet, and only when we actually know. Projects sold before 094
           have no sold_at and deliberately show nothing rather than a
           guessed date. */}

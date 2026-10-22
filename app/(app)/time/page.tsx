@@ -11,6 +11,7 @@ import {
   type TimeRangeChip,
 } from '@/lib/time-filters'
 import { triggerPhaseAdvance, triggerProjectRollup } from '@/lib/phase-client'
+import { loadArchivedProjectIds } from '@/lib/project-archive'
 import { useAuth } from '@/lib/auth-context'
 import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen, Download, Search } from 'lucide-react'
 import { fmtActualHours } from '@/lib/actual-hours'
@@ -193,13 +194,19 @@ export default function TimePage() {
   // ── Fetch projects ────────────────────────────────────────────────
   const fetchProjects = useCallback(async () => {
     if (!org?.id) return
-    const { data } = await supabase
-      .from('projects')
-      .select('id, name, stage')
-      .eq('org_id', org.id)
-      .order('name')
+    const [{ data }, archived] = await Promise.all([
+      supabase.from('projects').select('id, name, stage').eq('org_id', org.id).order('name'),
+      loadArchivedProjectIds(org.id),
+    ])
     if (data) setProjects(data)
+    setArchivedIds(archived)
   }, [org?.id])
+  // Archived projects (119) stay in the list so past entries keep their names
+  // and the filter can find them; the pickers for NEW time leave them out,
+  // except whichever one is already selected.
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set())
+  const pickableProjects = (selectedId?: string | null) =>
+    projects.filter((p) => !archivedIds.has(p.id) || p.id === selectedId)
 
   // ── Fetch departments ─────────────────────────────────────────────
   // Active departments only; filter management out the same way /schedule
@@ -693,7 +700,7 @@ export default function TimePage() {
                 className="w-full px-4 py-3 text-base border border-[#E5E7EB] rounded-xl bg-white"
               >
                 <option value="">Select project...</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {pickableProjects(timerProjectId).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               {timerSubs.length > 0 && (
                 <select
@@ -863,7 +870,7 @@ export default function TimePage() {
                 disabled={timerActive}
               >
                 <option value="">Select project...</option>
-                {projects.map(p => (
+                {pickableProjects(timerProjectId).map(p => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
@@ -967,7 +974,7 @@ export default function TimePage() {
                 }}
               >
                 <option value="">Select project...</option>
-                {projects.map(p => (
+                {pickableProjects(manualProjectId).map(p => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
@@ -1177,7 +1184,7 @@ export default function TimePage() {
                                 }}
                                 className="px-2 py-1.5 text-sm border border-[#E5E7EB] rounded-lg bg-white"
                               >
-                                {projects.map((p) => (
+                                {pickableProjects(editProjectId).map((p) => (
                                   <option key={p.id} value={p.id}>{p.name}</option>
                                 ))}
                               </select>
