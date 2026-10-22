@@ -94,6 +94,8 @@ if (/\.update\(\{[^}]*bid_total/.test(rollup)) fail('lib/project-rollup writes b
 const totals = fs.readFileSync('lib/project-totals.ts', 'utf8')
 if (!/select\(`\$\{SUB_COLS\}, price_frozen, quantity`\)/.test(totals))
   fail('lib/project-totals no longer selects subprojects.quantity — (QTY N) subs price ×1 (the COS bug)')
+if (/frozen \? 0 : computeInstallCost/.test(totals))
+  fail('lib/project-totals zeroes a frozen sub\'s install prefill again — Batia · Final loses $24,640')
 const banner = fs.readFileSync('components/project/ShopRateBanner.tsx', 'utf8')
 if (!/checkPriceAgrees/.test(banner)) fail('ShopRateBanner offers a recompute without the math-agrees guard')
 console.log(failures === 0 ? '  composer / CO / rollup wiring ✓' : '')

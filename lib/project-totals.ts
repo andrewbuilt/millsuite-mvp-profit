@@ -285,7 +285,15 @@ export async function computeProjectPrice(
       ratePerHour: sub.install_rate_per_hour,
       included: sub.install_included ?? false,
     }
-    const installPrefillCost = frozen ? 0 : computeInstallCost(installPrefill, shopRate)
+    // ⛔ A FROZEN SUB'S INSTALL PREFILL IS ITS PRICE, NOT SOMETHING ON TOP
+    // (2026-10-22, Batia · Final). The Built importer deliberately gives an
+    // install sub NO estimate lines and prices it from the prefill alone, and
+    // the project page + handoff have always counted it: own install rate if
+    // set, else the sub's rate (0 when frozen), into the FROZEN bucket — no
+    // margin. This file used `frozen ? 0`, which dropped Batia's $24,640
+    // install ($232,891 sold vs $208,251 here) and would have written the
+    // lower number on the next recompute. Same rule as the page now.
+    const installPrefillCost = computeInstallCost(installPrefill, frozen ? 0 : shopRate)
     // computeInstallHours is read but doesn't affect priceTotal —
     // hours fold into hoursByDept; dollars come from the cost buckets.
     void computeInstallHours(installPrefill)
