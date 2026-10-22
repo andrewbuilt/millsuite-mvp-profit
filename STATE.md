@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-10-22 · **Branch:** `main`
 
-**Left off (2026-10-22, later):** Standard estimate/CO formatting pass BUILT (`a4c7aca`), **held unpushed until Andrew OKs the before/after renders.** Earlier today: COS/Batia fixes + one-page archive all pushed.
+**Left off (2026-10-22, later):** Standard estimate/CO formatting pass BUILT and PUSHED (`a4c7aca`) — **Andrew OK'd the before/after renders.** Next: regenerate the real EST-0036 + Bonzer CO PDFs in the app; decide whether project copies get a fresh estimate number. Earlier today: COS/Batia fixes + one-page archive all pushed.
 
 **Earlier (2026-10-22):** COS guard + root fix, qty-line polish and project archive BUILT and ALL PUSHED. **Migration `119` ✅ ON PROD AND VERIFIED**; **bid-total repair ✅ RUN by Andrew** (COS Systems $208,064 → $691,684, Leonard Lobby Bar Ph 1 $0 → $172,563). **Batia SOLVED + FIXED (`2632d15`, pushed):** `project-totals` zeroed a frozen sub's install prefill; Batia now computes to its $232,891 contract exactly. Drift list = only the 5 demo seeds; rate proof passes (0 move). Next: the live verify list → scope "pin margins per project" in Cowork.
 
@@ -18,7 +18,7 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
-**✅ 2026-10-22: STANDARD ESTIMATE/CO FORMATTING PASS — BUILT, committed `a4c7aca`, ⛔ NOT PUSHED: waiting on Andrew's look at the before/after renders (sent in chat).** tsc clean.
+**✅ 2026-10-22: STANDARD ESTIMATE/CO FORMATTING PASS — BUILT + PUSHED (`a4c7aca`); Andrew OK'd the before/after renders 2026-10-22.** tsc clean.
 1. ✅ **No `~`.** Rates print plain to the cent, ALWAYS ("$2,524.17"; "$4,200.00" on a qty-1 line), derived from amount, never the reverse (comment kept). Rendered finding: in a table, "~$2,524.17" read as a MINUS sign. Every rate now has 2 decimals so the Rate column lines up (it mixed "$2,524" and "$1,293.25"). Veto-able: whole dollars on qty-1 rates.
 2. ✅ **Type cleanup — one shared system, `components/pdf/standard-doc.tsx`**, used by EstimatePdf + CoDocPdf so they can't drift:
    - THREE grays (ink = titles + numbers, fg = body + contact lines, dim = labels); the 4th "meta" gray is gone.
@@ -30,7 +30,7 @@
 3. ✅ **Logo OR name.** The shared `OrgHeader` prints the logo alone when there is one, and the name heading when there isn't. Applied to the estimate, the CO, and the invoice header (invoice header only; its type is untouched). No-logo check: a no-logo org's render ("Cab shop") still prints its name.
 - **Preview:** `npx tsx scripts/preview-standard-docs.tsx <label>` renders EST-0036 (COS · Systems), the Bonzer CO and a no-logo estimate from PROD, read only, into `$TMPDIR/stdpdf/<label>/`.
 - ⚠️ Found in passing, not fixed: **three COS copies share EST-0036.** Copy-project carries `estimate_number`, so a copy re-issues the source's number. Should a copy get a fresh number on its first PDF? Small; Andrew's call.
-- Next: Andrew OKs the look → push. Then regenerate the real EST-0036 + Bonzer CO PDFs in the app.
+- Next: regenerate the real EST-0036 + Bonzer CO PDFs in the app (stored PDFs only change on regenerate; accepted CO docs never do).
 
 
 **✅ 2026-10-22: COS GUARD + ROOT FIX · QTY-LINE POLISH · PROJECT ARCHIVE — ALL BUILT, tsc + `next build` clean.** ALL PUSHED; **migration `119` ✅ on prod and verified; the bid-total repair ✅ run.**
