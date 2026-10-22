@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-10-22 · **Branch:** `main`
 
-**Left off (2026-10-22, later):** Standard estimate/CO formatting pass BUILT and PUSHED (`a4c7aca`) — **Andrew OK'd the before/after renders.** Next: regenerate the real EST-0036 + Bonzer CO PDFs in the app; decide whether project copies get a fresh estimate number. Earlier today: COS/Batia fixes + one-page archive all pushed.
+**Left off (2026-10-22, later):** Standard estimate/CO formatting pass BUILT and PUSHED (`a4c7aca`) — **Andrew OK'd the before/after renders.** Next: regenerate the real EST-0036 + Bonzer CO PDFs in the app. Earlier today: COS/Batia fixes + one-page archive all pushed.
 
 **Earlier (2026-10-22):** COS guard + root fix, qty-line polish and project archive BUILT and ALL PUSHED. **Migration `119` ✅ ON PROD AND VERIFIED**; **bid-total repair ✅ RUN by Andrew** (COS Systems $208,064 → $691,684, Leonard Lobby Bar Ph 1 $0 → $172,563). **Batia SOLVED + FIXED (`2632d15`, pushed):** `project-totals` zeroed a frozen sub's install prefill; Batia now computes to its $232,891 contract exactly. Drift list = only the 5 demo seeds; rate proof passes (0 move). Next: the live verify list → scope "pin margins per project" in Cowork.
 
@@ -29,7 +29,7 @@
    - Page counts unchanged: EST-0036 10, Bonzer CO 2.
 3. ✅ **Logo OR name.** The shared `OrgHeader` prints the logo alone when there is one, and the name heading when there isn't. Applied to the estimate, the CO, and the invoice header (invoice header only; its type is untouched). No-logo check: a no-logo org's render ("Cab shop") still prints its name.
 - **Preview:** `npx tsx scripts/preview-standard-docs.tsx <label>` renders EST-0036 (COS · Systems), the Bonzer CO and a no-logo estimate from PROD, read only, into `$TMPDIR/stdpdf/<label>/`.
-- ⚠️ Found in passing, not fixed: **three COS copies share EST-0036.** Copy-project carries `estimate_number`, so a copy re-issues the source's number. Should a copy get a fresh number on its first PDF? Small; Andrew's call.
+- **Decided 2026-10-22 (Andrew): copies KEEP the source's estimate number** (the three COS copies share EST-0036 by design). Don't change Copy-project's number handling.
 - Next: regenerate the real EST-0036 + Bonzer CO PDFs in the app (stored PDFs only change on regenerate; accepted CO docs never do).
 
 
