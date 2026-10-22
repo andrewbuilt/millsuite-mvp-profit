@@ -91,6 +91,11 @@ const slot = fs.readFileSync('components/changeorders/SlotCoEditor.tsx', 'utf8')
 if (!/shopRate: pricing\.shopRate/.test(slot)) fail('SlotCoEditor: CO labor no longer priced at pricing.shopRate')
 const rollup = fs.readFileSync('lib/project-rollup.ts', 'utf8')
 if (/\.update\(\{[^}]*bid_total/.test(rollup)) fail('lib/project-rollup writes bid_total again (the /time $0 bug)')
+const totals = fs.readFileSync('lib/project-totals.ts', 'utf8')
+if (!/select\(`\$\{SUB_COLS\}, price_frozen, quantity`\)/.test(totals))
+  fail('lib/project-totals no longer selects subprojects.quantity — (QTY N) subs price ×1 (the COS bug)')
+const banner = fs.readFileSync('components/project/ShopRateBanner.tsx', 'utf8')
+if (!/checkPriceAgrees/.test(banner)) fail('ShopRateBanner offers a recompute without the math-agrees guard')
 console.log(failures === 0 ? '  composer / CO / rollup wiring ✓' : '')
 
 if (STATIC_ONLY) {

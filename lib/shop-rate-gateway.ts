@@ -52,9 +52,40 @@ export function shopRateOffer(project: RateOfferProject | null | undefined, orgR
   return { from, to }
 }
 
+// ── The math-agrees guard (2026-10-22, the COS banner) ──
+// A recompute is only safe to OFFER when this library prices the job, at its
+// CURRENT pinned rate, to the number everyone is looking at. If it doesn't,
+// the gap is a pricing-path bug or bad stored data — not a rate change — and
+// "Use new rate" would write that gap over the bid (COS Laminate: $1,022,901
+// → $341,940 off a ~4% rate move). So: compare first, offer only on agreement.
+
+export const MATH_EPSILON = 1
+
+/** The job priced by this library at its current pin, vs `shown` (the page's
+ *  live total) and the stored bid_total. `agrees` false = do not offer. */
+export async function checkPriceAgrees(
+  projectId: string,
+  shown?: number | null,
+): Promise<{ agrees: boolean; atPin: number | null; stored: number }> {
+  const r = await computeProjectPrice(projectId)
+  if (!r) return { agrees: false, atPin: null, stored: 0 }
+  const okStored = Math.abs(r.priceTotal - r.stored) <= MATH_EPSILON
+  const okShown = shown == null || Math.abs(r.priceTotal - shown) <= MATH_EPSILON
+  return { agrees: okStored && okShown, atPin: r.priceTotal, stored: r.stored }
+}
+
 /** "Use $X/hr": re-pin, clear any ignore, recompute bid_total. Throws on a
- *  refused write — an RLS no-op must not look like success. */
+ *  refused write — an RLS no-op must not look like success — and REFUSES
+ *  when the price math doesn't agree with the stored total (see above). */
 export async function acceptShopRate(projectId: string, rate: number): Promise<number | null> {
+  const check = await checkPriceAgrees(projectId)
+  if (!check.agrees) {
+    throw new Error(
+      `Not updated: this bid's stored price ($${Math.round(check.stored).toLocaleString()}) doesn't match its line math` +
+        (check.atPin != null ? ` ($${Math.round(check.atPin).toLocaleString()})` : '') +
+        '. It needs attention before any rate change.',
+    )
+  }
   const { data, error } = await supabase
     .from('projects')
     .update({ locked_shop_rate: rate, shop_rate_ignored: null })

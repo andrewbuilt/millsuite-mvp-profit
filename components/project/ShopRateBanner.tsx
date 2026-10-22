@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import {
   acceptShopRate,
+  checkPriceAgrees,
   ignoreShopRate,
   priceAtRate,
   sentQuote,
@@ -51,21 +52,28 @@ export default function ShopRateBanner({
   const offer = shopRateOffer(project, orgShopRate)
   const sent = sentQuote(project)
   const [newTotal, setNewTotal] = useState<number | null>(null)
+  // null = still checking; the offer buttons wait for a yes.
+  const [mathAgrees, setMathAgrees] = useState<boolean | null>(null)
+  const [atPin, setAtPin] = useState<number | null>(null)
   const [busy, setBusy] = useState<'accept' | 'ignore' | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
     if (!offer) return
     let cancelled = false
-    priceAtRate(project.id, offer.to).then((t) => {
-      if (!cancelled) setNewTotal(t)
+    setMathAgrees(null)
+    Promise.all([priceAtRate(project.id, offer.to), checkPriceAgrees(project.id, currentTotal)]).then(([t, c]) => {
+      if (cancelled) return
+      setNewTotal(t)
+      setMathAgrees(c.agrees)
+      setAtPin(c.atPin)
     })
     return () => {
       cancelled = true
     }
-    // Re-price only when the offer itself changes.
+    // Re-price only when the offer or the shown total changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id, offer?.from, offer?.to])
+  }, [project.id, offer?.from, offer?.to, Math.round(currentTotal)])
 
   if (!offer) return null
 
@@ -82,6 +90,23 @@ export default function ShopRateBanner({
     } finally {
       setBusy(null)
     }
+  }
+
+  // ⛔ THE GUARD. The math doesn't agree with the stored/shown price, so the
+  // recompute is NOT offered — it would write the disagreement over the bid.
+  if (mathAgrees === false) {
+    return (
+      <div className="mb-4 px-4 py-3 bg-[#FEF2F2] border border-[#FECACA] rounded-xl text-[12.5px] text-[#7F1D1D] leading-snug">
+        <div className="text-[13px] font-semibold">
+          Your shop rate is now {rate(offer.to)} — but this bid&apos;s stored price doesn&apos;t match its line math
+        </div>
+        <div className="mt-0.5">
+          Stored {money(Number(project.bid_total) || 0)} · on screen {money(currentTotal)}
+          {atPin != null ? ` · line math ${money(atPin)}` : ''}. The new rate isn&apos;t offered until these agree —
+          open the subprojects below and check their totals, and flag it if they look wrong. Nothing has been changed.
+        </div>
+      </div>
+    )
   }
 
   const label = sent?.number ? sent.number : 'the estimate'
@@ -118,7 +143,7 @@ export default function ShopRateBanner({
         <button
           type="button"
           onClick={() => act('accept')}
-          disabled={busy !== null}
+          disabled={busy !== null || mathAgrees !== true}
           className="px-3 py-1.5 text-[12px] font-semibold rounded-md bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50"
         >
           {busy === 'accept' ? 'Updating…' : `Use ${rate(offer.to)}`}

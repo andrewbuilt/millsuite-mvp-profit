@@ -88,7 +88,7 @@ import {
   type StaleLineInfo,
 } from '@/lib/composer-staleness'
 import { computeProjectPrice } from '@/lib/project-totals'
-import { sentQuote } from '@/lib/shop-rate-gateway'
+import { checkPriceAgrees, sentQuote } from '@/lib/shop-rate-gateway'
 import { isPresold, type ProjectStage } from '@/lib/types'
 import CreateChangeOrderModal from '@/components/changeorders/CreateChangeOrderModal'
 
@@ -810,13 +810,21 @@ export default function SubprojectEditorPage() {
   // updating would do to the QUOTE, in dollars, before anyone clicks.
   const sentEstimate = sentQuote(project)
   const [staleQuoteTotal, setStaleQuoteTotal] = useState<number | null>(null)
+  // The math-agrees guard (COS, 2026-10-22): a $Y off math that already
+  // disagrees with the stored price would be fiction — say so instead.
+  const [staleMathAgrees, setStaleMathAgrees] = useState<boolean | null>(null)
   const staleKey = staleLines.map((st) => `${st.lineId}:${staleSignature(st)}`).join('|')
   useEffect(() => {
     setStaleQuoteTotal(null)
     if (!sentEstimate || staleLines.length === 0 || !isPresold((project?.stage ?? 'sold') as ProjectStage)) return
     let cancelled = false
-    computeProjectPrice(projectId, { lineOverrides: staleLineOverrides(staleLines) }).then((r) => {
-      if (!cancelled && r) setStaleQuoteTotal(r.priceTotal)
+    Promise.all([
+      computeProjectPrice(projectId, { lineOverrides: staleLineOverrides(staleLines) }),
+      checkPriceAgrees(projectId),
+    ]).then(([r, c]) => {
+      if (cancelled) return
+      if (r) setStaleQuoteTotal(r.priceTotal)
+      setStaleMathAgrees(c.agrees)
     })
     return () => {
       cancelled = true
@@ -1095,9 +1103,18 @@ export default function SubprojectEditorPage() {
                     You sent {sentEstimate.number || 'the estimate'}
                     {sentEstimate.total != null ? ` at $${Math.round(sentEstimate.total).toLocaleString()}` : ''} on{' '}
                     {new Date(sentEstimate.sentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.
-                    Updating all of these changes this quote to{' '}
-                    {staleQuoteTotal != null ? `$${staleQuoteTotal.toLocaleString()}` : '…'} — the PDF you sent stays as
-                    issued; re-send if you want the client to see the new number.
+                    {staleMathAgrees === false ? (
+                      <>
+                        {' '}This project&apos;s stored price doesn&apos;t match its line math, so the new quote total
+                        can&apos;t be shown reliably — get that checked before updating. The PDF you sent stays as issued.
+                      </>
+                    ) : (
+                      <>
+                        {' '}Updating all of these changes this quote to{' '}
+                        {staleQuoteTotal != null ? `$${staleQuoteTotal.toLocaleString()}` : '…'} — the PDF you sent stays
+                        as issued; re-send if you want the client to see the new number.
+                      </>
+                    )}
                   </div>
                 )}
                 {/* ⛔ THE BANNER SHOWS ITS MATH (October batch item 8). It used
