@@ -278,7 +278,10 @@ export function InvoicePdf({
             {pdfLogoOk(org.logo_url) ? (
               <Image src={org.logo_url} style={styles.logo} />
             ) : null}
-            <Text style={styles.orgName}>{org.name || 'Your Company'}</Text>
+            {/* A logo IS the name — don't print both (standard-doc rule). */}
+            {!pdfLogoOk(org.logo_url) ? (
+              <Text style={styles.orgName}>{org.name || 'Your Company'}</Text>
+            ) : null}
             {org.business_address ? (
               <Text style={styles.orgLine}>{org.business_address}</Text>
             ) : null}

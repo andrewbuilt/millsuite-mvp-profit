@@ -26,9 +26,11 @@
 // CLASSIC runtime and throws "React is not defined". Without this line the
 // only way to find out the PDF crashes is a client asking for it.
 import React from 'react'
-import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
-import { pdfLogoOk } from '@/components/estimates/EstimatePdf'
+import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 import { pdfText } from '@/lib/pdf-text'
+// Same standard document system as the estimate — palette, type scale, org
+// header (logo OR name, never both). See components/pdf/standard-doc.
+import { DOC, OrgHeader, TYPE, docStyles } from '@/components/pdf/standard-doc'
 
 export interface CoDocPdfItem {
   kind: 'add_sub' | 'edit_sub' | 'remove_sub' | 'adjustment'
@@ -67,48 +69,49 @@ export interface CoDocPdfProps {
   signature?: { name: string; at: string } | null
 }
 
-const C = { ink: '#111', fg: '#374151', meta: '#6B7280', dim: '#9CA3AF', hair: '#E5E7EB' }
+const C = { ink: DOC.ink, fg: DOC.fg, dim: DOC.dim, hair: DOC.hairline }
 const S = StyleSheet.create({
   page: { paddingTop: 48, paddingHorizontal: 48, paddingBottom: 48, fontSize: 10.5, color: C.ink, fontFamily: 'Helvetica' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 28 },
-  logo: { height: 26, marginBottom: 10, alignSelf: 'flex-start' },
-  orgName: { fontSize: 16, fontFamily: 'Helvetica-Bold', marginBottom: 4 },
-  orgLine: { fontSize: 9.5, color: C.meta, lineHeight: 1.4 },
-  docLabel: { fontSize: 20, fontFamily: 'Helvetica-Bold', letterSpacing: 2, textAlign: 'right', marginBottom: 4 },
-  docNumber: { fontSize: 11, color: C.fg, textAlign: 'right', marginBottom: 8 },
-  docMeta: { fontSize: 9.5, color: C.meta, textAlign: 'right' },
+  // Org block (logo / name / contact lines) is the shared OrgHeader.
+  docLabel: { fontSize: TYPE.docLabel, fontFamily: 'Helvetica-Bold', letterSpacing: 2, textAlign: 'right', marginBottom: 4 },
+  docNumber: { fontSize: 11, color: C.ink, textAlign: 'right', marginBottom: 6 },
+  docMeta: { fontSize: TYPE.body, color: C.fg, textAlign: 'right', lineHeight: 1.45 },
   twoCol: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
   colHalf: { width: '48%' },
-  smallLabel: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.dim, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4 },
-  body: { fontSize: 10.5, lineHeight: 1.45 },
-  meta: { fontSize: 9.5, color: C.meta, lineHeight: 1.4 },
+  smallLabel: { ...docStyles.label, marginBottom: 5 },
+  body: { fontSize: TYPE.itemTitle, lineHeight: 1.45 },
+  meta: docStyles.body,
   rule: { borderTopWidth: 1, borderTopColor: C.ink, marginBottom: 12, marginTop: 4 },
   title: { fontSize: 13, fontFamily: 'Helvetica-Bold', marginBottom: 12 },
 
-  item: { marginBottom: 14, paddingBottom: 12, borderBottomWidth: 0.5, borderBottomColor: C.hair },
+  // Same rhythm as the estimate: more space BETWEEN items than within one.
+  item: { paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: C.hair },
   itemHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  itemTitle: { fontSize: 11, fontFamily: 'Helvetica-Bold', flexGrow: 1, paddingRight: 16 },
-  itemAmount: { fontSize: 11, fontFamily: 'Courier', width: 90, textAlign: 'right' },
-  itemKind: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.dim, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 3 },
-  itemDesc: { fontSize: 9.5, color: C.fg, marginTop: 4, lineHeight: 1.4 },
-  lineRow: { flexDirection: 'row', paddingVertical: 2.5, paddingLeft: 10 },
-  lineDesc: { flexGrow: 1, fontSize: 9.5, color: C.meta, paddingRight: 8 },
-  lineQty: { width: 70, textAlign: 'right', fontSize: 9.5, color: C.meta, fontFamily: 'Courier' },
+  itemTitle: { fontSize: TYPE.itemTitle, fontFamily: 'Helvetica-Bold', flexGrow: 1, paddingRight: 16 },
+  itemAmount: { fontSize: TYPE.number, fontFamily: 'Helvetica', width: 90, textAlign: 'right' },
+  itemKind: { ...docStyles.label, marginBottom: 3 },
+  // Normal leading, like the estimate's scope body — 1.45 read double-spaced on
+  // multi-line descriptions.
+  itemDesc: { fontSize: TYPE.body, color: C.fg, marginTop: 4, lineHeight: 1.25 },
+  lineRow: { flexDirection: 'row', paddingVertical: 2, paddingLeft: 10 },
+  lineDesc: { flexGrow: 1, fontSize: TYPE.body, color: C.fg, paddingRight: 8 },
+  lineQty: { width: 70, textAlign: 'right', fontSize: TYPE.body, color: C.fg, fontFamily: 'Helvetica' },
 
   totals: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 },
   totalsBox: { minWidth: 240 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
-  totalLabel: { fontSize: 10, color: C.meta },
-  totalVal: { fontSize: 10, fontFamily: 'Courier' },
+  totalLabel: { fontSize: TYPE.body, color: C.fg },
+  totalVal: { fontSize: TYPE.number, fontFamily: 'Helvetica' },
   netRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderTopWidth: 0.75, borderTopColor: C.ink, marginTop: 4 },
   netLabel: { fontSize: 11, fontFamily: 'Helvetica-Bold' },
-  netVal: { fontSize: 14, fontFamily: 'Courier' },
+  netVal: { fontSize: 14, fontFamily: 'Helvetica-Bold' },
 
   acceptWrap: { marginTop: 36, borderTopWidth: 0.5, borderTopColor: C.hair, paddingTop: 16 },
   sigLine: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 28 },
   sigCol: { width: '46%' },
   sigRule: { borderTopWidth: 0.75, borderTopColor: C.ink, marginBottom: 4 },
-  sigLabel: { fontSize: 8.5, color: C.meta },
+  sigLabel: { fontSize: 8.5, color: C.fg },
   sigTyped: { fontSize: 13, fontFamily: 'Helvetica-Oblique', marginBottom: 3 },
 })
 
@@ -158,13 +161,7 @@ export function CoDocPdf({
     <Document>
       <Page size="LETTER" style={S.page}>
         <View style={S.headerRow}>
-          <View>
-            {pdfLogoOk(org.logo_url) ? <Image src={org.logo_url} style={S.logo} /> : null}
-            <Text style={S.orgName}>{pdfSafe(org.name)}</Text>
-            {orgAddr ? <Text style={S.orgLine}>{pdfSafe(orgAddr)}</Text> : null}
-            {org.business_phone ? <Text style={S.orgLine}>{pdfSafe(org.business_phone)}</Text> : null}
-            {org.business_email ? <Text style={S.orgLine}>{pdfSafe(org.business_email)}</Text> : null}
-          </View>
+          <OrgHeader org={org} addressLines={[orgAddr, org.business_phone, org.business_email]} />
           <View>
             <Text style={S.docLabel}>CHANGE ORDER</Text>
             <Text style={S.docNumber}>{pdfSafe(coNumber)}</Text>
@@ -208,7 +205,9 @@ export function CoDocPdf({
                   .map((ln) => ln.trim())
                   .filter(Boolean)
                   .map((ln, k) => (
-                    <Text key={k} style={S.itemDesc}>
+                    // The 4pt gap separates the description from the title —
+                    // once. On every line it spaced a list like paragraphs.
+                    <Text key={k} style={k === 0 ? S.itemDesc : [S.itemDesc, { marginTop: 1 }]}>
                       {pdfSafe(ln)}
                     </Text>
                   ))

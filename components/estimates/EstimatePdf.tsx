@@ -11,15 +11,13 @@
 // the PDF total reconciles with what the operator sees).
 // ============================================================================
 
-import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 import { parseRichDescription } from '@/lib/subproject-description'
 import { pdfText } from '@/lib/pdf-text'
-
-/** react-pdf <Image> renders raster only (no SVG) — show the logo when it's a
- *  PNG/JPG/etc., otherwise fall back to the org name text. */
-export function pdfLogoOk(url: string | null | undefined): url is string {
-  return !!url && !/\.svg(\?|$)/i.test(url)
-}
+// The standard document system (palette, type scale, org header) lives in one
+// place so the estimate and the change order can't drift apart again.
+import { DOC, OrgHeader, TYPE, docStyles } from '@/components/pdf/standard-doc'
+export { pdfLogoOk } from '@/components/pdf/standard-doc'
 
 export interface EstimatePdfLine {
   description: string
@@ -69,12 +67,11 @@ export interface EstimatePdfProps {
 }
 
 const COLORS = {
-  ink: '#111111',
-  fg: '#374151',
-  meta: '#6B7280',
-  dim: '#9CA3AF',
-  hairline: '#E5E7EB',
-  rule: '#111111',
+  ink: DOC.ink,
+  fg: DOC.fg,
+  dim: DOC.dim,
+  hairline: DOC.hairline,
+  rule: DOC.rule,
   bandBg: '#F9FAFB',
 }
 
@@ -92,32 +89,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 28,
   },
-  // Logo scaled to roughly the doc-label height; explicit height so react-pdf
-  // reserves space (no header overlap). width auto-scales by aspect ratio.
-  logo: { height: 26, marginBottom: 10, alignSelf: 'flex-start' },
-  orgName: { fontSize: 16, fontFamily: 'Helvetica-Bold', color: COLORS.ink, marginBottom: 4 },
-  orgLine: { fontSize: 9.5, color: COLORS.meta, lineHeight: 1.4 },
-  docLabel: { fontSize: 22, fontFamily: 'Helvetica-Bold', letterSpacing: 3, textAlign: 'right', marginBottom: 4 },
-  docNumber: { fontSize: 11, fontFamily: 'Helvetica', color: COLORS.fg, textAlign: 'right', marginBottom: 8 },
-  docMeta: { fontSize: 9.5, color: COLORS.meta, textAlign: 'right' },
+  // Org block (logo / name / contact lines) is the shared OrgHeader.
+  docLabel: { fontSize: TYPE.docLabel, fontFamily: 'Helvetica-Bold', letterSpacing: 3, textAlign: 'right', marginBottom: 4 },
+  docNumber: { fontSize: 11, fontFamily: 'Helvetica', color: COLORS.ink, textAlign: 'right', marginBottom: 6 },
+  docMeta: { fontSize: TYPE.body, color: COLORS.fg, textAlign: 'right', lineHeight: 1.45 },
 
   twoCol: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
   colHalf: { width: '48%' },
-  smallLabel: {
-    fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
-    color: COLORS.dim,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  blockBody: { fontSize: 10.5, lineHeight: 1.45, color: COLORS.ink },
-  blockMeta: { fontSize: 9.5, lineHeight: 1.4, color: COLORS.meta },
+  smallLabel: { ...docStyles.label, marginBottom: 5 },
+  blockBody: { fontSize: TYPE.itemTitle, lineHeight: 1.45, color: COLORS.ink },
+  blockMeta: docStyles.body,
   blockBold: { fontFamily: 'Helvetica-Bold' },
 
   tableRule: { borderTopWidth: 1, borderTopColor: COLORS.rule, marginBottom: 4 },
-  tableHeaderRow: { flexDirection: 'row', paddingTop: 4, paddingBottom: 6 },
-  tableRow: { flexDirection: 'row', paddingVertical: 5, borderBottomWidth: 0.5, borderBottomColor: COLORS.hairline },
+  tableHeaderRow: { flexDirection: 'row', paddingTop: 4, paddingBottom: 4, borderBottomWidth: 0.5, borderBottomColor: COLORS.hairline },
+  // ⛔ The space BETWEEN items (10 + 10 around the hairline) is deliberately
+  // bigger than the gaps WITHIN one (a blank line), so each line item reads as
+  // one unit. They used to be the other way round, which is most of why the
+  // body read messy.
+  tableRow: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: COLORS.hairline },
   // flexShrink:0 on the numeric cells + flexBasis:0 on desc locks the columns
   // so the header and every row line up even when a description wraps long.
   cellDesc: { flexGrow: 1, flexShrink: 1, flexBasis: 0, paddingRight: 8 },
@@ -125,34 +115,29 @@ const styles = StyleSheet.create({
   cellUnit: { width: 48, flexShrink: 0, textAlign: 'right', paddingRight: 6 },
   cellRate: { width: 70, flexShrink: 0, textAlign: 'right', paddingRight: 6 },
   cellAmount: { width: 78, flexShrink: 0, textAlign: 'right' },
-  headerText: {
-    fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
-    color: COLORS.dim,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-  },
-  bodyText: { fontSize: 10.5, color: COLORS.ink },
+  headerText: docStyles.label,
+  // ⛔ NO lineHeight on the description cell. In react-pdf it applies to EVERY
+  // line of the cell — the blank section-break lines too — so it inflated the
+  // gaps inside an item until they matched the gaps between items (rendered
+  // and measured 2026-10-22). The section rhythm below (label tight to its
+  // body, one blank line between sections) was already right.
+  bodyText: { fontSize: TYPE.itemTitle, color: COLORS.ink },
   // Scope sections inside the description cell. These are inline styles on
   // nested <Text> runs, not blocks — the cell has to stay ONE <Text> (see the
   // comment at the row), so spacing comes from newlines rather than margins.
-  scopeLabel: {
-    fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
-    color: COLORS.dim,
-    letterSpacing: 1,
-  },
-  scopeBody: { fontSize: 10, color: COLORS.fg },
-  monoRight: { fontSize: 10.5, fontFamily: 'Courier', color: COLORS.ink, textAlign: 'right' },
+  scopeLabel: { ...docStyles.label, textTransform: 'none' },
+  scopeBody: { fontSize: TYPE.body, color: COLORS.fg },
+  // Numbers: Helvetica (equal-width digits), not Courier — see standard-doc.
+  monoRight: { fontSize: TYPE.number, fontFamily: 'Helvetica', color: COLORS.ink, textAlign: 'right' },
 
   totalsWrap: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 },
   totalsCol: { width: 220 },
   totalsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
   totalsRowBold: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
-  totalsLabel: { fontSize: 10.5, color: COLORS.fg },
+  totalsLabel: { fontSize: TYPE.body, color: COLORS.fg },
   totalsLabelBold: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: COLORS.ink },
-  totalsValue: { fontSize: 10.5, fontFamily: 'Courier', color: COLORS.ink },
-  totalsValueBold: { fontSize: 11, fontFamily: 'Courier-Bold', color: COLORS.ink },
+  totalsValue: { fontSize: TYPE.number, fontFamily: 'Helvetica', color: COLORS.ink },
+  totalsValueBold: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: COLORS.ink },
   totalsRule: { borderTopWidth: 1, borderTopColor: COLORS.rule, marginVertical: 3 },
 
   // Payment schedule block.
@@ -164,12 +149,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: COLORS.hairline,
   },
-  scheduleLabel: { fontSize: 10, color: COLORS.ink },
-  scheduleTrigger: { fontSize: 9, color: COLORS.dim },
-  scheduleAmount: { fontSize: 10, fontFamily: 'Courier', color: COLORS.ink, textAlign: 'right' },
+  scheduleLabel: { fontSize: TYPE.number, color: COLORS.ink },
+  scheduleTrigger: { fontSize: TYPE.body, color: COLORS.fg },
+  scheduleAmount: { fontSize: TYPE.number, fontFamily: 'Helvetica', color: COLORS.ink, textAlign: 'right' },
 
   notesBlock: { marginTop: 28, paddingTop: 14, borderTopWidth: 0.5, borderTopColor: COLORS.hairline },
-  notesText: { fontSize: 9.5, color: COLORS.fg, lineHeight: 1.5 },
+  notesText: { ...docStyles.body, lineHeight: 1.5 },
 })
 
 function money(n: number): string {
@@ -177,39 +162,27 @@ function money(n: number): string {
 }
 
 /**
- * The RATE cell, which has one job: never print arithmetic a client can
- * disprove with a phone. Qty × Rate must equal Amount, exactly, as PRINTED.
+ * The RATE cell. `amount` is authoritative — it's what keeps the estimate
+ * total equal to the project total — and the rate is DERIVED from it
+ * (amount ÷ qty), never the other way round. Keep that direction.
  *
- * Two things break that, and both are handled here:
+ *   Rates print to the cent, always — "$2,524.17", and "$4,200.00" on a
+ *   single item — so the Rate column's digits line up (it used to mix "$2,524"
+ *   with "$1,293.25").
  *
- *   Whole dollars are wrong once quantity > 1 — $11,871 over 4 units is
- *   $2,967.75, and rounding to $2,968 prints "4 × $2,968 = $11,871".
- *
- *   ⛔ Some divisions CANNOT reconcile at any precision. $10,000 over 3 is
- *   $3,333.33…, which multiplies back to $9,999.99. There is no exact rate to
- *   print. It used to print "—", which was honest but READ as flaky (Andrew,
- *   EST-0036: $16,709÷5 printed a rate, $17,336÷7 printed nothing). Now it
- *   prints the rate to the cent WITH A MARKER: "~$2,476.57". A client who
- *   multiplies lands within a dollar, and the ~ says why. `amount` stays
- *   authoritative (it keeps the estimate total equal to the project total);
- *   the rate is derived from it, never the reverse.
- *
- *   ⛔ THE MARKER IS "~", NOT "≈". ≈ (U+2248) is outside WinAnsi and the
- *   built-in Courier/Helvetica render it as "H" — "H$2,476.57" on a client's
- *   estimate. Rendered and checked 2026-10-22; see lib/pdf-text.
+ *   ⛔ Some divisions can't reconcile exactly: $17,336 over 7 is $2,476.57…,
+ *   which multiplies back to $17,335.99. We print the rounded rate PLAIN and
+ *   accept the universal invoice convention that unit rates round (Andrew,
+ *   2026-10-22). It used to print "—" (read as flaky), then "~$2,476.57" —
+ *   which in a table reads as a MINUS sign, and was dropped. If a marker ever
+ *   comes back: not "≈", which renders as "H" in these fonts (lib/pdf-text).
  */
 function rateCell(unitPrice: number, quantity: number, amount: number): string {
   const q = Number(quantity) || 1
-  const v = Number(unitPrice) || 0
-  if (q <= 1) return money(v)
-  const cents = Math.round(v * 100) / 100
-  if (Math.abs(cents * q - (Number(amount) || 0)) > 0.005) {
-    const derived = Math.round(((Number(amount) || 0) / q) * 100) / 100
-    return '~$' + derived.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  }
-  return Math.abs(cents - Math.round(cents)) < 0.005
-    ? money(cents)
-    : '$' + cents.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const a = Number(amount) || 0
+  const rate = q > 1 && a > 0 ? a / q : Number(unitPrice) || 0
+  const cents = Math.round(rate * 100) / 100
+  return '$' + cents.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function fmtDate(iso: string): string {
@@ -241,16 +214,10 @@ export function EstimatePdf({
       <Page size="LETTER" style={styles.page}>
         {/* Header */}
         <View style={styles.headerRow}>
-          <View>
-            {pdfLogoOk(org.logo_url) ? (
-              <Image src={org.logo_url} style={styles.logo} />
-            ) : null}
-            <Text style={styles.orgName}>{pdfText(org.name) || 'Your Company'}</Text>
-            {org.business_address ? <Text style={styles.orgLine}>{pdfText(org.business_address)}</Text> : null}
-            {cityLine ? <Text style={styles.orgLine}>{cityLine}</Text> : null}
-            {org.business_phone ? <Text style={styles.orgLine}>{pdfText(org.business_phone)}</Text> : null}
-            {org.business_email ? <Text style={styles.orgLine}>{pdfText(org.business_email)}</Text> : null}
-          </View>
+          <OrgHeader
+            org={org}
+            addressLines={[org.business_address, cityLine, org.business_phone, org.business_email]}
+          />
           <View>
             <Text style={styles.docLabel}>ESTIMATE</Text>
             <Text style={styles.docNumber}>{pdfText(estimateNumber)}</Text>
