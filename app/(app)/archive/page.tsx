@@ -1,19 +1,28 @@
 'use client'
 
 // ============================================================================
-// /archive — Manage → Archive (migration 119). Completed and lost projects the
-// shop chose to file away. DISPLAY ONLY: every report still counts them
-// (lib/project-archive). Grouped Completed / Lost, each by month, newest
-// first; search across both; every row links to the project and can be
-// unarchived in place. /sales/lost stays the lost-analytics view.
+// /archive — THE archive (one page, Andrew 2026-10-22). Reached from Manage →
+// Archive and from the kanban's Lost column ("Archive →"); /sales/lost, the
+// old lost-only list, redirects here.
+//
+// Lists two things, merged (lib/project-archive.listArchivePage):
+//   · every project archived by hand (archived_at, migration 119) — any stage;
+//     Unarchive puts it back on the board / projects list.
+//   · every LOST project, archived or not — lost cards leave the board on
+//     their own after 30 days, and this is where they live forever, with the
+//     post-mortem columns the old page carried (source, reason, days in
+//     pipeline).
+// DISPLAY ONLY: reports and the sales report still count all of it.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { ArrowLeft, Search, X } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
-import { listArchivedProjects, unarchiveProject, type ArchivedProject } from '@/lib/project-archive'
+import { listArchivePage, unarchiveProject, type ArchivedProject } from '@/lib/project-archive'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
-import { Search, X } from 'lucide-react'
+
+const LOST_BOARD_DAYS = 30 // same window as the kanban's lost filter
 
 function money(n: number): string {
   return n > 0 ? `$${Math.round(n).toLocaleString()}` : '—'
@@ -25,11 +34,27 @@ function monthLabel(ym: string): string {
   return new Date(y, m - 1, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' })
 }
 
-/** The month a row belongs to: when it finished (completed / lost), else when
- *  it was archived. Never a guess beyond those stamps. */
+type SectionKey = 'pipeline' | 'active' | 'complete' | 'lost'
+
+const SECTIONS: Array<{ key: SectionKey; title: string }> = [
+  { key: 'pipeline', title: 'In the pipeline' },
+  { key: 'active', title: 'Sold & in progress' },
+  { key: 'complete', title: 'Completed' },
+  { key: 'lost', title: 'Lost' },
+]
+
+function sectionOf(r: ArchivedProject): SectionKey {
+  if (r.stage === 'lost') return 'lost'
+  if (r.stage === 'complete') return 'complete'
+  if (['sold', 'production', 'installed'].includes(r.stage)) return 'active'
+  return 'pipeline'
+}
+
+/** The month a row files under: when it was lost / completed, else when it
+ *  was archived. Never a guess beyond those stamps. */
 function monthOf(r: ArchivedProject): string {
-  const stamp = r.stage === 'lost' ? r.lost_at : r.completed_at
-  return (stamp || r.archived_at || '').slice(0, 7) || 'unknown'
+  const stamp = r.stage === 'lost' ? r.lost_at : r.stage === 'complete' ? r.completed_at || r.archived_at : r.archived_at
+  return (stamp || '').slice(0, 7) || 'unknown'
 }
 
 function groupByMonth(rows: ArchivedProject[]): Array<[string, ArchivedProject[]]> {
@@ -45,6 +70,21 @@ function groupByMonth(rows: ArchivedProject[]): Array<[string, ArchivedProject[]
   )
 }
 
+/** Whole days created → lost. Null when either stamp is missing. */
+function daysInPipeline(r: ArchivedProject): number | null {
+  if (!r.lost_at || !r.created_at) return null
+  const ms = new Date(r.lost_at).getTime() - new Date(r.created_at).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return null
+  return Math.round(ms / 86400000)
+}
+
+/** A lost card nobody archived is still on the board for its first 30 days
+ *  (a null lost_at stays on the board too — unknown age isn't old age). */
+function lostStillOnBoard(r: ArchivedProject): boolean {
+  if (!r.lost_at) return true
+  return Date.now() - new Date(r.lost_at).getTime() < LOST_BOARD_DAYS * 86400000
+}
+
 export default function ArchivePage() {
   const { org } = useAuth()
   const [rows, setRows] = useState<ArchivedProject[]>([])
@@ -55,7 +95,7 @@ export default function ArchivePage() {
   useEffect(() => {
     if (!org?.id) return
     let cancelled = false
-    listArchivedProjects(org.id).then((r) => {
+    listArchivePage(org.id).then((r) => {
       if (cancelled) return
       setRows(r)
       setLoading(false)
@@ -71,10 +111,10 @@ export default function ArchivePage() {
   }, [rows, query])
 
   const sections = useMemo(
-    () => [
-      { key: 'complete', title: 'Completed', groups: groupByMonth(visible.filter((r) => r.stage !== 'lost')) },
-      { key: 'lost', title: 'Lost', groups: groupByMonth(visible.filter((r) => r.stage === 'lost')) },
-    ],
+    () =>
+      SECTIONS.map((s) => ({ ...s, groups: groupByMonth(visible.filter((r) => sectionOf(r) === s.key)) })).filter(
+        (s) => s.groups.length > 0,
+      ),
     [visible],
   )
 
@@ -82,7 +122,13 @@ export default function ArchivePage() {
     setBusy(r.id)
     try {
       await unarchiveProject(r.id)
-      setRows((prev) => prev.filter((x) => x.id !== r.id))
+      // A lost project stays listed here (lost work always is) — it just
+      // loses its archived stamp. Anything else goes back to the board.
+      setRows((prev) =>
+        r.stage === 'lost'
+          ? prev.map((x) => (x.id === r.id ? { ...x, archived_at: null } : x))
+          : prev.filter((x) => x.id !== r.id),
+      )
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'Could not unarchive.')
     } finally {
@@ -90,20 +136,35 @@ export default function ArchivePage() {
     }
   }
 
+  const total = rows.reduce((s, r) => s + r.value, 0)
+
   return (
     <div className="max-w-[900px] mx-auto px-6 py-6">
-      <h1 className="text-xl font-semibold tracking-tight text-[#111]">Archive</h1>
-      <p className="text-xs text-[#6B7280] mt-0.5">
-        Completed and lost projects filed away from the board and the projects list. They still count in
-        reports — archiving never removes data.
-      </p>
+      <div className="flex items-center gap-3">
+        <Link
+          href="/sales/kanban"
+          className="p-2 rounded-lg text-[#9CA3AF] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors"
+          aria-label="Back to the board"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </Link>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-[#111]">Archive</h1>
+          <p className="text-xs text-[#6B7280] mt-0.5">
+            {rows.length} project{rows.length === 1 ? '' : 's'} ·{' '}
+            <span className="font-mono tabular-nums">{money(total)}</span> — archived projects, plus every lost
+            project (lost cards leave the board after {LOST_BOARD_DAYS} days). Everything here still counts in
+            reports.
+          </p>
+        </div>
+      </div>
 
       <div className="relative mt-4 max-w-sm">
         <Search className="w-4 h-4 text-[#9CA3AF] absolute left-3 top-1/2 -translate-y-1/2" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search archived projects"
+          placeholder="Search the archive"
           className="w-full pl-9 pr-8 py-2 text-sm border border-[#E5E7EB] rounded-lg bg-white outline-none focus:border-[#2563EB]"
         />
         {query && (
@@ -121,48 +182,73 @@ export default function ArchivePage() {
         <div className="text-sm text-[#9CA3AF] py-16 text-center">Loading…</div>
       ) : rows.length === 0 ? (
         <div className="text-sm text-[#9CA3AF] py-16 text-center">
-          Nothing archived yet. Archive a completed job from its card on Projects, or a lost one from the board&apos;s
-          ⋯ menu.
+          Nothing archived yet. Use Archive in a card&apos;s ⋯ menu on the board, or on a completed job&apos;s card on
+          Projects.
         </div>
-      ) : visible.length === 0 ? (
-        <div className="text-sm text-[#9CA3AF] py-16 text-center">No archived projects match that search.</div>
+      ) : sections.length === 0 ? (
+        <div className="text-sm text-[#9CA3AF] py-16 text-center">Nothing in the archive matches that search.</div>
       ) : (
-        sections.map(
-          (sec) =>
-            sec.groups.length > 0 && (
-              <div key={sec.key} className="mt-8">
-                <h2 className="text-sm font-semibold text-[#111]">{sec.title}</h2>
-                {sec.groups.map(([month, list]) => (
-                  <section key={month} className="mt-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-2">
-                      {monthLabel(month)}{' '}
-                      <span className="text-[#D1D5DB] normal-case tracking-normal">
-                        · {list.length} · {money(list.reduce((s, r) => s + r.value, 0))}
-                      </span>
-                    </div>
-                    <div className="bg-white border border-[#E5E7EB] rounded-xl divide-y divide-[#F3F4F6]">
-                      {list.map((r) => (
-                        <div key={r.id} className="flex items-center gap-3 px-4 py-3">
-                          <Link href={`/projects/${r.id}`} className="min-w-0 flex-1 hover:underline">
-                            <span className="text-[13.5px] font-medium text-[#111]">{r.name}</span>
-                            {r.client_name && <span className="ml-2 text-[11px] text-[#6B7280]">{r.client_name}</span>}
-                          </Link>
-                          <span className="text-[12.5px] font-mono tabular-nums text-[#374151]">{money(r.value)}</span>
-                          <button
-                            onClick={() => unarchive(r)}
-                            disabled={busy === r.id}
-                            className="px-2.5 py-1 text-[11.5px] font-semibold rounded-md border border-[#E5E7EB] text-[#374151] hover:border-[#2563EB] hover:text-[#2563EB] disabled:opacity-50"
-                          >
-                            {busy === r.id ? 'Restoring…' : 'Unarchive'}
-                          </button>
+        sections.map((sec) => (
+          <div key={sec.key} className="mt-8">
+            <h2 className="text-sm font-semibold text-[#111]">{sec.title}</h2>
+            {sec.groups.map(([month, list]) => (
+              <section key={month} className="mt-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-2">
+                  {monthLabel(month)}{' '}
+                  <span className="text-[#D1D5DB] normal-case tracking-normal">
+                    · {list.length} · {money(list.reduce((s, r) => s + r.value, 0))}
+                  </span>
+                </div>
+                <div className="bg-white border border-[#E5E7EB] rounded-xl divide-y divide-[#F3F4F6]">
+                  {list.map((r) => {
+                    const days = r.stage === 'lost' ? daysInPipeline(r) : null
+                    return (
+                      <div key={r.id} className="flex items-start gap-3 px-4 py-3">
+                        <Link href={`/projects/${r.id}`} className="min-w-0 flex-1 group">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[13.5px] font-medium text-[#111] group-hover:underline">{r.name}</span>
+                            {r.client_name && <span className="text-[11px] text-[#6B7280]">{r.client_name}</span>}
+                            {r.lead_source && r.stage === 'lost' && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#6B7280]">
+                                via {r.lead_source}
+                              </span>
+                            )}
+                          </div>
+                          {r.lost_reason && r.stage === 'lost' && (
+                            <div className="mt-0.5 text-[12px] text-[#6B7280] leading-snug">{r.lost_reason}</div>
+                          )}
+                        </Link>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-[12.5px] font-mono tabular-nums text-[#374151]">{money(r.value)}</div>
+                          {r.stage === 'lost' && (
+                            <div className="text-[10.5px] text-[#9CA3AF] mt-0.5">
+                              {days != null ? `${days}d in pipeline` : '—'}
+                            </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            ),
-        )
+                        <div className="w-[96px] flex-shrink-0 text-right">
+                          {r.archived_at ? (
+                            <button
+                              onClick={() => unarchive(r)}
+                              disabled={busy === r.id}
+                              className="px-2.5 py-1 text-[11.5px] font-semibold rounded-md border border-[#E5E7EB] text-[#374151] hover:border-[#2563EB] hover:text-[#2563EB] disabled:opacity-50"
+                            >
+                              {busy === r.id ? 'Restoring…' : 'Unarchive'}
+                            </button>
+                          ) : (
+                            <span className="text-[10.5px] text-[#9CA3AF]">
+                              {lostStillOnBoard(r) ? 'Still on the board' : 'Off the board'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        ))
       )}
     </div>
   )

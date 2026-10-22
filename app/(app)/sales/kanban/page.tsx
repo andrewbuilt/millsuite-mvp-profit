@@ -29,7 +29,7 @@ import NewProjectModal from '@/components/sales/NewProjectModal'
 import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
 import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus, Search, X, Copy, Archive } from 'lucide-react'
-import { canArchive, confirmAndArchive } from '@/lib/project-archive'
+import { confirmAndArchive } from '@/lib/project-archive'
 import { DuplicateProjectModal } from '@/components/project/DuplicateProjectModal'
 import { setProjectLostReason } from '@/lib/lead-sources'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
@@ -135,7 +135,7 @@ function KanbanInner() {
     for (const p of projects) {
       if (!matchesProjectSearch(p, q)) continue
       // Lost cards leave the LIVE board after 30 days — the archive
-      // (/sales/lost) keeps them forever. A null lost_at (pre-116, no event
+      // (/archive) keeps them forever. A null lost_at (pre-116, no event
       // to backfill from) STAYS visible: unknown age isn't old age, and a
       // re-drag or the archive is how it gets resolved.
       if (p.stage === 'lost' && p.lost_at && new Date(p.lost_at).getTime() < cutoff) continue
@@ -294,7 +294,7 @@ function KanbanInner() {
                     </div>
                     <div className="text-[10px] text-[#9CA3AF] mt-0.5">
                       {stage === 'lost' ? (
-                        <Link href="/sales/lost" className="text-[#2563EB] hover:underline">
+                        <Link href="/archive" className="text-[#2563EB] hover:underline">
                           Archive →
                         </Link>
                       ) : (
@@ -318,18 +318,16 @@ function KanbanInner() {
                           onOpen={() => router.push(`/projects/${p.id}`)}
                           onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
                           onDuplicate={() => setDupFor(p)}
-                          onArchive={
-                            canArchive(p.stage)
-                              ? async () => {
-                                  try {
-                                    if (await confirmAndArchive(p))
-                                      setProjects((prev) => prev.filter((x) => x.id !== p.id))
-                                  } catch (err) {
-                                    window.alert(err instanceof Error ? err.message : 'Could not archive.')
-                                  }
-                                }
-                              : undefined
-                          }
+                          // Every card can be archived (Andrew 2026-10-22), not
+                          // just lost ones; sold work warns with what's unpaid.
+                          onArchive={async () => {
+                            try {
+                              if (await confirmAndArchive(p))
+                                setProjects((prev) => prev.filter((x) => x.id !== p.id))
+                            } catch (err) {
+                              window.alert(err instanceof Error ? err.message : 'Could not archive.')
+                            }
+                          }}
                           onDelete={async () => {
                             const ok = await confirm({
                               title: 'Delete this project?',
@@ -527,7 +525,7 @@ function KanbanCard({
   onOpen: () => void
   onQuickNote: () => void
   onDuplicate: () => void
-  /** Present only on archivable (lost) cards — 119. */
+  /** Archive (119) — offered on every card. */
   onArchive?: () => void
   onDelete: () => void
   onDragStart: () => void
