@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-10-22 · **Branch:** `main`
 
-**Left off (2026-10-22):** COS guard + root fix, qty-line polish and project archive BUILT. Fixes PUSHED through `265c9f8`; **archive (`07534b4`) held for migration `119`.** Next: Andrew runs the bid-total repair for COS Systems + Leonard (command in CURRENT FOCUS; Claude's prod write was blocked) → answers Batia's contract number → runs **119** → push → the verify list.
+**Left off (2026-10-22):** COS guard + root fix, qty-line polish and project archive BUILT and ALL PUSHED. **Migration `119` ✅ ON PROD AND VERIFIED**; **bid-total repair ✅ RUN by Andrew** (COS Systems $208,064 → $691,684, Leonard Lobby Bar Ph 1 $0 → $172,563). Drift list is now exactly Batia + the 5 demo seeds; the rate proof still passes (0 move). Next: Andrew answers **Batia's contract number** → the live verify list → scope "pin margins per project" in Cowork.
 
 **Previously (2026-10-21):** 10-21 BLOCK — all three items BUILT, PUSHED, tsc + `next build` clean; **migration `118` ✅ ON PROD AND VERIFIED** (columns in the schema cache, 0 unpinned projects, temp bid_totals 0) and **`verify-shop-rate-change.mjs` PASSES on prod: a $1 change moves 0 of 75 projects** (39 before 118). Next step: open **Kinser** + **Leonard Lobby Bar Ph 1** project pages (their bid_total is $0 from the /time bug; the page writes the real price back) → the live verify list in CURRENT FOCUS → a Cowork look at the 12 stored-vs-live bid_total drifts.
 
@@ -16,27 +16,26 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
-**✅ 2026-10-22: COS GUARD + ROOT FIX · QTY-LINE POLISH · PROJECT ARCHIVE — ALL BUILT, tsc + `next build` clean.** Pushed through `265c9f8`; **the archive commit `07534b4` is committed but NOT pushed — it waits on migration `119` (NOT on prod yet).**
+**✅ 2026-10-22: COS GUARD + ROOT FIX · QTY-LINE POLISH · PROJECT ARCHIVE — ALL BUILT, tsc + `next build` clean.** ALL PUSHED; **migration `119` ✅ on prod and verified; the bid-total repair ✅ run.**
 1. ✅ **COS — THE SPEC'S SUSPECT WAS WRONG; THE ROOT WAS `lib/project-totals` (`0c49fdd`).** The copies carried `quantity` fine. `project-totals` read `sub.quantity` but **never selected the column**, so every "(QTY N)" sub priced ×1 there while the project page priced ×N. Every line edit wrote the ×1 total into bid_total, and the page wrote ×N back on its next open. The banner's $Y (`computeProjectPrice`) was ×1, hence "$1,022,901 → $341,940". It has been true since 097. Fixed with a 108+097 → 097 → base select ladder. **Drift list after the fix: 12 → 8.** COS Laminate, COS Veneer, Hayes shelves and Look Lobby all drop out (qty-explained).
    - **Guard (`070444d`):** `checkPriceAgrees` prices the job at its CURRENT pin and compares it with stored + on-screen. On disagreement, `ShopRateBanner` shows a red "stored price doesn't match its line math — needs attention" notice instead of "Use $X/hr", `acceptShopRate` refuses the write, and the staleness banner's sent-quote $Y is withheld. The proof script's static half pins both (qty select + guard).
    - **⛔ Page writeback no longer touches SOLD jobs (`f5bffa5`).** Opening any project page wrote the live total over stored, so on a sold job a drift silently re-priced the CONTRACT. Past sold, bid_total moves only via handoff + CO flows; drift is logged to the console, not written.
    - **Stored / live / why (prod, read only — `scripts/inspect-bid-drift.mjs`):**
      | project | stored | live | why |
      |---|---|---|---|
-     | COS · Systems (Back of House) [open bid] | $208,064 | $691,684 | the ×1 bug: old code reproduces $208,064 to the dollar. **Repair pending ↓** |
-     | Leonard Lobby Bar Ph 1 [production, imported] | $0 | $172,563 | the /time rollup bug; live == Built's `estimated_price`. **Repair pending ↓** (the page no longer heals sold jobs) |
+     | COS · Systems (Back of House) [open bid] | $208,064 | $691,684 | the ×1 bug: old code reproduces $208,064 to the dollar. ✅ repaired |
+     | Leonard Lobby Bar Ph 1 [production, imported] | $0 | $172,563 | the /time rollup bug; live == Built's `estimated_price`. ✅ repaired |
      | Batia · Final [sold 10-19, imported] | $232,891 | $208,251 | **UNEXPLAINED.** The handoff wrote $232,891 at sale. Lines unchanged since 10-12, no COs. Not a uniform margin, not one frozen sub priced live. Live subs use ORG default margins on imported jobs (`resolveMarginsForNewScope`), so a margin-default change after 10-19 is the leading theory. **Andrew: which number is the contract?** Left untouched; the writeback guard now protects it. |
      | 5 demo seeds (Vega, Sandpiper, Gulfview, Palm & Pine, Cypress) | ~2× live | — | seed data written with round bid_totals; known, leave. |
-   - **⚠️ REPAIR NOT RUN — Claude's prod write was blocked by the permission classifier.** Andrew runs: `npx tsx scripts/repair-bid-totals.mjs "COS - Millwork · Systems (Back of House)" "Leonard - JW Marriott - Lobby Bar Phase 1" --apply` (dry-run without `--apply`; it prints $208,064 → $691,684 and $0 → $172,563). Then `npx tsx scripts/verify-shop-rate-change.mjs --drift` should list only Batia + the 5 seeds.
+   - **✅ REPAIR RUN by Andrew 2026-10-22** (`scripts/repair-bid-totals.mjs … --apply`): COS Systems $691,684, Leonard $172,563, read back. `--drift` now lists only Batia + the 5 seeds.
    - ⚠️ Open: org margin defaults reprice LIVE subs on imported/sold jobs, the same class as the shop rate. Pin margins per project like 118 did for the rate? **Scope in Cowork.**
 2. ✅ **Qty-line polish (`265c9f8`).** Quantity lines print unit `ea` (applied IN the PDF, so re-rendered sent snapshots get it). The rate always prints: exact when clean, else **`~$2,476.57`**. ⛔ **Not "≈":** rendered through the real fonts, ≈ prints as "**H**" ("H$2,476.57" on a client's PDF). `lib/pdf-text` now maps ≈ → ~. Amount stays authoritative. Rendered check: 5 × $3,341.80 = $16,709 exact, 7 × ~$2,476.57, qty 1 unchanged. CO docs (`CoDocPdf`) print qty + unit only, no rate column, and invoices store their own cents rate, so neither needed a change.
-3. ✅ **Project archive (`07534b4`, NOT pushed, migration `119` NOT on prod).** `projects.archived_at` + `lib/project-archive` (id set, pre-119 safe; writes say "Run migration 119").
+3. ✅ **Project archive (`07534b4`, pushed; migration `119` ✅ on prod and verified).** `projects.archived_at` + `lib/project-archive` (id set, pre-119 safe; writes say "Run migration 119").
    - Archive lives on completed /projects cards and the ⋯ menu of lost kanban cards. The confirm warns with the unreceived $ on completed work (contract − ledger).
    - `/archive` (Manage → Archive): Completed / Lost, month-grouped by completed_at / lost_at, search, Unarchive per row. `archive` is reserved (slug check passes 30/30).
    - Hidden from: kanban (`loadSalesProjects`), /projects, the task pickers (row editor, panel, /tasks, /pm quick-create) and the /time pickers. A task's or entry's own selected project stays, and chip names stay. /pm cards never show completed/lost, so no change there.
    - Still counted: /reports, the sales report (it queries on its own), /time's filter.
-   - **Next:** run 119 → `node --env-file=.env.local scripts/verify-migration.mjs projects:archived_at` → push.
-- ⚠️ **Verify owed (Andrew, live):** COS Laminate's banner now offers the honest $Y (or the red notice if anything still disagrees) · open Batia → its price stays $232,891 · download an estimate with a qty-7 line → `ea` + `~$` rate · after 119: archive a completed job → gone from /projects, on /archive, still on /reports; archive a lost card from the kanban ⋯; unarchive restores; a completed job with an unpaid balance warns with the number.
+- ⚠️ **Verify owed (Andrew, live):** COS Laminate's banner now offers the honest $Y (or the red notice if anything still disagrees) · open Batia → its price stays $232,891 · download an estimate with a qty-7 line → `ea` + `~$` rate · archive a completed job → gone from /projects, on /archive, still on /reports; archive a lost card from the kanban ⋯; unarchive restores; a completed job with an unpaid balance warns with the number.
 
 
 **✅ 2026-10-21: TEMP-ON-CAPACITY · MANAGER PTO · SHOP-RATE AUDIT — ALL THREE BUILT, PUSHED, tsc + `next build` clean.** (`410522d` 1 · `9b52b65` 2 · `dd0bd7e` /time bug · `f2639d7` 118+leaks · `9f19ada` gateway · `ace3788` proof+temp.) **Migration `118` ✅ ON PROD AND VERIFIED by read (Andrew ran it 2026-10-21); the live proof script PASSES — 0 of 75 move.**
