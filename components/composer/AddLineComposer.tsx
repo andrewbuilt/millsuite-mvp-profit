@@ -58,6 +58,7 @@ import {
   type ComposerFinish,
   type ComposerRateBook,
 } from '@/lib/composer'
+import { defaultSqft, type SwtFeature, type SwtFeatureUse } from '@/lib/swt-features'
 import { loadComposerRateBook } from '@/lib/composer-loader'
 import {
   initialSubprojectDefaults,
@@ -2300,8 +2301,11 @@ function BreakdownPanel({
         <Row
           label="Solid wood"
           detail={swt.materialDetail}
-          value={breakdown.materialSubtotal}
+          value={breakdown.carcassMaterial}
         />
+        {breakdown.featureMaterial > 0 && (
+          <Row label="Feature material" detail={null} value={breakdown.featureMaterial} />
+        )}
 
         <BreakdownSection label="Labor" />
         <Row
@@ -2326,6 +2330,22 @@ function BreakdownPanel({
         />
 
         <Row label="Edge profile" detail={edgeNote} value={null} />
+
+        {/* Features (120), itemized PER PIECE. Their hours are already in the
+            dept rows above (that's what the schedule books) and their material
+            in "Feature material" — this list says where those came from. */}
+        {swt.features.length > 0 && (
+          <>
+            <BreakdownSection label={qty > 1 ? 'Features · per piece (in the totals above)' : 'Features (in the totals above)'} />
+            {swt.features.map((f, i) => {
+              const h = f.hours.eng + f.hours.cnc + f.hours.assembly + f.hours.finish
+              const amount =
+                f.mode === 'each' ? `${f.units} each` : f.mode === 'sqft' ? `${f.units} sq ft` : `${f.units} ft${f.bracket ? ` (${f.bracket})` : ''}`
+              const mat = f.material > 0 ? ` · $${f.material.toFixed(2)} material` : ''
+              return <Row key={i} label={f.name} detail={`${amount} · ${h.toFixed(2)} h${mat}`} value={null} />
+            })}
+          </>
+        )}
 
         <PctRow
           label="Consumables"
@@ -3060,7 +3080,7 @@ function SolidWoodTopFormBody({
             Calibrate it now
           </button>{' '}
           — a few per-op timings on one typical top, and every line scales from
-          it by BdFt. It also lives in Rate book → Materials → Solid wood.
+          it by BdFt. It also lives in Rate book → Solid wood top.
         </div>
       </div>
     )
@@ -3218,6 +3238,13 @@ function SolidWoodTopFormBody({
         </Field>
       </section>
 
+      <SwtFeaturesSection
+        uses={s.swtFeatures || []}
+        features={rateBook.swtFeatures || []}
+        defaultSq={defaultSqft(Number(s.pieceLengthIn) || 0, Number(s.pieceWidthIn) || 0)}
+        onChange={(next) => setSlot('swtFeatures', next)}
+      />
+
       <Field label="Notes">
         <input
           type="text"
@@ -3228,5 +3255,131 @@ function SolidWoodTopFormBody({
         />
       </Field>
     </div>
+  )
+}
+
+// ── Solid Wood Top features (migration 120) ──
+// Repeatable rows: feature + its amount. The amount's meaning follows the
+// feature's pricing mode — a count, square feet (blank = one face of this top,
+// type it for two-sided), or a length in feet (priced by the feature's step
+// table). Everything here is PER PIECE; the line's quantity multiplies it.
+function SwtFeaturesSection({
+  uses,
+  features,
+  defaultSq,
+  onChange,
+}: {
+  uses: SwtFeatureUse[]
+  features: SwtFeature[]
+  defaultSq: number
+  onChange: (next: SwtFeatureUse[]) => void
+}) {
+  const update = (i: number, patch: Partial<SwtFeatureUse>) =>
+    onChange(uses.map((u, k) => (k === i ? { ...u, ...patch } : u)))
+  const remove = (i: number) => onChange(uses.filter((_, k) => k !== i))
+  const add = () => {
+    const f = features[0]
+    if (!f) return
+    onChange([...uses, freshUse(f)])
+  }
+  const freshUse = (f: SwtFeature): SwtFeatureUse =>
+    f.pricing_mode === 'each' ? { featureId: f.id, qty: 1 } : f.pricing_mode === 'sqft' ? { featureId: f.id, sqft: null } : { featureId: f.id, lengthFt: 1 }
+  const num = 'w-24 bg-white border border-[#E5E7EB] rounded-md px-2 py-1.5 text-sm text-[#111] outline-none focus:border-[#2563EB] tabular-nums'
+
+  return (
+    <section className="space-y-3">
+      <SectionHeader>Features</SectionHeader>
+      {features.length === 0 ? (
+        <div className="text-[12px] text-[#6B7280]">
+          No features yet — bowties, hand-rubbed finish, mitered corners and cutouts are set up in Rate book →
+          Solid wood top.
+        </div>
+      ) : (
+        <>
+          {uses.length === 0 && (
+            <div className="text-[12px] text-[#9CA3AF]">Per piece. Add bowties, a hand-rubbed finish, mitered corners…</div>
+          )}
+          {uses.map((u, i) => {
+            const f = features.find((x) => x.id === u.featureId)
+            return (
+              <div key={i} className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={u.featureId}
+                  onChange={(e) => {
+                    const nf = features.find((x) => x.id === e.target.value)
+                    if (nf) update(i, { ...freshUse(nf) })
+                  }}
+                  className="flex-1 min-w-[160px] bg-white border border-[#E5E7EB] rounded-md px-2 py-1.5 text-sm text-[#111] outline-none focus:border-[#2563EB]"
+                >
+                  {!f && <option value={u.featureId}>(archived feature)</option>}
+                  {features.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
+                    </option>
+                  ))}
+                </select>
+                {f?.pricing_mode === 'each' && (
+                  <label className="flex items-center gap-1.5 text-[12px] text-[#6B7280]">
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={u.qty ?? 0}
+                      onChange={(e) => update(i, { qty: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
+                      className={num}
+                    />
+                    each
+                  </label>
+                )}
+                {f?.pricing_mode === 'sqft' && (
+                  <label className="flex items-center gap-1.5 text-[12px] text-[#6B7280]">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.25}
+                      value={u.sqft ?? ''}
+                      placeholder={String(defaultSq)}
+                      onChange={(e) =>
+                        update(i, { sqft: e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0) })
+                      }
+                      className={num}
+                    />
+                    sq ft{u.sqft == null ? ' (one face)' : ''}
+                  </label>
+                )}
+                {f?.pricing_mode === 'length_steps' && (
+                  <label className="flex items-center gap-1.5 text-[12px] text-[#6B7280]">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={u.lengthFt ?? 0}
+                      onChange={(e) => update(i, { lengthFt: Math.max(0, Number(e.target.value) || 0) })}
+                      className={num}
+                    />
+                    ft
+                  </label>
+                )}
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  className="p-1.5 text-[#9CA3AF] hover:text-[#DC2626]"
+                  aria-label="Remove feature"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )
+          })}
+          <button
+            type="button"
+            onClick={add}
+            className="text-[12px] font-semibold text-[#2563EB] hover:underline"
+          >
+            + Add feature
+          </button>
+        </>
+      )}
+    </section>
   )
 }

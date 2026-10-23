@@ -179,6 +179,13 @@ import { isReadyForProduction, startProduction, forceStartProduction, isDepositR
 // ── Types ──
 
 import { isPresold, type ProjectStage } from '@/lib/types'
+import {
+  computeSwtFeatureRollup,
+  defaultSqft,
+  describeSwtFeatures,
+  listSwtFeatures,
+  type SwtFeatureUse,
+} from '@/lib/swt-features'
 import ShopRateBanner from '@/components/project/ShopRateBanner'
 import StageStrip from '@/components/project/StageStrip'
 import StagePill, {
@@ -558,7 +565,7 @@ export default function ProjectCoverPage() {
   const reload = useCallback(async () => {
     if (!projectId || !org?.id) return
     setLoading(true)
-    const [projRes, subsRes, rateBook, deptRes] = await Promise.all([
+    const [projRes, subsRes, rateBook, deptRes, swtFeatures] = await Promise.all([
       supabase.from('projects').select('*').eq('id', projectId).single(),
       supabase
         .from('subprojects')
@@ -570,6 +577,9 @@ export default function ProjectCoverPage() {
         .from('departments')
         .select('id, name')
         .eq('org_id', org!.id),
+      // Solid Wood Top features (120) — only for WORDING the estimate's
+      // Features block; pricing never reads this (the lines carry it).
+      listSwtFeatures(org!.id),
     ])
     const subs = (subsRes.data || []) as Subproject[]
 
@@ -764,6 +774,26 @@ export default function ProjectCoverPage() {
     // INVOICE. Marking up a migrated room bills Built's price twice; leaving a
     // change order's new scope at cost invoices it with no margin at all.
     const qbMargins = resolveMarginsForNewScope(projRes.data as Project | null, org)
+    // One plain string per Solid Wood Top line that carries features, for the
+    // estimate / QB description ("2 × Bowtie · Hand-rubbed finish").
+    const swtFeatureWording = (subId: string): string[] => {
+      const lines = linesBySub.find((x) => x.subId === subId)?.lines || []
+      const out: string[] = []
+      for (const l of lines) {
+        if (l.product_key !== 'countertop') continue
+        const slots = (l.product_slots || {}) as { swtFeatures?: SwtFeatureUse[]; pieceLengthIn?: number; pieceWidthIn?: number }
+        const rows = computeSwtFeatureRollup(
+          slots.swtFeatures,
+          swtFeatures,
+          defaultSqft(Number(slots.pieceLengthIn) || 0, Number(slots.pieceWidthIn) || 0),
+        ).rows
+        if (rows.length === 0) continue
+        const words = describeSwtFeatures(rows)
+        const n = Number(l.quantity) || 1
+        out.push(n > 1 ? `${words} (each of ${n} tops)` : words)
+      }
+      return out
+    }
     setQbLines(
       cardData.map(({ sub, rollup, installPrefillCost }) => {
         const price = Math.round(
@@ -789,7 +819,7 @@ export default function ProjectCoverPage() {
           desc: sub.name,
           // Rich scope description (material / details / exclusions) — the same
           // text the QB line item gets on push. Editable in the preview.
-          spec: buildRichDescription(sub),
+          spec: buildRichDescription(sub, { features: swtFeatureWording(sub.id) }),
           activityType: sub.activity_type || DEFAULT_ACTIVITY_TYPE,
           qty: '1',
           rate: price,

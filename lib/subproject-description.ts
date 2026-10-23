@@ -77,7 +77,13 @@ export function buildInstallDescription(_sub: SubprojectScope): string {
 /** Build the rich QB line description for a subproject. Ported from Built OS
  *  (buildRichDescription): Item name, Material/Finish, Description blocks
  *  (details_json → legacy description → spec-line notes), then Exclusions. */
-export function buildRichDescription(sub: SubprojectScope): string {
+export function buildRichDescription(
+  sub: SubprojectScope,
+  /** Solid Wood Top features on this sub's lines, already worded for a client
+   *  ("2 × Bowtie · Hand-rubbed finish · Miter · 8/4 4 ft") — one string per
+   *  top. They justify the price, so they print as their own section. */
+  extra?: { features?: string[] },
+): string {
   if (isInstallActivity(sub.activity_type)) return buildInstallDescription(sub)
 
   // NB: Built prepends "Item - {name}" here because its QB description is the
@@ -117,6 +123,13 @@ export function buildRichDescription(sub: SubprojectScope): string {
     // Continuation blocks (Dimensions / Details / etc.) render without a
     // leading "- " — cleaner in the estimate + QB description.
     for (let i = 1; i < details.length; i++) lines.push(stripBullet(details[i]))
+  }
+
+  const features = (extra?.features || []).map((f) => f.trim()).filter(Boolean)
+  if (features.length > 0) {
+    lines.push('')
+    lines.push('Features - ' + features[0])
+    for (let i = 1; i < features.length; i++) lines.push(features[i])
   }
 
   // "Includes install" subs bill their own install — call it out on the line.
@@ -198,7 +211,7 @@ export function parseRichDescription(text: string): ScopeSection[] {
     // real sections — that's what makes a long kitchen line scannable.
     // A fixed keyword list, not a generic `Word - value` match, so a detail
     // that happens to start "Island - ..." doesn't invent a section heading.
-    const keyed = /^(Dimensions|Details|Hardware|Finish|Notes)\s+-\s+(.*)$/i.exec(line)
+    const keyed = /^(Dimensions|Details|Hardware|Finish|Notes|Features)\s+-\s+(.*)$/i.exec(line)
     if (keyed) {
       push()
       const label = keyed[1]

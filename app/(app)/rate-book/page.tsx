@@ -51,6 +51,7 @@ import MaterialsCatalog from '@/components/rate-book/MaterialsCatalog'
 import DoorCatalog from '@/components/rate-book/DoorCatalog'
 import FeatureCatalog from '@/components/rate-book/FeatureCatalog'
 import ProductBuilder from '@/components/rate-book/ProductBuilder'
+import SolidWoodTopStudio from '@/components/rate-book/SolidWoodTopStudio'
 import FinishBreakdown from '@/components/rate-book/FinishBreakdown'
 import {
   hasLegacyFinishName,
@@ -189,6 +190,7 @@ export default function RateBookPage() {
 
   const [editOpen, setEditOpen] = useState(false)
   const [laborSettingsOpen, setLaborSettingsOpen] = useState(false)
+  const [swtStudioOpen, setSwtStudioOpen] = useState(false)
   // Top-level view. Item views (cabinets/drawers/finishes/lineitems) share the
   // 3-pane roster filtered by category type; the rest are dedicated editors.
   const [view, setView] = useState<RateBookView>('cabinets')
@@ -500,6 +502,13 @@ export default function RateBookPage() {
             </button>
           ))}
         </div>
+        {/* The Solid Wood Top studio (2026-10-23): calibration + features. */}
+        <button
+          onClick={() => setSwtStudioOpen(true)}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[#1E40AF] hover:bg-[#DBEAFE] transition-colors text-[11px] font-medium whitespace-nowrap"
+        >
+          Solid wood top
+        </button>
         <button
           onClick={() => setLaborSettingsOpen(true)}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[#1E40AF] hover:bg-[#DBEAFE] transition-colors text-[11px] font-medium"
@@ -859,6 +868,8 @@ export default function RateBookPage() {
           }}
         />
       )}
+
+      {swtStudioOpen && orgId && <SolidWoodTopStudio orgId={orgId} onClose={() => setSwtStudioOpen(false)} />}
 
       {/* Shop-rate modal */}
       {laborSettingsOpen && (

@@ -15,6 +15,16 @@
 // V2 lifts them into the rate book.
 // ============================================================================
 
+import {
+  computeSwtFeatureRollup,
+  defaultSqft,
+  describeSwtFeatures,
+  sumHours as sumSwtHours,
+  type SwtFeature,
+  type SwtFeatureRollupRow,
+  type SwtFeatureUse,
+  type SwtHours,
+} from './swt-features'
 import { PRODUCTS, type Product, type ProductKey } from './products'
 import type {
   DoorType,
@@ -220,6 +230,9 @@ export function unresolvedSlotIds(
   check('drawer style', slots.drawerStyle, rb.drawerStyles)
   check('custom product', slots.customProductId, rb.customProducts)
   check('solid wood material', slots.solidWoodMaterialId, rb.solidWoodComponents)
+  // A feature archived after the line was saved must SKIP the recompute, not
+  // price at $0 (cabinet features have exactly that hole — don't copy it).
+  for (const u of slots.swtFeatures || []) check('solid wood top feature', u?.featureId, rb.swtFeatures || [])
   return missing
 }
 
@@ -282,6 +295,10 @@ export interface ComposerRateBook {
    *  so loaders don't have to import the full SolidWoodComponent
    *  shape. */
   solidWoodComponents: ComposerSolidWoodComponent[]
+  /** Solid Wood Top features (migration 120) — bowties, hand-rubbed finish,
+   *  mitered corners… Optional so hand-built rate books (scripts, fixtures)
+   *  still type-check; absent = none. See lib/swt-features. */
+  swtFeatures?: SwtFeature[]
 }
 
 /** Composer view of a solid_wood_top_calibrations row. Math reads from
@@ -413,6 +430,10 @@ export interface ComposerSlots {
   cutMethod?: 'saw' | 'cnc' | null
   /** Solid wood component (species/grade) priced per BdFt. */
   solidWoodMaterialId?: string | null
+  /** Solid Wood Top features (120), PER PIECE — each × qty / sqft / length ft.
+   *  Priced by lib/swt-features; hours fold into dept hours, material into the
+   *  material subtotal. */
+  swtFeatures?: SwtFeatureUse[] | null
 }
 
 export interface ComposerDraft {
@@ -690,6 +711,11 @@ export interface ComposerBreakdown {
     edgeProfile: 'none' | 'hand' | 'cnc'
     edgeMult: number
     cutMethod: 'saw' | 'cnc'
+    /** Features (120), itemized PER PIECE for the breakdown pane. Their hours
+     *  and material are already inside the totals above. */
+    features: SwtFeatureRollupRow[]
+    featureHoursPerPiece: SwtHours
+    featureMaterialPerPiece: number
   } | null
   /** Custom-product rollup (chunk E) — non-null only for productId==='custom'.
    *  Drives the custom line-breakdown panel; totals/hoursByDept above carry
@@ -1432,6 +1458,11 @@ function computeBreakdownSolidWoodTop(
     scale *
     edgeMult
   const finHrPiece = (get('fin_sanding') + get('fin_apply')) * scale * edgeMult
+
+  // Features (120) — PER PIECE, NOT scaled by BdFt or the edge multiplier:
+  // a bowtie takes the same time in a big top as a small one, and a mitered
+  // corner is priced by its own length. 'sqft' defaults to one face (L×W).
+  const feat = computeSwtFeatureRollup(s.swtFeatures, rb.swtFeatures || [], defaultSqft(L, W))
   // Install hours intentionally excluded — solid wood tops are
   // delivered as a component of a bigger project (kitchen, bar,
   // built-in) and install rolls into the parent project's install
@@ -1440,23 +1471,28 @@ function computeBreakdownSolidWoodTop(
 
   // Line totals = per-piece × qty.
   const hoursByDept = {
-    eng: engHrPiece * qty,
-    cnc: cncHrPiece * qty,
-    assembly: asmHrPiece * qty,
-    finish: finHrPiece * qty,
+    eng: (engHrPiece + feat.hours.eng) * qty,
+    cnc: (cncHrPiece + feat.hours.cnc) * qty,
+    assembly: (asmHrPiece + feat.hours.assembly) * qty,
+    finish: (finHrPiece + feat.hours.finish) * qty,
     install: 0,
   }
   const totalHours =
     hoursByDept.eng + hoursByDept.cnc + hoursByDept.assembly +
     hoursByDept.finish + hoursByDept.install
   const totalLabor = totalHours * rate
+  const featureHoursTotal = sumSwtHours(feat.hours) * qty
 
   // Material — rough BdFt × $/bdft × (1 + the COMPONENT's waste/100).
   const wasteMult = mat ? 1 + (Number(mat.waste_pct) || 0) / 100 : 1
   const materialPerPiece = mat
     ? bdftPerPiece * (Number(mat.cost_per_bdft) || 0) * wasteMult
     : 0
-  const materialSubtotal = materialPerPiece * qty
+  const stockMaterial = materialPerPiece * qty
+  // Feature material joins the subtotal so consumables % applies to it; the
+  // STOCK's waste % does not (it's already inside materialPerPiece only).
+  const featureMaterial = feat.material * qty
+  const materialSubtotal = stockMaterial + featureMaterial
   const materialDetail = mat
     ? `${(bdftPerPiece * qty).toFixed(2)} BdFt × $${mat.cost_per_bdft}/BdFt` +
       (mat.waste_pct ? ` × ${(wasteMult).toFixed(2)} waste` : '')
@@ -1482,8 +1518,9 @@ function computeBreakdownSolidWoodTop(
     carcassLaborPerLf: 0,
     // Reuse the carcassMaterial slot as the solid-wood material rollup
     // so the breakdown panel's existing material row renders without a
-    // dedicated countertop-aware path (chunk-e-solid-wood-top-2).
-    carcassMaterial: materialSubtotal,
+    // dedicated countertop-aware path (chunk-e-solid-wood-top-2). STOCK only —
+    // feature material rides featureMaterial below.
+    carcassMaterial: stockMaterial,
     carcassMaterialDetail: materialDetail,
     backPanelMaterial: 0,
     backPanelMaterialDetail: null,
@@ -1509,9 +1546,9 @@ function computeBreakdownSolidWoodTop(
     drawerLaborDetail: null,
     drawerMaterial: 0,
     drawerMaterialDetail: null,
-    featureLabor: 0,
-    featureMaterial: 0,
-    featureDetail: null,
+    featureLabor: featureHoursTotal * rate,
+    featureMaterial,
+    featureDetail: feat.rows.length ? describeSwtFeatures(feat.rows) : null,
     drawerHardware: 0,
 
     interiorFinishLabor: 0,
@@ -1566,6 +1603,9 @@ function computeBreakdownSolidWoodTop(
       edgeProfile,
       edgeMult,
       cutMethod,
+      features: feat.rows,
+      featureHoursPerPiece: feat.hours,
+      featureMaterialPerPiece: feat.material,
     },
     custom: null,
   }
@@ -1670,6 +1710,12 @@ export function summarizeSlots(
     const mat = rb.solidWoodComponents.find((c) => c.id === s.solidWoodMaterialId)
     if (mat) bits.push(mat.name)
     if (s.edgeProfile && s.edgeProfile !== 'none') bits.push(`${s.edgeProfile}-edge`)
+    const feats = computeSwtFeatureRollup(
+      s.swtFeatures,
+      rb.swtFeatures || [],
+      defaultSqft(Number(s.pieceLengthIn) || 0, Number(s.pieceWidthIn) || 0),
+    ).rows
+    if (feats.length) bits.push(describeSwtFeatures(feats))
     return bits.join(' · ')
   }
 

@@ -303,10 +303,13 @@ export default function SolidWoodSection({ orgId }: { orgId: string }) {
         anything bought by the piece live in the catalog above.
       </p>
 
-      {/* Labor calibration sits above the stock table: it's the other half of
-          what a solid-wood line costs, and it used to be on Settings where
-          nobody would look for it. */}
-      <TopCalibrationCard orgId={orgId} />
+      {/* The typical-top LABOR calibration moved to the Solid Wood Top studio
+          (rate-book header, 2026-10-23) alongside its features — stock is
+          material and stays here; the studio is the product. */}
+      <div className="mb-4 text-[12px] text-[#6B7280]">
+        Labor calibration and features (bowties, corners, finishes) live in the <b>Solid wood top</b> studio — the
+        button at the top of the rate book.
+      </div>
 
       {error && (
         <div className="mb-3 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
@@ -410,7 +413,7 @@ export default function SolidWoodSection({ orgId }: { orgId: string }) {
  * Distinct from the stock table below: that's what lumber COSTS, this is what
  * milling it takes.
  */
-function TopCalibrationCard({ orgId }: { orgId: string }) {
+export function TopCalibrationCard({ orgId }: { orgId: string }) {
   const [cal, setCal] = useState<TopCalibration | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [open, setOpen] = useState(false)

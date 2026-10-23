@@ -13,6 +13,7 @@
 // Done in one pass so the composer's initial paint reads a single ready object.
 // ============================================================================
 
+import { listSwtFeatures } from './swt-features'
 import { supabase } from './supabase'
 import type {
   ComposerRateBook,
@@ -49,6 +50,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     catalog,
     cabinetFeatures,
     customProducts,
+    swtFeatures,
   ] = await Promise.all([
     loadShopRate(orgId),
     loadCabinetLabor(orgId, 'Base cabinet'),
@@ -65,6 +67,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     listMaterials(orgId),
     listCabinetFeatures(orgId),
     listCustomProducts(orgId),
+    listSwtFeatures(orgId),
   ])
 
   const calibrated = (l: ComposerCarcassLabor | null): boolean =>
@@ -131,6 +134,7 @@ export async function loadComposerRateBook(orgId: string): Promise<ComposerRateB
     customProducts,
     solidWoodTopCalibration,
     solidWoodComponents,
+    swtFeatures,
   }
 }
 
