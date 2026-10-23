@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
-import { isSubFrozen, resolveBucketMargins } from '@/lib/pricing'
+import { isSubFrozen, resolveMarginsForNewScope, type LockedMargins } from '@/lib/pricing'
 import { normalizeItemName } from '@/lib/subproject-description'
 import { recomputeProjectBidTotal } from '@/lib/project-totals'
 import { useConfirm } from '@/components/confirm-dialog'
@@ -144,6 +144,7 @@ interface ProjectRow {
   estimate_sent_at?: string | null
   estimate_number?: string | null
   estimate_snapshot_json?: unknown
+  locked_margins?: LockedMargins | null
 }
 
 // True when this subproject's activity type is "install" — the install
@@ -269,12 +270,15 @@ export default function SubprojectEditorPage() {
       consumableMarkupPct:
         subproject?.consumable_markup_pct ?? org?.consumable_markup_pct ?? 10,
       profitMarginPct: 0,
-      margins: resolveBucketMargins(project, org),
+      // Same resolver as co-docs + the project page: on an imported job the
+      // importer's 0% pins must not price a CO's new scope at cost.
+      margins: resolveMarginsForNewScope(project, org),
     }),
     [
       shopRate,
       subproject,
       org,
+      project?.locked_margins,
       project?.labor_margin_pct,
       project?.material_margin_pct,
       project?.consumable_margin_pct,
@@ -293,7 +297,7 @@ export default function SubprojectEditorPage() {
       const [projRes, subRes, siblingsRes, linesData, rb, opts, lineOpts, subActuals, deptRes, composerRb, composerSubDefaults] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, client_name, stage, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at, estimate_sent_at, estimate_number, estimate_snapshot_json')
+          .select('id, name, client_name, stage, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at, estimate_sent_at, estimate_number, estimate_snapshot_json, locked_margins')
           .eq('id', projectId)
           .single(),
         supabase

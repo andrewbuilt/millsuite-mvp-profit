@@ -20,6 +20,7 @@
 import { supabase } from './supabase'
 import { isPresold, type ProjectStage } from './types'
 import { computeProjectPrice, recomputeProjectBidTotal } from './project-totals'
+import type { LockedMargins } from './pricing'
 
 export interface RateOfferProject {
   stage: ProjectStage | string
@@ -142,4 +143,111 @@ export function sentQuote(project: {
 export async function priceAtRate(projectId: string, rate: number): Promise<number | null> {
   const r = await computeProjectPrice(projectId, { shopRate: rate })
   return r ? r.priceTotal : null
+}
+
+// ── Margins (migration 121) — the same gateway, for default margins ─────────
+// A project inherits the org default margins it was CREATED under
+// (projects.locked_margins). A Settings change moves nothing; an OPEN bid gets
+// an offer here. Only buckets the project hasn't pinned explicitly can differ
+// — an explicit *_margin_pct pin ignores defaults entirely.
+
+export interface MarginOfferProject extends RateOfferProject {
+  labor_margin_pct?: number | null
+  material_margin_pct?: number | null
+  consumable_margin_pct?: number | null
+  imported_at?: string | null
+  locked_margins?: LockedMargins | null
+  margins_ignored?: LockedMargins | null
+}
+
+export interface MarginOffer {
+  /** What the project's unpinned buckets price at today (its lock). */
+  from: Required<{ [K in keyof LockedMargins]: number }>
+  /** The org's current defaults, on offer. */
+  to: Required<{ [K in keyof LockedMargins]: number }>
+  /** The buckets that would actually change. */
+  buckets: Array<keyof LockedMargins>
+}
+
+const BUCKETS = [
+  ['labor', 'labor_margin_pct'],
+  ['material', 'material_margin_pct'],
+  ['consumable', 'consumable_margin_pct'],
+] as const
+
+/** The org's current defaults as a lock-shaped object (null org column → 35). */
+export function orgMarginDefaults(org: {
+  labor_margin_pct?: number | null
+  material_margin_pct?: number | null
+  consumable_margin_pct?: number | null
+} | null | undefined): Required<{ [K in keyof LockedMargins]: number }> {
+  return {
+    labor: Number(org?.labor_margin_pct ?? 35),
+    material: Number(org?.material_margin_pct ?? 35),
+    consumable: Number(org?.consumable_margin_pct ?? 35),
+  }
+}
+
+/** Pure: is there a margin change to offer this project? Null = say nothing. */
+export function marginOffer(
+  project: MarginOfferProject | null | undefined,
+  org: Parameters<typeof orgMarginDefaults>[0],
+): MarginOffer | null {
+  if (!project) return null
+  if (!isPresold(project.stage as ProjectStage)) return null
+  if (project.temp_at) return null
+  const lock = project.locked_margins
+  if (!lock) return null // pre-121: still inherits live, nothing to offer
+  const to = orgMarginDefaults(org)
+  const from = {
+    labor: Number(lock.labor ?? to.labor),
+    material: Number(lock.material ?? to.material),
+    consumable: Number(lock.consumable ?? to.consumable),
+  }
+  // Imported jobs: their *_margin_pct are the importer's zeros and are
+  // skipped for new scope (lib/pricing), so every bucket follows the lock.
+  const pinned = (col: (typeof BUCKETS)[number][1]) => !project.imported_at && project[col] != null
+  const buckets = BUCKETS.filter(([b, col]) => !pinned(col) && !same(from[b], to[b])).map(([b]) => b)
+  if (buckets.length === 0) return null
+  const ig = project.margins_ignored
+  if (ig && BUCKETS.every(([b]) => same(Number(ig[b] ?? NaN), to[b]))) return null
+  return { from, to, buckets }
+}
+
+/** The price this job WOULD be with the org's current defaults as its lock. */
+export async function priceAtMargins(projectId: string, lock: LockedMargins): Promise<number | null> {
+  const r = await computeProjectPrice(projectId, { lockedMargins: lock })
+  return r ? r.priceTotal : null
+}
+
+/** "Use new margins": re-lock to the org's defaults, clear any ignore,
+ *  recompute bid_total — refused when the price math already disagrees. */
+export async function acceptMargins(projectId: string, lock: LockedMargins): Promise<number | null> {
+  const check = await checkPriceAgrees(projectId)
+  if (!check.agrees) {
+    throw new Error(
+      `Not updated: this bid's stored price ($${Math.round(check.stored).toLocaleString()}) doesn't match its line math` +
+        (check.atPin != null ? ` ($${Math.round(check.atPin).toLocaleString()})` : '') +
+        '. It needs attention before any margin change.',
+    )
+  }
+  const { data, error } = await supabase
+    .from('projects')
+    .update({ locked_margins: lock, margins_ignored: null })
+    .eq('id', projectId)
+    .select('id')
+  if (error) throw new Error(/locked_margins|margins_ignored/.test(error.message) ? 'Run migration 121 first.' : error.message)
+  if (!data || data.length === 0) throw new Error('The project could not be updated.')
+  return recomputeProjectBidTotal(projectId)
+}
+
+/** "Keep": remember the declined defaults. Nothing is repriced. */
+export async function ignoreMargins(projectId: string, orgDefaults: LockedMargins): Promise<void> {
+  const { data, error } = await supabase
+    .from('projects')
+    .update({ margins_ignored: orgDefaults })
+    .eq('id', projectId)
+    .select('id')
+  if (error) throw new Error(/margins_ignored/.test(error.message) ? 'Run migration 121 to remember this choice.' : error.message)
+  if (!data || data.length === 0) throw new Error('The project could not be updated.')
 }

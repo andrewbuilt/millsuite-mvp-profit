@@ -403,6 +403,7 @@ function HandoffPageInner() {
   const margins = useMemo(
     () => resolveMarginsForNewScope(project, org),
     [
+      (project as { locked_margins?: unknown } | null)?.locked_margins,
       project?.labor_margin_pct,
       project?.material_margin_pct,
       project?.consumable_margin_pct,

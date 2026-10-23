@@ -186,7 +186,9 @@ import {
   listSwtFeatures,
   type SwtFeatureUse,
 } from '@/lib/swt-features'
+import type { LockedMargins } from '@/lib/pricing'
 import ShopRateBanner from '@/components/project/ShopRateBanner'
+import MarginBanner from '@/components/project/MarginBanner'
 import StageStrip from '@/components/project/StageStrip'
 import StagePill, {
   coverStageOf,
@@ -393,12 +395,14 @@ export default function ProjectCoverPage() {
     [isImported, shopRate, project, org?.consumable_markup_pct, org?.profit_margin_pct]
   )
   // Migration 052: three per-bucket margins (labor / material / consumables).
-  // Each resolves project pin → org default → 35. Subproject rollups stay
+  // Each resolves project pin → the project's lock (121) → org default → 35. Subproject rollups stay
   // at cost; margin is applied once at the project rollup via
   // computeBucketedPrice so the editor UI reads raw cost numbers.
   const margins: BucketMargins = useMemo(
     () => resolveMarginsForNewScope(project, org),
     [
+      (project as { locked_margins?: unknown } | null)?.locked_margins,
+      project?.imported_at,
       project?.labor_margin_pct,
       project?.material_margin_pct,
       project?.consumable_margin_pct,
@@ -1885,6 +1889,14 @@ export default function ProjectCoverPage() {
           onChanged={reload}
         />
       )}
+      {org && (
+        <MarginBanner
+          project={project as unknown as Parameters<typeof MarginBanner>[0]['project']}
+          org={org}
+          currentTotal={proj.priceTotal}
+          onChanged={reload}
+        />
+      )}
       {(() => {
         const openCos = changeOrders.filter(
           (c) => c.state === 'draft' || c.state === 'sent_to_client',
@@ -2713,10 +2725,12 @@ export default function ProjectCoverPage() {
                     material: project.material_margin_pct,
                     consumable: project.consumable_margin_pct,
                   }}
+                  // What an unpinned bucket INHERITS: the project's lock (121),
+                  // not today's org default — that's what it actually prices at.
                   orgDefaults={{
-                    labor: org?.labor_margin_pct ?? null,
-                    material: org?.material_margin_pct ?? null,
-                    consumable: org?.consumable_margin_pct ?? null,
+                    labor: lockedOf(project)?.labor ?? org?.labor_margin_pct ?? null,
+                    material: lockedOf(project)?.material ?? org?.material_margin_pct ?? null,
+                    consumable: lockedOf(project)?.consumable ?? org?.consumable_margin_pct ?? null,
                   }}
                   locked={!isPresold(project.stage)}
                   onChange={(field, next) =>
@@ -3692,7 +3706,8 @@ function BucketMarginEditor({
       {!locked && (
         <div className="text-[10.5px] text-[#9CA3AF] leading-tight">
           True gross margin per bucket — price = cost ÷ (1 − margin). Blank
-          inherits the org default. Subproject views show cost only.
+          uses this project&apos;s default (your shop default when it was created).
+          Subproject views show cost only.
         </div>
       )}
     </div>
@@ -4700,4 +4715,9 @@ function AttentionStrip({
       </div>
     </div>
   )
+}
+
+/** The project's margin lock (121), if the row carries one. */
+function lockedOf(p: unknown): LockedMargins | null {
+  return ((p as { locked_margins?: LockedMargins | null } | null)?.locked_margins) || null
 }

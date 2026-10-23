@@ -40,6 +40,7 @@ import {
   resolveBucketMargins,
   resolveMarginsForNewScope,
   type CostBuckets,
+  type LockedMargins,
 } from './pricing'
 
 const EPSILON_DOLLARS = 1
@@ -60,6 +61,8 @@ interface ProjectRow {
   labor_margin_pct: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
+  /** 121 — the defaults this project inherits. */
+  locked_margins?: LockedMargins | null
 }
 
 interface SubRow {
@@ -131,12 +134,16 @@ export async function computeProjectPrice(
     shopRate?: number
     lineOverrides?: Record<string, Partial<EstimateLine>>
     orgShopRate?: number
+    /** Pretend the ORG's default margins are these (the margin proof). */
+    orgMargins?: LockedMargins
+    /** Pretend the PROJECT's lock (121) is this (the margin banner's preview). */
+    lockedMargins?: LockedMargins
   } = {},
 ): Promise<{ priceTotal: number; stored: number } | null> {
   const { data: projData, error: projErr } = await supabase
     .from('projects')
     .select(
-      'id, org_id, bid_total, locked_shop_rate, imported_at, temp_at, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct',
+      'id, org_id, bid_total, locked_shop_rate, imported_at, temp_at, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_margins',
     )
     .eq('id', projectId)
     .single()
@@ -207,7 +214,16 @@ export async function computeProjectPrice(
   // hard-zeroes it. This one is for the LIVE half, and on an imported
   // project it deliberately ignores the importer's pinned zeros; see
   // `resolveMarginsForNewScope`.
-  const margins = resolveMarginsForNewScope(project, orgRow)
+  const margins = resolveMarginsForNewScope(
+    { ...project, locked_margins: whatIf.lockedMargins ?? project.locked_margins },
+    whatIf.orgMargins
+      ? {
+          labor_margin_pct: whatIf.orgMargins.labor,
+          material_margin_pct: whatIf.orgMargins.material,
+          consumable_margin_pct: whatIf.orgMargins.consumable,
+        }
+      : orgRow,
+  )
 
   const SUB_COLS =
     'id, consumable_markup_pct, install_guys, install_days, install_complexity_pct, install_rate_per_hour, install_included'

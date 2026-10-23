@@ -136,7 +136,7 @@ export async function loadProjectPricing(projectId: string): Promise<ProjectPric
   const { data: project, error } = await supabase
     .from('projects')
     .select(
-      'id, org_id, bid_total, imported_at, locked_shop_rate, labor_margin_pct, material_margin_pct, consumable_margin_pct',
+      'id, org_id, bid_total, imported_at, locked_shop_rate, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_margins',
     )
     .eq('id', projectId)
     .maybeSingle()

@@ -1,5 +1,6 @@
 // ============================================================================
-// verify-shop-rate-change.mjs — PROVE a shop-rate change moves no price.
+// verify-shop-rate-change.mjs — PROVE a shop-rate OR default-margin change
+// moves no price (118 + 121).
 // ============================================================================
 // Run: npx tsx scripts/verify-shop-rate-change.mjs            (static + live, READ ONLY)
 //      npx tsx scripts/verify-shop-rate-change.mjs --static   (no database)
@@ -39,6 +40,7 @@ import { execSync } from 'child_process'
 
 const STATIC_ONLY = process.argv.includes('--static')
 const ASSUME_118 = process.argv.includes('--assume-118')
+const ASSUME_121 = process.argv.includes('--assume-121')
 let failures = 0
 const fail = (msg) => {
   failures++
@@ -98,6 +100,20 @@ if (/frozen \? 0 : computeInstallCost/.test(totals))
   fail('lib/project-totals zeroes a frozen sub\'s install prefill again — Batia · Final loses $24,640')
 const banner = fs.readFileSync('components/project/ShopRateBanner.tsx', 'utf8')
 if (!/checkPriceAgrees/.test(banner)) fail('ShopRateBanner offers a recompute without the math-agrees guard')
+// Margins (121): every file that RESOLVES margins must carry the project's
+// lock — a resolver handed a row without `locked_margins` silently falls back
+// to the org's CURRENT defaults, which is exactly the hole 121 closed.
+const marginFiles = execSync(
+  `grep -rlE "resolveBucketMargins\\(|resolveMarginsForNewScope\\(" app lib components --include='*.ts' --include='*.tsx' || true`,
+  { encoding: 'utf8' },
+)
+  .split('\n')
+  .filter(Boolean)
+  .filter((f) => f !== 'lib/pricing.ts')
+for (const f of marginFiles) {
+  if (!fs.readFileSync(f, 'utf8').includes('locked_margins')) fail(`${f} resolves margins without locked_margins (121)`)
+}
+console.log(`  ${marginFiles.length} files resolve margins, all carry the lock${failures === 0 ? ' ✓' : '?'}`)
 console.log(failures === 0 ? '  composer / CO / rollup wiring ✓' : '')
 
 if (STATIC_ONLY) {
@@ -120,11 +136,24 @@ const { computeProjectPrice } = await import('../lib/project-totals.ts')
 const { effectiveShopRate } = await import('../lib/pricing.ts')
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
-console.log(`\nPART 2 — every project, org rate vs org rate + $1 (read only)${ASSUME_118 ? ' · ASSUMING 118 (in-memory backfill)' : ''}`)
+console.log(`\nPART 2 — every project, org rate +$1 and org margins +5pt (read only)${ASSUME_118 ? ' · ASSUMING 118' : ''}${ASSUME_121 ? ' · ASSUMING 121 (in-memory backfill)' : ''}`)
 const { data: orgs } = await sb.from('orgs').select('id, name, shop_rate')
 const { data: projects } = await sb
   .from('projects')
   .select('id, org_id, name, stage, bid_total, locked_shop_rate, imported_at, estimate_sent_at, temp_at')
+// locked_margins read SEPARATELY: on a pre-121 database the column doesn't
+// exist, and one unknown column fails the whole projects select.
+const lockRes = await sb.from('projects').select('id, locked_margins')
+const lockById = {}
+for (const r of lockRes.error ? [] : lockRes.data || []) lockById[r.id] = r.locked_margins
+const orgMarginsRes = await sb.from('orgs').select('id, labor_margin_pct, material_margin_pct, consumable_margin_pct')
+const orgMargins = {}
+for (const r of orgMarginsRes.data || [])
+  orgMargins[r.id] = {
+    labor: Number(r.labor_margin_pct ?? 35),
+    material: Number(r.material_margin_pct ?? 35),
+    consumable: Number(r.consumable_margin_pct ?? 35),
+  }
 const subsRes = await sb.from('subprojects').select('id, project_id, price_frozen')
 const subsByProject = {}
 for (const s of subsRes.data || []) (subsByProject[s.project_id] ||= []).push(s)
@@ -179,6 +208,18 @@ for (const org of orgs || []) {
     const actual1 = Number(p.locked_shop_rate) || rate
     const actual2 = Number(p.locked_shop_rate) || bumped
     if (actual1 !== actual2) problems.push(`actual labor rate $${actual1} → $${actual2}`)
+
+    // ── Margins (121): org default margins +5 pts must move nothing. ──
+    const om = orgMargins[org.id]
+    if (om) {
+      const up = { labor: om.labor + 5, material: om.material + 5, consumable: om.consumable + 5 }
+      const lock = lockById[p.id] || (ASSUME_121 ? om : undefined) // --assume-121: the backfill
+      const m1 = await computeProjectPrice(p.id, { orgMargins: om, ...(lock ? { lockedMargins: lock } : {}) })
+      const m2 = await computeProjectPrice(p.id, { orgMargins: up, ...(lock ? { lockedMargins: lock } : {}) })
+      if (m1 && m2 && m1.priceTotal !== m2.priceTotal) problems.push(`margins +5pt: price $${m1.priceTotal} → $${m2.priceTotal}`)
+      if (ASSUME_121 && !lockById[p.id] && a && m1 && a.priceTotal !== m1.priceTotal)
+        problems.push(`121 backfill moves price $${a.priceTotal} → $${m1.priceTotal}`)
+    }
 
     if (problems.length) {
       moved++

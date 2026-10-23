@@ -65,28 +65,43 @@ export interface MarginSource {
   labor_margin_pct?: number | null
   material_margin_pct?: number | null
   consumable_margin_pct?: number | null
+  /** Projects only (migration 121): the org defaults this project INHERITS,
+   *  pinned at creation. Sits between an explicit pin and the org's current
+   *  default, so changing Settings margins moves no existing project. */
+  locked_margins?: LockedMargins | null
+}
+
+export interface LockedMargins {
+  labor?: number | null
+  material?: number | null
+  consumable?: number | null
 }
 
 export const DEFAULT_MARGIN_PCT = 35
 
 /**
  * Resolve the effective per-bucket margins for a project: each bucket
- * resolves independently as project pin → org default → 35. Centralizes
- * the inherit/fallback rule so every read path agrees.
+ * resolves independently as explicit project pin → the project's
+ * locked_margins (121) → org default → 35. Centralizes the inherit/fallback
+ * rule so every read path agrees.
+ *
+ * ⛔ THE LOCK IS THE POINT (2026-10-23). Without it, NULL pins meant "the
+ * org's CURRENT default", so saving a new margin in Settings repriced every
+ * project that hadn't pinned its own — signed contracts included. A caller
+ * that resolves margins MUST select `locked_margins` on the project row;
+ * scripts/verify-shop-rate-change checks that statically.
  */
 export function resolveBucketMargins(
   project: MarginSource | null | undefined,
   org: MarginSource | null | undefined,
 ): BucketMargins {
-  const pick = (p?: number | null, o?: number | null) =>
-    p ?? o ?? DEFAULT_MARGIN_PCT
+  const lock = project?.locked_margins || null
+  const pick = (p?: number | null, l?: number | null, o?: number | null) =>
+    p ?? l ?? o ?? DEFAULT_MARGIN_PCT
   return {
-    laborMarginPct: pick(project?.labor_margin_pct, org?.labor_margin_pct),
-    materialMarginPct: pick(project?.material_margin_pct, org?.material_margin_pct),
-    consumableMarginPct: pick(
-      project?.consumable_margin_pct,
-      org?.consumable_margin_pct,
-    ),
+    laborMarginPct: pick(project?.labor_margin_pct, lock?.labor, org?.labor_margin_pct),
+    materialMarginPct: pick(project?.material_margin_pct, lock?.material, org?.material_margin_pct),
+    consumableMarginPct: pick(project?.consumable_margin_pct, lock?.consumable, org?.consumable_margin_pct),
   }
 }
 
@@ -127,7 +142,9 @@ export function resolveMarginsForNewScope(
   project: (MarginSource & PricingProjectSource) | null | undefined,
   org: MarginSource | null | undefined,
 ): BucketMargins {
-  if (project?.imported_at) return resolveBucketMargins(null, org)
+  // Imported: skip the importer's 0% pins, but NOT the lock (121) — the lock
+  // was stamped from the org, never by the importer, so it's a real default.
+  if (project?.imported_at) return resolveBucketMargins({ locked_margins: project.locked_margins }, org)
   return resolveBucketMargins(project, org)
 }
 
