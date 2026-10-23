@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-10-23 · **Branch:** `main`
 
-**Left off (2026-10-23):** SOLID WOOD TOP features + studio (`46f3a78`) and MARGIN PINNING (`0be44ea`) BUILT, **held unpushed until Andrew runs migrations 120 + 121** (121's selects break pages without it). Then: verify-migration → the proof PASS (rate + margins) → push → the live verify list.
+**Left off (2026-10-23):** SOLID WOOD TOP features + studio (`46f3a78`) and MARGIN PINNING (`0be44ea`) BUILT + PUSHED. **Migrations `120` + `121` ✅ ON PROD AND VERIFIED** (all 71 projects carry a margin lock). **The proof PASSES on prod: a $1 rate change AND a +5pt margin change move 0 of 71 projects**; drift = the 5 demo seeds only; verify-swt-features 28/28. Next: Andrew's live verify list in CURRENT FOCUS.
 
 **Earlier (2026-10-22, later):** Standard estimate/CO formatting pass BUILT and PUSHED (`a4c7aca`) — **Andrew OK'd the before/after renders.** Next: regenerate the real EST-0036 + Bonzer CO PDFs in the app. Earlier today: COS/Batia fixes + one-page archive all pushed.
 
@@ -29,7 +29,7 @@
 - Verify live with Andrew: change the default margin by 1pt → nothing moves anywhere (drift list unchanged), a new sub on an old bid prices at the bid's pin, the banner reads right, change it back.
 
 
-**✅ 2026-10-23: SOLID WOOD TOP FEATURES + STUDIO (`46f3a78`) and MARGIN PINNING (`0be44ea`) — BUILT, tsc + `next build` clean, ⛔ NOT PUSHED: migrations `120` + `121` must run on prod FIRST.** (121 especially: the pricing paths now select `projects.locked_margins`, and a missing column fails the whole select → the sub page and bid-total sync break.)
+**✅ 2026-10-23: SOLID WOOD TOP FEATURES + STUDIO (`46f3a78`) and MARGIN PINNING (`0be44ea`) — BUILT + PUSHED, tsc + `next build` clean. Migrations `120` + `121` ✅ on prod and verified (Andrew ran them 2026-10-23); the live proof PASSES, rate AND margins: 0 of 71 move.**
 **1. Solid Wood Top (migration `120` `swt_features`).**
    - **Studio:** "Solid wood top" button in the rate-book header (beside Shop rates) → `SolidWoodTopStudio`: the typical-top calibration (`TopCalibrationCard`, MOVED out of Materials → Solid wood; the stock table stays there with a pointer) + the features list. CRUD with each / per sq ft / by-length step editor. Archive, never delete.
    - **Pricing (`lib/swt-features`, pure):** each = per piece · sqft = per sq ft (composer defaults to ONE face L×W÷144; two-sided = type it) · length_steps = ABSOLUTE price per step, bracket = first step ≥ ceil(length), past the last step = last + per-extra-ft. Feature hours are PER PIECE, NOT scaled by BdFt or the edge multiplier, and fold into dept hours (schedule/capacity see them). Feature material joins the subtotal: consumables yes, stock waste no. Everything × line qty.
@@ -42,7 +42,6 @@
    - Every margin path selects the lock (project page, handoff, pre-pro, sub page, co-docs, project-totals). **Also fixed:** pre-pro and sub-page CO pricing used `resolveBucketMargins`, i.e. the importer's 0% on imported jobs (CO new scope at COST). Both now use `resolveMarginsForNewScope`, like co-docs. The margin editor's "blank inherits" now shows the lock, not today's org default.
    - **Gateway:** `MarginBanner` (purple, open bids only, never sold/temp) appears when an UNPINNED bucket's lock ≠ the org default: "Use new margins" (re-lock + recompute; the math-agrees guard applies) or "Keep this bid's margins" (`margins_ignored`, quiet until the defaults move again). ⚠️ **Deviation from spec, forced by the code:** "use" REPRICES the whole bid (margins are project-level), not just new scope; same sent-quote wording as the rate banner.
    - **Proof:** `verify-shop-rate-change.mjs` gained a margin half (org defaults +5pt → 0 of N move) and a static check (6 margin-resolving files all carry the lock). `--assume-121` = in-memory backfill.
-- **Next:** Andrew runs **120 + 121** → `node --env-file=.env.local scripts/verify-migration.mjs swt_features:id,pricing_mode projects:locked_margins,margins_ignored` → `npx tsx scripts/verify-shop-rate-change.mjs` must PASS (rate AND margins) → push.
 - ⚠️ **Verify owed (Andrew, live):** rate book → Solid wood top studio: add Bowtie (each), Hand-rubbed (sq ft), Miter (steps 1'/2'/4' + extra ft) · compose the sapele waterfall: hours land in the right depts, the breakdown itemizes, the estimate reads "Features - …" · change the default margin 1pt in Settings → nothing moves (drift list unchanged); an open bid shows the purple banner; Keep → quiet on reload; change it back.
 
 
