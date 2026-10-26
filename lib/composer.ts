@@ -24,7 +24,7 @@ import {
   type SwtFeatureRollupRow,
   type SwtFeatureUse,
   type SwtHours,
-} from './swt-features'
+} from './swt-features-math'
 import { PRODUCTS, type Product, type ProductKey } from './products'
 import type {
   DoorType,

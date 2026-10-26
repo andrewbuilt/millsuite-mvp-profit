@@ -23,6 +23,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { applyChangeToSchedule } from './payments'
 import {
   computeSubprojectRollup,
   loadEstimateLines,
@@ -40,7 +41,6 @@ import {
 import { recomputeProjectBidTotal } from './project-totals'
 import { seedApprovalItemsFromEstimate } from './approvals'
 import { createInvoice } from './invoices'
-import { coDrawSlot } from './payment-schedule'
 import type { ComposerDefaults } from './composer'
 import {
   canAcceptDoc,
@@ -1051,81 +1051,22 @@ export async function acceptDoc(input: {
     console.error('acceptDoc: invoice', e)
   }
   try {
-    // ⛔ THE INVOICE SAYS WHAT THEY'RE BILLED; THE DRAW SAYS WHEN THE CASH IS
-    // EXPECTED. Payments v2 keeps those separate on purpose, and until 106
-    // only the invoice half moved on a change order — so the board silently
-    // grew the final draw instead of showing a line.
-    await appendCoDocDraw(accepted, agreed)
+    // ⛔ THE CO SPREADS OVER THE REMAINING UNPAID DRAWS (2026-10-26) — no
+    // stub "CO-01" row. Credits shrink them the same way. See
+    // applyChangeToSchedule / redistributeDelta.
+    await applyChangeToSchedule({
+      orgId: doc.org_id,
+      projectId: doc.project_id,
+      delta: agreed,
+      key: `co_doc:${doc.id}`,
+      label: `${coLabel(doc)} spread across the remaining draws`,
+      actorUserId: input.acceptedBy ?? null,
+    })
   } catch (e) {
-    console.error('acceptDoc: draw row', e)
+    console.error('acceptDoc: schedule', e)
   }
 
   return { ok: true, reason: null, created, agreed, moved, drift: expectedMove - moved }
-}
-
-/**
- * Append an accepted doc to the project's DRAW SCHEDULE.
- *
- * Generalises v1's `appendCoDrawRow`, and keeps every one of its rules — each
- * was paid for:
- *
- * ⛔ POSITIVE DOCS ONLY. A net CREDIT writes no row (Andrew, 2026-09-13): a
- * negative line on a client-facing payment schedule reads as a mistake, and
- * `reconcileProject`'s shrink-from-the-end branch already absorbs it without
- * letting a draw fall below what's been paid against it.
- *
- * ⛔ NO SCHEDULE ⇒ NO ROW. A sold project with zero draws sits in the "No
- * payment schedule" tray, which is driven by "has no rows". Writing one row
- * would take it OUT of that tray while the rest of its contract stayed
- * unscheduled — hiding an untracked job to show a single line. The tray
- * already reports it at full `bid_total`, which now includes this doc.
- *
- * ⛔ IT MUST SORT LAST — `coDrawSlot`, pure and verified. `reconcileAll`
- * waterfalls received money over the draws in sort order, so a row landing at
- * the front soaks up payments belonging to earlier draws and marks them
- * unpaid. That's the bug that made dragging a card change which draw counted
- * as paid (634c0eb).
- *
- * Idempotent through `uniq_receivable_co_doc` (109), because acceptance runs
- * its steps as separate best-effort blocks and a doc can be re-accepted.
- */
-export async function appendCoDocDraw(doc: CoDoc, netChange: number): Promise<void> {
-  if (netChange <= 0) return
-
-  const { data: existing, error: readErr } = await supabase
-    .from('cash_flow_receivables')
-    .select('id, notes, expected_date')
-    .eq('project_id', doc.project_id)
-    .eq('type', 'receivable')
-    .neq('status', 'cancelled')
-  if (readErr) {
-    console.error('appendCoDocDraw: could not read the schedule', readErr)
-    return
-  }
-  const rows = existing || []
-  if (rows.length === 0) return
-
-  const slot = coDrawSlot(rows as Array<{ notes: string | null; expected_date: string | null }>)
-  const label = `${coLabel(doc)}${doc.title ? ` — ${doc.title}` : ''}`.slice(0, 200)
-
-  const { error } = await supabase.from('cash_flow_receivables').insert({
-    org_id: doc.org_id,
-    project_id: doc.project_id,
-    type: 'receivable',
-    status: 'projected',
-    milestone_label: label,
-    amount: netChange,
-    expected_date: slot.expectedDate,
-    notes: `order:${slot.order}`,
-    co_doc_id: doc.id,
-  })
-  if (error) {
-    // 23505 = the unique index did its job; the draw already exists.
-    if ((error as { code?: string }).code === '23505') return
-    // 42703 / PGRST204 = migration 109 hasn't run. Log rather than throw: the
-    // doc is accepted and the board still balances the old way.
-    console.error('appendCoDocDraw: insert failed', error)
-  }
 }
 
 /**

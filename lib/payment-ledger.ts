@@ -38,6 +38,7 @@ import {
   type MonthKey,
   type PaymentRow,
 } from './payment-schedule'
+import { allocateRounded } from './allocate'
 
 /** Money compares to the cent; anything finer is float noise. */
 const EPS = 0.005
@@ -723,4 +724,57 @@ export function reconcileEverything(
     }
   }
   return { draws, unapplied, driftByProject }
+}
+
+// ── Change orders REDISTRIBUTE (2026-10-26, Andrew: "simplify and clean this up")
+// An accepted CO changes the TOTAL OWED, and the change spreads PROPORTIONALLY
+// across the remaining UNPAID money on the schedule — no "CO-01 · $8,638"
+// stub draws. Rules (each draw's unpaid = stored − covered by the waterfall):
+//   · PAID draws never move.
+//   · A PARTIAL draw moves only its unpaid remainder, and can never be set
+//     below what it has already received.
+//   · FROZEN draws (invoiced — a client holds a bill for that number) never
+//     move; the caller passes them as frozen.
+//   · Whole dollars, largest-remainder rounding, so the stored sum moves by
+//     EXACTLY round(delta).
+//   · A net CREDIT shrinks the unpaid money the same way. Anything that can't
+//     be absorbed (more credit than is unpaid, or nothing unpaid at all) is
+//     returned as `unabsorbed` — reconcileProject's final-draw balancing
+//     already shows that honestly; it is never forced into a negative draw.
+
+export interface RedistributeInput {
+  id: string
+  stored: number
+  /** Cash the waterfall has credited to it (reconcileProject's `covered`). */
+  covered: number
+  /** Never moves (invoiced). */
+  frozen?: boolean
+}
+
+export function redistributeDelta(
+  draws: RedistributeInput[],
+  delta: number,
+): { amounts: Array<{ id: string; from: number; to: number }>; unabsorbed: number } {
+  const target = Math.round(delta)
+  const movable = draws.filter((d) => !d.frozen && d.stored - d.covered > EPS)
+  const unpaid = movable.map((d) => round2(d.stored - d.covered))
+  const unpaidSum = round2(unpaid.reduce((a, b) => a + b, 0))
+  if (target === 0 || movable.length === 0 || unpaidSum <= EPS) {
+    return { amounts: [], unabsorbed: target }
+  }
+  // A credit can shrink at most what's unpaid; the rest is unabsorbed.
+  const applied = target < 0 ? Math.max(target, -Math.floor(unpaidSum)) : target
+  // New UNPAID remainders, proportional, summing to unpaidSum + applied.
+  const newUnpaid = allocateRounded(
+    unpaid.map((u) => u + (applied * u) / unpaidSum),
+    Math.round(unpaidSum + applied),
+  )
+  const amounts = movable
+    .map((d, i) => {
+      const to = Math.max(d.covered, round2(d.covered + Math.max(0, newUnpaid[i])))
+      return { id: d.id, from: d.stored, to: Math.round(to * 100) / 100 }
+    })
+    .filter((a) => Math.abs(a.to - a.from) > EPS)
+  const moved = round2(amounts.reduce((s, a) => s + (a.to - a.from), 0))
+  return { amounts, unabsorbed: round2(target - moved) }
 }

@@ -12,9 +12,10 @@
 
 import { loadTempProjectIds } from './temp-projects'
 import { supabase } from './supabase'
+import { recordProjectEvent } from './project-events'
 import { POSTSOLD_STAGES, type ProjectStage } from './types'
 import { formatLocalDate, type PaymentRow } from './payment-schedule'
-import { type LedgerEntry } from './payment-ledger'
+import { reconcileProject, redistributeDelta, type LedgerEntry } from './payment-ledger'
 
 export * from './payment-schedule'
 export * from './payment-ledger'
@@ -564,4 +565,94 @@ export async function projectReceivedTotal(projectId: string): Promise<number> {
  *  column of this very page. */
 export function todayStamp(): string {
   return formatLocalDate(new Date())
+}
+
+/**
+ * Spread a change order's net change over a project's REMAINING UNPAID draws
+ * (2026-10-26). Replaces the per-CO stub draw: an accepted CO changes the
+ * total owed, and the schedule grows (or shrinks) where money is still owed.
+ * Pure rules in `redistributeDelta` (lib/payment-ledger); this reads the
+ * schedule + ledger, applies them, and writes the changed amounts.
+ *
+ *   · Coverage comes from the SAME waterfall the board uses (reconcileProject,
+ *     in schedule order), so "paid" here means what it means on screen.
+ *   · Invoiced rows are frozen (a client holds that bill), and so are legacy
+ *     status='received' rows.
+ *   · No schedule → nothing to do (the "no payment schedule" tray already
+ *     reports the job at its full bid_total).
+ *   · Writes are checked row by row (`.select`) — an RLS no-op must not pass
+ *     for a moved schedule.
+ * Returns what moved and anything it couldn't absorb (reconcileProject's
+ * final-draw balancing shows that; it's never forced into a negative draw).
+ */
+export async function redistributeScheduleDelta(
+  projectId: string,
+  delta: number,
+): Promise<{ moved: Array<{ id: string; label: string; from: number; to: number }>; unabsorbed: number }> {
+  const draws = (await loadProjectDraws(projectId)).sort((a, b) => a.sortOrder - b.sortOrder)
+  if (draws.length === 0 || Math.round(delta) === 0) return { moved: [], unabsorbed: Math.round(delta) }
+  const { entries } = await loadProjectLedger(projectId)
+  const storedSum = draws.reduce((s, d) => s + d.amount, 0)
+  // contractTotal = storedSum: we only want the WATERFALL's coverage here, not
+  // its rebalancing (which would pre-absorb the very delta we're applying).
+  const recon = reconcileProject(draws, entries, storedSum)
+  const plan = redistributeDelta(
+    recon.draws.map((d) => ({
+      id: d.row.id,
+      stored: d.stored,
+      covered: d.covered,
+      frozen: d.row.status === 'invoiced' || d.row.status === 'received',
+    })),
+    delta,
+  )
+  const moved: Array<{ id: string; label: string; from: number; to: number }> = []
+  for (const a of plan.amounts) {
+    const { data, error } = await supabase
+      .from('cash_flow_receivables')
+      .update({ amount: a.to })
+      .eq('id', a.id)
+      .select('id')
+    if (error || !data || data.length === 0) {
+      throw new Error(`Could not update a draw: ${error?.message || 'refused'}`)
+    }
+    moved.push({ ...a, label: draws.find((d) => d.id === a.id)?.label || 'Draw' })
+  }
+  return { moved, unabsorbed: plan.unabsorbed }
+}
+
+/**
+ * The ONE thing a change order does to the draw schedule (both CO paths call
+ * it): spread `delta` over the remaining unpaid draws and record it.
+ *
+ * Idempotent through the event: a `co_schedule_applied` project event names
+ * the change (`key`, e.g. `co_doc:<id>`); if one exists, nothing happens.
+ * That event is also the audit trail a schedule never had — Oliveira's second
+ * "Deposit" took an investigation to explain because nothing recorded edits.
+ */
+export async function applyChangeToSchedule(input: {
+  orgId: string
+  projectId: string
+  delta: number
+  key: string
+  label: string
+  actorUserId?: string | null
+}): Promise<void> {
+  if (Math.round(input.delta) === 0) return
+  const { data: prior } = await supabase
+    .from('project_events')
+    .select('id')
+    .eq('project_id', input.projectId)
+    .eq('event_type', 'co_schedule_applied')
+    .contains('meta', { key: input.key })
+    .limit(1)
+  if (prior && prior.length > 0) return
+  const r = await redistributeScheduleDelta(input.projectId, input.delta)
+  await recordProjectEvent({
+    orgId: input.orgId,
+    projectId: input.projectId,
+    eventType: 'co_schedule_applied',
+    label: input.label,
+    meta: { key: input.key, delta: Math.round(input.delta), moved: r.moved, unabsorbed: r.unabsorbed },
+    actorUserId: input.actorUserId ?? null,
+  })
 }

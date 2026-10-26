@@ -405,6 +405,8 @@ function walk(dir) {
     // exists to prevent. Everything under lib/, app/ and components/ is still
     // checked; this is a category exemption, not a hole.
     if (/^scripts\/inspect-[\w-]+\.mjs$/.test(rel)) continue
+    // Same category: `preview-*` renders real documents to $TMPDIR, read-only.
+    if (/^scripts\/preview-[\w-]+\.(mjs|tsx)$/.test(rel)) continue
     const src = fs.readFileSync(full, 'utf8')
     // The query form only — a type import or a comment mentioning the table
     // is not a data path.
