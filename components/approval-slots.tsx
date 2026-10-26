@@ -15,7 +15,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, Clock, Send, RotateCcw, Link2, Lock, ChevronDown, ChevronUp } from 'lucide-react'
+import { CheckCircle2, Clock, Send, RotateCcw, Link2, Lock, ChevronDown, ChevronUp, Pencil, Trash2, Plus } from 'lucide-react'
 import { useConfirm } from '@/components/confirm-dialog'
 import { announce, type TourEvent } from '@/lib/tour-events'
 import {
@@ -24,8 +24,11 @@ import {
   BallInCourt,
   approve,
   ballChipTone,
+  createCustomSlot,
   daysSinceStateChange,
+  dismissApprovalCallout,
   loadApprovalItemsForSubproject,
+  updateApprovalCallout,
   requestChange,
   revNumber,
   submitSample,
@@ -77,7 +80,11 @@ function slotKeyForApprovalLabel(label: string): string | null {
 }
 
 export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onCreateSpecCo, tourTag, focusItemId, hideHeader }: Props) {
-  const { alert } = useConfirm()
+  const { alert, confirm } = useConfirm()
+  // Add / edit callouts by hand (2026-10-26, 122). One form at a time.
+  const [adding, setAdding] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [formErr, setFormErr] = useState<string | null>(null)
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
   const [busyItemId, setBusyItemId] = useState<string | null>(null)
@@ -138,6 +145,65 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
     }
   }
 
+  async function saveNew(v: CalloutValues) {
+    setFormErr(null)
+    if (!v.label.trim()) return setFormErr('A callout needs a label.')
+    const created = await createCustomSlot(subprojectId, {
+      label: v.label.trim(),
+      material: v.material.trim(),
+      finish: v.finish.trim() || null,
+    })
+    if (!created) return setFormErr('Could not add the callout.')
+    setAdding(false)
+    await reload()
+    onChange?.()
+  }
+
+  async function saveEdit(item: ApprovalItem, v: CalloutValues) {
+    setFormErr(null)
+    const specChanged = (item.material || '') !== v.material.trim() || (item.finish || '') !== v.finish.trim()
+    if (specChanged && item.state !== 'pending') {
+      const ok = await confirm({
+        title: 'Change an approved callout?',
+        message: `"${item.label}" is ${item.state === 'approved' ? 'approved' : 'in review'}. Changing its material or finish puts it back to pending — the client approved the old spec, not this one.`,
+        confirmLabel: 'Change it',
+      })
+      if (!ok) return
+    }
+    try {
+      await updateApprovalCallout(item, { label: v.label, material: v.material, finish: v.finish }, actorUserId)
+      setEditingId(null)
+      await reload()
+      onChange?.()
+    } catch (e) {
+      setFormErr(e instanceof Error ? e.message : 'Could not save.')
+    }
+  }
+
+  async function remove(item: ApprovalItem) {
+    // Pending = one click. Anything further along asks first — and is kept on
+    // the project timeline either way (the row is a tombstone, not deleted).
+    if (item.state !== 'pending') {
+      const ok = await confirm({
+        title: 'Delete an approval callout?',
+        message: `"${item.label}" is ${item.state === 'approved' ? 'already approved' : 'in review with the client'}. It will leave the approvals list and stop counting toward the gate. Its history stays on the project timeline.`,
+        confirmLabel: 'Delete',
+        variant: 'danger',
+      })
+      if (!ok) return
+    }
+    setBusyItemId(item.id)
+    try {
+      await dismissApprovalCallout(item, actorUserId)
+      await reload()
+      onChange?.()
+    } catch (e) {
+      await alert({ title: 'Couldn’t delete', message: e instanceof Error ? e.message : 'Something went wrong.' })
+    } finally {
+      setBusyItemId(null)
+    }
+  }
+
   if (loading) {
     return <div className="text-sm text-neutral-500 py-4">Loading approvals…</div>
   }
@@ -160,9 +226,10 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
       )}
 
       {/* Empty state */}
-      {items.length === 0 && (
+      {items.length === 0 && !adding && (
         <div className="text-sm text-neutral-500 border border-dashed border-neutral-300 rounded p-4">
-          No specs yet. Specs are created from estimate-line finish specs when a subproject is marked sold.
+          No callouts yet. They come from the estimate&apos;s finish specs when a job sells — or add the materials and
+          finishes the client needs to approve by hand below.
         </div>
       )}
 
@@ -180,10 +247,31 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
         //   3. The spec isn't already approved (locked).
         const canCreateCo =
           !!onCreateSpecCo && !!slotKey && item.state !== 'approved'
+        if (editingId === item.id) {
+          return (
+            <CalloutForm
+              key={item.id}
+              initial={{ label: item.label, material: item.material || '', finish: item.finish || '' }}
+              submitLabel="Save"
+              error={formErr}
+              onCancel={() => {
+                setEditingId(null)
+                setFormErr(null)
+              }}
+              onSubmit={(v) => saveEdit(item, v)}
+            />
+          )
+        }
         return (
           <SlotCard
             key={item.id}
             item={item}
+            onEdit={() => {
+              setAdding(false)
+              setFormErr(null)
+              setEditingId(item.id)
+            }}
+            onDelete={() => void remove(item)}
             isExpanded={expanded.has(item.id)}
             isBusy={busyItemId === item.id}
             canCreateCo={canCreateCo}
@@ -195,6 +283,102 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
           />
         )
       })}
+
+      {/* + Add callout — manual and derived callouts share this list and gate
+          identically (slots_total / slots_approved count both). */}
+      {adding ? (
+        <CalloutForm
+          initial={{ label: '', material: '', finish: '' }}
+          submitLabel="Add callout"
+          error={formErr}
+          onCancel={() => {
+            setAdding(false)
+            setFormErr(null)
+          }}
+          onSubmit={saveNew}
+        />
+      ) : (
+        <button
+          onClick={() => {
+            setEditingId(null)
+            setFormErr(null)
+            setAdding(true)
+          }}
+          className="text-xs inline-flex items-center gap-1 text-[#2563EB] hover:underline"
+        >
+          <Plus className="w-3 h-3" /> Add callout
+        </button>
+      )}
+    </div>
+  )
+}
+
+interface CalloutValues {
+  label: string
+  material: string
+  finish: string
+}
+
+/** Plain-text callout editor — label · material · finish. */
+function CalloutForm({
+  initial,
+  submitLabel,
+  error,
+  onCancel,
+  onSubmit,
+}: {
+  initial: CalloutValues
+  submitLabel: string
+  error: string | null
+  onCancel: () => void
+  onSubmit: (v: CalloutValues) => void | Promise<void>
+}) {
+  const [v, setV] = useState<CalloutValues>(initial)
+  const [busy, setBusy] = useState(false)
+  const field = 'w-full px-2 py-1.5 text-sm border border-neutral-300 rounded focus:outline-none focus:border-[#2563EB]'
+  return (
+    <div className="rounded-[10px] border border-[#BFDBFE] bg-[#F8FAFF] p-3 space-y-2">
+      <input
+        value={v.label}
+        onChange={(e) => setV({ ...v, label: e.target.value })}
+        placeholder="What it is — e.g. Countertop, Cabinet paint, Pulls"
+        className={field}
+        autoFocus
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          value={v.material}
+          onChange={(e) => setV({ ...v, material: e.target.value })}
+          placeholder="Material — e.g. Calacatta quartz"
+          className={field}
+        />
+        <input
+          value={v.finish}
+          onChange={(e) => setV({ ...v, finish: e.target.value })}
+          placeholder="Finish (optional)"
+          className={field}
+        />
+      </div>
+      {error && <div className="text-xs text-red-700">{error}</div>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-xs px-2 py-1 rounded text-neutral-700 hover:bg-neutral-100">
+          Cancel
+        </button>
+        <button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true)
+            try {
+              await onSubmit(v)
+            } finally {
+              setBusy(false)
+            }
+          }}
+          className="text-xs px-2.5 py-1 rounded bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50"
+        >
+          {busy ? 'Saving…' : submitLabel}
+        </button>
+      </div>
     </div>
   )
 }
@@ -213,6 +397,8 @@ interface SlotCardProps {
   onApprove: () => void
   onRequestChange: () => void
   onCreateCo: () => void
+  onEdit: () => void
+  onDelete: () => void
 }
 
 function SlotCard(p: SlotCardProps) {
@@ -316,8 +502,8 @@ function SlotCard(p: SlotCardProps) {
             </div>
           )}
 
-          {/* Actions — approval-workflow only. Content swaps go through CO. */}
-          <div className="mt-3 flex flex-wrap gap-2">
+          {/* Actions — the approval workflow, then edit / delete (122). */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <SlotActions
               state={item.state}
               isBusy={p.isBusy}
@@ -325,6 +511,21 @@ function SlotCard(p: SlotCardProps) {
               onApprove={p.onApprove}
               onRequestChange={p.onRequestChange}
             />
+            <span className="flex-1" />
+            <button
+              onClick={p.onEdit}
+              disabled={p.isBusy}
+              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded text-neutral-600 hover:bg-neutral-100 disabled:opacity-40"
+            >
+              <Pencil className="w-3 h-3" /> Edit
+            </button>
+            <button
+              onClick={p.onDelete}
+              disabled={p.isBusy}
+              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded text-neutral-500 hover:text-red-700 hover:bg-red-50 disabled:opacity-40"
+            >
+              <Trash2 className="w-3 h-3" /> Delete
+            </button>
           </div>
         </div>
       )}

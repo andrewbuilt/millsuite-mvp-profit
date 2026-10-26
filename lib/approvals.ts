@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { recordProjectEvent } from './project-events'
 import { PREFINISHED_FINISH_ID, type ComposerRateBook, type ComposerSlots } from './composer'
 
 // ── Types ──
@@ -76,6 +77,7 @@ export async function loadApprovalItemsForSubproject(
     .from('approval_items')
     .select('*')
     .eq('subproject_id', subprojectId)
+    .is('dismissed_at', null) // 122 — deleted callouts are tombstones
     .order('created_at', { ascending: true })
 
   if (itemsError) {
@@ -127,6 +129,7 @@ export async function loadLinkSuggestionsForLabel(
     .select('id, subproject_id, label, state, subprojects!inner(name, project_id)')
     .eq('label', label)
     .eq('subprojects.project_id', projectId)
+    .is('dismissed_at', null)
 
   if (error) {
     console.error('loadLinkSuggestionsForLabel', error)
@@ -734,6 +737,9 @@ export async function createApprovalItemsFromProposals(
   // (e.g. "Carcass material · White oak" vs "Carcass material · Black liner")
   // each get their own card — they're genuinely distinct decisions.
   const subIds = Array.from(new Set(proposals.map((p) => p.subproject_id)))
+  // ⛔ DISMISSED ROWS INCLUDED ON PURPOSE (122). A deleted callout is a
+  // tombstone precisely so its key stays here — filter it out and the next
+  // pre-production load re-proposes what someone just deleted.
   const { data: existing } = await supabase
     .from('approval_items')
     .select('subproject_id, label, material, finish, source_estimate_line_id')
@@ -910,4 +916,95 @@ export function ballChipTone(item: ApprovalItem): 'neutral' | 'warning' | 'red' 
   if (days >= 7) return 'red'
   if (days >= 3) return 'warning'
   return 'neutral'
+}
+
+// ── Manual callout editing (2026-10-26, migration 122) ──────────────────────
+// Imported jobs had nothing to approve (slots derive from composer lines
+// only). The pre-production page can now ADD (createCustomSlot, is_custom),
+// EDIT and DELETE callouts by hand; manual and derived callouts share one list
+// and gate identically (n of m ready, the What's-left rail, the portal).
+// ⚠️ This reverses the post-sale dogfood pass that removed custom-spec
+// creation as "a content mutation on a locked estimate" — Andrew re-scoped it
+// 2026-10-26 because imported jobs had no way to get a spec sheet at all.
+
+async function projectOfSubproject(subprojectId: string): Promise<{ projectId: string; orgId: string } | null> {
+  const { data } = await supabase
+    .from('subprojects')
+    .select('project_id, org_id')
+    .eq('id', subprojectId)
+    .maybeSingle()
+  const r = data as { project_id: string | null; org_id: string | null } | null
+  return r?.project_id && r?.org_id ? { projectId: r.project_id, orgId: r.org_id } : null
+}
+
+/**
+ * Edit a callout's label / material / finish.
+ *
+ * ⛔ CHANGING WHAT WAS APPROVED RE-OPENS IT. If the callout was approved (or in
+ * review) and its material or finish changes, it goes back to PENDING — the
+ * client approved the OLD spec, not this one. A label-only fix leaves the
+ * state alone. Either way it's recorded on the project timeline.
+ */
+export async function updateApprovalCallout(
+  item: ApprovalItem,
+  next: { label: string; material: string; finish: string | null },
+  actorUserId?: string | null,
+): Promise<void> {
+  const label = next.label.trim()
+  if (!label) throw new Error('A callout needs a label.')
+  const material = next.material.trim()
+  const finish = next.finish?.trim() || null
+  const specChanged = (item.material || '') !== material || (item.finish || null) !== finish
+  const reopen = specChanged && item.state !== 'pending'
+  const now = new Date().toISOString()
+  const patch: Record<string, unknown> = { label, material, finish, updated_at: now }
+  if (reopen) {
+    patch.state = 'pending'
+    patch.ball_in_court = 'shop'
+    patch.last_state_change_at = now
+  }
+  const { data, error } = await supabase.from('approval_items').update(patch).eq('id', item.id).select('id')
+  if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('The callout could not be updated.')
+  const where = await projectOfSubproject(item.subproject_id)
+  if (where && (reopen || item.state !== 'pending')) {
+    await recordProjectEvent({
+      orgId: where.orgId,
+      projectId: where.projectId,
+      eventType: 'approval_callout_edited',
+      label: reopen ? `${label} changed — back to pending (was ${item.state})` : `${label} edited`,
+      meta: { itemId: item.id, before: { label: item.label, material: item.material, finish: item.finish, state: item.state }, after: { label, material, finish } },
+      actorUserId: actorUserId ?? null,
+    })
+  }
+}
+
+/**
+ * Delete a callout — as a TOMBSTONE (`dismissed_at`, 122): history survives,
+ * and the re-seed's de-dup key survives with it, so a derived callout doesn't
+ * come back on the next pre-production load. Callouts that linked TO this one
+ * are unlinked (they'd otherwise mirror a callout nobody can see).
+ * Anything past pending is recorded on the project timeline.
+ */
+export async function dismissApprovalCallout(item: ApprovalItem, actorUserId?: string | null): Promise<void> {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('approval_items')
+    .update({ dismissed_at: now, dismissed_by: actorUserId ?? null, updated_at: now })
+    .eq('id', item.id)
+    .select('id')
+  if (error) throw new Error(/dismissed_at/.test(error.message) ? 'Run migration 122 first.' : error.message)
+  if (!data || data.length === 0) throw new Error('The callout could not be deleted.')
+  await supabase.from('approval_items').update({ linked_to_item_id: null, updated_at: now }).eq('linked_to_item_id', item.id)
+  const where = await projectOfSubproject(item.subproject_id)
+  if (where && item.state !== 'pending') {
+    await recordProjectEvent({
+      orgId: where.orgId,
+      projectId: where.projectId,
+      eventType: 'approval_callout_deleted',
+      label: `${item.label} removed from approvals (was ${item.state})`,
+      meta: { itemId: item.id, label: item.label, material: item.material, finish: item.finish, state: item.state },
+      actorUserId: actorUserId ?? null,
+    })
+  }
 }

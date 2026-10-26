@@ -241,6 +241,7 @@ export async function forceStartProduction(
       .from('approval_items')
       .select('id, state')
       .in('subproject_id', subIds)
+      .is('dismissed_at', null) // 122
       .neq('state', 'approved')
     const { approve } = await import('./approvals')
     for (const it of (items || []) as Array<{ id: string }>) {

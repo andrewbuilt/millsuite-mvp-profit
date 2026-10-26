@@ -994,6 +994,9 @@ export async function applyApprovedCo(
         .select('id, state')
         .eq('subproject_id', co.subproject_id)
         .eq('label', cardLabel)
+        // 122: a deleted callout with the same label must not make this match
+        // ambiguous (maybeSingle errors on two rows).
+        .is('dismissed_at', null)
         .maybeSingle()
       if (matched?.id) approvalItemId = matched.id
     }

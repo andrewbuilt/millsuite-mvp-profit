@@ -465,6 +465,7 @@ async function countNeedsYou(subprojectIds: string[], projectId: string): Promis
           .from('approval_items')
           .select('id')
           .in('subproject_id', subprojectIds)
+          .is('dismissed_at', null) // 122 — a deleted callout isn't waiting on anyone
           .eq('ball_in_court', 'client')
           .neq('state', 'approved')
       : Promise.resolve({ data: [] }),
@@ -619,6 +620,7 @@ async function loadApprovals(subprojectIds: string[]): Promise<PortalApprovalIte
       .from('approval_items')
       .select('id, subproject_id, label, material, finish, state, ball_in_court, last_state_change_at')
       .in('subproject_id', subprojectIds)
+      .is('dismissed_at', null) // 122 — deleted callouts leave the client's checklist
       .order('last_state_change_at', { ascending: false }),
     // Names + sort_order so the portal's groups appear in the same order the
     // shop shows the subprojects — not whichever selection changed last.
