@@ -167,14 +167,14 @@ export function ProjectPaymentLedger({
                     {money(d.scheduled)}
                   </span>
                   <span
-                    className={`text-[10px] w-14 text-right flex-shrink-0 ${
-                      d.state === 'paid' ? 'text-[#059669]' : 'text-[#9CA3AF]'
+                    className={`text-[10px] text-right flex-shrink-0 ${
+                      d.state === 'paid' ? 'w-14 text-[#059669]' : d.state === 'partial' ? 'text-[#B45309]' : 'w-14 text-[#9CA3AF]'
                     }`}
                   >
                     {d.state === 'paid'
                       ? 'paid'
                       : d.state === 'partial'
-                        ? `${money(d.outstanding)} left`
+                        ? `${money(d.covered)} of ${money(d.scheduled)} in`
                         : 'open'}
                   </span>
                 </div>
@@ -198,9 +198,9 @@ export function ProjectPaymentLedger({
               ) : (
                 Math.abs(recon.drift) >= DRIFT_EPS && (
                   <div className="px-2.5 py-1.5 bg-[#FFFBEB] text-[10.5px] text-[#92400E] leading-snug">
-                    The stored draws sum to {money(recon.storedSum)},
-                    {' '}{money(Math.abs(recon.drift))} {recon.drift > 0 ? 'over' : 'under'} the
-                    contract — the final draw is absorbing the difference.
+                    {recon.drift > 0
+                      ? `Draws total ${money(recon.drift)} MORE than the contract — the final draw absorbs −${money(recon.drift)}.`
+                      : `Draws total ${money(-recon.drift)} LESS than the contract — the final draw absorbs +${money(-recon.drift)}.`}
                   </div>
                 )
               )}

@@ -28,14 +28,17 @@ export interface DrawDraft {
   pct: string
   note: string
   /**
-   * ⛔ THIS DRAW HAS BEEN PAID, WHOLLY OR PARTLY — it cannot be re-authored.
-   * Shown, never editable, never removable. Re-pricing a draw that money has
-   * already been credited against would un-say something that happened, and
-   * deleting it would orphan the payment. Delete the payments first.
+   * ⛔ THIS DRAW IS FULLY PAID — it cannot be re-authored. Shown, never
+   * editable, never removable. Re-pricing a settled draw would un-say
+   * something that happened, and deleting it would orphan the payment.
+   * (2026-10-26: PARTLY-paid draws are no longer locked — see `floor`.)
    */
   locked: boolean
   /** Locked rows display their real dollars rather than a derived share. */
   lockedAmount: number
+  /** Cash already credited to this draw. A PARTLY-paid draw stays editable,
+   *  but its amount can't go below this, and it can't be removed. */
+  floor?: number
 }
 
 const PRESETS: Array<{ name: string; rows: Array<{ label: string; pct: number }> }> = [
@@ -72,6 +75,7 @@ const blank = (label: string, pct: number): DrawDraft => ({
   note: '',
   locked: false,
   lockedAmount: 0,
+  floor: 0,
 })
 
 function money(n: number): string {
@@ -157,19 +161,46 @@ export default function DefineDrawsModal({
     setRows((prev) => [...prev, blank(`Draw ${prev.length + 1}`, slack)])
   }
   function removeRow(i: number) {
-    // A paid draw can't be removed — the payment that settled it would be
-    // orphaned. The button is disabled; this is the second line of defence.
-    if (rows[i]?.locked) return
+    // A draw with ANY cash can't be removed — the payment would be orphaned.
+    // The button is disabled; this is the second line of defence.
+    if (rows[i]?.locked || (rows[i]?.floor || 0) > 0.005) return
     setRows((prev) => prev.filter((_, idx) => idx !== i))
   }
   function usePreset(p: (typeof PRESETS)[number]) {
-    // ⚠️ Presets keep the locked rows. Replacing a schedule wholesale when
-    // half of it is already paid is exactly the rewrite this modal must not do.
-    setRows((prev) => [...prev.filter((r) => r.locked), ...p.rows.map((r) => blank(r.label, r.pct))])
+    // ⚠️ Presets keep every row with money on it. Replacing a schedule
+    // wholesale when half of it is already paid is exactly the rewrite this
+    // modal must not do.
+    // ⛔ …and they don't re-add a label a kept row already has. That's how
+    // Oliveira got a second "Deposit" (2026-09-23): a preset's "Deposit" was
+    // appended after the paid one and filled the rest of the contract.
+    setRows((prev) => {
+      const kept = prev.filter((r) => r.locked || (r.floor || 0) > 0.005)
+      const have = new Set(kept.map((r) => r.label.trim().toLowerCase()))
+      return [...kept, ...p.rows.filter((r) => !have.has(r.label.toLowerCase())).map((r) => blank(r.label, r.pct))]
+    })
   }
 
+  // A partly-paid draw can't be set below the cash already credited to it.
+  const underFloor = rows
+    .map((r, i) => ({ r, i }))
+    .filter(({ r, i }) => !r.locked && (r.floor || 0) > 0.005 && (amounts[i] ?? 0) < (r.floor || 0) - 0.005)
+  // Label hygiene (1f): two draws with the same name read as one paid twice.
+  const dupLabels = (() => {
+    const seen = new Map<string, number>()
+    for (const r of rows) {
+      const k = r.label.trim().toLowerCase()
+      if (k) seen.set(k, (seen.get(k) || 0) + 1)
+    }
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([k]) => rows.find((r) => r.label.trim().toLowerCase() === k)!.label.trim())
+  })()
+
   const canSave =
-    balanced && contractTotal > 0 && rows.length > 0 && rows.every((r) => r.label.trim()) && !saving
+    balanced &&
+    contractTotal > 0 &&
+    rows.length > 0 &&
+    rows.every((r) => r.label.trim()) &&
+    underFloor.length === 0 &&
+    !saving
 
   async function handleSave() {
     if (!canSave) return
@@ -232,11 +263,11 @@ export default function DefineDrawsModal({
                   explanation reads as a broken form, and the operator's next
                   move would be to delete the row — which is the one thing
                   that must not happen to a draw with money against it. */}
-              {rows.some((r) => r.locked) && (
+              {(rows.some((r) => r.locked) || rows.some((r) => (r.floor || 0) > 0.005)) && (
                 <div className="mb-3 text-[11.5px] text-[#047857] bg-[#F0FDF4] border border-[#A7F3D0] rounded-md px-3 py-2 leading-snug">
-                  Draws with a recorded payment are locked — they keep the amount
-                  the money was credited against. To change one, delete its
-                  payments on the board first.
+                  Fully paid draws are locked — they keep the amount the money
+                  settled. Partly paid draws can change, but not below what&apos;s
+                  already in, and they can&apos;t be removed.
                   {remaining <= 0 && (
                     <div className="mt-1 text-[#B45309]">
                       The paid draws already account for the whole contract, so
@@ -267,7 +298,7 @@ export default function DefineDrawsModal({
                       onChange={(e) => patch(i, { label: e.target.value })}
                       placeholder="What this draw is"
                       disabled={r.locked}
-                      title={r.locked ? 'This draw has been paid — delete its payments to edit it.' : undefined}
+                      title={r.locked ? 'This draw is fully paid — delete its payments to edit it.' : undefined}
                       className={`${field} flex-1 min-w-0 ${
                         r.locked ? 'bg-[#F0FDF4] border-[#A7F3D0] text-[#6B7280]' : ''
                       }`}
@@ -282,8 +313,15 @@ export default function DefineDrawsModal({
                     />
                     <span className="text-[11px] text-[#9CA3AF] w-3">%</span>
                     <span
+                      title={!r.locked && (r.floor || 0) > 0.005 ? `${money(r.floor || 0)} already in — can't go below` : undefined}
                       className={`text-[12px] font-mono tabular-nums w-20 text-right ${
-                        r.locked ? 'text-[#059669]' : 'text-[#374151]'
+                        r.locked
+                          ? 'text-[#059669]'
+                          : underFloor.some((u) => u.i === i)
+                            ? 'text-[#B91C1C]'
+                            : (r.floor || 0) > 0.005
+                              ? 'text-[#B45309]'
+                              : 'text-[#374151]'
                       }`}
                     >
                       {money(amounts[i] ?? 0)}
@@ -293,8 +331,8 @@ export default function DefineDrawsModal({
                         reconstructed afterwards. */}
                     <button
                       onClick={() => removeRow(i)}
-                      disabled={rows.length <= 1 || r.locked}
-                      title={r.locked ? 'Paid — delete its payments first' : 'Remove'}
+                      disabled={rows.length <= 1 || r.locked || (r.floor || 0) > 0.005}
+                      title={r.locked || (r.floor || 0) > 0.005 ? 'Has payments — delete them first' : 'Remove'}
                       className="text-[#D1D5DB] hover:text-[#DC2626] disabled:opacity-30"
                       aria-label="Remove"
                     >
@@ -323,6 +361,20 @@ export default function DefineDrawsModal({
                   {!balanced && <span className="ml-1">— must be 100%</span>}
                 </div>
               </div>
+              {underFloor.length > 0 && (
+                <div className="mt-2 text-[11.5px] text-[#B91C1C]">
+                  {underFloor
+                    .map(({ r }) => `${r.label || 'A draw'} can't go below the ${money(r.floor || 0)} already received`)
+                    .join(' · ')}
+                  .
+                </div>
+              )}
+              {dupLabels.length > 0 && (
+                <div className="mt-2 text-[11.5px] text-[#B45309]">
+                  Two draws are named {dupLabels.map((l) => `“${l}”`).join(', ')} — rename one so the schedule
+                  doesn&apos;t read like the same draw twice.
+                </div>
+              )}
             </>
           )}
 

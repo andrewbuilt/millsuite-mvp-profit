@@ -324,10 +324,11 @@ export default function PaymentsPage() {
           label: d.row.label,
           pct: contract > 0 ? String(Math.round((d.stored / contract) * 10000) / 100) : '0',
           note: '',
-          // Any money credited against it locks it — re-authoring the amount
-          // would un-say a payment, and removing it would orphan one.
-          locked: d.covered > 0.005,
+          // FULLY paid locks it (2026-10-26). Partly paid stays editable with a
+          // floor at the cash already in, and can't be removed.
+          locked: d.state === 'paid',
           lockedAmount: d.stored,
+          floor: d.covered,
         })),
       )
     },
@@ -569,12 +570,17 @@ export default function PaymentsPage() {
                             {money(d.storedSum)} of draws vs {money(d.contractTotal)}
                           </div>
                         )}
+                        {/* ⛔ SAY THE DIRECTION IN WORDS (2026-10-26). "+$9,694"
+                            on Bonzer meant the draws were $9,694 OVER a contract
+                            a credit CO had shrunk — read as money owed. */}
                         <div
-                          className="text-[13px] font-semibold font-mono tabular-nums mt-0.5"
+                          className="text-[11.5px] font-medium mt-0.5 leading-snug"
                           style={{ color: d.contractKnown ? '#92400E' : '#B45309' }}
                         >
                           {d.contractKnown
-                            ? `${d.drift > 0 ? '+' : '−'}${money(Math.abs(d.drift))}`
+                            ? d.drift > 0
+                              ? `Draws total ${money(d.drift)} MORE than the contract — the final draw absorbs −${money(d.drift)}`
+                              : `Draws total ${money(-d.drift)} LESS than the contract — the final draw absorbs +${money(-d.drift)}`
                             : '—'}
                         </div>
                       </Link>
@@ -846,6 +852,9 @@ export default function PaymentsPage() {
                   defineFor.id,
                   drawRows,
                   editDraws.filter((d) => d.locked).map((d) => d.id!),
+                  Object.fromEntries(
+                    editDraws.filter((d) => d.id && (d.floor || 0) > 0.005).map((d) => [d.id!, d.floor || 0]),
+                  ),
                 )
               } else {
                 await createDrawSchedule(org.id, defineFor.id, drawRows)
@@ -943,18 +952,19 @@ function DrawCard({
           <div className="text-[10px] text-[#9CA3AF] mt-0.5 flex items-center gap-1 flex-wrap">
             <CalendarClock className="w-2.5 h-2.5" />
             {dayLabel(row.expectedDate)}
-            {/* A part-paid draw must show BOTH numbers, or the card looks like
-                the draw shrank for no reason. */}
+            {/* A part-paid draw shows its progress here; the headline is the
+                DRAW, never the crumb left on it (Hunt read "$183" as a payment
+                due — it was $183 left on a $58,183 draw). */}
             {state === 'partial' && (
               <span className="px-1 rounded bg-[#FFFBEB] text-[#92400E]">
-                {money(covered)} of {money(scheduled)} in
+                {money(covered)} in · {money(outstanding)} left
               </span>
             )}
           </div>
         </div>
         <div className="text-right flex-shrink-0">
           <div className="text-[13px] font-semibold font-mono tabular-nums text-[#111]">
-            {money(outstanding)}
+            {money(state === 'partial' ? scheduled : outstanding)}
           </div>
           <button
             disabled={busy}
@@ -995,6 +1005,10 @@ function SettledDrawCard({
 }) {
   const [open, setOpen] = useState(false)
   const refund = card.amount < 0
+  // ⛔ PAID vs PARTIAL MUST READ DIFFERENTLY (2026-10-26). Money that only
+  // part-paid a draw (Oliveira's $17,000 spilling $1,471 into kickoff) wore
+  // the same green as a settled draw and read as "two draws paid".
+  const partial = !refund && !card.completesDraw && card.drawScheduled != null
   // Multiple receipts, or a slice of a bigger cheque, both need the detail.
   const expandable = card.entries.length > 1 || card.partialEntry
   const busy = card.entries.some((e) => e.id === busyId)
@@ -1002,7 +1016,11 @@ function SettledDrawCard({
   return (
     <div
       className={`rounded-lg border px-2.5 py-2 group ${
-        refund ? 'border-[#FECACA] bg-[#FEF2F2]' : 'border-[#A7F3D0] bg-[#F0FDF4]'
+        refund
+          ? 'border-[#FECACA] bg-[#FEF2F2]'
+          : partial
+            ? 'border-[#FDE68A] bg-[#FFFBEB]'
+            : 'border-[#A7F3D0] bg-[#F0FDF4]'
       } ${busy ? 'opacity-60' : ''}`}
     >
       <div className="flex items-start gap-2">
@@ -1027,7 +1045,7 @@ function SettledDrawCard({
               // schedule card in its own month; claiming this one is settled
               // would double-count it as done.
               <>
-                {money(card.amount)} of {money(card.drawScheduled)} · {dayLabel(card.paidOn)}
+                Partial · {money(card.amount)} of {money(card.drawScheduled)} in · {dayLabel(card.paidOn)}
               </>
             ) : (
               <>Received {dayLabel(card.paidOn)}</>
@@ -1038,7 +1056,7 @@ function SettledDrawCard({
         <div className="text-right flex-shrink-0">
           <div
             className={`text-[13px] font-semibold font-mono tabular-nums ${
-              refund ? 'text-[#B91C1C]' : 'text-[#059669]'
+              refund ? 'text-[#B91C1C]' : partial ? 'text-[#B45309]' : 'text-[#059669]'
             }`}
           >
             {money(card.amount)}

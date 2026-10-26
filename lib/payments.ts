@@ -235,8 +235,11 @@ export async function updateDrawSchedule(
     pct: number
     amount: number
   }>,
-  /** Ids that have recorded payments and must survive untouched. */
+  /** Ids that are FULLY paid and must survive untouched. */
   lockedIds: string[],
+  /** Cash already credited per PARTLY-paid id (2026-10-26). Such a draw may
+   *  change, but never below its floor, and may never be dropped. */
+  floors: Record<string, number> = {},
 ): Promise<void> {
   if (rows.length === 0) throw new Error('A schedule needs at least one draw.')
 
@@ -253,7 +256,13 @@ export async function updateDrawSchedule(
 
   // ⛔ A LOCKED ROW MAY NOT BE DROPPED, whatever the caller sent. The UI
   // disables them, but a stale tab is a real thing and this is money.
-  for (const id of locked) {
+  for (const r of rows) {
+    const f = r.id ? floors[r.id] || 0 : 0
+    if (r.id && !locked.has(r.id) && f > 0.005 && r.amount < f - 0.005) {
+      throw new Error(`"${r.label}" can't go below the $${Math.round(f).toLocaleString()} already received.`)
+    }
+  }
+  for (const id of [...locked, ...Object.keys(floors).filter((k) => (floors[k] || 0) > 0.005)]) {
     if (!keep.has(id)) {
       throw new Error(
         'A draw with a recorded payment cannot be removed. Delete its payments first.',
@@ -328,6 +337,16 @@ export async function updateDrawSchedule(
       }
     }
   }
+
+  // ⛔ LEAVE A TRACE. Oliveira's second "Deposit" (2026-09-23) took an
+  // investigation to explain because nothing recorded schedule edits.
+  await recordProjectEvent({
+    orgId,
+    projectId,
+    eventType: 'draw_schedule_edited',
+    label: 'Draw schedule edited',
+    meta: { rows: rows.map((r) => ({ id: r.id, label: r.label, amount: r.amount })) },
+  })
 }
 
 /** A sold job, for spotting the ones with no draw schedule at all. */
