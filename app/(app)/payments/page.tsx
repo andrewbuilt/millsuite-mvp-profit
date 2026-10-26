@@ -318,19 +318,29 @@ export default function PaymentsPage() {
         clientName: mine[0].row.clientName ?? null,
         contractTotal: contract,
       })
-      setEditDraws(
-        mine.map((d) => ({
+      const drafts = mine.map((d) => ({
           id: d.row.id,
           label: d.row.label,
-          pct: contract > 0 ? String(Math.round((d.stored / contract) * 10000) / 100) : '0',
+          // ⚠️ From what the schedule SHOWS (`scheduled`), not the authored
+          // `stored`: a paid draw reads what was actually paid, and the open
+          // ones read their share of what's left (2026-10-27).
+          pct: contract > 0 ? String(Math.round((d.scheduled / contract) * 10000) / 100) : '0',
           note: '',
-          // FULLY paid locks it (2026-10-26). Partly paid stays editable with a
-          // floor at the cash already in, and can't be removed.
+          // A paid draw is locked at what was paid.
           locked: d.state === 'paid',
-          lockedAmount: d.stored,
+          lockedAmount: d.scheduled,
           floor: d.covered,
-        })),
-      )
+          shownAmount: d.scheduled,
+        }))
+      // Percentages are 2-decimal roundings of real dollars and can sum to
+      // 99.99 — which would make the modal say "must be 100%" before anyone
+      // touched it. The last open draw absorbs the rounding.
+      const lastOpen = [...drafts].reverse().find((r) => !r.locked)
+      if (lastOpen && contract > 0) {
+        const others = drafts.filter((r) => r !== lastOpen).reduce((s, r) => s + (Number(r.pct) || 0), 0)
+        lastOpen.pct = String(Math.round((100 - others) * 100) / 100)
+      }
+      setEditDraws(drafts)
     },
     [derived, totals],
   )
@@ -539,10 +549,10 @@ export default function PaymentsPage() {
                   <div className="px-4 py-2.5 bg-[#FFFBEB] border-b border-[#FDE68A] flex items-center gap-2 flex-wrap">
                     <AlertTriangle className="w-3.5 h-3.5 text-[#92400E]" />
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-[#92400E]">
-                      Schedule doesn&apos;t match the contract · {drifting.length}
+                      No contract value · {drifting.length}
                     </span>
                     <span className="text-[11px] text-[#B45309]">
-                      the final draw is absorbing the difference
+                      these schedules can&apos;t be checked against anything — set the project total
                     </span>
                   </div>
                   <div className="p-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5">

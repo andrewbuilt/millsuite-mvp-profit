@@ -536,8 +536,8 @@ export async function approveCo(coId: string, note?: string): Promise<void> {
   // billed; this says when the cash is expected. Payments v2 keeps those two
   // separate on purpose, and until now only the invoice half moved on a CO —
   // so the payments board silently grew the final draw instead. Since
-  // 2026-10-26 the CO spreads over the remaining unpaid draws
-  // (applyChangeToSchedule) instead of adding a stub row.
+  // 2026-10-27 nothing is written: the open draws re-spread over whatever the
+  // contract owes on every read (reconcileProject).
   //
   // ⚠️ Its own try/catch, deliberately: a schedule write that fails must not
   // take down an approval that has already flipped state, applied the line and
@@ -548,7 +548,7 @@ export async function approveCo(coId: string, note?: string): Promise<void> {
       .select('*')
       .eq('id', coId)
       .maybeSingle()
-    // Spread over the remaining unpaid draws (2026-10-26) — no stub row.
+    // No schedule write — the open draws re-spread on read (2026-10-27).
     const co = coFull as ChangeOrder | null
     const { data: proj } = co
       ? await supabase.from('projects').select('org_id').eq('id', co.project_id).maybeSingle()

@@ -5,29 +5,17 @@
 // (project_payments, migration 099) is what actually happened. This module is
 // the bridge, and it is the piece Built OS never had.
 //
-// ⛔ THE RULE THAT MAKES THE HARD CASES EASY:
+// ⛔ THE RULE (2026-10-27 — Andrew: "we're not using millsuite to bill, we
+// just need this to track projected cash flow"):
 //
-//     received  = sum(ledger)
-//     remaining = contract total − received
-//     the UNPAID part of the schedule is rebalanced to equal `remaining`,
-//     with the FINAL draw absorbing the difference.
+//     each payment SETTLES the next open draw at what was actually paid,
+//     and the rest of the contract spreads over the open draws.
 //
-// Once payments are their own rows, a partial payment, an overpayment and a
-// payment made out of order are all just entries. Nothing special-cases them.
-// Andrew: "it should just log the payment and adjust the final payments."
+// No waterfall, no spillover, no partial draws. See reconcileProject.
 //
 // ⛔ NOTHING HERE IS EVER WRITTEN BACK. The draws keep the amounts they were
-// authored with; the balancing is DERIVED on read. This codebase has been
-// bitten twice by a screen that silently persisted recomputed money — the
-// staleness refresh banking a $0 material cost, and the handoff re-pricing a
-// frozen import. A ledger view must never edit the contract.
-//
-// ── WATERFALL ──────────────────────────────────────────────────────────────
-// Money fills the oldest unpaid draw first and overflows into the next. That
-// is Andrew's call and it's right for a cash-flow tool: the question this page
-// answers is "how much is in and how much is left", not "which specific draw
-// did that cheque settle". A consequence worth knowing: paying the install
-// draw early still shows the deposit as the thing that got paid.
+// authored with (now just weights for the open ones); everything is DERIVED
+// on read. A ledger view must never edit the contract.
 // ============================================================================
 
 import {
@@ -155,9 +143,24 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 /**
  * Reconcile one project's schedule against its ledger.
  *
- * `draws` must be in schedule order (the waterfall depends on it).
- * `contractTotal` is the project's contract value — `bid_total` for a sold
- * job, which is the number the client agreed to.
+ * ⛔ THE RULE (Andrew, 2026-10-27): "we're not using millsuite to bill — we
+ * just need this to track projected cash flow. this doesn't need to be so
+ * complicated."
+ *
+ *   1. Each payment SETTLES the next open draw, at what was ACTUALLY paid.
+ *      Oliveira's $17,000 against a $15,529 deposit → the deposit reads
+ *      $17,000, paid, locked. No spillover into the next draw, no partial
+ *      states. Payments after every draw is settled add to the last draw.
+ *      A refund (negative payment) comes off the most recently settled draw.
+ *   2. Whatever the contract still owes is spread over the OPEN draws, in
+ *      proportion to their authored amounts (the stored amounts are just
+ *      WEIGHTS now). A change order grows or shrinks the contract and the open
+ *      draws re-spread by themselves — nothing is written.
+ *   3. Only if nothing is left open and money is still owed does the last
+ *      draw carry the remainder (the one way a 'partial' can still appear).
+ *
+ * `draws` must be in schedule order. `contractTotal` is bid_total for a sold
+ * job; with no contract recorded the stored schedule is used as the total.
  */
 export function reconcileProject(
   draws: PaymentRow[],
@@ -166,12 +169,8 @@ export function reconcileProject(
 ): ProjectReconciliation {
   const received = round2(entries.reduce((s, e) => s + e.amount, 0))
   const storedSum = round2(draws.reduce((s, d) => s + d.amount, 0))
-  const drift = round2(storedSum - contractTotal)
 
-  // ⛔ OLDEST PAYMENT FIRST. The waterfall fills the oldest unpaid draw first,
-  // so the payments have to be walked in the same direction or "Paid {date}"
-  // names the wrong cheque. Ties break on id so the result is stable across
-  // reloads — a card that reorders itself reads as data changing.
+  // Oldest payment first; ties break on id so the result is stable.
   const ordered = [...entries].sort(
     (a, b) => a.paymentDate.localeCompare(b.paymentDate) || a.id.localeCompare(b.id),
   )
@@ -183,102 +182,83 @@ export function reconcileProject(
       remaining: round2(Math.max(0, contractTotal - received)),
       draws: [],
       credit: round2(Math.max(0, received - contractTotal)),
-      drift,
+      drift: round2(storedSum - contractTotal),
       storedSum,
       empty: true,
-      // No draws to attribute to: every payment is unapplied, and the board
-      // still has to be able to render it.
       unapplied: ordered.map((entry) => ({ entry, amount: entry.amount })),
     }
   }
 
-  // ── 1. Waterfall the money over the draws, oldest first ──
-  // Tracks WHICH payment filled which draw, not just how much. A single
-  // payment can span draws (a $20k cheque against a $13k deposit spills $7k
-  // onto the next one), so an entry may appear in two draws as two slices.
-  let cursor = 0
-  let leftInEntry = ordered.length > 0 ? ordered[0].amount : 0
+  const out: DerivedDraw[] = draws.map((row) => ({
+    row,
+    stored: row.amount,
+    scheduled: row.amount,
+    covered: 0,
+    outstanding: row.amount,
+    state: 'open' as DrawState,
+    applied: [],
+  }))
   const unapplied: AppliedPayment[] = []
 
-  const out: DerivedDraw[] = draws.map((row) => {
-    const stored = row.amount
-    const applied: AppliedPayment[] = []
-    let need = stored
-    while (need > EPS && cursor < ordered.length) {
-      if (leftInEntry <= EPS) {
-        cursor++
-        leftInEntry = cursor < ordered.length ? ordered[cursor].amount : 0
+  // ── 1. Each payment settles the next open draw ──
+  let settled = 0
+  for (const entry of ordered) {
+    if (entry.amount < 0) {
+      // A refund comes off the draw it most recently settled.
+      if (settled === 0) {
+        unapplied.push({ entry, amount: entry.amount })
         continue
       }
-      const take = round2(Math.min(need, leftInEntry))
-      applied.push({ entry: ordered[cursor], amount: take })
-      leftInEntry = round2(leftInEntry - take)
-      need = round2(need - take)
+      const d = out[settled - 1]
+      d.applied.push({ entry, amount: entry.amount })
+      d.covered = round2(d.covered + entry.amount)
+      continue
     }
-    const covered = round2(applied.reduce((s, a) => s + a.amount, 0))
-    return {
-      row,
-      stored,
-      scheduled: stored,
-      covered,
-      outstanding: round2(stored - covered),
-      state: 'open' as DrawState,
-      applied,
-    }
-  })
-
-  // Whatever the draws couldn't absorb — an overpayment. Kept, never dropped.
-  if (cursor < ordered.length) {
-    if (leftInEntry > EPS) unapplied.push({ entry: ordered[cursor], amount: leftInEntry })
-    for (let i = cursor + 1; i < ordered.length; i++) {
-      unapplied.push({ entry: ordered[i], amount: ordered[i].amount })
-    }
+    const d = settled < out.length ? out[settled++] : out[out.length - 1]
+    d.applied.push({ entry, amount: entry.amount })
+    d.covered = round2(d.covered + entry.amount)
   }
+  // A settled draw IS what was paid for it.
+  for (let i = 0; i < settled; i++) out[i].scheduled = out[i].covered
 
-  // ── 2. Rebalance the UNPAID portion so it equals `remaining` ──
-  // Only the unpaid part may move. A covered draw is settled history, and
-  // shrinking it would un-say something that already happened.
-  const remaining = round2(Math.max(0, contractTotal - received))
-  const unpaidSum = round2(out.reduce((s, d) => s + (d.scheduled - d.covered), 0))
-  let delta = round2(remaining - unpaidSum)
-
-  if (delta > EPS) {
-    // The contract grew (a change order) — the FINAL draw absorbs it whole.
-    // Andrew's call, and symmetric with the waterfall: the last draw is the
-    // balancing item, which is how a final payment works anyway.
+  // ── 2. The rest of the contract spreads over the open draws ──
+  const contract = contractTotal > 0 ? contractTotal : storedSum
+  const remaining = round2(Math.max(0, contract - received))
+  const open = out.slice(settled)
+  if (open.length > 0) {
+    const weights = open.map((d) => Math.max(0, d.stored))
+    const wSum = weights.reduce((a, b) => a + b, 0)
+    // In CENTS: `remaining` carries cents whenever a payment did, and
+    // allocating whole dollars left the schedule up to $1 off the contract
+    // (the fuzz in verify-payment-ledger caught it).
+    const cents = Math.round(remaining * 100)
+    const raw = wSum > 0 ? weights.map((w) => (cents * w) / wSum) : open.map(() => cents / open.length)
+    const shares = allocateRounded(raw, cents)
+    open.forEach((d, i) => {
+      d.scheduled = shares[i] / 100
+    })
+  } else if (remaining > EPS) {
+    // Every draw is settled and money is still owed: the last draw carries it.
     const last = out[out.length - 1]
-    last.scheduled = round2(last.scheduled + delta)
-    delta = 0
-  } else if (delta < -EPS) {
-    // The contract shrank, or the draws were over-authored. Take it back from
-    // the end, never letting a draw fall below what's already been paid
-    // against it.
-    for (let i = out.length - 1; i >= 0 && delta < -EPS; i--) {
-      const d = out[i]
-      const room = round2(d.scheduled - d.covered)
-      if (room <= 0) continue
-      const take = Math.min(room, -delta)
-      d.scheduled = round2(d.scheduled - take)
-      delta = round2(delta + take)
-    }
-    // Any residue means the draws couldn't shrink far enough — the paid
-    // amounts already exceed the contract. That's the `credit` below, not
-    // something to force into a negative draw.
+    last.scheduled = round2(last.covered + remaining)
   }
 
   for (const d of out) {
     d.outstanding = round2(Math.max(0, d.scheduled - d.covered))
-    d.state =
-      d.outstanding < SETTLED ? 'paid' : d.covered > EPS ? 'partial' : 'open'
+    d.state = d.outstanding < SETTLED && d.covered > EPS ? 'paid' : d.covered > EPS ? 'partial' : 'open'
   }
 
+  const scheduledSum = round2(out.reduce((s, d) => s + d.scheduled, 0))
   return {
     contractTotal,
     received,
-    remaining,
+    remaining: round2(Math.max(0, contractTotal - received)),
     draws: out,
     credit: round2(Math.max(0, received - contractTotal)),
-    drift,
+    // With the re-spread, a schedule always foots to the contract (or to what
+    // was received, when that's more). Non-zero only when there's no contract
+    // recorded — the case the board's drift list still has to name.
+    drift: contractTotal > 0 ? round2(scheduledSum - Math.max(contractTotal, received)) : round2(storedSum - contractTotal),
     storedSum,
     empty: false,
     unapplied,
@@ -643,6 +623,8 @@ export interface OrgReconciliation {
 /** The subset worth showing a human: a real gap, or no contract at all. */
 export function driftsWorthShowing(all: ProjectDrift[]): ProjectDrift[] {
   return all
+    // Since 2026-10-27 a known contract can't drift (the open draws re-spread
+    // to it), so in practice this is the "no contract value" list.
     .filter((d) => !d.contractKnown || Math.abs(d.drift) >= DRIFT_EPS)
     .sort((a, b) => {
       // Unknown contracts first — a missing contract is a bigger problem than
@@ -716,7 +698,9 @@ export function reconcileEverything(
         projectName,
         contractTotal,
         storedSum,
-        drift: round2(storedSum - contractTotal),
+        // The reconciled drift (2026-10-27): 0 whenever the contract is known,
+        // because the open draws re-spread to it. Non-zero only with no contract.
+        drift: r.drift,
         // ⚠️ `> 0`, not `!= null`. The loader coerces a missing bid_total to 0,
         // so "absent" and "zero" are the same value by the time it reaches here.
         contractKnown: contractTotal > 0,
@@ -724,57 +708,4 @@ export function reconcileEverything(
     }
   }
   return { draws, unapplied, driftByProject }
-}
-
-// ── Change orders REDISTRIBUTE (2026-10-26, Andrew: "simplify and clean this up")
-// An accepted CO changes the TOTAL OWED, and the change spreads PROPORTIONALLY
-// across the remaining UNPAID money on the schedule — no "CO-01 · $8,638"
-// stub draws. Rules (each draw's unpaid = stored − covered by the waterfall):
-//   · PAID draws never move.
-//   · A PARTIAL draw moves only its unpaid remainder, and can never be set
-//     below what it has already received.
-//   · FROZEN draws (invoiced — a client holds a bill for that number) never
-//     move; the caller passes them as frozen.
-//   · Whole dollars, largest-remainder rounding, so the stored sum moves by
-//     EXACTLY round(delta).
-//   · A net CREDIT shrinks the unpaid money the same way. Anything that can't
-//     be absorbed (more credit than is unpaid, or nothing unpaid at all) is
-//     returned as `unabsorbed` — reconcileProject's final-draw balancing
-//     already shows that honestly; it is never forced into a negative draw.
-
-export interface RedistributeInput {
-  id: string
-  stored: number
-  /** Cash the waterfall has credited to it (reconcileProject's `covered`). */
-  covered: number
-  /** Never moves (invoiced). */
-  frozen?: boolean
-}
-
-export function redistributeDelta(
-  draws: RedistributeInput[],
-  delta: number,
-): { amounts: Array<{ id: string; from: number; to: number }>; unabsorbed: number } {
-  const target = Math.round(delta)
-  const movable = draws.filter((d) => !d.frozen && d.stored - d.covered > EPS)
-  const unpaid = movable.map((d) => round2(d.stored - d.covered))
-  const unpaidSum = round2(unpaid.reduce((a, b) => a + b, 0))
-  if (target === 0 || movable.length === 0 || unpaidSum <= EPS) {
-    return { amounts: [], unabsorbed: target }
-  }
-  // A credit can shrink at most what's unpaid; the rest is unabsorbed.
-  const applied = target < 0 ? Math.max(target, -Math.floor(unpaidSum)) : target
-  // New UNPAID remainders, proportional, summing to unpaidSum + applied.
-  const newUnpaid = allocateRounded(
-    unpaid.map((u) => u + (applied * u) / unpaidSum),
-    Math.round(unpaidSum + applied),
-  )
-  const amounts = movable
-    .map((d, i) => {
-      const to = Math.max(d.covered, round2(d.covered + Math.max(0, newUnpaid[i])))
-      return { id: d.id, from: d.stored, to: Math.round(to * 100) / 100 }
-    })
-    .filter((a) => Math.abs(a.to - a.from) > EPS)
-  const moved = round2(amounts.reduce((s, a) => s + (a.to - a.from), 0))
-  return { amounts, unabsorbed: round2(target - moved) }
 }

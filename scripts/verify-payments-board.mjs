@@ -109,33 +109,23 @@ check('no outstanding draws anywhere', view.months.every((m) => m.outstanding.le
 check('nothing overdue', view.overdue.length, 0)
 check('nothing undated', view.unscheduled.length, 0)
 
-// ── A payment that spans two draws ──────────────────────────────────────────
-console.log('\none cheque covering a draw and a half')
+// ── A payment bigger than its draw (2026-10-27 rule) ────────────────────────
+console.log('\none cheque bigger than the deposit')
+// ⛔ NO SPILLOVER. The payment SETTLES the deposit at what was paid; the rest
+// of the contract spreads over the open draw. (Oliveira: $17,000 on a $15,529
+// deposit → deposit reads $17,000, paid.)
 const spanDraws = [draw('s1', 'Deposit', 10000, '2026-09-15', 0), draw('s2', 'Final', 10000, '2026-10-15', 1)]
 const spanRec = reconcileProject(spanDraws, [pay('x1', 15000, '2026-09-05')], 20000)
 check('deposit is paid', spanRec.draws[0].state, 'paid')
-check('final is partial', spanRec.draws[1].state, 'partial')
-check('the deposit took 10,000 of it', spanRec.draws[0].applied[0].amount, 10000)
-check('the final took the other 5,000', spanRec.draws[1].applied[0].amount, 5000)
-// ⛔ INVARIANT 2: the slices reconstruct the payment exactly.
-check(
-  'the slices sum to the cheque',
-  spanRec.draws.flatMap((d) => d.applied).reduce((s, a) => s + a.amount, 0) +
-    spanRec.unapplied.reduce((s, u) => s + u.amount, 0),
-  15000,
-)
+check('at what was actually paid', spanRec.draws[0].scheduled, 15000)
+check('final is OPEN, not partial', spanRec.draws[1].state, 'open')
+check('final is what is left of the contract', spanRec.draws[1].scheduled, 5000)
+check('the whole cheque is on the deposit', spanRec.draws[0].applied.map((a) => a.amount), [15000])
 const spanView = buildPaymentsView(spanRec.draws, [pay('x1', 15000, '2026-09-05')], [M(2026, 8), M(2026, 9)], M(2026, 8))
-check('two cards — one per draw', spanView.months[0].settledCards.length, 2)
+check('one card — the deposit', spanView.months[0].settledCards.map((c) => c.drawLabel), ['Deposit'])
+check('saying Paid', spanView.months[0].settledCards[0].completesDraw, true)
 check('the month still foots', spanView.months[0].settledCards.reduce((s, c) => s + c.amount, 0), 15000)
-// ⚠️ The partial card must NOT claim the draw is paid, and must admit it shows
-// a slice of a larger cheque.
-const partialCard = spanView.months[0].settledCards.find((c) => c.drawLabel === 'Final')
-check('the partial card does not say Paid', partialCard.completesDraw, false)
-check('it knows the draw is bigger', partialCard.drawScheduled, 10000)
-check('it admits it is part of a payment', partialCard.partialEntry, true)
-// And the half-paid draw is STILL a schedule card in its own month.
-check('the partial draw is still outstanding in October', spanView.months[1].outstanding.length, 1)
-check('for the unpaid half only', spanView.months[1].needed, 5000)
+check('the final is outstanding in October', spanView.months[1].needed, 5000)
 
 // ── A draw paid across two months ───────────────────────────────────────────
 console.log('\none draw, two months of payments')
@@ -152,11 +142,12 @@ check('October foots', tmView.months[1].receivedTotal, 6000)
 // The draw IS fully paid, so both cards may say so.
 check('the draw is paid', tmRec.draws[0].state, 'paid')
 
-// ── An overpayment ──────────────────────────────────────────────────────────
-console.log('\noverpayment keeps its own card')
+// ── An overpayment (2026-10-27 rule) ────────────────────────────────────────
+console.log('\noverpayment rides the last draw, credit still surfaced')
 const overRec = reconcileProject([draw('o1', 'Only draw', 5000, '2026-09-15', 0)], [pay('z1', 5000, '2026-09-01'), pay('z2', 800, '2026-09-02')], 5000)
 check('credit is surfaced', overRec.credit, 800)
-check('and it is unapplied, not hidden in a draw', overRec.unapplied.map((u) => u.amount), [800])
+check('the last draw carries it', overRec.draws[0].scheduled, 5800)
+check('nothing unapplied', overRec.unapplied.length, 0)
 const overView = buildPaymentsView(
   overRec.draws,
   [pay('z1', 5000, '2026-09-01'), pay('z2', 800, '2026-09-02')],
@@ -164,8 +155,6 @@ const overView = buildPaymentsView(
   M(2026, 8),
   overRec.unapplied.map((u) => ({ ...u, projectId: 'p1', projectName: 'Schiller' })),
 )
-check('two cards: the draw and the overpayment', overView.months[0].settledCards.length, 2)
-check('the overpayment has no draw label', overView.months[0].settledCards.find((c) => c.amount === 800).drawLabel, null)
 check('the month still foots', overView.months[0].settledCards.reduce((s, c) => s + c.amount, 0), 5800)
 
 // ── A project with payments but NO draws ────────────────────────────────────
@@ -194,32 +183,23 @@ check('no phantom $1 schedule card', mView.months[0].outstanding.length, 0)
 check('one settled card', mView.months[0].settledCards.length, 1)
 check('for what actually arrived', mView.months[0].settledCards[0].amount, 13113.5)
 
-// ── The $1 spill ────────────────────────────────────────────────────────────
-console.log('\na sub-dollar spill does not become its own card')
-// ⛔ MURTAGH, FROM THE REAL DATABASE. The deposit row is $13,113 and the client
-// paid $13,114, so a dollar overflowed onto the next draw and rendered as a
-// green card reading "$1 of $6,557" — i.e. "the client paid one dollar toward
-// the kickoff". Same phantom-$1 card Andrew rejected in 634c0eb, relocated.
+// ── No spill (2026-10-27 rule) ──────────────────────────────────────────────
+console.log('\na dollar over the deposit stays on the deposit')
+// ⛔ MURTAGH, FROM THE REAL DATABASE: deposit row $13,113, client paid $13,114.
+// The old waterfall spilled $1 onto the kickoff. Now the deposit simply reads
+// $13,114, paid, and the kickoff is what's left.
 const spill = reconcileProject(
   [draw('sp1', 'Deposit', 13113, '2026-05-15', 0), draw('sp2', 'Production kickoff', 6557, '2026-06-15', 1)],
   [pay('m1', 13114, '2026-05-18')],
   19670,
 )
-check('the dollar does land on the next draw internally', spill.draws[1].applied[0].amount, 1)
+check('nothing lands on the next draw', spill.draws[1].applied.length, 0)
+check('the kickoff is what is left', spill.draws[1].scheduled, 6556)
 const spillView = buildPaymentsView(spill.draws, [pay('m1', 13114, '2026-05-18')], [M(2026, 4)], M(2026, 8))
-check('but there is only ONE card', spillView.months[0].settledCards.length, 1)
+check('one card', spillView.months[0].settledCards.length, 1)
 check('for the deposit', spillView.months[0].settledCards[0].drawLabel, 'Deposit')
-// ⛔ AND IT IS NOT DROPPED — the month still foots, which is the whole point.
 check('carrying the whole payment', spillView.months[0].settledCards[0].amount, 13114)
 check('month foots', spillView.months[0].receivedTotal, 13114)
-// ⚠️ A REAL part-payment is NOT a crumb and keeps its own card.
-const realPartial = reconcileProject(
-  [draw('r1', 'Deposit', 1000, '2026-09-15', 0), draw('r2', 'Final', 1000, '2026-10-15', 1)],
-  [pay('r', 1600, '2026-09-05')],
-  2000,
-)
-const rpView = buildPaymentsView(realPartial.draws, [pay('r', 1600, '2026-09-05')], [M(2026, 8)], M(2026, 8))
-check('a $600 part-payment still gets its own card', rpView.months[0].settledCards.length, 2)
 
 // ── Ordering ────────────────────────────────────────────────────────────────
 console.log('\npayments apply oldest first')

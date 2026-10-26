@@ -5,7 +5,9 @@
 //
 // Andrew's requirement, verbatim: "we need all of the draw payments to add up
 // to the total. we need flexibility in case someone pays out of order. it
-// should just log the payment and adjust the final payments."
+// should just log the payment and adjust the final payments." And 2026-10-27:
+// "the deposit should say $17000 and be locked and the remainder should
+// adjust" — a payment SETTLES the next draw; the rest spreads.
 //
 // So the invariant under test is one line, and almost every case below is a
 // different way of trying to break it:
@@ -59,99 +61,74 @@ function checkAddsUp(label, r) {
 const SCHEDULE = [draw('deposit', 50000), draw('rough', 25000), draw('final', 25000)]
 const TOTAL = 100000
 
-// ── Nothing paid ───────────────────────────────────────────────────────────
+// ── THE RULE (2026-10-27): a payment SETTLES the next draw at what was paid;
+//    the rest of the contract spreads over the open draws by their weights. ──
+
 let r = reconcileProject(SCHEDULE, [], TOTAL)
-ck('nothing paid: received 0', r.received, 0)
-ck('nothing paid: remaining is the whole contract', r.remaining, TOTAL)
 ck('nothing paid: every draw open', r.draws.map((d) => d.state), ['open', 'open', 'open'])
+ck('nothing paid: the schedule is the contract', r.draws.map((d) => d.scheduled), [50000, 25000, 25000])
 checkAddsUp('nothing paid', r)
 
-// ── Exact payment ──────────────────────────────────────────────────────────
 r = reconcileProject(SCHEDULE, [pay(50000)], TOTAL)
-ck('exact deposit: first draw paid', r.draws.map((d) => d.state), ['paid', 'open', 'open'])
-ck('exact deposit: remaining', r.remaining, 50000)
+ck('exact deposit: paid', r.draws[0].state, 'paid')
+ck('exact deposit: the rest unchanged', r.draws.slice(1).map((d) => d.scheduled), [25000, 25000])
 checkAddsUp('exact deposit', r)
 
-// ── ⛔ THE BUILT OS CASE: they paid something nobody projected ──────────────
 r = reconcileProject(SCHEDULE, [pay(37500)], TOTAL)
-ck('odd amount: deposit is PARTIAL', r.draws[0].state, 'partial')
-ck('odd amount: deposit covered 37,500', r.draws[0].covered, 37500)
-ck('odd amount: 12,500 still owed on it', r.draws[0].outstanding, 12500)
-ck('odd amount: later draws untouched', r.draws.map((d) => d.scheduled), [50000, 25000, 25000])
-checkAddsUp('odd amount', r)
+ck('short deposit: still SETTLED (no partial state)', r.draws[0].state, 'paid')
+ck('short deposit: reads what was paid', r.draws[0].scheduled, 37500)
+ck('short deposit: the shortfall spreads over the open draws', r.draws.slice(1).map((d) => d.scheduled), [31250, 31250])
+checkAddsUp('short deposit', r)
 
-// Two odd payments that together overshoot the first draw.
 r = reconcileProject(SCHEDULE, [pay(37500), pay(20000, '2026-09-15')], TOTAL)
-ck('overflow: deposit paid, rough partial', r.draws.map((d) => d.state), ['paid', 'partial', 'open'])
-ck('overflow: rough covered 7,500', r.draws[1].covered, 7500)
-checkAddsUp('two odd payments', r)
+ck('two payments settle two draws', r.draws.map((d) => d.state), ['paid', 'paid', 'open'])
+ck('the second settles at what was paid', r.draws[1].scheduled, 20000)
+ck('the last draw is what is left', r.draws[2].scheduled, 42500)
+checkAddsUp('two payments', r)
 
-// ── Out of order: they paid the final draw early ───────────────────────────
-// Waterfall applies it to the deposit — a known, accepted consequence. What
-// must NOT break is the total.
-r = reconcileProject(SCHEDULE, [pay(25000)], TOTAL)
-ck('out of order: still only 25,000 in', r.received, 25000)
-checkAddsUp('paid out of order', r)
+// Oliveira (prod, 2026-10-27): $17,000 against a $15,529 deposit.
+const OLI = [draw('Deposit', 15529), draw('Production kickoff', 11904), draw('Final', 20096)]
+r = reconcileProject(OLI, [pay(17000, '2026-09-23')], 47529)
+ck('Oliveira: the deposit reads $17,000, paid', [r.draws[0].scheduled, r.draws[0].state], [17000, 'paid'])
+ck('Oliveira: the open draws split the $30,529 left', r.draws[1].scheduled + r.draws[2].scheduled, 30529)
+ck('Oliveira: nothing partial, no drift', [r.draws.some((d) => d.state === 'partial'), r.drift], [false, 0])
+checkAddsUp('Oliveira', r)
 
-// ── ⛔ CHANGE ORDER: the total moves after the schedule was authored ────────
-// This is the case that is silently broken today — nothing updates draws when
-// a CO lands. The FINAL draw must absorb it (Andrew's call).
 r = reconcileProject(SCHEDULE, [pay(50000)], 120000)
-ck('CO +20k: final draw absorbs it', r.draws[2].scheduled, 45000)
-ck('CO +20k: earlier draws untouched', r.draws.slice(0, 2).map((d) => d.scheduled), [50000, 25000])
-ck('CO +20k: drift is reported, not hidden', r.drift, -20000)
-ck('CO +20k: remaining', r.remaining, 70000)
-checkAddsUp('change order raises the total', r)
+ck('CO +20k: the open draws grow to cover it', r.draws.slice(1).map((d) => d.scheduled), [35000, 35000])
+ck('CO +20k: the schedule foots — no drift', r.drift, 0)
+checkAddsUp('CO +20k', r)
 
-// A CO that REDUCES the total shrinks from the end, and may not touch a draw
-// that's already been paid.
 r = reconcileProject(SCHEDULE, [pay(50000)], 80000)
-ck('CO −20k: final draw shrinks to 5,000', r.draws[2].scheduled, 5000)
-ck('CO −20k: the PAID deposit is untouched', r.draws[0].scheduled, 50000)
-ck('CO −20k: paid deposit stays paid', r.draws[0].state, 'paid')
-checkAddsUp('change order lowers the total', r)
+ck('CO −20k: the open draws shrink', r.draws.slice(1).map((d) => d.scheduled), [15000, 15000])
+checkAddsUp('CO −20k', r)
 
-// A reduction big enough to eat past the last draw walks backwards.
-r = reconcileProject(SCHEDULE, [pay(50000)], 60000)
-ck('big cut: last draw to zero', r.draws[2].scheduled, 0)
-ck('big cut: middle draw absorbs the rest', r.draws[1].scheduled, 10000)
-ck('big cut: paid deposit still untouched', r.draws[0].scheduled, 50000)
-checkAddsUp('big reduction', r)
+r = reconcileProject(SCHEDULE, [pay(50000)], 40000)
+ck('cut below what is paid: open draws go to zero', r.draws.slice(1).map((d) => d.scheduled), [0, 0])
+ck('…and the overpayment is credit', r.credit, 10000)
+checkAddsUp('cut below paid', r)
 
-// ── Overpayment ────────────────────────────────────────────────────────────
-r = reconcileProject(SCHEDULE, [pay(100000), pay(5000, '2026-10-01')], TOTAL)
-ck('overpaid: every draw paid', r.draws.map((d) => d.state), ['paid', 'paid', 'paid'])
-ck('overpaid: nothing outstanding', r.draws.map((d) => d.outstanding), [0, 0, 0])
-ck('overpaid: surfaced as credit, not a negative draw', r.credit, 5000)
-ck('overpaid: remaining clamps at 0', r.remaining, 0)
+r = reconcileProject(SCHEDULE, [pay(50000), pay(25000, '2026-09-02'), pay(25000, '2026-09-03'), pay(5000, '2026-10-01')], TOTAL)
+ck('a payment after the last draw rides the last draw', r.draws[2].scheduled, 30000)
+ck('…and is credit', r.credit, 5000)
 checkAddsUp('overpaid', r)
 
-// ── Refunds / corrections (negative entries) ───────────────────────────────
 r = reconcileProject(SCHEDULE, [pay(50000), pay(-10000, '2026-10-01')], TOTAL)
-ck('refund: nets to 40,000 received', r.received, 40000)
-ck('refund: deposit falls back to partial', r.draws[0].state, 'partial')
+ck('a refund comes off the draw it settled', r.draws[0].scheduled, 40000)
 checkAddsUp('refund', r)
 
-// ── Cents ──────────────────────────────────────────────────────────────────
 r = reconcileProject([draw('a', 3333), draw('b', 3333), draw('c', 3334)], [pay(1234.56)], 10000)
-ck('cents: received to the penny', r.received, 1234.56)
-checkAddsUp('a payment with cents', r)
+checkAddsUp('cents', r)
 
-r = reconcileProject(SCHEDULE, [pay(0.01), pay(0.02, '2026-09-02')], TOTAL)
-ck('tiny payments sum exactly', r.received, 0.03)
-checkAddsUp('tiny payments', r)
-
-// ── Degenerate shapes ──────────────────────────────────────────────────────
 r = reconcileProject([], [pay(5000)], TOTAL)
-ck('no schedule is flagged, not rendered as $0', r.empty, true)
-ck('no schedule still counts the money', r.received, 5000)
+ck('no schedule: the payment is unapplied, not lost', r.unapplied.map((u) => u.amount), [5000])
 
 r = reconcileProject([draw('only', 100000)], [pay(40000)], TOTAL)
-ck('single draw: partial', r.draws[0].state, 'partial')
+ck('one draw, short payment, nothing left open: the draw carries the rest', [r.draws[0].scheduled, r.draws[0].state], [100000, 'partial'])
 checkAddsUp('single draw', r)
 
 r = reconcileProject(SCHEDULE, [], 0)
-ck('zero-value contract does not explode', r.remaining, 0)
+ck('no contract recorded: the stored schedule is the forecast', r.draws.map((d) => d.scheduled), [50000, 25000, 25000])
 
 // ── Fuzz: the invariant must hold for anything ─────────────────────────────
 // Deterministic pseudo-random (no Math.random — reproducible failures).
@@ -216,10 +193,10 @@ const BOARD_PAYS = [pay(30000, '2026-09-06')]
 const rec = reconcileProject(BOARD_DRAWS, BOARD_PAYS, 100000)
 const view = buildPaymentsView(rec.draws, BOARD_PAYS, MONTHS, TODAY)
 
-ck('needed in Sep is what REMAINS on that draw, not its face value', view.months[0].needed, 20000)
+ck('the September draw is SETTLED by the $30k — nothing more needed', view.months[0].needed, 0)
 ck('received in Sep comes from the LEDGER', view.months[0].receivedTotal, 30000)
-ck('the receipt is listed', view.months[0].received.map((e) => e.amount), [30000])
-ck('Oct needs its full draw', view.months[1].needed, 25000)
+ck('the receipt is listed', view.months[0].settledCards.map((c) => c.amount), [30000])
+ck('Oct needs its share of what is left ($70k over two equal draws)', view.months[1].needed, 35000)
 ck('the undated draw sits in the tray', view.unscheduled.map((d) => d.row.id), ['c'])
 
 // A fully-paid draw drops off the board — its cash shows as a receipt instead.
@@ -247,11 +224,11 @@ const MUR = [draw('Deposit', 13114), draw('Production kickoff', 6557), draw('Fin
 const mur = reconcileProject(MUR, [pay(13113.5, '2026-05-18')], 26227)
 ck('sub-dollar rounding residue counts as PAID, not a $1 partial', mur.draws[0].state, 'paid')
 ck('the phantom never reaches the board', buildPaymentsView(mur.draws, [], MONTHS, TODAY).months[0].outstanding.length, 0)
-// A real part-payment must still read partial — the tolerance is a dollar,
-// not a licence to round away actual debt.
+// A short payment SETTLES the deposit at what was paid (2026-10-27): the
+// shortfall moves to the open draws, it doesn't sit on the deposit.
 const real = reconcileProject(MUR, [pay(10000, '2026-05-18')], 26227)
-ck('a genuine partial payment is still partial', real.draws[0].state, 'partial')
-ck('and still owes the balance', real.draws[0].outstanding, 3114)
+ck('a short payment settles the deposit', real.draws[0].state, 'paid')
+ck('the shortfall is on the open draws', real.draws[1].scheduled + real.draws[2].scheduled, 16227)
 
 // ── ⛔ ORDER INDEPENDENCE — the "it changes when I move the card" bug ───────
 // The waterfall must follow the AUTHORED schedule. Dragging a card changes

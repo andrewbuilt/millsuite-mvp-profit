@@ -59,12 +59,15 @@ const draw = (projectId, projectName, id, amount, order) => ({
     [],
     205_662,
   )
-  check('drift = storedSum − contract', near(r.drift, 2474), `${r.drift}`)
-  check('storedSum is exposed, not reconstructed', near(r.storedSum, 208_136), `${r.storedSum}`)
-  check('a schedule that foots has no drift',
-    near(reconcileProject([draw('p', 'X', 'a', 500, 0)], [], 500).drift, 0))
+  // ⛔ 2026-10-27: the open draws re-spread over what the contract owes, so a
+  // schedule with a KNOWN contract always foots — stored amounts are weights.
+  // Drift survives only for "no contract recorded" (section 3).
+  check('a known contract never drifts — the open draws refill it', near(r.drift, 0), `${r.drift}`)
+  check('storedSum is still exposed, not reconstructed', near(r.storedSum, 208_136), `${r.storedSum}`)
+  check('…and the draws foot to the contract',
+    near(r.draws.reduce((s, d) => s + d.scheduled, 0), 205_662))
   const under = reconcileProject([draw('p', 'X', 'a', 400, 0)], [], 500)
-  check('draws short of contract drift NEGATIVE', under.drift < 0, `${under.drift}`)
+  check('short stored draws still foot', near(under.drift, 0), `${under.drift}`)
 }
 
 // ── 2. ⛔ NO DRAWS IS NOT DRIFT ──────────────────────────────────────────────
@@ -110,34 +113,17 @@ const draw = (projectId, projectName, id, amount, order) => ({
   check('…but not surfaced', driftsWorthShowing(driftByProject).length === 0)
 }
 
-// ── 5. ⚠️ THE $1 ROUNDING ERA DOESN'T SHOUT ─────────────────────────────────
-// Every generated schedule used to be $1 off. A tray that flags $1 is a tray
-// people learn to close.
+// ── 5–6. (retired 2026-10-27) ──────────────────────────────────────────────
+// Dollar-gap thresholds and gap ordering only mattered while stored draws could
+// disagree with a known contract. They can't now: the open draws re-spread.
 {
   const { driftByProject } = reconcileEverything(
-    [draw('r', 'Hunt', 'a', 10_000.5, 0)],
-    [],
-    { r: 10_000 },
-  )
-  check('a sub-$1 gap is below the threshold', Math.abs(driftByProject[0].drift) < DRIFT_EPS)
-  check('…and is not surfaced', driftsWorthShowing(driftByProject).length === 0)
-  const { driftByProject: big } = reconcileEverything(
     [draw('r', 'Hunt', 'a', 10_100, 0)],
     [],
     { r: 10_000 },
   )
-  check('a $100 gap IS surfaced', driftsWorthShowing(big).length === 1)
-}
-
-// ── 6. ORDERING PUTS THE BIGGEST MONEY FIRST ────────────────────────────────
-{
-  const rows = [
-    draw('small', 'Small', 'a', 1_200, 0),
-    draw('big', 'Big', 'b', 50_000, 0),
-  ]
-  const { driftByProject } = reconcileEverything(rows, [], { small: 1_000, big: 30_000 })
-  const shown = driftsWorthShowing(driftByProject)
-  check('larger gaps sort first', shown[0].projectId === 'big', shown.map((d) => d.projectId).join(','))
+  check('a $100 stored gap no longer surfaces (the draw re-spreads to the contract)',
+    driftsWorthShowing(driftByProject).length === 0)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -158,9 +144,11 @@ check('the board links to the project, it does not offer to fix it',
 
 check('⛔ the project ledger branches on a missing contract',
   /contractTotal\s*<=\s*0\s*\?/.test(ledger))
-check('the project ledger uses the shared threshold', ledger.includes('DRIFT_EPS'))
-check('⛔ it prints the real stored sum, not contractTotal + drift',
-  ledger.includes('money(recon.storedSum)') && !ledger.includes('contractTotal + recon.drift'))
+// (2026-10-27) The project ledger's known-contract drift banner was removed:
+// a known contract can't drift any more (the open draws re-spread). It must
+// never come back reconstructing a "stored sum" from contract + drift.
+check('⛔ it never reconstructs the stored sum from contract + drift',
+  !ledger.includes('contractTotal + recon.drift'))
 
 console.log('\n══ drift ══\n')
 console.log(`  ${pass} checks passed${fails.length ? `, ${fails.length} FAILED` : ''}`)

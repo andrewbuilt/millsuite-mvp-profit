@@ -1089,9 +1089,8 @@ export async function acceptDoc(input: {
   let billing: CoBillingResult | null = null
   if (input.billToInvoice !== false) billing = await appendCoToPrimaryInvoice(doc.id)
   try {
-    // ⛔ THE CO SPREADS OVER THE REMAINING UNPAID DRAWS (2026-10-26) — no
-    // stub "CO-01" row. Credits shrink them the same way. See
-    // applyChangeToSchedule / redistributeDelta.
+    // No schedule write (2026-10-27): the open draws re-spread over what the
+    // contract still owes on every read. This records it on the timeline.
     await applyChangeToSchedule({
       orgId: doc.org_id,
       projectId: doc.project_id,

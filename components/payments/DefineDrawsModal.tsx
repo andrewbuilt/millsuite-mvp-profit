@@ -39,6 +39,10 @@ export interface DrawDraft {
   /** Cash already credited to this draw. A PARTLY-paid draw stays editable,
    *  but its amount can't go below this, and it can't be removed. */
   floor?: number
+  /** What the schedule shows right now. Until anything is edited the modal
+   *  shows THESE, so it can't disagree with the board by a rounding dollar
+   *  (re-deriving dollars from 2-decimal percentages did: $11,906 vs $11,904). */
+  shownAmount?: number
 }
 
 const PRESETS: Array<{ name: string; rows: Array<{ label: string; pct: number }> }> = [
@@ -116,6 +120,8 @@ export default function DefineDrawsModal({
 
   /** Dollars already committed to draws that have been paid. */
   const lockedTotal = rows.reduce((a, r) => a + (r.locked ? r.lockedAmount : 0), 0)
+  // (2026-10-27) The open draws split what's LEFT; a paid draw shows what was
+  // paid. Kept as a plain sentence because that's the whole model now.
   const remaining = Math.max(0, contractTotal - lockedTotal)
 
   /**
@@ -132,7 +138,9 @@ export default function DefineDrawsModal({
    * summing to it exactly; per-row `Math.round` is what made every generated
    * schedule a dollar off and had the shop recording $2 correcting payments.
    */
+  const [touched, setTouched] = useState(false)
   const amounts = useMemo(() => {
+    if (!touched && rows.every((r) => r.shownAmount != null)) return rows.map((r) => r.shownAmount as number)
     if (contractTotal <= 0) return rows.map(() => 0)
     const freeIdx = rows.map((r, i) => (r.locked ? -1 : i)).filter((i) => i >= 0)
     const freePcts = freeIdx.map((i) => Number(rows[i].pct) || 0)
@@ -150,12 +158,14 @@ export default function DefineDrawsModal({
     })
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, contractTotal, remaining])
+  }, [rows, contractTotal, remaining, touched])
 
   function patch(i: number, p: Partial<DrawDraft>) {
+    if (p.pct !== undefined) setTouched(true)
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...p } : r)))
   }
   function addRow() {
+    setTouched(true)
     // Seed with whatever is left so the sum walks toward 100 rather than away.
     const slack = Math.max(0, 100 - sum)
     setRows((prev) => [...prev, blank(`Draw ${prev.length + 1}`, slack)])
@@ -164,6 +174,7 @@ export default function DefineDrawsModal({
     // A draw with ANY cash can't be removed — the payment would be orphaned.
     // The button is disabled; this is the second line of defence.
     if (rows[i]?.locked || (rows[i]?.floor || 0) > 0.005) return
+    setTouched(true)
     setRows((prev) => prev.filter((_, idx) => idx !== i))
   }
   function usePreset(p: (typeof PRESETS)[number]) {
@@ -173,6 +184,7 @@ export default function DefineDrawsModal({
     // ⛔ …and they don't re-add a label a kept row already has. That's how
     // Oliveira got a second "Deposit" (2026-09-23): a preset's "Deposit" was
     // appended after the paid one and filled the rest of the contract.
+    setTouched(true)
     setRows((prev) => {
       const kept = prev.filter((r) => r.locked || (r.floor || 0) > 0.005)
       const have = new Set(kept.map((r) => r.label.trim().toLowerCase()))
@@ -265,9 +277,8 @@ export default function DefineDrawsModal({
                   that must not happen to a draw with money against it. */}
               {(rows.some((r) => r.locked) || rows.some((r) => (r.floor || 0) > 0.005)) && (
                 <div className="mb-3 text-[11.5px] text-[#047857] bg-[#F0FDF4] border border-[#A7F3D0] rounded-md px-3 py-2 leading-snug">
-                  Fully paid draws are locked — they keep the amount the money
-                  settled. Partly paid draws can change, but not below what&apos;s
-                  already in, and they can&apos;t be removed.
+                  Paid draws are locked at what was actually paid. The open draws
+                  split what&apos;s left of the contract.
                   {remaining <= 0 && (
                     <div className="mt-1 text-[#B45309]">
                       The paid draws already account for the whole contract, so
