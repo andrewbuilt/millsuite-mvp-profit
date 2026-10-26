@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-10-26 · **Branch:** `main`
 
-**Left off (2026-10-26):** 10-26 block — PAYMENTS CLEANUP (1a–1f), CO→QB PRIMARY INVOICE, APPROVAL CALLOUTS — all BUILT and committed (`5c66703`…`853b1f5`), **held unpushed until Andrew runs migration 122.** Then: push → `repair-co-stub-draws.mjs --apply` (Oliveira) → the live verify list in CURRENT FOCUS.
+**Left off (2026-10-26):** 10-26 block — PAYMENTS CLEANUP (1a–1f), CO→QB PRIMARY INVOICE, APPROVAL CALLOUTS — all BUILT + PUSHED (`5c66703`…`853b1f5`); **migration `122` ✅ on prod and verified** (columns live, gate view reads, anon still gets 0 rows — security_invoker held). Next: Andrew runs `npx tsx scripts/repair-co-stub-draws.mjs --apply` (Oliveira) → the live verify list in CURRENT FOCUS.
 
 **Earlier (2026-10-23):** SOLID WOOD TOP features + studio (`46f3a78`) and MARGIN PINNING (`0be44ea`) BUILT + PUSHED. **Migrations `120` + `121` ✅ ON PROD AND VERIFIED** (all 71 projects carry a margin lock). **The proof PASSES on prod: a $1 rate change AND a +5pt margin change move 0 of 71 projects**; drift = the 5 demo seeds only; verify-swt-features 28/28. Next: Andrew's live verify list in CURRENT FOCUS.
 
@@ -22,7 +22,7 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
-**✅ 2026-10-26: PAYMENTS CLEANUP · CO→QB · APPROVAL CALLOUTS — ALL BUILT, tsc + `next build` clean, ⛔ NOT PUSHED: migration `122` must run on prod FIRST** (the approvals list + portal now filter `approval_items.dismissed_at`; without the column those reads fail). Commits: `5c66703` 1a · `cd8af3d` 1b–1f · `ff49018` 2 · `853b1f5` 3.
+**✅ 2026-10-26: PAYMENTS CLEANUP · CO→QB · APPROVAL CALLOUTS — ALL BUILT + PUSHED, tsc + `next build` clean; migration `122` ✅ on prod and verified 2026-10-26.** Commits: `5c66703` 1a · `cd8af3d` 1b–1f · `ff49018` 2 · `853b1f5` 3.
 **1f. Oliveira's duplicate "Deposit" — TRACED (read-only, prod).** The 2nd "Deposit" ($12,123, order:2, no CO link) was created 09-23 15:47, ~2 h after the sale (13:49) and the $17,000 payment (13:50). Deposit $15,529 + kickoff $7,765 + $12,123 = **$35,417 = the contract that day** ($47,529 − CO-01 $8,638 − CO-03 $3,474, both added later). So it was an **Edit draws** save filling the rest of the contract. It isn't from `saveMilestones` (that re-inserts every row; the 09-16 rows kept their timestamps) or a CO path (those are labelled "CO-0N"). The cause: in edit mode a **preset keeps the paid rows and appends its own, starting with "Deposit"**. The money is right, only the label is wrong. **Fixed:** presets skip labels a kept row already has · duplicate labels warn in Edit draws · every schedule save writes a `draw_schedule_edited` event (nothing recorded edits before, which is why this took an investigation). ⚠️ **Andrew: rename Oliveira's 2nd "Deposit" (e.g. "Final") in Edit draws** — the new warning will point at it.
 **1a. A CO spreads over the remaining UNPAID draws — no stub rows.**
    - **Rules:** `redistributeDelta` (pure, `lib/payment-ledger`) spreads the change proportionally over each draw's unpaid remainder. Paid draws never move; a partial draw moves only its unpaid part and never drops below what it's received; invoiced and legacy-received rows are frozen. Whole dollars sum to exactly round(delta), and any credit too big to absorb is returned for the final-draw balancing.
@@ -46,7 +46,7 @@
    - **Controls (per subproject, in `ApprovalSlots`):** "+ Add callout" (label · material · finish, `is_custom`). **Edit**: a material/finish change on an approved or in-review callout → back to PENDING (confirm + timeline event); a label-only fix keeps the state. **Delete**: pending = one click; past pending = confirm + event.
    - **⛔ Delete is a TOMBSTONE** (`dismissed_at`). History is kept, and the re-seed de-dup still sees the key, so a deleted derived callout DOESN'T come back (the 09-23 deferred question, answered). The gate view (recreated, `security_invoker` kept) and the list/portal/stage/CO-match readers ignore dismissed rows; manual and derived callouts gate identically.
    - **Checks:** `verify-approval-callouts` 10/10 (break-tested); tour targets 57/44. This reverses the post-sale dogfood removal of custom-spec creation, per this scope.
-- **Next:** Andrew runs **122** → `node --env-file=.env.local scripts/verify-migration.mjs approval_items:dismissed_at,dismissed_by` → push → `npx tsx scripts/repair-co-stub-draws.mjs --apply`.
+- **Next:** `npx tsx scripts/repair-co-stub-draws.mjs --apply` (Andrew — folds Oliveira's CO-01 + CO-03 stubs).
 - ⚠️ **Verify owed (Andrew, live):** Oliveira after the repair (no CO rows; kickoff partial amber; drift gone; rename the 2nd Deposit) · Bonzer's banner reads with direction · Hunt's card leads with $58,183 · Edit draws on a partial draw: can lower to the $ received, not below · accept a real CO on a QB-linked job → the primary QB invoice gains the lines and the watcher still reconciles (try a credit CO too) · build Leonard Lobby Bar's material list by hand → the gate counts it; delete + re-add on a native job → its derived callouts don't come back.
 
 
