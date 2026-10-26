@@ -384,7 +384,16 @@ const ALLOWED = new Set([
   // `qbo_invoice_id`, to keep a change order's invoice from being mistaken for
   // the contract invoice.
   'lib/invoices.ts',
+  // ⛔ SERVICE ROLE, ACCEPTED DOCS ONLY (2026-10-26). Appends an accepted CO
+  // to the primary invoice / QuickBooks; QB tokens are server-side so it
+  // can't go through lib/co-docs (browser client). It refuses any doc whose
+  // status isn't 'accepted' (asserted below), so a draft can't reach a bill.
+  'app/api/qb/append-co-lines/route.ts',
 ])
+{
+  const src = fs.readFileSync('app/api/qb/append-co-lines/route.ts', 'utf8')
+  check('append-co-lines refuses a doc that is not accepted', /doc\.status !== 'accepted'/.test(src), true)
+}
 const roots = ['lib', 'app', 'components', 'scripts']
 const offenders = []
 

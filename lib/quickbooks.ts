@@ -320,6 +320,46 @@ function toLine(item: QbLineItemInput): QBOLineItem {
   }
 }
 
+/**
+ * APPEND lines to an EXISTING QB invoice (2026-10-26: a change order lands on
+ * the project's PRIMARY invoice — the step Andrew's team did by hand).
+ *
+ * QuickBooks has no "add a line" call: an update is a SPARSE invoice POST with
+ * the current SyncToken, and `Line` REPLACES every line. So: read the invoice,
+ * keep its real lines (QB's auto SubTotalLine is dropped — it regenerates),
+ * add ours, write it back. A stale SyncToken (someone edited the invoice in
+ * QB a moment ago) fails loudly rather than overwriting their edit.
+ *
+ * ⚠️ Negative line amounts (credit COs): QBO accepts a negative
+ * SalesItemLineDetail amount on an invoice as long as the invoice total stays
+ * ≥ 0 — NOT yet exercised live against Andrew's company (flagged in STATE);
+ * a total that would go negative is refused here before calling QB.
+ */
+export async function appendLinesToInvoice(
+  orgId: string,
+  qboInvoiceId: string,
+  lineItems: QbLineItemInput[],
+): Promise<{ totalAmt: number; docNumber: string }> {
+  const current = await qboApi<any>(orgId, 'GET', `invoice/${encodeURIComponent(qboInvoiceId)}`)
+  const inv = current?.Invoice
+  if (!inv?.Id || inv.SyncToken == null) throw new Error('QuickBooks invoice not found.')
+  const kept = (inv.Line || []).filter((l: any) => l?.DetailType !== 'SubTotalLineDetail')
+  const added = lineItems.map(toLine)
+  const newTotal =
+    kept.reduce((s: number, l: any) => s + (Number(l.Amount) || 0), 0) +
+    added.reduce((s, l) => s + l.Amount, 0)
+  if (newTotal < -0.005) {
+    throw new Error('This credit is larger than the QuickBooks invoice — issue a credit memo in QuickBooks instead.')
+  }
+  const result = await qboApi<any>(orgId, 'POST', 'invoice', {
+    Id: inv.Id,
+    SyncToken: inv.SyncToken,
+    sparse: true,
+    Line: [...kept, ...added],
+  })
+  return { totalAmt: Number(result?.Invoice?.TotalAmt) || 0, docNumber: String(result?.Invoice?.DocNumber || '') }
+}
+
 /** Find a QB customer by exact display name, or create one. Returns its QB id. */
 export async function findOrCreateCustomer(
   orgId: string,

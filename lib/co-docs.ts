@@ -40,7 +40,6 @@ import {
 } from './pricing'
 import { recomputeProjectBidTotal } from './project-totals'
 import { seedApprovalItemsFromEstimate } from './approvals'
-import { createInvoice } from './invoices'
 import type { ComposerDefaults } from './composer'
 import {
   canAcceptDoc,
@@ -810,6 +809,42 @@ export interface AcceptResult {
    * absorbed.
    */
   drift: number
+  /** What happened on the invoice (2026-10-26: the CO lands on the PRIMARY
+   *  invoice — /api/qb/append-co-lines). Null when not asked to bill. */
+  billing?: CoBillingResult | null
+}
+
+export interface CoBillingResult {
+  ok: boolean
+  /** 'no_primary_invoice' | 'already_appended' | 'no_money' */
+  skipped?: string
+  /** True when the QuickBooks invoice itself was updated. */
+  qb?: boolean
+  error?: string
+}
+
+/**
+ * Put an accepted doc's lines on the project's PRIMARY invoice — in
+ * QuickBooks when that invoice is linked, mirrored on the MillSuite invoice
+ * either way. Server-side (QB tokens never reach the browser); idempotent per
+ * doc. Never throws: billing is reported, it can't un-accept a change order.
+ */
+export async function appendCoToPrimaryInvoice(docId: string): Promise<CoBillingResult> {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (!token) return { ok: false, error: 'Not signed in.' }
+    const res = await fetch('/api/qb/append-co-lines', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ docId }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) return { ok: false, error: body?.error || `Billing failed (${res.status}).` }
+    return { ok: true, skipped: body?.skipped, qb: !!body?.qb }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Billing failed.' }
+  }
 }
 
 /**
@@ -832,6 +867,9 @@ export async function acceptDoc(input: {
   /** Typed by the client in the portal, or by the operator recording verbal
    *  approval. */
   signedName?: string | null
+  /** Append the CO to the primary invoice (QuickBooks when linked). The
+   *  accept flow's toggle — default on. */
+  billToInvoice?: boolean
 }): Promise<AcceptResult> {
   const { doc, items } = input
   const fail = (reason: string): AcceptResult => ({
@@ -1045,11 +1083,11 @@ export async function acceptDoc(input: {
   } catch (e) {
     console.error('acceptDoc: approval seeding', e)
   }
-  try {
-    await invoiceAcceptedDoc(accepted, agreed)
-  } catch (e) {
-    console.error('acceptDoc: invoice', e)
-  }
+  // ⛔ THE CO LANDS ON THE PRIMARY INVOICE (2026-10-26), not an invoice of
+  // its own — the contract is one growing total and so is the bill. Credits
+  // append negative lines. Reported back, never thrown.
+  let billing: CoBillingResult | null = null
+  if (input.billToInvoice !== false) billing = await appendCoToPrimaryInvoice(doc.id)
   try {
     // ⛔ THE CO SPREADS OVER THE REMAINING UNPAID DRAWS (2026-10-26) — no
     // stub "CO-01" row. Credits shrink them the same way. See
@@ -1066,79 +1104,7 @@ export async function acceptDoc(input: {
     console.error('acceptDoc: schedule', e)
   }
 
-  return { ok: true, reason: null, created, agreed, moved, drift: expectedMove - moved }
-}
-
-/**
- * Bill an accepted doc as its OWN invoice.
- *
- * ⛔ ONE INVOICE PER DOCUMENT — Andrew's call, and the opposite of v1, which
- * appends every CO to a single ROLLING invoice per project. That rolling
- * invoice is why "what is this $4,890 for?" had no answer: several change
- * orders landed on one invoice with nothing on screen saying which. A v2 doc
- * is already the unit the client signs, so it's the unit they get billed for.
- *
- * ⛔ NET CREDITS ARE NOT INVOICED. You don't send a bill for money you owe
- * back; that's a refund conversation, and inventing a negative invoice would
- * put a number in QuickBooks nobody chose.
- *
- * Idempotent through `co_docs.qbo_invoice_id` — a re-accept won't double-bill.
- * ⚠️ This writes the MILLSUITE invoice. The QuickBooks push stays operator-
- * initiated, exactly as the contract invoice flow does; `qbo_invoice_id` is
- * where that link lands when it happens.
- */
-export async function invoiceAcceptedDoc(doc: CoDoc, netChange: number): Promise<string | null> {
-  if (netChange <= 0) return null
-  if (doc.qbo_invoice_id) return doc.qbo_invoice_id
-
-  const { data: project } = await supabase
-    .from('projects')
-    .select('id, name, org_id, client_id')
-    .eq('id', doc.project_id)
-    .maybeSingle()
-  const proj = project as { name: string; org_id: string | null; client_id: string | null } | null
-  if (!proj?.org_id) {
-    console.error('invoiceAcceptedDoc: no org for project', doc.project_id)
-    return null
-  }
-
-  const { data: org } = await supabase
-    .from('orgs')
-    .select('default_tax_pct')
-    .eq('id', proj.org_id)
-    .maybeSingle()
-  const taxPct = Number((org as { default_tax_pct: number | null } | null)?.default_tax_pct) || 0
-  const today = new Date().toISOString().slice(0, 10)
-  const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
-
-  try {
-    const inv = await createInvoice({
-      invoice: {
-        org_id: proj.org_id,
-        project_id: doc.project_id,
-        client_id: proj.client_id ?? null,
-        invoice_date: today,
-        due_date: due,
-        tax_pct: taxPct,
-        notes: `${proj.name} — ${coLabel(doc)}`,
-      },
-      lineItems: [
-        {
-          sort_order: 0,
-          description: `${coLabel(doc)}${doc.title ? ` — ${doc.title}` : ''}`,
-          quantity: 1,
-          unit_price: netChange,
-          amount: netChange,
-        },
-      ],
-      markSent: true,
-    })
-    await supabase.from('co_docs').update({ qbo_invoice_id: inv.id }).eq('id', doc.id)
-    return inv.id
-  } catch (e) {
-    console.error('invoiceAcceptedDoc', e)
-    return null
-  }
+  return { ok: true, reason: null, created, agreed, moved, drift: expectedMove - moved, billing }
 }
 
 /**

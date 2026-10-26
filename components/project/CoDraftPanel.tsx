@@ -60,6 +60,9 @@ function editSummary(item: CoDocItem): string {
   return parts.length > 0 ? parts.join(' · ') : 'No changes yet'
 }
 
+
+const BILL_PREF_KEY = 'millsuite:co-bill-to-invoice'
+
 export default function CoDraftPanel({
   doc,
   items,
@@ -84,7 +87,8 @@ export default function CoDraftPanel({
   onAddScope: () => void
   onEditDraft: (item: CoDocItem) => void
   onRemoveItem: (item: CoDocItem) => void
-  onAccept: () => void
+  /** `billToInvoice` = the accept flow's "add to the invoice" toggle. */
+  onAccept: (opts: { billToInvoice: boolean }) => void
   onVoid: () => void
   onPdf: () => void
   onSend: () => void
@@ -99,6 +103,14 @@ export default function CoDraftPanel({
   onToggleLineDetail: (next: boolean) => void
 }) {
   const [confirmAccept, setConfirmAccept] = useState(false)
+  // Remembered per device; default ON (Andrew 2026-10-26, veto-able).
+  const [billToInvoice, setBillToInvoice] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(BILL_PREF_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })
   const [adding, setAdding] = useState(false)
   /** Which item's client description is being edited, and the draft text. */
   const [descFor, setDescFor] = useState<string | null>(null)
@@ -456,8 +468,27 @@ export default function CoDraftPanel({
               changes by {s.delta >= 0 ? '+' : ''}
               {money(s.delta)}.
             </span>
+            {/* 2026-10-26: the CO lands on the PRIMARY invoice (QuickBooks
+                when it's linked) — the step the team used to do by hand.
+                Default on; the choice is remembered on this device. */}
+            <label className="inline-flex items-center gap-1.5 text-[11.5px] text-[#4C1D95]">
+              <input
+                type="checkbox"
+                checked={billToInvoice}
+                onChange={(e) => {
+                  setBillToInvoice(e.target.checked)
+                  try {
+                    localStorage.setItem(BILL_PREF_KEY, e.target.checked ? '1' : '0')
+                  } catch {
+                    /* private window — the default still applies */
+                  }
+                }}
+                className="accent-[#7C3AED]"
+              />
+              Add to the invoice
+            </label>
             <button
-              onClick={onAccept}
+              onClick={() => onAccept({ billToInvoice })}
               disabled={busy}
               className="px-3 py-1.5 rounded-lg bg-[#059669] text-white text-xs font-medium hover:bg-[#047857] disabled:opacity-50"
             >

@@ -2317,12 +2317,13 @@ export default function ProjectCoverPage() {
                         ),
                       )
                     }}
-                    onAccept={() =>
+                    onAccept={({ billToInvoice }) =>
                       void runCo(async () => {
                         const res = await acceptDoc({
                           doc: coDoc,
                           items: coItems,
                           acceptedBy: user?.id ?? null,
+                          billToInvoice,
                         })
                         if (!res.ok) return res.reason
                         // ⛔ TAKE THE SNAPSHOT NOW. 107 calls `pdf_url` "an
@@ -2347,14 +2348,14 @@ export default function ProjectCoverPage() {
                             res.agreed,
                           )} — a ${money(Math.abs(res.drift))} difference worth checking.`
                         }
-                        // ⚠️ A NET CREDIT RAISES NO INVOICE AND NO DRAW. Say so
-                        // explicitly, or it reads as the billing having
-                        // silently failed — you don't send a bill for money you
-                        // owe back.
-                        if (res.agreed <= 0) {
-                          return `Accepted. This is a net credit, so no invoice or draw was raised — the contract is reduced by ${money(
-                            Math.abs(res.agreed),
-                          )}.`
+                        // Billing is REPORTED, never silent (2026-10-26): the CO
+                        // lands on the primary invoice — or says why it didn't.
+                        const b = res.billing
+                        if (b && !b.ok) {
+                          return `Accepted, and the draws were updated — but the invoice wasn't: ${b.error}. Add the line to the invoice by hand (in QuickBooks if it's linked).`
+                        }
+                        if (b?.skipped === 'no_primary_invoice') {
+                          return `Accepted. There's no contract invoice yet, so nothing was appended — when it's raised it will include this change (${money(res.agreed)}).`
                         }
                         return null
                       })
