@@ -3088,6 +3088,9 @@ export default function ProjectCoverPage() {
                       trigger: m.trigger,
                       expected_date: m.expected_date,
                       status: m.status,
+                      // 123 — dollars-typed milestones are written exactly.
+                      pinned: !!m.pinned,
+                      amount: m.amount,
                     })),
                   })
                   setMilestonesSaving(false)
@@ -3915,9 +3918,31 @@ function MilestoneBuilder({
   saving: boolean
 }) {
   const { confirm, alert } = useConfirm()
-  const sum = sumMilestonePct(milestones)
-  const balanced = Math.abs(sum - 100) < 0.01
+  // Percent | Dollars (2026-10-28, migration 123): which column is the INPUT.
+  // Remembered per device. A milestone typed in DOLLARS is pinned — exact, and
+  // the settle-and-spread never re-derives it (retainage: "$17,256").
+  const [mode, setModeState] = useState<'percent' | 'dollars'>(() => {
+    try {
+      return localStorage.getItem('millsuite:milestones-input-mode') === 'dollars' ? 'dollars' : 'percent'
+    } catch {
+      return 'percent'
+    }
+  })
+  const amountOf = (m: ProjectMilestone) => (m.pinned ? Number(m.amount) || 0 : Math.round((total * (Number(m.pct) || 0)) / 100))
+  const pctOf = (m: ProjectMilestone) => (m.pinned ? (total > 0 ? ((Number(m.amount) || 0) / total) * 100 : 0) : Number(m.pct) || 0)
+  const sum = milestones.reduce((a, m) => a + pctOf(m), 0)
+  const sumDollars = milestones.reduce((a, m) => a + amountOf(m), 0)
+  const leftDollars = Math.round(total - sumDollars)
+  const balanced = mode === 'dollars' ? Math.abs(total - sumDollars) < 0.5 : Math.abs(sum - 100) < 0.01
   const empty = milestones.length === 0
+  function setMode(next: 'percent' | 'dollars') {
+    try {
+      localStorage.setItem('millsuite:milestones-input-mode', next)
+    } catch {
+      /* private window */
+    }
+    setModeState(next)
+  }
 
   function updateOne(idx: number, patch: Partial<ProjectMilestone>) {
     const next = milestones.slice()
@@ -3999,13 +4024,28 @@ function MilestoneBuilder({
             <span>No milestones yet</span>
           ) : (
             <>
+              <span className="inline-flex rounded border border-[#E5E7EB] overflow-hidden mr-2 align-middle">
+                {(['percent', 'dollars'] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setMode(m)}
+                    className={`px-1.5 py-0.5 text-[10px] font-medium ${
+                      mode === m ? 'bg-[#2563EB] text-white' : 'bg-white text-[#374151] hover:bg-[#F3F4F6]'
+                    }`}
+                  >
+                    {m === 'percent' ? '%' : '$'}
+                  </button>
+                ))}
+              </span>
               Sum:{' '}
               <span
                 className={`font-mono font-semibold ${
                   balanced ? 'text-[#059669]' : 'text-[#D97706]'
                 }`}
               >
-                {sum.toFixed(0)}%
+                {mode === 'dollars'
+                  ? `${money(sumDollars)} of ${money(total)}${Math.abs(leftDollars) >= 1 ? ` · ${money(Math.abs(leftDollars))} ${leftDollars > 0 ? 'left' : 'over'}` : ''}`
+                  : `${sum.toFixed(0)}%`}
               </span>
             </>
           )}
@@ -4045,7 +4085,7 @@ function MilestoneBuilder({
       )}
 
       {milestones.map((m, i) => {
-        const amount = Math.round((total * (Number(m.pct) || 0)) / 100)
+        const amount = amountOf(m)
         const isReceived = m.status === 'received'
         const isPersisted = !m.id.startsWith('new-')
         return (
@@ -4060,20 +4100,60 @@ function MilestoneBuilder({
               disabled={isReceived}
               className="flex-1 min-w-0 text-xs bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-[#111] disabled:opacity-60"
             />
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={m.pct}
-              onChange={(e) =>
-                updateOne(i, {
-                  pct: Number(e.target.value) || 0,
-                  amount: Math.round((total * (Number(e.target.value) || 0)) / 100),
-                })
-              }
-              disabled={isReceived}
-              className="w-[54px] flex-shrink-0 text-xs font-mono bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-right text-[#111] disabled:opacity-60"
-            />
+            {mode === 'dollars' ? (
+              <>
+                <input
+                  type="number"
+                  min={0}
+                  value={amount}
+                  onChange={(e) => {
+                    // Typed in dollars => PINNED (123): exact, never re-spread.
+                    const v = Number(e.target.value) || 0
+                    updateOne(i, { amount: v, pinned: true, pct: total > 0 ? Math.round((v / total) * 10000) / 100 : 0 })
+                  }}
+                  disabled={isReceived}
+                  title="Typed in dollars — this amount stays exactly as entered"
+                  className={`w-[84px] flex-shrink-0 text-xs font-mono bg-transparent border ${m.pinned ? 'border-[#93C5FD]' : 'border-transparent'} focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-right text-[#111] disabled:opacity-60`}
+                />
+                {!isReceived && Math.abs(leftDollars) >= 1 && (
+                  <button
+                    onClick={() => {
+                      const v = Math.max(0, amount + leftDollars)
+                      updateOne(i, { amount: v, pinned: true, pct: total > 0 ? Math.round((v / total) * 10000) / 100 : 0 })
+                    }}
+                    title="Put the remainder on this milestone"
+                    className="flex-shrink-0 text-[10px] text-[#2563EB] hover:underline"
+                  >
+                    {leftDollars > 0 ? '+' : '−'}
+                    {money(Math.abs(leftDollars))}
+                  </button>
+                )}
+              </>
+            ) : m.pinned ? (
+              <button
+                onClick={() => updateOne(i, { pinned: false, pct: Math.round(pctOf(m) * 100) / 100 })}
+                disabled={isReceived}
+                title="Typed in dollars — click to let it follow the percentage again"
+                className="flex-shrink-0 text-[10px] px-1 rounded bg-[#EFF6FF] text-[#1E40AF] hover:bg-[#DBEAFE] whitespace-nowrap"
+              >
+                {pctOf(m).toFixed(1)}% · fixed $
+              </button>
+            ) : (
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={m.pct}
+                onChange={(e) =>
+                  updateOne(i, {
+                    pct: Number(e.target.value) || 0,
+                    amount: Math.round((total * (Number(e.target.value) || 0)) / 100),
+                  })
+                }
+                disabled={isReceived}
+                className="w-[54px] flex-shrink-0 text-xs font-mono bg-transparent border border-transparent focus:border-[#2563EB] focus:bg-white hover:border-[#E5E7EB] rounded px-1.5 py-1 outline-none text-right text-[#111] disabled:opacity-60"
+              />
+            )}
             <select
               value={m.trigger}
               onChange={(e) => updateOne(i, { trigger: e.target.value as MilestoneTrigger })}
@@ -4181,7 +4261,7 @@ function MilestoneBuilder({
               disabled={!balanced || saving}
               className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-[#2563EB] text-white rounded hover:bg-[#1D4ED8] disabled:opacity-50"
             >
-              {saving ? 'Saving…' : balanced ? 'Save' : 'Must total 100%'}
+              {saving ? 'Saving…' : balanced ? 'Save' : mode === 'dollars' ? 'Must foot to the contract' : 'Must total 100%'}
             </button>
           )}
           {!dirty && !empty && (
@@ -4194,7 +4274,9 @@ function MilestoneBuilder({
         <div className="mt-2 px-2 py-1.5 bg-[#FEF3C7] border border-[#FDE68A] rounded text-[10.5px] text-[#92400E] flex items-start gap-1.5">
           <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
           <span>
-            Milestones total {sum.toFixed(0)}% — must equal 100% before saving.
+            {mode === 'dollars'
+              ? `Milestones total ${money(sumDollars)} — must equal the ${money(total)} contract before saving.`
+              : `Milestones total ${sum.toFixed(0)}% — must equal 100% before saving.`}
           </span>
         </div>
       )}

@@ -30,6 +30,7 @@ interface RawRow {
   received_date: string | null
   notes: string | null
   created_at: string | null
+  amount_pinned?: boolean | null
   projects: {
     name: string | null
     client_name: string | null
@@ -63,7 +64,7 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
   const { data, error } = await supabase
     .from('cash_flow_receivables')
     .select(
-      'id, project_id, milestone_label, amount, status, expected_date, received_date, ' +
+      'id, project_id, milestone_label, amount, amount_pinned, status, expected_date, received_date, ' +
         'notes, created_at, projects!inner(name, client_name, stage, bid_total)',
     )
     .eq('org_id', orgId)
@@ -86,6 +87,7 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
     status: (r.status as PaymentRow['status']) || 'projected',
     expectedDate: r.expected_date,
     receivedDate: r.received_date,
+    pinned: !!r.amount_pinned,
     // `sort_order` has no column of its own — it's encoded in `notes` as
     // `order:N` (see rowToMilestone in lib/milestones). A row without it sorts
     // last rather than to the front, so an unlabelled row can't hijack the
@@ -115,7 +117,7 @@ export async function loadProjectDraws(projectId: string): Promise<PaymentRow[]>
   const { data, error } = await supabase
     .from('cash_flow_receivables')
     .select(
-      'id, project_id, milestone_label, amount, status, expected_date, received_date, notes, created_at',
+      'id, project_id, milestone_label, amount, amount_pinned, status, expected_date, received_date, notes, created_at',
     )
     .eq('project_id', projectId)
     .eq('type', 'receivable')
@@ -135,6 +137,7 @@ export async function loadProjectDraws(projectId: string): Promise<PaymentRow[]>
     status: (r.status as PaymentRow['status']) || 'projected',
     expectedDate: (r.expected_date as string) ?? null,
     receivedDate: (r.received_date as string) ?? null,
+    pinned: !!r.amount_pinned,
     // Same `order:N` encoding the board relies on — a row without it sorts
     // last rather than hijacking the deposit position in the waterfall.
     sortOrder: Number(/order:(\d+)/.exec(String(r.notes || ''))?.[1] ?? Number.MAX_SAFE_INTEGER),
@@ -157,7 +160,7 @@ export async function loadProjectDraws(projectId: string): Promise<PaymentRow[]>
 export async function createDrawSchedule(
   orgId: string,
   projectId: string,
-  rows: Array<{ label: string; pct: number; amount: number; note?: string }>,
+  rows: Array<{ label: string; pct: number; amount: number; note?: string; pinned?: boolean }>,
 ): Promise<void> {
   if (rows.length === 0) throw new Error('Nothing to create.')
 
@@ -186,6 +189,7 @@ export async function createDrawSchedule(
         milestone_pct: r.pct,
         milestone_trigger: 'manual',
         amount: r.amount,
+        amount_pinned: !!r.pinned,
         // ⛔ NO DATE — THEY LAND IN "No date set" AND GET DRAGGED IN.
         // Andrew: "just add them to the no-date bucket so I can drag them in."
         // A fresh schedule used to be stamped one month apart from today,
@@ -234,6 +238,8 @@ export async function updateDrawSchedule(
     label: string
     pct: number
     amount: number
+    /** 123 — typed in DOLLARS; the settle-and-spread skips it. */
+    pinned?: boolean
   }>,
   /** Ids that are FULLY paid and must survive untouched. */
   lockedIds: string[],
@@ -300,6 +306,7 @@ export async function updateDrawSchedule(
       // A locked row keeps its money and its name. Only its position moves.
       if (!locked.has(r.id)) {
         patch.amount = r.amount
+        patch.amount_pinned = !!r.pinned
         patch.milestone_pct = r.pct
         patch.milestone_label = r.label
         patch.description = r.label
@@ -327,6 +334,7 @@ export async function updateDrawSchedule(
           milestone_pct: r.pct,
           milestone_trigger: 'manual',
           amount: r.amount,
+          amount_pinned: !!r.pinned,
           // Same rule as a fresh schedule: no invented date.
           expected_date: null,
           notes,

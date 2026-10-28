@@ -15,6 +15,13 @@
 //
 // ⛔ SAVE IS GATED ON EXACTLY 100%. A schedule that doesn't total the contract
 // is money that silently never gets billed.
+//
+// ⛔ PERCENT | DOLLARS (2026-10-28, migration 123). The toggle flips which
+// column is the INPUT. Retainage is the real case — "$17,256 retainage", not
+// "10%". A row typed in DOLLARS is PINNED: its amount is exact and the
+// settle-and-spread (lib/payment-ledger) never re-derives it. In dollars mode
+// the gate is "foots to the contract to the dollar"; in percent mode a pinned
+// row keeps its dollars and the % rows split what's left.
 // ============================================================================
 
 import { useMemo, useState } from 'react'
@@ -43,7 +50,14 @@ export interface DrawDraft {
    *  shows THESE, so it can't disagree with the board by a rounding dollar
    *  (re-deriving dollars from 2-decimal percentages did: $11,906 vs $11,904). */
   shownAmount?: number
+  /** 123 — typed in DOLLARS: `dollars` is exact and the spread skips it. */
+  pinned?: boolean
+  /** The dollars input (dollars mode, and a pinned row's amount). */
+  dollars?: string
 }
+
+type InputMode = 'percent' | 'dollars'
+const MODE_KEY = 'millsuite:draws-input-mode'
 
 const PRESETS: Array<{ name: string; rows: Array<{ label: string; pct: number }> }> = [
   {
@@ -102,7 +116,7 @@ export default function DefineDrawsModal({
   existing?: DrawDraft[]
   onCancel: () => void
   onSave: (
-    rows: Array<{ id: string | null; label: string; pct: number; amount: number; note: string }>,
+    rows: Array<{ id: string | null; label: string; pct: number; amount: number; note: string; pinned: boolean }>,
   ) => Promise<void>
 }) {
   const isEdit = !!existing && existing.length > 0
@@ -113,10 +127,14 @@ export default function DefineDrawsModal({
         : [blank('Deposit', 50), blank('Production kickoff', 25), blank('Final', 25)],
   )
   const [error, setError] = useState<string | null>(null)
-
-  const pcts = rows.map((r) => Number(r.pct) || 0)
-  const sum = pcts.reduce((a, b) => a + b, 0)
-  const balanced = Math.abs(sum - 100) < 0.01
+  // Remembered per device.
+  const [mode, setModeState] = useState<InputMode>(() => {
+    try {
+      return localStorage.getItem(MODE_KEY) === 'dollars' ? 'dollars' : 'percent'
+    } catch {
+      return 'percent'
+    }
+  })
 
   /** Dollars already committed to draws that have been paid. */
   const lockedTotal = rows.reduce((a, r) => a + (r.locked ? r.lockedAmount : 0), 0)
@@ -139,26 +157,71 @@ export default function DefineDrawsModal({
    * schedule a dollar off and had the shop recording $2 correcting payments.
    */
   const [touched, setTouched] = useState(false)
+  const dollarsOf = (r: DrawDraft) => Number(r.dollars) || 0
   const amounts = useMemo(() => {
     if (!touched && rows.every((r) => r.shownAmount != null)) return rows.map((r) => r.shownAmount as number)
     if (contractTotal <= 0) return rows.map(() => 0)
-    const freeIdx = rows.map((r, i) => (r.locked ? -1 : i)).filter((i) => i >= 0)
+    // Dollars mode: what's typed is what's saved.
+    if (mode === 'dollars') return rows.map((r) => (r.locked ? r.lockedAmount : dollarsOf(r)))
+    // Percent mode: locked + pinned rows hold their dollars; the % rows split
+    // what's LEFT in proportion to each other.
+    const pinnedSum = rows.reduce((a, r) => a + (!r.locked && r.pinned ? dollarsOf(r) : 0), 0)
+    const left = Math.max(0, remaining - pinnedSum)
+    const freeIdx = rows.map((r, i) => (r.locked || r.pinned ? -1 : i)).filter((i) => i >= 0)
     const freePcts = freeIdx.map((i) => Number(rows[i].pct) || 0)
     const freeSum = freePcts.reduce((a, b) => a + b, 0)
     const shares =
       freeSum > 0
         ? allocateRounded(
-            freePcts.map((p) => (remaining * p) / freeSum),
-            remaining,
+            freePcts.map((p) => (left * p) / freeSum),
+            left,
           )
         : freeIdx.map(() => 0)
-    const out = rows.map((r) => (r.locked ? r.lockedAmount : 0))
+    const out = rows.map((r) => (r.locked ? r.lockedAmount : r.pinned ? dollarsOf(r) : 0))
     freeIdx.forEach((rowIdx, n) => {
       out[rowIdx] = shares[n]
     })
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, contractTotal, remaining, touched])
+  }, [rows, contractTotal, remaining, touched, mode])
+
+  // Each row's percent: typed for % rows, derived for locked / pinned ones.
+  const pctOf = (r: DrawDraft, i: number) =>
+    r.locked || r.pinned ? (contractTotal > 0 ? ((amounts[i] ?? 0) / contractTotal) * 100 : 0) : Number(r.pct) || 0
+  const sum = rows.reduce((a, r, i) => a + pctOf(r, i), 0)
+  const totalDollars = amounts.reduce((a, b) => a + b, 0)
+  const leftDollars = Math.round((contractTotal - totalDollars) * 100) / 100
+  // Dollars mode foots to the contract to the dollar; percent mode to 100%.
+  const balanced = mode === 'dollars' ? Math.abs(leftDollars) < 0.5 : Math.abs(sum - 100) < 0.01
+
+  function setMode(next: InputMode) {
+    if (next === mode) return
+    try {
+      localStorage.setItem(MODE_KEY, next)
+    } catch {
+      /* private window — fine, it just isn't remembered */
+    }
+    setTouched(true)
+    if (next === 'dollars') {
+      // Carry what each row shows into its dollars box (not pinned until typed).
+      setRows((prev) => prev.map((r, i) => (r.locked ? r : { ...r, dollars: String(amounts[i] ?? 0) })))
+    } else if (contractTotal > 0) {
+      // Back to %: unpinned rows get the percent of what they show; the last
+      // one absorbs rounding so it opens at exactly 100%.
+      setRows((prev) => {
+        const next2 = prev.map((r, i) =>
+          r.locked || r.pinned ? r : { ...r, pct: String(Math.round(((amounts[i] ?? 0) / contractTotal) * 10000) / 100) },
+        )
+        const last = [...next2].reverse().find((r) => !r.locked && !r.pinned)
+        if (last) {
+          const others = next2.reduce((a, r, i) => (r === last ? a : a + pctOf(r, i)), 0)
+          last.pct = String(Math.round((100 - others) * 100) / 100)
+        }
+        return next2
+      })
+    }
+    setModeState(next)
+  }
 
   function patch(i: number, p: Partial<DrawDraft>) {
     if (p.pct !== undefined) setTouched(true)
@@ -166,9 +229,12 @@ export default function DefineDrawsModal({
   }
   function addRow() {
     setTouched(true)
-    // Seed with whatever is left so the sum walks toward 100 rather than away.
+    // Seed with whatever is left so the sum walks toward the contract.
     const slack = Math.max(0, 100 - sum)
-    setRows((prev) => [...prev, blank(`Draw ${prev.length + 1}`, slack)])
+    setRows((prev) => [
+      ...prev,
+      { ...blank(`Draw ${prev.length + 1}`, slack), dollars: String(Math.max(0, leftDollars)) },
+    ])
   }
   function removeRow(i: number) {
     // A draw with ANY cash can't be removed — the payment would be orphaned.
@@ -184,6 +250,8 @@ export default function DefineDrawsModal({
     // ⛔ …and they don't re-add a label a kept row already has. That's how
     // Oliveira got a second "Deposit" (2026-09-23): a preset's "Deposit" was
     // appended after the paid one and filled the rest of the contract.
+    // Presets are percentages — they seed PERCENT mode.
+    if (mode === 'dollars') setMode('percent')
     setTouched(true)
     setRows((prev) => {
       const kept = prev.filter((r) => r.locked || (r.floor || 0) > 0.005)
@@ -222,9 +290,11 @@ export default function DefineDrawsModal({
         rows.map((r, i) => ({
           id: r.id,
           label: r.label.trim(),
-          pct: Number(r.pct) || 0,
+          pct: Math.round(pctOf(r, i) * 100) / 100,
           amount: amounts[i],
           note: r.note.trim(),
+          // Locked rows keep whatever they had; the save path won't touch them.
+          pinned: !r.locked && !!r.pinned,
         })),
       )
     } catch (e) {
@@ -289,6 +359,20 @@ export default function DefineDrawsModal({
               )}
 
               <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                {/* Which column is the INPUT (2026-10-28). Remembered. */}
+                <div className="inline-flex rounded border border-[#E5E7EB] overflow-hidden mr-2" role="group" aria-label="Enter draws as">
+                  {(['percent', 'dollars'] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setMode(m)}
+                      className={`px-2 py-1 text-[11px] font-medium ${
+                        mode === m ? 'bg-[#2563EB] text-white' : 'bg-white text-[#374151] hover:bg-[#F3F4F6]'
+                      }`}
+                    >
+                      {m === 'percent' ? 'Percent' : 'Dollars'}
+                    </button>
+                  ))}
+                </div>
                 <span className="text-[11px] text-[#9CA3AF]">Start from</span>
                 {PRESETS.map((p) => (
                   <button
@@ -314,15 +398,63 @@ export default function DefineDrawsModal({
                         r.locked ? 'bg-[#F0FDF4] border-[#A7F3D0] text-[#6B7280]' : ''
                       }`}
                     />
-                    <input
-                      value={r.pct}
-                      onChange={(e) => patch(i, { pct: e.target.value.replace(/[^0-9.]/g, '') })}
-                      disabled={r.locked}
-                      className={`${field} w-14 text-right font-mono ${
-                        r.locked ? 'bg-[#F0FDF4] border-[#A7F3D0] text-[#6B7280]' : ''
-                      }`}
-                    />
-                    <span className="text-[11px] text-[#9CA3AF] w-3">%</span>
+                    {mode === 'dollars' && !r.locked ? (
+                      <>
+                        <span className="text-[11px] text-[#9CA3AF]">$</span>
+                        <input
+                          value={r.dollars ?? ''}
+                          onChange={(e) => {
+                            setTouched(true)
+                            // Typed in dollars ⇒ PINNED (123): exact, never re-spread.
+                            patch(i, { dollars: e.target.value.replace(/[^0-9.]/g, ''), pinned: true })
+                          }}
+                          title="Typed in dollars — this amount stays exactly as entered"
+                          className={`${field} w-24 text-right font-mono ${r.pinned ? 'border-[#93C5FD]' : ''}`}
+                        />
+                        {Math.abs(leftDollars) >= 0.5 && (
+                          <button
+                            onClick={() => {
+                              setTouched(true)
+                              patch(i, { dollars: String(Math.max(0, (amounts[i] ?? 0) + leftDollars)), pinned: true })
+                            }}
+                            title="Put the remainder on this draw"
+                            className="text-[10px] text-[#2563EB] hover:underline whitespace-nowrap"
+                          >
+                            {leftDollars > 0 ? '+' : '−'}
+                            {money(Math.abs(leftDollars))}
+                          </button>
+                        )}
+                      </>
+                    ) : mode === 'percent' && r.pinned && !r.locked ? (
+                      // A dollars-pinned row in percent mode: its % is derived.
+                      <>
+                        <span className="w-14 text-right font-mono text-[12px] text-[#6B7280]">
+                          {pctOf(r, i).toFixed(2)}
+                        </span>
+                        <button
+                          onClick={() => {
+                            setTouched(true)
+                            patch(i, { pinned: false, pct: String(Math.round(pctOf(r, i) * 100) / 100) })
+                          }}
+                          title="Typed in dollars — click to let it follow the percentages again"
+                          className="text-[10px] px-1 rounded bg-[#EFF6FF] text-[#1E40AF] hover:bg-[#DBEAFE] whitespace-nowrap"
+                        >
+                          fixed $ · unpin
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          value={mode === 'dollars' && r.locked ? String(Math.round(r.lockedAmount)) : r.pct}
+                          onChange={(e) => patch(i, { pct: e.target.value.replace(/[^0-9.]/g, '') })}
+                          disabled={r.locked}
+                          className={`${field} ${mode === 'dollars' ? 'w-24' : 'w-14'} text-right font-mono ${
+                            r.locked ? 'bg-[#F0FDF4] border-[#A7F3D0] text-[#6B7280]' : ''
+                          }`}
+                        />
+                        <span className="text-[11px] text-[#9CA3AF] w-3">{mode === 'dollars' ? '' : '%'}</span>
+                      </>
+                    )}
                     <span
                       title={!r.locked && (r.floor || 0) > 0.005 ? `${money(r.floor || 0)} already in — can't go below` : undefined}
                       className={`text-[12px] font-mono tabular-nums w-20 text-right ${
@@ -335,7 +467,7 @@ export default function DefineDrawsModal({
                               : 'text-[#374151]'
                       }`}
                     >
-                      {money(amounts[i] ?? 0)}
+                      {mode === 'dollars' ? `${pctOf(r, i).toFixed(1)}%` : money(amounts[i] ?? 0)}
                     </span>
                     {/* ⛔ PAID ROWS CANNOT BE REMOVED. Deleting one orphans the
                         payment that settled it, and the allocation can't be
@@ -361,15 +493,27 @@ export default function DefineDrawsModal({
                   + Add a draw
                 </button>
                 {/* ⛔ THE GATE, STATED IN BOTH UNITS. A schedule that doesn't
-                    total 100% is money that never gets billed. */}
+                    total the contract is money that never gets tracked. */}
                 <div
                   className={`text-[12px] font-mono tabular-nums ${
                     balanced ? 'text-[#059669]' : 'text-[#B91C1C]'
                   }`}
                 >
-                  {sum.toFixed(sum % 1 === 0 ? 0 : 2)}% ·{' '}
-                  {money(amounts.reduce((a, b) => a + b, 0))}
-                  {!balanced && <span className="ml-1">— must be 100%</span>}
+                  {mode === 'dollars' ? (
+                    <>
+                      {money(totalDollars)} of {money(contractTotal)}
+                      {Math.abs(leftDollars) >= 0.5 && (
+                        <span className="ml-1">
+                          · {money(Math.abs(leftDollars))} {leftDollars > 0 ? 'left' : 'over'}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {sum.toFixed(sum % 1 === 0 ? 0 : 2)}% · {money(totalDollars)}
+                      {!balanced && <span className="ml-1">— must be 100%</span>}
+                    </>
+                  )}
                 </div>
               </div>
               {underFloor.length > 0 && (

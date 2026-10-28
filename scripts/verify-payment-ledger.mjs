@@ -130,6 +130,30 @@ checkAddsUp('single draw', r)
 r = reconcileProject(SCHEDULE, [], 0)
 ck('no contract recorded: the stored schedule is the forecast', r.draws.map((d) => d.scheduled), [50000, 25000, 25000])
 
+// ── PINNED draws (123): typed in dollars, never re-spread ──────────────────
+const pinned = (id, amount) => ({ ...draw(id, amount), pinned: true })
+// Leonard Lobby Bar Ph 1 ($172,563), typed in dollars with exactly $17,256
+// retainage (Andrew's verify case, 2026-10-28).
+const LEO = [pinned('Deposit', 51769), draw('Production', 60000), draw('Install', 43538), pinned('Retainage', 17256)]
+r = reconcileProject(LEO, [], 172563)
+ck('Leonard: a dollar schedule foots', r.draws.reduce((s, d) => s + d.scheduled, 0), 172563)
+ck('Leonard: retainage is exactly $17,256', r.draws[3].scheduled, 17256)
+r = reconcileProject(LEO, [pay(51769)], 172563)
+ck('after the deposit: retainage DOESN\'T move', r.draws[3].scheduled, 17256)
+ck('after the deposit: the unpinned draws absorb the rest', r.draws[1].scheduled + r.draws[2].scheduled, 103538)
+checkAddsUp('Leonard after deposit', r)
+r = reconcileProject(LEO, [pay(51769)], 182563)
+ck('a +$10k CO: retainage still $17,256', r.draws[3].scheduled, 17256)
+ck('a +$10k CO: the unpinned draws carry it', r.draws[1].scheduled + r.draws[2].scheduled, 113538)
+checkAddsUp('Leonard after a CO', r)
+// Every open draw pinned and they don't foot → the gap is DRIFT, never a move.
+r = reconcileProject([pinned('a', 6000), pinned('b', 3000)], [], 10000)
+ck('all pinned + short: nothing moves', r.draws.map((d) => d.scheduled), [6000, 3000])
+ck('all pinned + short: drift says so (negative)', r.drift, -1000)
+r = reconcileProject([pinned('a', 6000), draw('b', 3000)], [], 5000)
+ck('pinned exceeds what is owed: the unpinned draw goes to zero', r.draws[1].scheduled, 0)
+ck('…and the overage is drift, not a moved pin', [r.draws[0].scheduled, r.drift], [6000, 1000])
+
 // ── Fuzz: the invariant must hold for anything ─────────────────────────────
 // Deterministic pseudo-random (no Math.random — reproducible failures).
 let seed = 12345

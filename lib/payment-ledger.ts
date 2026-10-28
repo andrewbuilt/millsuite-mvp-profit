@@ -222,9 +222,16 @@ export function reconcileProject(
   for (let i = 0; i < settled; i++) out[i].scheduled = out[i].covered
 
   // ── 2. The rest of the contract spreads over the open draws ──
+  // ⛔ PINNED draws (123 — typed in DOLLARS) keep their amount: the spread
+  // goes over the UNPINNED open draws only. If none is left to absorb, the
+  // gap stays visible as drift — a hand-set number is never quietly moved.
   const contract = contractTotal > 0 ? contractTotal : storedSum
-  const remaining = round2(Math.max(0, contract - received))
-  const open = out.slice(settled)
+  const remainingAll = round2(Math.max(0, contract - received))
+  const openAll = out.slice(settled)
+  const pinnedOpen = openAll.filter((d) => d.row.pinned)
+  for (const d of pinnedOpen) d.scheduled = d.stored
+  const remaining = round2(Math.max(0, remainingAll - pinnedOpen.reduce((s, d) => s + d.stored, 0)))
+  const open = openAll.filter((d) => !d.row.pinned)
   if (open.length > 0) {
     const weights = open.map((d) => Math.max(0, d.stored))
     const wSum = weights.reduce((a, b) => a + b, 0)
@@ -237,7 +244,7 @@ export function reconcileProject(
     open.forEach((d, i) => {
       d.scheduled = shares[i] / 100
     })
-  } else if (remaining > EPS) {
+  } else if (remaining > EPS && pinnedOpen.length === 0) {
     // Every draw is settled and money is still owed: the last draw carries it.
     const last = out[out.length - 1]
     last.scheduled = round2(last.covered + remaining)

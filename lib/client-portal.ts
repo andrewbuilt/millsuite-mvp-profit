@@ -975,7 +975,7 @@ async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalP
   // this page shows exactly what the board and the project panel show.
   const { data: ms } = await supabaseAdmin
     .from('cash_flow_receivables')
-    .select('milestone_label, amount, status, expected_date, received_date, notes, created_at')
+    .select('milestone_label, amount, amount_pinned, status, expected_date, received_date, notes, created_at')
     .eq('project_id', p.id)
     .eq('type', 'receivable')
     .order('created_at', { ascending: true })
@@ -989,6 +989,7 @@ async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalP
           received_date: string | null
           notes: string | null
           created_at: string | null
+          amount_pinned?: boolean | null
         }[]
       | null) || []
   ).filter((m) => m.status !== 'cancelled')
@@ -1024,6 +1025,7 @@ async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalP
         stage: 'sold' as const,
         label: m.milestone_label || 'Milestone',
         amount: Number(m.amount) || 0,
+        pinned: !!m.amount_pinned,
         status: (m.status as 'projected' | 'invoiced' | 'received') || 'projected',
         expectedDate: m.expected_date,
         receivedDate: m.received_date,

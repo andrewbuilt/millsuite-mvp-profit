@@ -71,6 +71,9 @@ export interface ProjectMilestone {
    *  buckets by each separately — see lib/payments. */
   received_date: string | null
   sort_order: number
+  /** 123 — typed in DOLLARS: `amount` is exact and the settle-and-spread
+   *  skips it. Absent/false = a percentage of the contract. */
+  pinned?: boolean
 }
 
 interface Raw {
@@ -85,6 +88,7 @@ interface Raw {
   received_date: string | null
   created_at: string
   notes: string | null
+  amount_pinned?: boolean | null
 }
 
 function rowToMilestone(r: Raw, idx: number): ProjectMilestone {
@@ -98,6 +102,7 @@ function rowToMilestone(r: Raw, idx: number): ProjectMilestone {
     status: (r.status as ProjectMilestone['status']) || 'projected',
     expected_date: r.expected_date,
     received_date: r.received_date ?? null,
+    pinned: !!r.amount_pinned,
     // sort_order is encoded in notes until we add a column; fallback to idx.
     sort_order: Number(r.notes?.match(/order:(\d+)/)?.[1] ?? idx),
   }
@@ -106,7 +111,7 @@ function rowToMilestone(r: Raw, idx: number): ProjectMilestone {
 export async function loadMilestones(projectId: string): Promise<ProjectMilestone[]> {
   const { data, error } = await supabase
     .from('cash_flow_receivables')
-    .select('id, project_id, milestone_label, milestone_pct, milestone_trigger, amount, status, expected_date, received_date, created_at, notes')
+    .select('id, project_id, milestone_label, milestone_pct, milestone_trigger, amount, amount_pinned, status, expected_date, received_date, created_at, notes')
     .eq('project_id', projectId)
     .eq('type', 'receivable')
     .order('created_at', { ascending: true })
@@ -155,6 +160,9 @@ export async function saveMilestones(input: {
     Pick<ProjectMilestone, 'label' | 'pct' | 'trigger' | 'expected_date'> & {
       /** ⛔ REQUIRED so this can re-insert ONLY what it deleted. See below. */
       status?: ProjectMilestone['status']
+      /** 123 — typed in DOLLARS: `amount` is written exactly and pinned. */
+      pinned?: boolean
+      amount?: number
     }
   >
 }): Promise<boolean> {
@@ -267,8 +275,18 @@ export async function saveMilestones(input: {
   //
   // `allocateRounded` is the largest-remainder split that already exists for
   // this, and it guarantees the parts sum to the whole.
-  const exactAmounts = insertable.map(({ m }) => (input.project_total * m.pct) / 100)
-  const allocated = allocateRounded(exactAmounts, input.project_total)
+  //
+  // ⛔ PINNED rows (123, typed in dollars) are written EXACTLY; only what's
+  // left of the contract is allocated over the percentage rows.
+  const pinnedSum = insertable.reduce((s, { m }) => s + (m.pinned ? Number(m.amount) || 0 : 0), 0)
+  const pctRows = insertable.filter(({ m }) => !m.pinned)
+  const exactAmounts = pctRows.map(({ m }) => (input.project_total * m.pct) / 100)
+  const exactSum = exactAmounts.reduce((a, b) => a + b, 0)
+  const pctTarget = Math.max(0, input.project_total - pinnedSum)
+  const scaled = exactSum > 0 ? exactAmounts.map((v) => (v * pctTarget) / exactSum) : exactAmounts
+  const pctAllocated = allocateRounded(scaled, pctTarget)
+  let k = 0
+  const allocated = insertable.map(({ m }) => (m.pinned ? Number(m.amount) || 0 : pctAllocated[k++]))
 
   const rows = insertable.map(({ m, i }, idx) => ({
     org_id: input.org_id,
@@ -279,6 +297,7 @@ export async function saveMilestones(input: {
     milestone_pct: m.pct,
     milestone_trigger: m.trigger,
     amount: allocated[idx],
+    amount_pinned: !!m.pinned,
     status: 'projected' as const,
     expected_date: m.expected_date,
     notes: `order:${i}`,

@@ -56,6 +56,8 @@ export interface PaymentRow {
   expectedDate: string | null
   /** Bare 'YYYY-MM-DD' or null. */
   receivedDate: string | null
+  /** 123 — typed in dollars; the settle-and-spread skips it. Absent = false. */
+  pinned?: boolean
   /** Position in the AUTHORED schedule (deposit → … → final).
    *  ⛔ THE WATERFALL ORDERS BY THIS, NEVER BY `expectedDate`. See
    *  `reconcileAll`. Encoded as `order:N` in the row's `notes` (093). */

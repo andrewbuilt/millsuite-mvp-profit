@@ -195,6 +195,15 @@ export function ProjectPaymentLedger({
                   This project has no contract value, so these draws can&apos;t be checked against
                   anything. Set the project total to see whether the schedule adds up.
                 </div>
+              ) : Math.abs(recon.drift) >= DRIFT_EPS ? (
+                // Only possible with draws typed in DOLLARS (123): those are
+                // never re-spread, so a gap stays visible instead of moving them.
+                <div className="px-2.5 py-1.5 bg-[#FFFBEB] text-[10.5px] text-[#92400E] leading-snug">
+                  {recon.drift > 0
+                    ? `Draws total ${money(recon.drift)} MORE than the contract.`
+                    : `Draws total ${money(-recon.drift)} LESS than the contract.`}{' '}
+                  Draws typed in dollars aren&apos;t re-spread — adjust them in Edit draws.
+                </div>
               ) : null}
             </div>
           )}

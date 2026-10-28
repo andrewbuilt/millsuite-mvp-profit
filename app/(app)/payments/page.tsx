@@ -331,11 +331,14 @@ export default function PaymentsPage() {
           lockedAmount: d.scheduled,
           floor: d.covered,
           shownAmount: d.scheduled,
+          // 123 — a draw typed in dollars stays pinned through the edit.
+          pinned: !!d.row.pinned,
+          dollars: String(d.scheduled),
         }))
       // Percentages are 2-decimal roundings of real dollars and can sum to
       // 99.99 — which would make the modal say "must be 100%" before anyone
       // touched it. The last open draw absorbs the rounding.
-      const lastOpen = [...drafts].reverse().find((r) => !r.locked)
+      const lastOpen = [...drafts].reverse().find((r) => !r.locked && !r.pinned)
       if (lastOpen && contract > 0) {
         const others = drafts.filter((r) => r !== lastOpen).reduce((s, r) => s + (Number(r.pct) || 0), 0)
         lastOpen.pct = String(Math.round((100 - others) * 100) / 100)
@@ -549,10 +552,15 @@ export default function PaymentsPage() {
                   <div className="px-4 py-2.5 bg-[#FFFBEB] border-b border-[#FDE68A] flex items-center gap-2 flex-wrap">
                     <AlertTriangle className="w-3.5 h-3.5 text-[#92400E]" />
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-[#92400E]">
-                      No contract value · {drifting.length}
+                      {drifting.every((d) => !d.contractKnown)
+                        ? 'No contract value'
+                        : "Schedule doesn't match the contract"}{' '}
+                      · {drifting.length}
                     </span>
                     <span className="text-[11px] text-[#B45309]">
-                      these schedules can&apos;t be checked against anything — set the project total
+                      {drifting.every((d) => !d.contractKnown)
+                        ? "these schedules can't be checked against anything — set the project total"
+                        : 'draws typed in dollars are never re-spread — fix them in Edit draws'}
                     </span>
                   </div>
                   <div className="p-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5">
@@ -589,8 +597,8 @@ export default function PaymentsPage() {
                         >
                           {d.contractKnown
                             ? d.drift > 0
-                              ? `Draws total ${money(d.drift)} MORE than the contract — the final draw absorbs −${money(d.drift)}`
-                              : `Draws total ${money(-d.drift)} LESS than the contract — the final draw absorbs +${money(-d.drift)}`
+                              ? `Draws total ${money(d.drift)} MORE than the contract`
+                              : `Draws total ${money(-d.drift)} LESS than the contract`
                             : '—'}
                         </div>
                       </Link>
