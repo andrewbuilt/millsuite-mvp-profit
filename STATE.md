@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-10-28 · **Branch:** `main`
 
-**Left off (2026-10-28):** $ / % TOGGLE + PINNED DRAWS BUILT (`fac9985`), **held unpushed until Andrew runs migration 123.** Then verify-migration → push → the Leonard live check.
+**Left off (2026-10-28):** $ / % TOGGLE + PINNED DRAWS BUILT + PUSHED (`fac9985`); **migration `123` ✅ on prod and verified** (column live; all 114 existing draws unpinned, so nothing moved). Next: Andrew's Leonard live check (CURRENT FOCUS).
 
 **Earlier (2026-10-27):** PAYMENTS SIMPLIFIED on Andrew's Oliveira look (`3239cf0`, pushed): a payment settles the next draw at what was paid, the rest of the contract spreads over the open draws — no waterfall, no partials, no drift for known contracts. Oliveira reads Deposit $17,000 paid · $11,357 · $19,172. Next: Andrew renames Oliveira's 2nd "Deposit" (e.g. "Final") in Edit draws → the rest of the 10-26 verify list.
 
@@ -26,7 +26,7 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
-**✅ 2026-10-28: $ / % TOGGLE IN THE DRAW EDITORS — BUILT (`fac9985`), tsc + `next build` clean, ⛔ NOT PUSHED: migration `123` must run on prod FIRST** (the draw loaders — board, project panel, portal, milestone builder — now select `amount_pinned`; without the column those reads fail).
+**✅ 2026-10-28: $ / % TOGGLE IN THE DRAW EDITORS — BUILT + PUSHED (`fac9985`), tsc + `next build` clean; migration `123` ✅ on prod and verified 2026-10-28 (114 draws, 0 pinned).**
 - **Both editors** (the payments-board set-up / Edit draws modal AND the project page's milestone builder) have a **Percent | Dollars** toggle, remembered per device (separate keys).
 - **Dollars mode:** typed amounts are exact. The footer reads "$X of $CONTRACT · $Z left/over", Save is gated on footing to the dollar, and a one-click "+$Z" on a row puts the remainder there. Percentages show as derived.
 - **⛔ Pinned (migration `123`, `cash_flow_receivables.amount_pinned`):** a row typed in dollars is pinned.
@@ -34,7 +34,6 @@
   - **Nothing left to absorb:** if every open draw is pinned and they don't foot, it's directional drift ("Draws total $X MORE/LESS than the contract — draws typed in dollars aren't re-spread"), on the board banner (titled "Schedule doesn't match the contract" when any known-contract drift exists) AND the project panel. A hand-set number never moves silently. Paid-locked rows are unchanged.
 - **Percent mode:** a pinned row shows "fixed $ · unpin" (its % derived). Presets seed percent mode. `saveMilestones` writes pinned amounts exactly and allocates only the rest by %; `updateDrawSchedule` / `createDrawSchedule` write the pin.
 - **Proof:** `verify-payment-ledger` 71 (+12 pinned: Leonard $172,563 typed in dollars with exactly $17,256 retainage foots; after the deposit and after a +$10k CO the retainage doesn't move and the unpinned draws absorb; all-pinned short → drift, nothing moves). Board 51, drift 19, co-draw 15, co-docs 84.
-- **Next:** Andrew runs **123** → `node --env-file=.env.local scripts/verify-migration.mjs cash_flow_receivables:amount_pinned` → push.
 - ⚠️ **Verify owed (Andrew, live):** type Leonard's schedule in dollars incl. $17,256 retainage → foots · record a payment → pinned rows DON'T move, unpinned absorb · flip the toggle → sane %s · reopen → mode remembered.
 
 
