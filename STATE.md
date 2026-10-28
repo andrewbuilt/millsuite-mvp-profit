@@ -24,6 +24,14 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
+**NEW 2026-10-28 (Andrew): $ / % TOGGLE IN THE DRAW EDITORS — scoped, small-but-subtle. Build next.**
+Both the Edit-draws modal and the set-up/Start-empty composer get a **Percent | Dollars toggle** (per-modal, remembered): it flips which column is the INPUT, the other displays derived. Retainage is the real case — people think "$17,256 retainage", not "10%".
+- **$ mode:** typed amounts are EXACT and AUTHORITATIVE — footer reads "Σ $X of $CONTRACT · $Z left", Save disabled until it foots, one-click "absorb remainder" on a row. Derived %s are display-only.
+- **⛔ The subtlety — $ amounts must be STICKY under the new settle-and-spread rule (`3239cf0`):** the re-spread (after a payment, or a CO moving bid_total) currently re-derives every OPEN draw. A row typed in $ mode gets **`amount_pinned`**; spreads redistribute ONLY over unpinned open rows. All open rows pinned + total mismatch → the directional drift notice (never silent re-spread of a hand-set amount). Paid-locked rows unchanged.
+- Presets keep seeding % mode; small migration if `amount_pinned` needs a column (likely yes — next number).
+- Verify: type Leonard's schedule in dollars incl. exactly $17,256 retainage → foots; record a payment → pinned rows DON'T move, unpinned absorb; flip toggle → sane %s; reopen → mode remembered.
+
+
 **✅ 2026-10-26: PAYMENTS CLEANUP · CO→QB · APPROVAL CALLOUTS — ALL BUILT + PUSHED, tsc + `next build` clean; migration `122` ✅ on prod and verified 2026-10-26.** Commits: `5c66703` 1a · `cd8af3d` 1b–1f · `ff49018` 2 · `853b1f5` 3.
 **1f. Oliveira's duplicate "Deposit" — TRACED (read-only, prod).** The 2nd "Deposit" ($12,123, order:2, no CO link) was created 09-23 15:47, ~2 h after the sale (13:49) and the $17,000 payment (13:50). Deposit $15,529 + kickoff $7,765 + $12,123 = **$35,417 = the contract that day** ($47,529 − CO-01 $8,638 − CO-03 $3,474, both added later). So it was an **Edit draws** save filling the rest of the contract. It isn't from `saveMilestones` (that re-inserts every row; the 09-16 rows kept their timestamps) or a CO path (those are labelled "CO-0N"). The cause: in edit mode a **preset keeps the paid rows and appends its own, starting with "Deposit"**. The money is right, only the label is wrong. **Fixed:** presets skip labels a kept row already has · duplicate labels warn in Edit draws · every schedule save writes a `draw_schedule_edited` event (nothing recorded edits before, which is why this took an investigation). ⚠️ **Andrew: rename Oliveira's 2nd "Deposit" (e.g. "Final") in Edit draws** — the new warning will point at it.
 **1a–1e — ⛔ REPLACED 2026-10-27 by a simpler model (`3239cf0`), on Andrew's look at Oliveira:** "the payment was $17000. the deposit should say $17000 and be locked and the remainder should adjust. we're not using millsuite to bill we just need this to track projected cash flow. this doesn't need to be so complicated."
