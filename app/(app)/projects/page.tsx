@@ -1,35 +1,45 @@
 'use client'
 
 // ============================================================================
-// /projects — post-sold projects dashboard
+// /projects — post-sold projects KANBAN (2026-10-29, Andrew)
 // ============================================================================
-// Shop-facing dashboard for everything that's been sold and is moving through
-// production. Pre-sold bids (new_lead / fifty_fifty / ninety_percent) and lost
-// jobs stay on /sales + /sales/kanban; this page is the post-sold view the
-// top-nav "Projects" click lands on.
+// One board language across the site: same column + card shells as the sales
+// kanban (components/kanban), header count + $ sum per column. The old card
+// grid, the VALUE / EST HOURS / TRACKED HOURS boxes and the filter buttons are
+// gone — the columns replace them. Search stays.
 //
-// Five lifecycle buckets, derived (no new stage):
-//   Pre-production       = sold AND not ready for production
-//   Ready for production = sold AND ready (all subs approved + deposit in)
-//   In production        = production
-//   Installed            = installed
-//   Complete             = complete
+// Columns (derived — no new stage):
+//   Brand-new sale = sold within 7 days AND no approval activity yet
+//   Pre-production = sold otherwise (a READY job keeps its green Ready chip)
+//   Production / Installed / Complete = the stage, 1:1
+// Brand-new graduates to Pre-production at 7 days or on the first approval
+// activity, whichever comes first (judgment call, veto-able). A null sold_at
+// (imported / pre-094) is never "brand new" — unknown isn't recent.
 //
-// Each project is enriched ONCE on load — estimated hours (lib/project-hours),
-// tracked hours (lib/actual-hours), and (for sold projects) subproject
-// readiness + the deposit signal (lib/subproject-status + lib/project-stage).
-// The filter, search, and the three summary metrics then recompute purely from
-// the in-memory maps — no refetch on interaction.
+// DRAG RESPECTS THE REAL GATES:
+//   · Brand-new / Pre-production aren't drop targets (they're derived).
+//   · → Production only through lib/project-stage.startProduction (the sole
+//     writer; it re-checks readiness). An unready drag bounces with WHY.
+//   · Production → Installed → Complete: one step forward at a time, via
+//     updateProjectStage — the same writer as the project page's buttons.
+//
+// Every column is NEWEST AT TOP, keyed on the attention clock (lib/attention):
+// pre-production by its clock start (sold / last touch), the rest by when the
+// card entered its column. With the rings, a column darkens downward.
+// Rings: pre-production wears the age ring; production the FILL ring
+// (tracked ÷ estimated hours); installed / complete none. Temp and archived
+// projects stay off the board.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { Search, X } from 'lucide-react'
+import { Search, X, ArrowRight, Archive, Handshake } from 'lucide-react'
 import { type ProjectStage } from '@/lib/types'
 import { loadSubprojectStatusMap } from '@/lib/subproject-status'
-import { isDepositReceived } from '@/lib/project-stage'
+import { isDepositReceived, startProduction } from '@/lib/project-stage'
+import { updateProjectStage } from '@/lib/sales'
 import { soldAgoLabel } from '@/lib/project-events'
 import { STAGE_COLORS } from '@/components/project/StagePill'
 import { loadProjectDeptHours } from '@/lib/project-hours'
@@ -37,10 +47,16 @@ import { loadProjectActuals } from '@/lib/actual-hours'
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
-import { useTempProjects } from '@/hooks/useTempProjects'
 import TempProjectModal from '@/components/projects/TempProjectModal'
+import { loadTempProjectIds } from '@/lib/temp-projects'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
 import { canArchive, confirmAndArchive, loadArchivedProjectIds } from '@/lib/project-archive'
+import { announce } from '@/lib/tour-events'
+import KanbanColumn from '@/components/kanban/KanbanColumn'
+import KanbanCard from '@/components/kanban/KanbanCard'
+import TouchedBaseModal from '@/components/kanban/TouchedBaseModal'
+import { ageAttention, fillAttention, newestFirst, type Attention } from '@/lib/attention'
+import { loadProjectTouches, type ProjectTouches } from '@/lib/attention-data'
 
 interface ProjectRow {
   id: string
@@ -57,61 +73,31 @@ interface ProjectRow {
   sold_at?: string | null
 }
 
-// Derived lifecycle bucket. 'pre' / 'ready' both map to the 'sold' stage.
-type Bucket = 'pre' | 'ready' | 'production' | 'installed' | 'complete'
-type Filter = 'all' | Bucket
+type Column = 'new' | 'pre' | 'production' | 'installed' | 'complete'
+
+const COLUMNS: { key: Column; label: string; hint: string }[] = [
+  { key: 'new', label: 'Brand-new sale', hint: 'Sold this week' },
+  { key: 'pre', label: 'Pre-production', hint: 'Approvals + deposit' },
+  { key: 'production', label: 'Production', hint: 'In the shop' },
+  { key: 'installed', label: 'Installed', hint: 'On site, wrapping up' },
+  { key: 'complete', label: 'Complete', hint: 'Delivered' },
+]
+const ORDER: Column[] = COLUMNS.map((c) => c.key)
 
 interface Enriched {
-  bucket: Bucket
   estHours: number
   trackedHours: number
   readySubs: number
   totalSubs: number
+  depositIn: boolean
+  /** Sold job that clears every production gate. */
+  ready: boolean
+  /** Any approval card past 'pending' — graduates a brand-new sale. */
+  approvalActivity: boolean
 }
 
 const POSTSOLD: ProjectStage[] = ['sold', 'production', 'installed', 'complete']
-
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'pre', label: 'Pre-production' },
-  { key: 'ready', label: 'Ready for production' },
-  { key: 'production', label: 'In production' },
-  { key: 'installed', label: 'Installed' },
-  { key: 'complete', label: 'Complete' },
-]
-
-/** Bucket → the shared colour key. `pre` IS the 'sold' cover stage; `ready` is
- *  this page's own derived state (sold + approvals) and has no cover-stage
- *  equivalent, which is why the map has an entry for it. */
-const BUCKET_COLOR_KEY: Record<Bucket, keyof typeof STAGE_COLORS> = {
-  pre: 'sold',
-  ready: 'ready',
-  production: 'production',
-  installed: 'installed',
-  complete: 'complete',
-}
-
-/** Labels stay here — this page says "Pre-production" where the cover pill
- *  says "Pre-Production", and it has a Ready state the cover stages don't.
- *  ⛔ COLOURS DO NOT: they come from STAGE_COLORS so the kanban, this page and
- *  the project cover can't drift again. */
-const BUCKET_LABEL: Record<Bucket, string> = {
-  pre: 'Pre-production',
-  ready: 'Ready',
-  production: 'In production',
-  installed: 'Installed',
-  complete: 'Complete',
-}
-
-const BUCKET_PILL: Record<
-  Bucket,
-  { label: string; bg: string; fg: string; border: string }
-> = Object.fromEntries(
-  (Object.keys(BUCKET_LABEL) as Bucket[]).map((b) => [
-    b,
-    { label: BUCKET_LABEL[b], ...STAGE_COLORS[BUCKET_COLOR_KEY[b]] },
-  ]),
-) as Record<Bucket, { label: string; bg: string; fg: string; border: string }>
+const WEEK_MS = 7 * 86400000
 
 function fmtMoney(n: number): string {
   if (!n) return '$0'
@@ -120,6 +106,25 @@ function fmtMoney(n: number): string {
 
 function fmtHours(n: number): string {
   return `${Math.round(n).toLocaleString()}h`
+}
+
+function columnOf(p: ProjectRow, e: Enriched | undefined, now: number): Column {
+  if (p.stage !== 'sold') return p.stage as Column
+  const sold = p.sold_at ? new Date(p.sold_at).getTime() : NaN
+  const fresh = Number.isFinite(sold) && now - sold < WEEK_MS
+  return fresh && !e?.approvalActivity ? 'new' : 'pre'
+}
+
+/** Why an unready job can't go to production, in the shop's words. */
+function notReadyReason(e: Enriched | undefined): string {
+  if (!e) return 'Still checking this job — try again in a moment.'
+  const parts: string[] = []
+  if (e.totalSubs === 0) parts.push('it has no subprojects yet')
+  else if (e.readySubs < e.totalSubs) parts.push(`${e.readySubs} of ${e.totalSubs} subprojects are approved`)
+  if (!e.depositIn) parts.push('the deposit isn’t recorded')
+  return parts.length
+    ? `Not ready for production: ${parts.join(' and ')}. Finish pre-production on the project page.`
+    : 'Not ready for production yet — check approvals and deposit on the project page.'
 }
 
 // Small inline debounce so a search keystroke doesn't refilter on every char.
@@ -136,17 +141,26 @@ export default function ProjectsPage() {
   const router = useRouter()
   const { org, user } = useAuth()
   const practiceIds = usePracticeProjects(org?.id)
-  const tempIds = useTempProjects(org?.id)
   const [tempOpen, setTempOpen] = useState(false)
 
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [enriched, setEnriched] = useState<Record<string, Enriched>>({})
+  const [touches, setTouches] = useState<Record<string, ProjectTouches>>({})
   const [coOpen, setCoOpen] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
 
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebounced(query, 150)
-  const [filter, setFilter] = useState<Filter>('all')
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState<Column | null>(null)
+  const [touchFor, setTouchFor] = useState<ProjectRow | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!notice) return
+    const t = setTimeout(() => setNotice(null), 6000)
+    return () => clearTimeout(t)
+  }, [notice])
 
   useEffect(() => {
     if (!org?.id) return
@@ -154,8 +168,7 @@ export default function ProjectsPage() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const BASE_COLS =
-        'id, name, client_name, stage, bid_total, due_date, updated_at, imported_at'
+      const BASE_COLS = 'id, name, client_name, stage, bid_total, due_date, updated_at, imported_at'
       const load = (cols: string) =>
         supabase
           .from('projects')
@@ -165,21 +178,23 @@ export default function ProjectsPage() {
           .order('updated_at', { ascending: false })
 
       // ⛔ Retry without sold_at rather than assuming migration 094 has run.
-      // PostgREST fails the WHOLE select on one unknown column (42703), so
-      // asking for it unconditionally would leave /projects EMPTY if this
-      // deploys first — turning a missing "Sold 12d ago" line into a blank
-      // page. Same class of trap as subprojects.updated_at.
+      // PostgREST fails the WHOLE select on one unknown column (42703).
       let { data, error } = await load(`${BASE_COLS}, sold_at`)
       if (error && String((error as { code?: string } | null)?.code) === '42703') {
         console.warn('/projects: sold_at missing — run migration 094')
         ;({ data, error } = await load(BASE_COLS))
       }
-      // Archived projects (119) live on Manage → Archive, not here. Separate
-      // id set, never a column filter — see lib/project-archive.
-      const archived = await loadArchivedProjectIds(orgId)
-      const rows = ((data || []) as unknown as ProjectRow[]).filter((r) => !archived.has(r.id))
+      // Archived (119) and temp (117) projects stay off the board — separate
+      // id sets, never a column filter (see lib/project-archive).
+      const [archived, temp, t] = await Promise.all([
+        loadArchivedProjectIds(orgId),
+        loadTempProjectIds(orgId),
+        loadProjectTouches(orgId),
+      ])
+      const rows = ((data || []) as unknown as ProjectRow[]).filter((r) => !archived.has(r.id) && !temp.has(r.id))
       if (cancelled) return
       setProjects(rows)
+      setTouches(t)
 
       // Open change orders (draft / sent) per project — for the card badge.
       supabase
@@ -196,45 +211,47 @@ export default function ProjectsPage() {
           setCoOpen(counts)
         })
 
-      // Enrich each project once. Hours for all; readiness only for sold
-      // projects (the only ones that split into pre vs. ready). Per-project
-      // loads run in parallel — fine at beta scale; revisit with bulk queries
-      // if the post-sold list grows large.
+      // Enrich each project once. Hours for all; readiness + approval activity
+      // only for sold projects. Per-project loads run in parallel — fine at
+      // beta scale; revisit with bulk queries if the list grows large.
       const entries = await Promise.all(
         rows.map(async (p): Promise<[string, Enriched]> => {
-          const [hours, actuals] = await Promise.all([
-            loadProjectDeptHours(orgId, p.id),
-            loadProjectActuals(p.id),
-          ])
-          let bucket: Bucket
+          const [hours, actuals] = await Promise.all([loadProjectDeptHours(orgId, p.id), loadProjectActuals(p.id)])
           let readySubs = 0
           let totalSubs = 0
+          let depositIn = false
+          let approvalActivity = false
           if (p.stage === 'sold') {
-            const { data: subs } = await supabase
-              .from('subprojects')
-              .select('id')
-              .eq('project_id', p.id)
+            const { data: subs } = await supabase.from('subprojects').select('id').eq('project_id', p.id)
             const subIds = ((subs || []) as { id: string }[]).map((s) => s.id)
             totalSubs = subIds.length
-            const statusMap = await loadSubprojectStatusMap(subIds)
-            readySubs = subIds.filter(
-              (id) => statusMap[id]?.ready_for_scheduling === true,
-            ).length
-            const allReady = totalSubs > 0 && readySubs === totalSubs
-            const ready = allReady && (await isDepositReceived(p.id))
-            bucket = ready ? 'ready' : 'pre'
-          } else {
-            // production | installed | complete map 1:1 to a bucket.
-            bucket = p.stage as Bucket
+            const [statusMap, deposit, touched] = await Promise.all([
+              loadSubprojectStatusMap(subIds),
+              isDepositReceived(p.id),
+              subIds.length
+                ? supabase
+                    .from('approval_items')
+                    .select('id')
+                    .in('subproject_id', subIds)
+                    .is('dismissed_at', null) // 122
+                    .neq('state', 'pending')
+                    .limit(1)
+                : Promise.resolve({ data: [] as { id: string }[] }),
+            ])
+            readySubs = subIds.filter((id) => statusMap[id]?.ready_for_scheduling === true).length
+            depositIn = deposit
+            approvalActivity = ((touched.data || []) as unknown[]).length > 0
           }
           return [
             p.id,
             {
-              bucket,
               estHours: hours.totalHours,
               trackedHours: actuals.totalMinutes / 60,
               readySubs,
               totalSubs,
+              depositIn,
+              ready: totalSubs > 0 && readySubs === totalSubs && depositIn,
+              approvalActivity,
             },
           ]
         }),
@@ -248,113 +265,120 @@ export default function ProjectsPage() {
     }
   }, [org?.id])
 
-  // Filter (by bucket) + search (client + project name), client-side.
-  const visible = useMemo(() => {
-    // Shared with the sales kanban (lib/project-search) so both boxes agree on
-    // what counts as a match.
-    const q = normalizeQuery(debouncedQuery)
-    return projects.filter((p) => {
-      const e = enriched[p.id]
-      if (filter !== 'all' && (!e || e.bucket !== filter)) return false
-      return matchesProjectSearch(p, q)
-    })
-  }, [projects, enriched, filter, debouncedQuery])
-
-  // Summary metrics recompute over the visible (filtered + searched) set.
-  const metrics = useMemo(() => {
-    let value = 0
-    let est = 0
-    let tracked = 0
-    for (const p of visible) {
-      value += p.bid_total || 0
-      const e = enriched[p.id]
-      if (e) {
-        est += e.estHours
-        tracked += e.trackedHours
+  const attention = useMemo(() => {
+    const out: Record<string, Attention | null> = {}
+    const now = Date.now()
+    for (const p of projects) {
+      if (p.stage === 'sold') {
+        out[p.id] = ageAttention({ stage: p.stage, sold_at: p.sold_at, lastTouch: touches[p.id]?.touch }, now)
+      } else if (p.stage === 'production') {
+        const e = enriched[p.id]
+        out[p.id] = e ? fillAttention(e.estHours, e.trackedHours) : null
       }
     }
-    return { value, est, tracked }
-  }, [visible, enriched])
+    return out
+  }, [projects, enriched, touches])
 
-  // Counts per filter button (over the full loaded set, not the search).
-  const counts = useMemo(() => {
-    const c: Record<Filter, number> = {
-      all: projects.length,
-      pre: 0,
-      ready: 0,
-      production: 0,
-      installed: 0,
-      complete: 0,
-    }
+  // Search (client + project name, shared with the sales kanban) → columns →
+  // newest at top.
+  const columns = useMemo(() => {
+    const out: Record<Column, ProjectRow[]> = { new: [], pre: [], production: [], installed: [], complete: [] }
+    const q = normalizeQuery(debouncedQuery)
+    const now = Date.now()
     for (const p of projects) {
-      const e = enriched[p.id]
-      if (e) c[e.bucket] += 1
+      if (!matchesProjectSearch(p, q)) continue
+      out[columnOf(p, enriched[p.id], now)].push(p)
     }
-    return c
-  }, [projects, enriched])
+    const key = (p: ProjectRow): string | null => {
+      const a = attention[p.id]
+      if (p.stage === 'sold') return a && a.kind === 'age' ? a.since : p.sold_at ?? null
+      return touches[p.id]?.stageAt ?? p.updated_at
+    }
+    for (const c of ORDER) out[c].sort((a, b) => newestFirst(key(a), key(b)))
+    return out
+  }, [projects, enriched, debouncedQuery, attention, touches])
+
+  const matchCount = ORDER.reduce((n, c) => n + columns[c].length, 0)
+
+  async function handleDrop(target: Column) {
+    const project = projects.find((p) => p.id === dragId)
+    setDragId(null)
+    setDragOver(null)
+    if (!project) return
+    const from = columnOf(project, enriched[project.id], Date.now())
+    if (from === target) return
+    const fromIdx = ORDER.indexOf(from)
+    const toIdx = ORDER.indexOf(target)
+
+    if (target === 'production') {
+      if (from !== 'new' && from !== 'pre') {
+        setNotice('Stages only move forward from the board.')
+        return
+      }
+      const e = enriched[project.id]
+      if (!e?.ready) {
+        setNotice(notReadyReason(e))
+        return
+      }
+      // startProduction re-checks the gate itself — the board's enrichment
+      // could be stale, and it's the sole writer of sold → production.
+      const ok = await startProduction(project.id)
+      if (!ok) {
+        setNotice(notReadyReason(e))
+        return
+      }
+      const at = new Date().toISOString()
+      setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, stage: 'production' } : p)))
+      setTouches((prev) => ({ ...prev, [project.id]: { touch: { at, label: 'Production started' }, stageAt: at } }))
+      announce('ms:production-started')
+      setNotice(`${project.name} is in production — schedule allocations seeded.`)
+      return
+    }
+
+    if (toIdx < fromIdx) {
+      setNotice('Stages only move forward from the board.')
+      return
+    }
+    if (from === 'new' || from === 'pre') {
+      setNotice('Start production first — drag it into Production.')
+      return
+    }
+    if (toIdx !== fromIdx + 1) {
+      setNotice(`One step at a time — move it to ${COLUMNS[fromIdx + 1].label} first.`)
+      return
+    }
+    const stage = target as ProjectStage
+    const prevStage = project.stage
+    const at = new Date().toISOString()
+    setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, stage } : p)))
+    setTouches((prev) => ({ ...prev, [project.id]: { touch: { at, label: `Stage changed to ${stage}` }, stageAt: at } }))
+    try {
+      await updateProjectStage(project.id, stage)
+    } catch (err) {
+      console.error('updateProjectStage', err)
+      setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, stage: prevStage } : p)))
+      setNotice('Could not move it — try again.')
+    }
+  }
+
+  async function archive(p: ProjectRow) {
+    try {
+      if (await confirmAndArchive(p)) setProjects((prev) => prev.filter((x) => x.id !== p.id))
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not archive.')
+    }
+  }
 
   return (
     <div className="max-w-[1400px] mx-auto px-6 py-6">
-      <div className="mb-6">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h1 className="text-2xl font-semibold text-[#111]">Projects</h1>
-          {/* TEMP-PROJECT-BUTTON — temporary (October batch item 9): hours-only
-              jobs so the crew can track time on old work. Delete this button
-              (and the modal mount below) once the shop has cycled through the
-              old jobs; existing temp projects keep working without it. */}
-          {org?.id && user?.role !== 'member' && (
-            <button
-              onClick={() => setTempOpen(true)}
-              className="px-3 py-1.5 text-[13px] rounded-lg border border-dashed border-[#D1D5DB] text-[#4B5563] hover:border-[#2563EB] hover:text-[#2563EB]"
-            >
-              + Temp project
-            </button>
-          )}
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-[#111]">Projects</h1>
+          <p className="text-xs text-[#6B7280] mt-0.5">
+            Everything sold, newest at the top of each column. Drag a ready job into Production; click a card to open it.
+          </p>
         </div>
-        <p className="text-sm text-[#6B7280] mt-1">
-          Everything sold and moving through the shop — pre-production through
-          complete. Click any card to open the project.
-        </p>
-      </div>
-
-      {/* Summary metrics — recompute with the active filter + search */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-        <MetricCard label="Value" value={fmtMoney(metrics.value)} />
-        <MetricCard label="Estimated hours" value={fmtHours(metrics.est)} />
-        <MetricCard label="Tracked hours" value={fmtHours(metrics.tracked)} />
-      </div>
-
-      {/* Filter buttons + search */}
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div className="flex flex-wrap gap-1.5">
-          {FILTERS.map((f) => {
-            const active = filter === f.key
-            return (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className={
-                  'inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-lg border transition-colors ' +
-                  (active
-                    ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                    : 'bg-white text-[#374151] border-[#E5E7EB] hover:border-[#9CA3AF]')
-                }
-              >
-                {f.label}
-                <span
-                  className={
-                    'text-[11px] font-mono ' +
-                    (active ? 'text-white/80' : 'text-[#9CA3AF]')
-                  }
-                >
-                  {counts[f.key]}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="relative flex-1 min-w-[220px] max-w-[360px] ml-auto">
+        <div className="relative flex-1 min-w-[200px] max-w-[320px] ml-auto">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
           <input
             type="text"
@@ -373,45 +397,94 @@ export default function ProjectsPage() {
             </button>
           )}
         </div>
+        {/* TEMP-PROJECT-BUTTON — temporary (October batch item 9): hours-only
+            jobs so the crew can track time on old work. Delete this button
+            (and the modal mount below) once the shop has cycled through the
+            old jobs; existing temp projects keep working without it. */}
+        {org?.id && user?.role !== 'member' && (
+          <button
+            onClick={() => setTempOpen(true)}
+            className="px-3 py-2 text-[13px] rounded-lg border border-dashed border-[#D1D5DB] text-[#4B5563] hover:border-[#2563EB] hover:text-[#2563EB] whitespace-nowrap"
+          >
+            + Temp project
+          </button>
+        )}
       </div>
 
+      {query && matchCount === 0 && !loading && (
+        <div className="mb-3 text-sm text-[#6B7280]">No projects match “{query}”.</div>
+      )}
+
       {loading ? (
-        <div className="text-sm text-[#9CA3AF]">Loading projects…</div>
-      ) : projects.length === 0 ? (
-        <div className="text-sm text-[#9CA3AF]">
-          No sold projects yet. Mark a bid as sold on the Sales dashboard to
-          start one.
-        </div>
-      ) : visible.length === 0 ? (
-        <div className="text-sm text-[#9CA3AF] text-center py-12">
-          No projects match the current filter or search.
-        </div>
+        <div className="text-sm text-[#9CA3AF] py-16 text-center">Loading projects…</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {visible.map((p) => (
-            <ProjectCard
-              key={p.id}
-              project={p}
-              isPractice={practiceIds.has(p.id)}
-              isTemp={tempIds.has(p.id)}
-              enriched={enriched[p.id]}
-              openCos={coOpen[p.id] || 0}
-              onOpen={() => router.push(`/projects/${p.id}`)}
-              onArchive={
-                canArchive(p.stage)
-                  ? async () => {
-                      try {
-                        if (await confirmAndArchive(p)) setProjects((prev) => prev.filter((x) => x.id !== p.id))
-                      } catch (err) {
-                        window.alert(err instanceof Error ? err.message : 'Could not archive.')
-                      }
-                    }
-                  : undefined
-              }
-            />
-          ))}
+        <div className="grid grid-cols-5 gap-3">
+          {COLUMNS.map((c) => {
+            const cards = columns[c.key]
+            const derived = c.key === 'new' || c.key === 'pre'
+            return (
+              <KanbanColumn
+                key={c.key}
+                title={c.label}
+                count={cards.length}
+                sum={cards.reduce((s, p) => s + (p.bid_total || 0), 0)}
+                hint={c.hint}
+                droppable={!derived}
+                emptyText={derived ? 'Nothing here' : 'Drop here'}
+                isOver={dragOver === c.key}
+                onDragOver={() => setDragOver(c.key)}
+                onDragLeave={() => setDragOver((s) => (s === c.key ? null : s))}
+                onDrop={() => handleDrop(c.key)}
+              >
+                {cards.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    column={c.key}
+                    attention={attention[p.id] ?? null}
+                    isPractice={practiceIds.has(p.id)}
+                    enriched={enriched[p.id]}
+                    openCos={coOpen[p.id] || 0}
+                    onOpen={() => router.push(`/projects/${p.id}`)}
+                    onTouchedBase={() => setTouchFor(p)}
+                    onArchive={() => archive(p)}
+                    onDragStart={() => setDragId(p.id)}
+                    onDragEnd={() => {
+                      setDragId(null)
+                      setDragOver(null)
+                    }}
+                    isDragging={dragId === p.id}
+                  />
+                ))}
+              </KanbanColumn>
+            )
+          })}
         </div>
       )}
+
+      {notice && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-lg bg-[#111] text-white text-sm px-4 py-2.5 rounded-lg shadow-lg flex items-start gap-3">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss" className="text-white/60 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {touchFor && org?.id && (
+        <TouchedBaseModal
+          orgId={org.id}
+          userId={user?.id}
+          project={touchFor}
+          onClose={() => setTouchFor(null)}
+          onDone={(touch) => {
+            const id = touchFor.id
+            setTouchFor(null)
+            setTouches((prev) => ({ ...prev, [id]: { touch, stageAt: prev[id]?.stageAt ?? null } }))
+          }}
+        />
+      )}
+
       {tempOpen && org?.id && (
         <TempProjectModal
           orgId={org.id}
@@ -423,64 +496,68 @@ export default function ProjectsPage() {
   )
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
-        {label}
-      </div>
-      <div className="mt-1 font-mono tabular-nums text-[22px] font-semibold text-[#111]">
-        {value}
-      </div>
-    </div>
-  )
-}
-
 function ProjectCard({
   project: p,
+  column,
+  attention,
   isPractice,
-  isTemp,
   enriched: e,
   openCos,
   onOpen,
+  onTouchedBase,
   onArchive,
+  onDragStart,
+  onDragEnd,
+  isDragging,
 }: {
   project: ProjectRow
+  column: Column
+  attention: Attention | null
   isPractice: boolean
-  isTemp: boolean
   enriched: Enriched | undefined
   openCos: number
   onOpen: () => void
-  /** Present only on archivable (completed) cards. */
-  onArchive?: () => void
+  onTouchedBase: () => void
+  onArchive: () => void
+  onDragStart: () => void
+  onDragEnd: () => void
+  isDragging: boolean
 }) {
-  const pill = e ? BUCKET_PILL[e.bucket] : null
   // A CO on an in-production job is the loud case.
   const coInProduction = p.stage === 'production' || p.stage === 'installed'
+  const icon = 'w-3.5 h-3.5 text-[#9CA3AF]'
+  const ready = STAGE_COLORS.ready
   return (
-    <button
-      onClick={onOpen}
-      className="block text-left w-full bg-white border border-[#E5E7EB] rounded-xl p-4 space-y-2 hover:border-[#2563EB] hover:shadow-sm transition-all"
-    >
-      {/* Line 1: name + stage pill */}
-      <div className="flex items-start justify-between gap-2">
-        <span className="font-semibold text-[#111] text-[14px] leading-tight">
-          {p.name}
-        </span>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+    <KanbanCard
+      title={p.name}
+      titleBadges={
+        <>
           <ImportedBadge importedAt={p.imported_at} />
           {isPractice && <PracticeBadge />}
-          {isTemp && (
-            <span
-              title="Temp project — hours only, for tracking time on an old job. Left out of sales, reports and the schedule; counts on the capacity calendar."
-              className="inline-flex items-center text-[9.5px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]"
-            >
-              Temp
-            </span>
-          )}
+        </>
+      }
+      subtitle={p.client_name}
+      attention={attention}
+      onOpen={onOpen}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      isDragging={isDragging}
+      menu={[
+        ...(p.stage === 'sold'
+          ? [{ label: 'Touched base', icon: <Handshake className={icon} />, onClick: onTouchedBase }]
+          : []),
+        { label: 'Open project', icon: <ArrowRight className={icon} />, onClick: onOpen },
+        // Every card can be archived (Andrew 2026-10-22); sold work warns
+        // with what's unpaid.
+        { label: 'Archive', icon: <Archive className={icon} />, onClick: onArchive },
+      ]}
+    >
+      <div className="flex items-center justify-between gap-2 mt-2">
+        <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF]">{fmtMoney(p.bid_total)}</div>
+        <div className="flex items-center gap-1">
           {openCos > 0 && (
             <span
-              className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded-full border"
+              className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider rounded border"
               style={
                 coInProduction
                   ? { background: '#FEE2E2', color: '#B91C1C', borderColor: '#FCA5A5' }
@@ -492,115 +569,71 @@ function ProjectCard({
               {openCos} CO
             </span>
           )}
-          {pill && (
+          {e?.ready && (
             <span
-              className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded-full border"
-              style={{ background: pill.bg, color: pill.fg, borderColor: pill.border }}
+              className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider rounded border"
+              style={{ background: ready.bg, color: ready.fg, borderColor: ready.border }}
+              title="Every subproject approved and the deposit is in — drag it into Production"
             >
-              {pill.label}
+              Ready
             </span>
           )}
         </div>
       </div>
 
-      {/* Line 2: client */}
-      {p.client_name && (
-        <div className="text-[12px] text-[#6B7280] truncate">{p.client_name}</div>
+      <CardContext column={column} enriched={e} />
+
+      {/* Quiet, and only when we actually know (094). */}
+      {(column === 'new' || column === 'pre') && soldAgoLabel(p.sold_at) && (
+        <div className="text-[10.5px] text-[#9CA3AF] mt-1">{soldAgoLabel(p.sold_at)}</div>
       )}
 
-      {/* Line 3: value — a temp project has none, and $0 would read as one. */}
-      {isTemp ? (
-        <div className="text-[12px] text-[#6B7280]">Hours only</div>
-      ) : (
-        <div className="font-mono tabular-nums text-[#111] text-[15px] font-semibold">
-          {fmtMoney(p.bid_total)}
-        </div>
-      )}
-
-      {/* Line 4: stage-specific context */}
-      <CardContext project={p} enriched={e} />
-
-      {/* Archive (119) — completed cards only. A span, not a button: the
-          whole card is already a <button>, and buttons can't nest. */}
-      {onArchive && (
+      {/* Archive button on completed cards — kept from the old grid (Andrew
+          2026-10-22: "keep the buttons that are on the project cards"). */}
+      {canArchive(p.stage) && (
         <div className="pt-1 flex justify-end">
-          <span
-            role="button"
-            tabIndex={0}
+          <button
+            data-kebab
             onClick={(ev) => {
               ev.stopPropagation()
               onArchive()
             }}
-            onKeyDown={(ev) => {
-              if (ev.key === 'Enter' || ev.key === ' ') {
-                ev.preventDefault()
-                ev.stopPropagation()
-                onArchive()
-              }
-            }}
             className="text-[11px] font-medium text-[#6B7280] hover:text-[#111] px-1.5 py-0.5 rounded hover:bg-[#F3F4F6]"
           >
             Archive
-          </span>
+          </button>
         </div>
       )}
-      {/* Quiet, and only when we actually know. Projects sold before 094
-          have no sold_at and deliberately show nothing rather than a
-          guessed date. */}
-      {soldAgoLabel(p.sold_at) && (
-        <div className="text-[11px] text-[#9CA3AF] mt-0.5">{soldAgoLabel(p.sold_at)}</div>
-      )}
-    </button>
+    </KanbanCard>
   )
 }
 
-function CardContext({
-  project: p,
-  enriched: e,
-}: {
-  project: ProjectRow
-  enriched: Enriched | undefined
-}) {
+function CardContext({ column, enriched: e }: { column: Column; enriched: Enriched | undefined }) {
   if (!e) return null
 
-  // Pre-production / Ready → approval progress.
-  if (e.bucket === 'pre' || e.bucket === 'ready') {
+  if (column === 'new' || column === 'pre') {
     return (
-      <div className="text-[12px] text-[#6B7280]">
+      <div className="text-[11px] text-[#6B7280] mt-1">
         {e.totalSubs === 0
           ? 'No subprojects yet'
-          : `${e.readySubs} of ${e.totalSubs} subproject${
-              e.totalSubs === 1 ? '' : 's'
-            } ready`}
+          : `${e.readySubs} of ${e.totalSubs} subproject${e.totalSubs === 1 ? '' : 's'} ready`}
       </div>
     )
   }
+  if (column === 'complete') return null
 
-  // Complete → delivered.
-  if (e.bucket === 'complete') {
-    return <div className="text-[12px] text-[#6B7280]">Delivered</div>
-  }
-
-  // In production / Installed → tracked vs. estimated hours + a progress bar.
-  const pct =
-    e.estHours > 0 ? Math.min(100, (e.trackedHours / e.estHours) * 100) : 0
+  // Production / Installed → tracked vs. estimated hours + a progress bar. The
+  // production card's FILL RING reads the same two numbers.
+  const pct = e.estHours > 0 ? Math.min(100, (e.trackedHours / e.estHours) * 100) : 0
+  const over = e.estHours > 0 && e.trackedHours > e.estHours
   return (
-    <div className="space-y-1">
-      <div className="text-[12px] text-[#6B7280]">
-        <span className="font-mono tabular-nums text-[#374151]">
-          {fmtHours(e.trackedHours)}
-        </span>{' '}
-        tracked of{' '}
-        <span className="font-mono tabular-nums text-[#374151]">
-          {fmtHours(e.estHours)}
-        </span>{' '}
-        est.
+    <div className="space-y-1 mt-1">
+      <div className="text-[11px] text-[#6B7280]">
+        <span className="font-mono tabular-nums text-[#374151]">{fmtHours(e.trackedHours)}</span> of{' '}
+        <span className="font-mono tabular-nums text-[#374151]">{fmtHours(e.estHours)}</span> est.
       </div>
       <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden">
-        <div
-          className="h-full rounded-full bg-[#2563EB]"
-          style={{ width: `${pct}%` }}
-        />
+        <div className={`h-full rounded-full ${over ? 'bg-[#DC2626]' : 'bg-[#16A34A]'}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   )

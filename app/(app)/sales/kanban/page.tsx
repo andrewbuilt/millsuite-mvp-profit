@@ -8,6 +8,13 @@
 // Post-sold stages (production / installed / complete) don't show here —
 // they all roll up to 'Sold' in the sales view; those projects are the
 // shop's problem and live on the project cover.
+//
+// 2026-10-29 — one board language: the column + card shells are shared with
+// /projects (components/kanban). Pipeline cards wear the ATTENTION RING
+// (lib/attention); every column is NEWEST AT TOP, keyed on the clock, so a
+// column literally darkens downward. Sold groups by progress (new sale →
+// pre-prod → production → installed → complete), newest-first within; sold
+// and lost cards never age here.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
@@ -28,7 +35,7 @@ import { useConfirm } from '@/components/confirm-dialog'
 import NewProjectModal from '@/components/sales/NewProjectModal'
 import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
-import { ArrowLeft, MoreHorizontal, StickyNote, ArrowRight, Trash2, Plus, Search, X, Copy, Archive } from 'lucide-react'
+import { ArrowLeft, StickyNote, ArrowRight, Trash2, Plus, Search, X, Copy, Archive, Handshake } from 'lucide-react'
 import { confirmAndArchive } from '@/lib/project-archive'
 import { DuplicateProjectModal } from '@/components/project/DuplicateProjectModal'
 import { setProjectLostReason } from '@/lib/lead-sources'
@@ -39,6 +46,11 @@ import type { ProjectStage } from '@/lib/types'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
 import { useTours } from '@/components/walkthroughs/TourProvider'
+import KanbanColumn from '@/components/kanban/KanbanColumn'
+import KanbanCard from '@/components/kanban/KanbanCard'
+import TouchedBaseModal from '@/components/kanban/TouchedBaseModal'
+import { ageAttention, newestFirst, type AgeAttention } from '@/lib/attention'
+import { loadProjectTouches, type ProjectTouches } from '@/lib/attention-data'
 
 /** What a SOLD card's badge says. Reuses the project page's cover-stage
  *  mapping, so "Pre-Production / In Production / Installed / Complete" stay
@@ -62,14 +74,15 @@ function fmtMoney(n: number | null | undefined) {
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 }
 
-/** "$427k" / "$1.2M" — the column-header sum (Andrew's spec example, 2026-09-23).
- *  Compact on purpose: five full dollar figures in an 11px header row is a wall
- *  of digits, and the header answers "how much is sitting in this column", not
- *  "to the dollar". The card itself still shows the full number. */
-function fmtColumnSum(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
-  if (n >= 1000) return `$${Math.round(n / 1000)}k`
-  return `$${Math.round(n)}`
+const WEEK_MS = 7 * 86400000
+
+/** Sold-column progress groups, in board order (Andrew 2026-10-29). */
+function soldGroup(p: SalesProject, now: number): number {
+  if (p.project_stage === 'sold') {
+    const t = p.sold_at ? new Date(p.sold_at).getTime() : NaN
+    return Number.isFinite(t) && now - t < WEEK_MS ? 0 : 1
+  }
+  return { production: 2, installed: 3, complete: 4 }[p.project_stage as string] ?? 5
 }
 
 const COLUMN_HINT: Record<SalesStage, string> = {
@@ -107,16 +120,34 @@ function KanbanInner() {
   const [savingNote, setSavingNote] = useState(false)
   const [newOpen, setNewOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [touches, setTouches] = useState<Record<string, ProjectTouches>>({})
+  const [touchFor, setTouchFor] = useState<SalesProject | null>(null)
 
   useEffect(() => {
     if (!org?.id) return
     ;(async () => {
       setLoading(true)
-      const { projects } = await loadSalesProjects(org.id)
+      const [{ projects }, t] = await Promise.all([loadSalesProjects(org.id), loadProjectTouches(org.id)])
       setProjects(projects)
+      setTouches(t)
       setLoading(false)
     })()
   }, [org?.id])
+
+  /** Pipeline cards only — sold and lost never age on this board. Keyed off
+   *  the RAW stage, so a card dragged mid-session re-derives its clock. */
+  const attention = useMemo(() => {
+    const out: Record<string, AgeAttention | null> = {}
+    const now = Date.now()
+    for (const p of projects) {
+      if (p.stage === 'sold' || p.stage === 'lost') continue
+      out[p.id] = ageAttention(
+        { stage: p.stage, created_at: p.created_at, estimate_sent_at: p.estimate_sent_at, lastTouch: touches[p.id]?.touch },
+        now,
+      )
+    }
+    return out
+  }, [projects, touches])
 
   // Search filters ACROSS every column — the question "where is the Smith job?"
   // is exactly the one you can't answer by eye on a five-column board.
@@ -141,8 +172,19 @@ function KanbanInner() {
       if (p.stage === 'lost' && p.lost_at && new Date(p.lost_at).getTime() < cutoff) continue
       out[p.stage]?.push(p)
     }
+    // Newest at top, keyed on the attention clock (Andrew 2026-10-29) — the
+    // oldest, reddest cards sink to the bottom where the eye lands last but
+    // the colour still catches it.
+    const now = Date.now()
+    for (const s of ['new_lead', 'fifty_fifty', 'ninety_percent'] as const) {
+      out[s].sort((a, b) => newestFirst(attention[a.id]?.since ?? a.created_at, attention[b.id]?.since ?? b.created_at))
+    }
+    const soldKey = (p: SalesProject) =>
+      p.project_stage === 'sold' ? p.sold_at ?? null : touches[p.id]?.stageAt ?? p.updated_at
+    out.sold.sort((a, b) => soldGroup(a, now) - soldGroup(b, now) || newestFirst(soldKey(a), soldKey(b)))
+    out.lost.sort((a, b) => newestFirst(a.lost_at, b.lost_at))
     return out
-  }, [projects, query])
+  }, [projects, query, attention, touches])
 
   /** Total across the board, so an empty result reads as "nothing matched"
    *  rather than five empty columns that look like a broken page. */
@@ -259,103 +301,94 @@ function KanbanInner() {
         ) : (
           <div className="grid grid-cols-5 gap-3" data-tour="kanban-board">
             {SALES_STAGES.map((stage) => {
-              const isOver = dragOver === stage
               const cards = columns[stage]
-              // The header sum. Same value the card shows (bid_total, falling
-              // back to estimated_price), summed over the cards ACTUALLY IN
-              // THE COLUMN — so a search narrows the sum with the board, and
-              // the two can't disagree. Lost gets no sum (Andrew's spec):
-              // totalling dead deals under a live pipeline reads as money.
+              // The header sum: the card's own value (bid_total, falling back
+              // to estimated_price) over the cards ACTUALLY IN THE COLUMN, so a
+              // search narrows it with the board. Lost gets no sum (Andrew's
+              // spec): totalling dead deals under a live pipeline reads as money.
               const columnSum =
-                stage === 'lost'
-                  ? 0
-                  : cards.reduce((s, p) => s + (p.bid_total || p.estimated_price || 0), 0)
+                stage === 'lost' ? 0 : cards.reduce((s, p) => s + (p.bid_total || p.estimated_price || 0), 0)
               return (
-                <div
+                <KanbanColumn
                   key={stage}
-                  onDragOver={(e) => { e.preventDefault(); setDragOver(stage) }}
+                  title={STAGE_LABEL[stage]}
+                  count={cards.length}
+                  sum={columnSum}
+                  hint={
+                    stage === 'lost' ? (
+                      <Link href="/archive" className="text-[#2563EB] hover:underline">
+                        Archive →
+                      </Link>
+                    ) : (
+                      COLUMN_HINT[stage]
+                    )
+                  }
+                  isOver={dragOver === stage}
+                  onDragOver={() => setDragOver(stage)}
                   onDragLeave={() => setDragOver((s) => (s === stage ? null : s))}
                   onDrop={() => handleDrop(stage)}
-                  className={`rounded-xl border transition-colors min-h-[60vh] ${
-                    isOver ? 'border-[#2563EB] bg-[#EFF6FF]' : 'border-[#E5E7EB] bg-[#F9FAFB]'
-                  }`}
                 >
-                  <div className="px-3 pt-3 pb-2 border-b border-[#E5E7EB]">
-                    <div className="flex items-center justify-between">
-                      <div className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-widest">
-                        {STAGE_LABEL[stage]}
-                      </div>
-                      <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF]">
-                        {cards.length}
-                        {columnSum > 0 && (
-                          <span className="text-[#6B7280]"> · {fmtColumnSum(columnSum)}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-[#9CA3AF] mt-0.5">
-                      {stage === 'lost' ? (
-                        <Link href="/archive" className="text-[#2563EB] hover:underline">
-                          Archive →
-                        </Link>
-                      ) : (
-                        COLUMN_HINT[stage]
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="p-2 space-y-2">
-                    {cards.length === 0 ? (
-                      <div className="text-[11px] text-[#D1D5DB] text-center py-6 italic">
-                        Drop here
-                      </div>
-                    ) : (
-                      cards.map((p) => (
-                        <KanbanCard
-                          key={p.id}
-                          project={p}
-                          isPractice={practiceIds.has(p.id)}
-                          isTourProject={p.id === tourProjectId}
-                          onOpen={() => router.push(`/projects/${p.id}`)}
-                          onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
-                          onDuplicate={() => setDupFor(p)}
-                          // Every card can be archived (Andrew 2026-10-22), not
-                          // just lost ones; sold work warns with what's unpaid.
-                          onArchive={async () => {
-                            try {
-                              if (await confirmAndArchive(p))
-                                setProjects((prev) => prev.filter((x) => x.id !== p.id))
-                            } catch (err) {
-                              window.alert(err instanceof Error ? err.message : 'Could not archive.')
-                            }
-                          }}
-                          onDelete={async () => {
-                            const ok = await confirm({
-                              title: 'Delete this project?',
-                              message: `Permanently delete "${p.name}"? Subprojects, estimate lines, and notes go with it. This can't be undone.`,
-                              confirmLabel: 'Delete',
-                              variant: 'danger',
-                            })
-                            if (!ok) return
-                            try {
-                              await deleteProject(p.id)
-                              setProjects((prev) => prev.filter((x) => x.id !== p.id))
-                            } catch (err) {
-                              console.error('deleteProject', err)
-                            }
-                          }}
-                          onDragStart={() => setDragId(p.id)}
-                          onDragEnd={() => { setDragId(null); setDragOver(null) }}
-                          isDragging={dragId === p.id}
-                        />
-                      ))
-                    )}
-                  </div>
-                </div>
+                  {cards.map((p) => (
+                    <SalesCard
+                      key={p.id}
+                      project={p}
+                      attention={attention[p.id] ?? null}
+                      isPractice={practiceIds.has(p.id)}
+                      isTourProject={p.id === tourProjectId}
+                      onOpen={() => router.push(`/projects/${p.id}`)}
+                      onQuickNote={() => { setNoteFor(p); setNoteBody('') }}
+                      onTouchedBase={() => setTouchFor(p)}
+                      onDuplicate={() => setDupFor(p)}
+                      // Every card can be archived (Andrew 2026-10-22), not
+                      // just lost ones; sold work warns with what's unpaid.
+                      onArchive={async () => {
+                        try {
+                          if (await confirmAndArchive(p))
+                            setProjects((prev) => prev.filter((x) => x.id !== p.id))
+                        } catch (err) {
+                          window.alert(err instanceof Error ? err.message : 'Could not archive.')
+                        }
+                      }}
+                      onDelete={async () => {
+                        const ok = await confirm({
+                          title: 'Delete this project?',
+                          message: `Permanently delete "${p.name}"? Subprojects, estimate lines, and notes go with it. This can't be undone.`,
+                          confirmLabel: 'Delete',
+                          variant: 'danger',
+                        })
+                        if (!ok) return
+                        try {
+                          await deleteProject(p.id)
+                          setProjects((prev) => prev.filter((x) => x.id !== p.id))
+                        } catch (err) {
+                          console.error('deleteProject', err)
+                        }
+                      }}
+                      onDragStart={() => setDragId(p.id)}
+                      onDragEnd={() => { setDragId(null); setDragOver(null) }}
+                      isDragging={dragId === p.id}
+                    />
+                  ))}
+                </KanbanColumn>
               )
             })}
           </div>
         )}
       </div>
+
+      {touchFor && org?.id && (
+        <TouchedBaseModal
+          orgId={org.id}
+          userId={user?.id}
+          project={touchFor}
+          onClose={() => setTouchFor(null)}
+          onDone={(touch) => {
+            const id = touchFor.id
+            setTouchFor(null)
+            setTouches((prev) => ({ ...prev, [id]: { touch, stageAt: prev[id]?.stageAt ?? null } }))
+          }}
+        />
+      )}
 
       {noteFor && (
         <div
@@ -505,12 +538,14 @@ function KanbanInner() {
   )
 }
 
-function KanbanCard({
+function SalesCard({
   project,
+  attention,
   isPractice,
   isTourProject,
   onOpen,
   onQuickNote,
+  onTouchedBase,
   onDuplicate,
   onArchive,
   onDelete,
@@ -519,76 +554,66 @@ function KanbanCard({
   isDragging,
 }: {
   project: SalesProject
+  attention: AgeAttention | null
   isPractice: boolean
   /** The walkthrough's last step points at the card the user just made. */
   isTourProject: boolean
   onOpen: () => void
   onQuickNote: () => void
+  onTouchedBase: () => void
   onDuplicate: () => void
   /** Archive (119) — offered on every card. */
-  onArchive?: () => void
+  onArchive: () => void
   onDelete: () => void
   onDragStart: () => void
   onDragEnd: () => void
   isDragging: boolean
 }) {
-  const [menuOpen, setMenuOpen] = useState(false)
+  const icon = 'w-3.5 h-3.5 text-[#9CA3AF]'
   return (
-    <div
-      draggable
-      data-tour={isTourProject ? 'tour-project-card' : undefined}
+    <KanbanCard
+      title={project.name}
+      titleBadges={
+        <>
+          <ImportedBadge importedAt={(project as { imported_at?: string | null }).imported_at} />
+          {isPractice && <PracticeBadge />}
+        </>
+      }
+      subtitle={project.client_name}
+      dataTour={isTourProject ? 'tour-project-card' : undefined}
+      // The tour draws its own ring on this card — the attention ring yields.
+      attention={attention}
+      suppressRing={isTourProject}
+      onOpen={onOpen}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onClick={(e) => {
-        // Don't open when clicking the kebab.
-        if ((e.target as HTMLElement).closest('[data-kebab]')) return
-        onOpen()
-      }}
-      className={`relative bg-white border border-[#E5E7EB] rounded-lg px-3 py-2.5 cursor-grab active:cursor-grabbing hover:border-[#9CA3AF] transition-all ${
-        isDragging ? 'opacity-40 scale-95' : ''
-      }`}
+      isDragging={isDragging}
+      menu={[
+        { label: 'Add a note', icon: <StickyNote className={icon} />, onClick: onQuickNote },
+        ...(project.stage === 'lost' || project.stage === 'sold'
+          ? []
+          : [{ label: 'Touched base', icon: <Handshake className={icon} />, onClick: onTouchedBase }]),
+        { label: 'Open project', icon: <ArrowRight className={icon} />, onClick: onOpen },
+        { label: 'Duplicate', icon: <Copy className={icon} />, onClick: onDuplicate },
+        { label: 'Archive', icon: <Archive className={icon} />, onClick: onArchive },
+        { label: 'Delete', icon: <Trash2 className="w-3.5 h-3.5" />, onClick: onDelete, danger: true, dividerBefore: true },
+      ]}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className="text-sm font-semibold text-[#111] truncate">{project.name}</div>
-            <ImportedBadge importedAt={(project as { imported_at?: string | null }).imported_at} />
-            {isPractice && <PracticeBadge />}
-          </div>
-          {project.client_name && (
-            <div className="text-[11px] text-[#6B7280] truncate mt-0.5">{project.client_name}</div>
-          )}
-        </div>
-        <button
-          data-kebab
-          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
-          className="p-0.5 text-[#9CA3AF] hover:text-[#111] rounded flex-shrink-0"
-          aria-label="More actions"
-        >
-          <MoreHorizontal className="w-3.5 h-3.5" />
-        </button>
-      </div>
       <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2">
         {fmtMoney(project.bid_total || project.estimated_price)}
       </div>
       {/* Chip gets its OWN row. Sharing a line with the price meant a big
           number and a long label ($438,506 + ESTIMATE SENT) couldn't both fit
-          in a five-column board, and the chip clipped mid-word. A card ~20px
-          taller is the cheaper trade — nothing truncates at any width.
-          (The projects-page cards are a different layout and stay as they are.)
+          in a five-column board, and the chip clipped mid-word.
 
-          Sold cards show where the JOB actually is — "Live" said nothing and
-          never changed. Derived from the shared cover-stage mapping in
-          components/project/StagePill so the board and the project page can't
-          drift apart; don't re-map it here. On a sold card this replaces the
-          estimate-sent chip: once it's won, the estimate's history isn't the
-          headline any more. */}
+          Sold cards show where the JOB actually is, from the shared cover-stage
+          mapping in components/project/StagePill so the board and the project
+          page can't drift apart; don't re-map it here. On a sold card this
+          replaces the estimate-sent chip: once it's won, the estimate's
+          history isn't the headline any more. */}
       {project.stage === 'sold' ? (
         <div className="mt-1.5">
-          {/* ⛔ Colour comes from the shared STAGE_COLORS, not a class here.
-              Every sold card used to be the same green, so the chip named the
-              stage but never showed it — amber pre-production and purple
-              in-production now read at a glance, matching the projects page. */}
+          {/* ⛔ Colour comes from the shared STAGE_COLORS, not a class here. */}
           <span
             className="inline-block text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider"
             style={soldStageColors(project.project_stage)}
@@ -606,60 +631,6 @@ function KanbanCard({
           </span>
         </div>
       ) : null}
-
-      {menuOpen && (
-        <>
-          <div
-            data-kebab
-            className="fixed inset-0 z-10"
-            onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }}
-          />
-          <div
-            data-kebab
-            className="absolute right-2 top-8 z-20 w-44 bg-white border border-[#E5E7EB] rounded-lg shadow-lg py-1"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => { setMenuOpen(false); onQuickNote() }}
-              className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
-            >
-              <StickyNote className="w-3.5 h-3.5 text-[#9CA3AF]" />
-              Add a note
-            </button>
-            <button
-              onClick={() => { setMenuOpen(false); onOpen() }}
-              className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
-            >
-              <ArrowRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
-              Open project
-            </button>
-            <button
-              onClick={() => { setMenuOpen(false); onDuplicate() }}
-              className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
-            >
-              <Copy className="w-3.5 h-3.5 text-[#9CA3AF]" />
-              Duplicate
-            </button>
-            {onArchive && (
-              <button
-                onClick={() => { setMenuOpen(false); onArchive() }}
-                className="w-full text-left px-3 py-1.5 text-xs text-[#111] hover:bg-[#F3F4F6] inline-flex items-center gap-2"
-              >
-                <Archive className="w-3.5 h-3.5 text-[#9CA3AF]" />
-                Archive
-              </button>
-            )}
-            <div className="my-1 border-t border-[#F3F4F6]" />
-            <button
-              onClick={() => { setMenuOpen(false); onDelete() }}
-              className="w-full text-left px-3 py-1.5 text-xs text-[#DC2626] hover:bg-[#FEF2F2] inline-flex items-center gap-2"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete
-            </button>
-          </div>
-        </>
-      )}
-    </div>
+    </KanbanCard>
   )
 }

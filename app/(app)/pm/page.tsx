@@ -28,6 +28,7 @@
 //   · Getting set up — owner-only checklist, moved with the rest of onboarding
 //   · Today — the viewer's own Today bucket, using the real TaskRow so it can't
 //     drift from /tasks and the drawer.
+//   · Needs attention — the attention rings as a list, worst first (10-29)
 //   · Watch list — jobs over budget or over hours (was "Projects at risk")
 //   · Money in — this month's scheduled draws vs cash received
 //   · Invoiced — AR aging, reconciled against the ledger. NOT the same number
@@ -46,6 +47,7 @@ import { WELCOME_TOAST_EVENT, WELCOME_TOAST_KEY } from '@/lib/welcome-toast'
 import FirstProjectPrompt from '@/components/pm/FirstProjectPrompt'
 import PreProductionCard from '@/components/pm/PreProductionCard'
 import ProjectsAtRiskCard from '@/components/pm/ProjectsAtRiskCard'
+import AttentionCard from '@/components/pm/AttentionCard'
 import ReceivablesCard from '@/components/pm/ReceivablesCard'
 import { useAuth } from '@/lib/auth-context'
 import { usePaymentsVisibility } from '@/lib/payments-visibility'
@@ -115,6 +117,9 @@ export default function PmPage() {
                 (114). Renders nothing when there's nothing to acknowledge. */}
             <CompletedForYou variant="page" />
             <TodayCard />
+            {/* Attention rings, worst first across stages (2026-10-29).
+                Renders nothing when nothing's aging — day-one rule. */}
+            <AttentionCard orgId={org?.id} />
             {/* Sold-but-not-started, new sales badged loud (2026-09-23).
                 Renders nothing when the queue is empty — day-one rule.
                 Money hidden for anyone off the payments allowlist (115) —
