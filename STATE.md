@@ -34,6 +34,15 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
+**NEW 2026-10-29 (Andrew's live look at the new boards): KANBAN CARD LAYOUT PASS — small, both boards, the shared card component. Build next.**
+- **The title is the card:** remove the CLIENT line entirely; the title WRAPS to full length (no truncation — "Leonard – JW Marri…" is unreadable). Checkbox/chip alignment survives 3-line titles.
+- **The age chip (7d/2w/…) moves to the BOTTOM corner** of the card, off the title row.
+- **Keep:** the $ total · the tracked-hours bar on production cards ("415h of 648h") · "N of M subprojects ready" on pre-prod cards.
+- **Drop:** the "Sold 44d ago" text line (the ring + chip already say it).
+- Same treatment on BOTH boards (it's one shared component — if sales still has its own card, this is the moment it stops).
+- Verify: longest real titles (Leonard JW Marriott ×3) read in full on both boards; rings/chips/bars all land in their corners at the narrow sales-column width.
+
+
 **NEW 2026-10-29 (Cowork design pass with Andrew): PROJECT P&L PANEL + TIME DASHBOARD + EXPENSE LEDGER. The big one after the kanban/rings. Migration (next number): `project_expenses`.**
 **The structural piece — a material-spend ledger finally exists:** `project_expenses` (org, project, vendor, amount, date, source 'parsed'|'manual', note, upload ref nullable, entered_by, timestamps; org RLS). This closes the diagnostic drawer's "no spend manifest" hole. Parsed invoices (the /pm dropzone AND a drop target inside the material modal) extract vendor/amount/date then ask WHICH PROJECT; manual entry is a plain row form; warn on likely duplicates (same vendor+amount±date). Expenses are editable/deletable with an edited-by stamp (the time-entry pattern).
 **The side panel simplifies to TWO sections — P&L + Payments:**
