@@ -82,6 +82,11 @@ import {
 import { allocateRounded, allocationDrift } from '@/lib/allocate'
 import { todayStamp } from '@/lib/payments'
 import { ProjectPaymentLedger } from '@/components/project/ProjectPaymentLedger'
+import ProjectPnlPanel from '@/components/project/ProjectPnlPanel'
+import TimeDashboardModal from '@/components/project/TimeDashboardModal'
+import MaterialModal from '@/components/project/MaterialModal'
+import { computeProjectPnl, pnlRate } from '@/lib/project-pnl'
+import { listProjectExpenses, sumExpenses, type ProjectExpense } from '@/lib/project-expenses'
 import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   loadProjectActuals,
@@ -428,6 +433,28 @@ export default function ProjectCoverPage() {
   )
 
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
+
+  // ── P&L panel (2026-10-29) ── vendor bills against this job (the `invoices`
+  // ledger, 124) + the two drill-in modals.
+  const [expenses, setExpenses] = useState<ProjectExpense[]>([])
+  const [expenseUserNames, setExpenseUserNames] = useState<Record<string, string>>({})
+  const [timeOpen, setTimeOpen] = useState(false)
+  const [materialOpen, setMaterialOpen] = useState(false)
+  const reloadExpenses = useCallback(async () => {
+    if (!projectId) return
+    const rows = await listProjectExpenses(projectId)
+    setExpenses(rows)
+    const ids = [...new Set(rows.flatMap((r) => [r.entered_by, r.edited_by]).filter(Boolean))] as string[]
+    if (ids.length) {
+      const { data } = await supabase.from('users').select('id, name').in('id', ids)
+      setExpenseUserNames(
+        Object.fromEntries(((data || []) as { id: string; name: string | null }[]).map((u) => [u.id, u.name || 'Someone'])),
+      )
+    }
+  }, [projectId])
+  useEffect(() => {
+    void reloadExpenses()
+  }, [reloadExpenses])
   const [coListOpen, setCoListOpen] = useState(false)
 
   // ── Change orders v2 (migration 107) ──────────────────────────────────────
@@ -1548,6 +1575,29 @@ export default function ProjectCoverPage() {
   // bottom action bar). One button per stage.
   const stageCover = project ? coverStageOf(project.stage) : null
 
+  // ── P&L (sold jobs) — lib/project-pnl, pinned by verify-project-pnl ──
+  // Budget hours are Σ hoursByDept, NOT proj.totalHours: install-prefill hours
+  // live only on hoursByDept.install (invariant 17b) and install time is
+  // tracked like any other, so leaving them out would put every install over.
+  // The material allowance is every non-labor cost bucket (+ consumables);
+  // change orders are lines by now, so both budgets are CO-aware. An imported
+  // job's allowance is Built's per-sub material budget.
+  const pnl = useMemo(() => {
+    const estHours =
+      proj.hoursByDept.eng + proj.hoursByDept.cnc + proj.hoursByDept.assembly + proj.hoursByDept.finish + proj.hoursByDept.install
+    const materialAllowance = isImported
+      ? importedMaterialBudget
+      : proj.materialCost + proj.hardwareCost + proj.optionsCost + proj.customCost + proj.consumablesCost
+    return computeProjectPnl({
+      contract: Number(project?.bid_total) || proj.priceTotal,
+      estHours,
+      trackedHours: projectActualMinutes / 60,
+      rate: pnlRate(project?.locked_shop_rate, orgShopRate),
+      materialAllowance,
+      materialSpent: sumExpenses(expenses),
+    })
+  }, [proj, isImported, importedMaterialBudget, project?.bid_total, project?.locked_shop_rate, orgShopRate, projectActualMinutes, expenses])
+
   // ── Estimate PDF (MillSuite-native; available in both modes) ──
   // Builds the same computed lines shown on screen so the PDF total reconciles
   // with the project price. Consumed by SendEstimateModal (template picker +
@@ -1857,6 +1907,129 @@ export default function ProjectCoverPage() {
                 }}
               />
             </div>
+            {/* Stage actions — in the HEADER beside the price since the P&L
+                panel took the side panel (2026-10-29); before that, the old
+                bottom bar. One primary button per stage + a Pre-production
+                link once sold. data-tour: the sell-it guide rings this row for
+                its deposit, approvals, and start-production steps — one hook,
+                since the buttons come and go with stage state (and Start
+                production renders twice when ready: here and in the green
+                banner). */}
+              <div data-tour="stage-actions" className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                {stageCover === 'bidding' && (
+                  <button
+                    onClick={handleMarkSold}
+                    disabled={cards.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Mark as sold
+                  </button>
+                )}
+                {stageCover === 'sold' && readyForProduction && (
+                  /* data-tour: only THIS instance is tagged — the green
+                     banner renders a second Start production button, and two
+                     tags would break querySelector. Also the guide's
+                     "finish the approvals" step advances when this appears. */
+                  <button
+                    onClick={handleStartProduction}
+                    data-tour="start-production"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
+                  >
+                    Start production
+                  </button>
+                )}
+                {stageCover === 'sold' && !readyForProduction && user?.role === 'owner' && (
+                  <button
+                    onClick={handleForceStartProduction}
+                    disabled={startingProduction}
+                    title="Override the approval gate — for jobs already approved outside MillSuite (imported from Built OS). Deposit still required."
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-[#FDE68A] bg-[#FFFBEB] text-[#92400E] hover:bg-[#FEF3C7] disabled:opacity-50 transition-colors"
+                  >
+                    Force start production
+                  </button>
+                )}
+                {stageCover === 'sold' && !depositReceived && (
+                  <button
+                    onClick={handleMarkDeposit}
+                    data-tour="mark-deposit"
+                    disabled={markingDeposit}
+                    title={
+                      qbMode
+                        ? 'Override the deposit gate — only when the money genuinely hasn’t arrived yet. If it HAS, log it on the payments board instead and this gate opens by itself.'
+                        : 'Record the deposit on the contract invoice. Creates the invoice if needed.'
+                    }
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${
+                      qbMode
+                        ? 'text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] hover:bg-[#FDE68A]'
+                        : 'text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0]'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />{' '}
+                    {markingDeposit
+                      ? 'Working…'
+                      : qbMode
+                        ? 'Override: deposit forthcoming'
+                        : 'Mark deposit received'}
+                  </button>
+                )}
+                {/* ⛔ THE OVERRIDE IS THE FAILSAFE, NOT THE HAPPY PATH.
+                    Logging the real payment opens this gate by itself now
+                    (isDepositReceived reads the ledger), so the action that
+                    records what actually happened has to be at least as easy
+                    to find as the one that skips the check. Before the ledger,
+                    a QB org had no way to satisfy the gate at all and override
+                    was the ONLY route — which is why it reads as the default. */}
+                {stageCover === 'sold' && !depositReceived && (
+                  <Link
+                    href="/payments"
+                    title="Record the deposit that actually arrived. That opens this gate on its own — no override needed."
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0] transition-colors"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Log the deposit
+                  </Link>
+                )}
+                {stageCover === 'production' && (
+                  <button
+                    onClick={async () => {
+                      await updateProjectStage(projectId, 'installed')
+                      setProject((p) => (p ? { ...p, stage: 'installed' } : p))
+                      showToast('Marked installed.')
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
+                  >
+                    Mark installed
+                  </button>
+                )}
+                {stageCover === 'installed' && (
+                  <button
+                    onClick={async () => {
+                      await updateProjectStage(projectId, 'complete')
+                      setProject((p) => (p ? { ...p, stage: 'complete' } : p))
+                      showToast('Marked complete.')
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
+                  >
+                    Mark complete
+                  </button>
+                )}
+                {stageCover === 'complete' && (
+                  <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#DCFCE7] text-[#15803D]">
+                    <CheckCircle2 className="w-4 h-4" /> Complete
+                  </span>
+                )}
+                {(stageCover === 'sold' ||
+                  stageCover === 'production' ||
+                  stageCover === 'installed' ||
+                  stageCover === 'complete') && (
+                  <Link
+                    href={`/projects/${projectId}/pre-production`}
+                    data-tour="pre-production-link"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] border border-[#E5E7EB] transition-colors"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Pre-production
+                  </Link>
+                )}
+              </div>
           </div>
         </div>
       </div>
@@ -2706,6 +2879,19 @@ export default function ProjectCoverPage() {
               then PROJECT PRICE. */}
           <div>
             <div className="sticky top-[72px] bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm">
+              {/* ⛔ BIDS keep the estimating panel (Project total, the margin
+                  editor, the cost build-up) — it's the pricing tool. A SOLD job
+                  gets the P&L instead: contract, labor + material budget vs
+                  actual, margin to date (Andrew 2026-10-29). Payments below. */}
+              {!isPresold(project.stage) ? (
+                <ProjectPnlPanel
+                  pnl={pnl}
+                  spendCount={expenses.length}
+                  onOpenTime={() => setTimeOpen(true)}
+                  onOpenMaterial={() => setMaterialOpen(true)}
+                />
+              ) : (
+              <>
               <div className="pb-4 border-b border-[#F3F4F6]">
                 <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-1.5">
                   Project total
@@ -2901,146 +3087,9 @@ export default function ProjectCoverPage() {
                 </div>
               </div>
               )}
+              </>
+              )}
 
-              {/* Stage action — moved here from the old bottom bar. One
-                  primary button per stage + a Pre-production link once sold.
-                  data-tour: the sell-it guide rings this row for its deposit,
-                  approvals, and start-production steps — one hook, since the
-                  buttons come and go with stage state (and Start production
-                  renders twice when ready: here and in the green banner). */}
-              <div data-tour="stage-actions" className="mt-4 pt-4 border-t border-[#F3F4F6] flex flex-wrap items-center gap-2">
-                {stageCover === 'bidding' && (
-                  <button
-                    onClick={handleMarkSold}
-                    disabled={cards.length === 0}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <CheckCircle2 className="w-4 h-4" /> Mark as sold
-                  </button>
-                )}
-                {stageCover === 'sold' && readyForProduction && (
-                  /* data-tour: only THIS instance is tagged — the green
-                     banner renders a second Start production button, and two
-                     tags would break querySelector. Also the guide's
-                     "finish the approvals" step advances when this appears. */
-                  <button
-                    onClick={handleStartProduction}
-                    data-tour="start-production"
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
-                  >
-                    Start production
-                  </button>
-                )}
-                {stageCover === 'sold' && !readyForProduction && user?.role === 'owner' && (
-                  <button
-                    onClick={handleForceStartProduction}
-                    disabled={startingProduction}
-                    title="Override the approval gate — for jobs already approved outside MillSuite (imported from Built OS). Deposit still required."
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-[#FDE68A] bg-[#FFFBEB] text-[#92400E] hover:bg-[#FEF3C7] disabled:opacity-50 transition-colors"
-                  >
-                    Force start production
-                  </button>
-                )}
-                {stageCover === 'sold' && !depositReceived && (
-                  <button
-                    onClick={handleMarkDeposit}
-                    data-tour="mark-deposit"
-                    disabled={markingDeposit}
-                    title={
-                      qbMode
-                        ? 'Override the deposit gate — only when the money genuinely hasn’t arrived yet. If it HAS, log it on the payments board instead and this gate opens by itself.'
-                        : 'Record the deposit on the contract invoice. Creates the invoice if needed.'
-                    }
-                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${
-                      qbMode
-                        ? 'text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] hover:bg-[#FDE68A]'
-                        : 'text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0]'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-4 h-4" />{' '}
-                    {markingDeposit
-                      ? 'Working…'
-                      : qbMode
-                        ? 'Override: deposit forthcoming'
-                        : 'Mark deposit received'}
-                  </button>
-                )}
-                {/* ⛔ THE OVERRIDE IS THE FAILSAFE, NOT THE HAPPY PATH.
-                    Logging the real payment opens this gate by itself now
-                    (isDepositReceived reads the ledger), so the action that
-                    records what actually happened has to be at least as easy
-                    to find as the one that skips the check. Before the ledger,
-                    a QB org had no way to satisfy the gate at all and override
-                    was the ONLY route — which is why it reads as the default. */}
-                {stageCover === 'sold' && !depositReceived && (
-                  <Link
-                    href="/payments"
-                    title="Record the deposit that actually arrived. That opens this gate on its own — no override needed."
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#15803D] bg-[#DCFCE7] border border-[#BBF7D0] hover:bg-[#BBF7D0] transition-colors"
-                  >
-                    <CheckCircle2 className="w-4 h-4" /> Log the deposit
-                  </Link>
-                )}
-                {stageCover === 'production' && (
-                  <button
-                    onClick={async () => {
-                      await updateProjectStage(projectId, 'installed')
-                      setProject((p) => (p ? { ...p, stage: 'installed' } : p))
-                      showToast('Marked installed.')
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
-                  >
-                    Mark installed
-                  </button>
-                )}
-                {stageCover === 'installed' && (
-                  <button
-                    onClick={async () => {
-                      await updateProjectStage(projectId, 'complete')
-                      setProject((p) => (p ? { ...p, stage: 'complete' } : p))
-                      showToast('Marked complete.')
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
-                  >
-                    Mark complete
-                  </button>
-                )}
-                {stageCover === 'complete' && (
-                  <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-[#DCFCE7] text-[#15803D]">
-                    <CheckCircle2 className="w-4 h-4" /> Complete
-                  </span>
-                )}
-                {(stageCover === 'sold' ||
-                  stageCover === 'production' ||
-                  stageCover === 'installed' ||
-                  stageCover === 'complete') && (
-                  <Link
-                    href={`/projects/${projectId}/pre-production`}
-                    data-tour="pre-production-link"
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-[#6B7280] hover:text-[#111] hover:bg-[#F3F4F6] border border-[#E5E7EB] transition-colors"
-                  >
-                    <CheckCircle2 className="w-4 h-4" /> Pre-production
-                  </Link>
-                )}
-              </div>
-
-              {/* Hours rollup — surfaces the time-clock actuals that
-                  proj.actualByDept already aggregates. Per-dept est vs
-                  actual with thresholded %, plus a totals line. Empty
-                  state routes the operator to the time clock pre-filled
-                  with this project. */}
-              {/* ⛔ PROJECT-LEVEL ACTUALS, matching the progress bar in the
-                  strip. Both used to read the subproject-summed figure, which
-                  drops any hour clocked without a subproject — so a job with
-                  real time against it showed zero in both places. Feeding the
-                  two from one source is what keeps them from disagreeing. */}
-              <ProjectHoursSection
-                est={proj.hoursByDept}
-                actualMinutes={projectActualByDept}
-                totalEst={proj.totalHours}
-                totalActualMinutes={projectActualMinutes}
-                projectId={projectId}
-              />
 
               {/* ⛔ PRE-SALE: compose the schedule. POST-SALE: a READ-ONLY
                   ledger + a link, because the schedule is locked once the job
@@ -3316,6 +3365,50 @@ export default function ProjectCoverPage() {
         />
       )}
 
+      {timeOpen && project && (
+
+        <TimeDashboardModal
+
+          projectId={projectId}
+
+          budgetHours={proj.hoursByDept}
+
+          actualMinutes={projectActualByDept}
+
+          totalActualMinutes={projectActualMinutes}
+
+          deptKeyById={deptKeyById}
+
+          onClose={() => setTimeOpen(false)}
+
+        />
+
+      )}
+
+      {materialOpen && project && org?.id && (
+
+        <MaterialModal
+
+          orgId={org.id}
+
+          userId={user?.id}
+
+          projectId={projectId}
+
+          allowance={pnl.material.budget}
+
+          expenses={expenses}
+
+          userNames={expenseUserNames}
+
+          onChanged={() => void reloadExpenses()}
+
+          onClose={() => setMaterialOpen(false)}
+
+        />
+
+      )}
+
       {dupOpen && (
         <DuplicateProjectModal
           project={{ id: projectId, name: project.name, stage: project.stage }}
@@ -3502,110 +3595,6 @@ function FinRow({
         )}
         <span className="font-mono text-[#111] tabular-nums">{value}</span>
       </div>
-    </div>
-  )
-}
-
-// ── Project-wide Hours rollup ──
-// Five-dept est-vs-actual grid + total row. Renders below COST BREAKDOWN
-// in the project total panel. Source: proj.hoursByDept (est) and
-// proj.actualByDept (actual minutes). Empty state when no time has been
-// clocked yet routes the operator to /time pre-filled with this project.
-const HOURS_DEPTS: Array<{
-  key: 'eng' | 'cnc' | 'assembly' | 'finish' | 'install'
-  label: string
-}> = [
-  { key: 'eng', label: 'Engineering' },
-  { key: 'cnc', label: 'CNC' },
-  { key: 'assembly', label: 'Assembly' },
-  { key: 'finish', label: 'Finish' },
-  { key: 'install', label: 'Install' },
-]
-
-function pctColor(pct: number | null): string {
-  if (pct == null) return '#9CA3AF'
-  if (pct > 100) return '#EF4444'
-  if (pct > 85) return '#F59E0B'
-  return '#6B7280'
-}
-
-function HoursRow({ label, est, actual, bold }: {
-  label: string
-  est: number
-  actual: number
-  bold?: boolean
-}) {
-  const pct = est > 0 ? Math.round((actual / est) * 100) : null
-  const color = pctColor(pct)
-  const overBold = pct != null && pct > 100
-  return (
-    <div className={`flex items-center justify-between gap-2 py-1.5 text-[12.5px] ${bold ? 'font-semibold text-[#111]' : 'text-[#374151]'}`}>
-      <span className="flex-1 min-w-0 truncate">{label}</span>
-      <span className="w-12 text-right font-mono tabular-nums text-[#6B7280]">{est.toFixed(0)}h</span>
-      <span className="w-12 text-right font-mono tabular-nums text-[#374151]">{actual.toFixed(0)}h</span>
-      <span
-        className={`w-10 text-right font-mono tabular-nums ${overBold ? 'font-bold' : ''}`}
-        style={{ color }}
-      >
-        {pct == null ? '—' : `${pct}%`}
-      </span>
-    </div>
-  )
-}
-
-function ProjectHoursSection({
-  est,
-  actualMinutes,
-  totalEst,
-  totalActualMinutes,
-  projectId,
-}: {
-  est: { eng: number; cnc: number; assembly: number; finish: number; install: number }
-  actualMinutes: { eng: number; cnc: number; assembly: number; finish: number; install: number }
-  totalEst: number
-  totalActualMinutes: number
-  projectId: string
-}) {
-  const hasActuals = totalActualMinutes > 0
-  return (
-    <div className="pt-4 mt-4 border-t border-[#F3F4F6]">
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
-          Hours
-        </div>
-        {hasActuals && (
-          <div className="flex items-center gap-2 text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
-            <span className="w-12 text-right">Est</span>
-            <span className="w-12 text-right">Actual</span>
-            <span className="w-10 text-right">%</span>
-          </div>
-        )}
-      </div>
-
-      {hasActuals ? (
-        <>
-          {HOURS_DEPTS.map((d) => (
-            <HoursRow
-              key={d.key}
-              label={d.label}
-              est={est[d.key]}
-              actual={(actualMinutes[d.key] || 0) / 60}
-            />
-          ))}
-          <div className="border-t border-[#E5E7EB] mt-1 pt-1">
-            <HoursRow
-              label="Total"
-              est={totalEst}
-              actual={totalActualMinutes / 60}
-              bold
-            />
-          </div>
-        </>
-      ) : (
-        <div className="flex items-center justify-between gap-2 py-2 text-[12.5px] text-[#6B7280]">
-          <span>No time clocked yet</span>
-        </div>
-      )}
     </div>
   )
 }

@@ -230,16 +230,14 @@ export default function DiagnosticDrawer({
         <div className="px-6 py-5 border-b border-[#E5E7EB]">
           <div className="flex items-baseline justify-between mb-3">
             <div className="text-xs font-medium text-[#6B7280] uppercase tracking-wide">Materials</div>
-            {/* ⚠️ THIS LINKS TO THE ESTIMATE — THE BUDGET'S MANIFEST, NOT THE
-                SPEND'S. There is no per-project material purchase view anywhere
-                in the app, and the `invoices` table that spend is read from is
-                empty org-wide. Linking the half that exists, and saying so
-                below, beats a "see the spend" link that opens nothing. */}
+            {/* The spend's manifest now exists (2026-10-29): the project page's
+                P&L panel → Material opens the vendor-bill ledger this figure is
+                read from (`invoices`, 124). Linking the project lands there. */}
             <Link
               href={`/projects/${project.projectId}`}
               className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8]"
             >
-              See the estimate →
+              See the bills →
             </Link>
           </div>
 

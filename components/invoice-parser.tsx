@@ -3,7 +3,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { createExpense, listProjectExpenses, findLikelyDuplicates, type ProjectExpense } from '@/lib/project-expenses'
 import { Upload, FileText, Loader2, Check, X, AlertCircle } from 'lucide-react'
+
+// ============================================================================
+// The vendor-invoice dropzone. Reads a bill (/api/parse-invoice), asks WHICH
+// PROJECT, and saves it to the project's material-spend ledger (`invoices`,
+// migration 124) through lib/project-expenses — the same ledger the project
+// P&L panel's Material line sums. Two mounts:
+//   · /pm Quick upload — no project yet, so it asks
+//   · the project page's Material modal — `projectId` given, the picker hides
+// A likely duplicate (same vendor + amount, dates within a week) WARNS before
+// saving; it never blocks.
+// ============================================================================
 
 // ── Types ──
 
@@ -41,7 +53,14 @@ function fmtMoney(n: number) {
 
 // ── Component ──
 
-export default function InvoiceParser() {
+export default function InvoiceParser({
+  projectId: fixedProjectId,
+  onSaved,
+}: {
+  /** Mounted inside one project's Material modal — no project picker. */
+  projectId?: string
+  onSaved?: () => void
+} = {}) {
   const { user, org } = useAuth()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -57,6 +76,12 @@ export default function InvoiceParser() {
   const [selectedSubprojectId, setSelectedSubprojectId] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  /** Likely duplicates found on the first Save press; a second press saves. */
+  const [dupes, setDupes] = useState<ProjectExpense[] | null>(null)
+
+  useEffect(() => {
+    if (fixedProjectId) setSelectedProjectId(fixedProjectId)
+  }, [fixedProjectId])
 
   // Load projects on mount
   useEffect(() => {
@@ -152,45 +177,50 @@ export default function InvoiceParser() {
   // ── Save to DB ──
 
   async function saveInvoice() {
-    if (!parsed || !selectedProjectId) return
+    if (!parsed || !selectedProjectId || !org?.id) return
     setSaving(true)
     setError(null)
 
     try {
       const toNum = (v: any) => parseFloat(String(v).replace(/,/g, '')) || 0
+      const amount = toNum(parsed.total_amount)
 
-      // Create invoice record
-      const { data: invoice, error: invErr } = await supabase
-        .from('invoices')
-        .insert({
-          org_id: org?.id,
-          project_id: selectedProjectId,
-          subproject_id: selectedSubprojectId || null,
-          vendor_name: parsed.vendor_name,
-          invoice_number: parsed.invoice_number,
+      // Duplicate check on the FIRST press only — the warning names what it
+      // matched; pressing Save again means "yes, it's a different bill".
+      if (dupes === null) {
+        const existing = await listProjectExpenses(selectedProjectId)
+        const hits = findLikelyDuplicates(existing, {
+          vendor_name: parsed.vendor_name || '',
+          amount,
           invoice_date: parsed.invoice_date || null,
-          total_amount: toNum(parsed.total_amount),
         })
-        .select('id')
-        .single()
+        if (hits.length > 0) {
+          setDupes(hits)
+          return
+        }
+      }
 
-      if (invErr) throw invErr
-
-      // Create line items
-      if (invoice && parsed.line_items?.length > 0) {
-        const items = parsed.line_items.map(li => ({
-          invoice_id: invoice.id,
+      await createExpense({
+        orgId: org.id,
+        projectId: selectedProjectId,
+        subprojectId: selectedSubprojectId || null,
+        vendorName: parsed.vendor_name || 'Unknown vendor',
+        invoiceNumber: parsed.invoice_number || null,
+        invoiceDate: parsed.invoice_date || null,
+        amount,
+        source: 'parsed',
+        userId: user?.id ?? null,
+        lineItems: (parsed.line_items || []).map((li) => ({
           description: li.description,
           quantity: toNum(li.quantity),
           unit_price: toNum(li.unit_price),
           total: toNum(li.total),
-        }))
-
-        const { error: liErr } = await supabase.from('invoice_line_items').insert(items)
-        if (liErr) console.error('Line items insert error:', liErr)
-      }
+        })),
+      })
 
       setSaved(true)
+      setDupes(null)
+      onSaved?.()
     } catch (err: any) {
       setError(`Save failed: ${err.message}`)
     } finally {
@@ -205,7 +235,8 @@ export default function InvoiceParser() {
     setFileName(null)
     setError(null)
     setSaved(false)
-    setSelectedProjectId('')
+    setDupes(null)
+    setSelectedProjectId(fixedProjectId || '')
     setSelectedSubprojectId('')
   }
 
@@ -313,13 +344,14 @@ export default function InvoiceParser() {
             </div>
           )}
 
-          {/* Assign to Project */}
+          {/* Assign to Project — hidden when mounted inside one project. */}
           <div className="grid grid-cols-2 gap-3">
+            {!fixedProjectId && (
             <div>
               <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Assign to Project *</label>
               <select
                 value={selectedProjectId}
-                onChange={e => setSelectedProjectId(e.target.value)}
+                onChange={e => { setSelectedProjectId(e.target.value); setDupes(null) }}
                 className="mt-1 w-full text-sm bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
               >
                 <option value="">Select project...</option>
@@ -328,6 +360,7 @@ export default function InvoiceParser() {
                 ))}
               </select>
             </div>
+            )}
             <div>
               <label className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">Subproject (optional)</label>
               <select
@@ -344,6 +377,20 @@ export default function InvoiceParser() {
             </div>
           </div>
 
+          {dupes && dupes.length > 0 && (
+            <div className="flex items-start gap-2 p-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl text-[12.5px] text-[#92400E]">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <div>
+                This looks like a bill already on this project:{' '}
+                {dupes
+                  .slice(0, 2)
+                  .map((d) => `${d.vendor_name} ${fmtMoney(d.amount)}${d.invoice_date ? ` (${d.invoice_date})` : ''}`)
+                  .join(' · ')}
+                . Save again if it’s a different bill.
+              </div>
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex items-center gap-2 pt-1">
             <button
@@ -351,7 +398,7 @@ export default function InvoiceParser() {
               disabled={!selectedProjectId || saving}
               className="px-5 py-2.5 bg-[#2563EB] text-white text-sm font-medium rounded-xl hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {saving ? 'Saving...' : 'Save Invoice'}
+              {saving ? 'Saving...' : dupes && dupes.length > 0 ? 'Save anyway' : 'Save Invoice'}
             </button>
             <button
               onClick={reset}
