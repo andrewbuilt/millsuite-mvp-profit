@@ -43,7 +43,6 @@ import { updateProjectStage } from '@/lib/sales'
 import { soldAgoLabel } from '@/lib/project-events'
 import { STAGE_COLORS } from '@/components/project/StagePill'
 import { loadProjectsTotalHours } from '@/lib/project-hours'
-import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
 import TempProjectModal from '@/components/projects/TempProjectModal'
@@ -591,7 +590,6 @@ function ProjectCard({
       title={p.name}
       titleBadges={
         <>
-          <ImportedBadge importedAt={p.imported_at} />
           {isPractice && <PracticeBadge />}
         </>
       }

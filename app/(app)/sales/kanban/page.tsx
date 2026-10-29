@@ -40,7 +40,6 @@ import { confirmAndArchive } from '@/lib/project-archive'
 import { DuplicateProjectModal } from '@/components/project/DuplicateProjectModal'
 import { setProjectLostReason } from '@/lib/lead-sources'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
-import ImportedBadge from '@/components/imported-badge'
 import { coverStageOf, COVER_STAGE_LABEL, STAGE_COLORS } from '@/components/project/StagePill'
 import type { ProjectStage } from '@/lib/types'
 import PracticeBadge from '@/components/practice-badge'
@@ -598,7 +597,6 @@ function SalesCard({
       title={project.name}
       titleBadges={
         <>
-          <ImportedBadge importedAt={(project as { imported_at?: string | null }).imported_at} />
           {isPractice && <PracticeBadge />}
         </>
       }

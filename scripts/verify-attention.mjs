@@ -132,7 +132,7 @@ ck('sales Sold + Lost show this calendar month only', /p\.stage === 'sold' && !i
 ck('sales board no longer uses the 30-day lost window', !/30 \* 86400000/.test(sales))
 ck('/projects enriches in bulk (no per-project rate-book reload)', /loadProjectsTotalHours\(orgId, hoursIds\)/.test(projects) && !/loadProjectDeptHours/.test(projects) && !/rows\.map\(async/.test(projects))
 ck('/projects production column sorts by project age (sold, else created)', /c === 'production'[\s\S]{0,400}newestFirst\(a\.sold_at \?\? a\.created_at/.test(projects))
-ck('card badges sit on their own row, not beside the title', /empty:hidden">\{titleBadges\}/.test(read('components/kanban/KanbanCard.tsx')))
+ck('no Imported tag on either board (project page keeps it — Andrew 10-29)', !/ImportedBadge/.test(sales) && !/ImportedBadge/.test(projects))
 ck('/pm mounts the attention list', /<AttentionCard orgId=/.test(pm))
 ck('Touched base logs a project event', /eventType: 'touched_base'/.test(read('lib/attention-data.ts')))
 ck('the shared column carries no tour attribute (pages own those)', !/data-tour/.test(read('components/kanban/KanbanColumn.tsx')))
