@@ -4,9 +4,11 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-10-28 · **Branch:** `main`
+**Last updated:** 2026-10-29 · **Branch:** `main`
 
-**Left off (2026-10-28):** $ / % TOGGLE + PINNED DRAWS BUILT + PUSHED (`fac9985`); **migration `123` ✅ on prod and verified** (column live; all 114 existing draws unpinned, so nothing moved). Next: Andrew's Leonard live check (CURRENT FOCUS).
+**Left off (2026-10-29):** PROJECTS KANBAN + ATTENTION RINGS BUILT + PUSHED (`03985b2`), no migration; tsc + `next build` clean, `verify-attention` 57/57, tour targets pass, rings eyeballed on `/dev/attention-rings`. Next: Andrew's live look (verify list in the two 10-29 blocks).
+
+**Earlier (2026-10-28):** $ / % TOGGLE + PINNED DRAWS BUILT + PUSHED (`fac9985`); **migration `123` ✅ on prod and verified** (column live; all 114 existing draws unpinned, so nothing moved). Next: Andrew's Leonard live check (CURRENT FOCUS).
 
 **Earlier (2026-10-27):** PAYMENTS SIMPLIFIED on Andrew's Oliveira look (`3239cf0`, pushed): a payment settles the next draw at what was paid, the rest of the contract spreads over the open draws — no waterfall, no partials, no drift for known contracts. Oliveira reads Deposit $17,000 paid · $11,357 · $19,172. Next: Andrew renames Oliveira's 2nd "Deposit" (e.g. "Final") in Edit draws → the rest of the 10-26 verify list.
 
@@ -26,7 +28,15 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
-**NEW 2026-10-29 (same pass): PROJECTS DASH BECOMES A KANBAN — one board language across the site. Build WITH the attention rings (they share the card work).**
+**✅ 2026-10-29: PROJECTS DASH IS A KANBAN — BUILT + PUSHED (`03985b2`), with the attention rings below. No migration.** What shipped vs the spec:
+- Shared shells `components/kanban/KanbanColumn` + `KanbanCard` (the ring lives in the card shell); both boards use them. /projects: the five columns, header count + $ sum, search kept, metric boxes + filter buttons + card grid gone. Complete cards keep their Archive button; every card has Archive in ⋯.
+- Drag: Brand-new / Pre-production aren't drop targets. → Production only via `startProduction`; an unready drag bounces with the reason ("2 of 4 subprojects are approved and the deposit isn't recorded"). Production → Installed → Complete one step forward at a time via `updateProjectStage`; backward or skipping bounces with a one-line note.
+- "Brand-new" graduates on 7 days OR any approval card past `pending` (judgment call, veto-able). Null `sold_at` is never brand-new.
+- ⚠️ **Temp projects are now OFF /projects** (per the verify line). They're reachable from /time and their own URL; the "+ Temp project" button stays. Say the word if they need a home on the board.
+- Sales SOLD column groups new sale (sold <7d — the sales board has no approval data, so days only) → pre-prod → production → installed → complete, newest-first within.
+- **Live verify (Andrew):** both boards side by side read as one product · a ready job drags into Production and an unready one bounces with the reason · every column's top card is its newest · temp/archived stay off.
+
+**(spec, for reference) PROJECTS DASH BECOMES A KANBAN — one board language across the site. Build WITH the attention rings (they share the card work).**
 - **/projects = a kanban: Brand-new sale · Pre-production · Production · Installed · Complete.** Same column/card components and styling as the sales kanban — continuity is the point; extract shared components rather than copying (`KanbanColumn`/`KanbanCard`). Column headers carry count + $ sum like the sales board.
 - **"Brand-new sale" = sold in the last 7 days** (the SOLD-THIS-WEEK group); cards graduate to Pre-production at 7 days or on first approval activity, whichever first (judgment call, veto-able). Columns 1↔2 therefore aren't drag targets; **drag elsewhere respects the real gates**: into Production only when the readiness gate passes (blocked drag explains why — `startProduction` stays the sole writer), Production → Installed → Complete are real stage writes with the existing semantics.
 - **Sorting, BOTH kanbans, every column: newest at top, oldest at bottom — keyed on the attention clock's timestamp** (time entered the state / last touch), so with the rings the column literally darkens downward — the glance IS the triage (Andrew's insight). Sales board's SOLD column groups by progress (new sale → pre-prod → in production), newest-first within each group.
@@ -34,7 +44,12 @@
 - Verify: both boards side by side read as one product; a ready job drags into Production and an unready one bounces with the reason; every column's top card is its newest; temp/archived stay off.
 
 
-**NEW 2026-10-29 (Cowork design pass with Andrew, his mockup): ATTENTION RINGS — at-a-glance project status. Scoped; build after the $/% toggle. No migration expected (clocks derive from existing stamps + `project_events`; "Touched base" is an event row).**
+**✅ 2026-10-29: ATTENTION RINGS — BUILT + PUSHED (`03985b2`). No migration.** `lib/attention.ts` (pure: clocks, thresholds, ring styles 2px amber → 3px orange → 4px deep red, fill gradient, worst-first + newest-first) + `lib/attention-data.ts` (resets: `project_events` types touched_base/sold/stage_change/production_started/estimate_sent/co_schedule_applied/milestone_received, plus `project_payments.created_at` and `change_orders.updated_at`). Proof: `npx tsx scripts/verify-attention.mjs` (57 checks: thresholds, resets, honest-data, fill, ordering, wiring). Fixture: `/dev/attention-rings` (dev-only).
+- Choices made in the gaps (veto-able): a pipeline card with a sent estimate runs the SENT clock in any column, otherwise the lead clock; a reset only counts if it's after the clock's base stamp; sold + lost cards on the SALES board never ring (pre-prod rings live on /projects + /pm); installed/complete never ring; the walkthrough's highlighted card suppresses its ring.
+- /pm: new **"Needs attention"** card (worst-first, cap 8, over-hours production as red), placed under Today. ⚠️ **The Watch list is KEPT beside it, not absorbed** — it's a budget-spend signal no clock measures. Say the word to fold or drop it.
+- **Live verify (Andrew):** a 3w-old lead burns red with "3w" (tooltip has the words) · Touched base resets it and the event shows in the timeline drawer · a sent bid's age matches `estimate_sent_at` · a production ring matches its bar · /pm rows agree with their cards.
+
+**(spec, for reference) ATTENTION RINGS — at-a-glance project status.**
 **The system — VISUAL FIRST (Andrew 10-29: "I want to read less"): the ring gets THICKER AND DARKER together as age climbs** — e.g. 2px amber → 3px orange → 4px deep red at the thresholds; thickness is the signal that survives color-blindness, so the pair covers accessibility. The fact chip stays but SMALL and secondary (the number for when you've already looked: "12d", "3w"); full wording moves to the tooltip. Stepped, never a continuous fade. Per-stage clocks:
 - **New lead:** days since created / last activity → chip "12d quiet". Amber 7d · orange 14d · red 21d.
 - **Estimate sent:** days since `estimate_sent_at` → "sent 3w ago". Amber 10d · red 21d.
