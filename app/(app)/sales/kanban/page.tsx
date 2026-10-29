@@ -35,7 +35,7 @@ import { useConfirm } from '@/components/confirm-dialog'
 import NewProjectModal from '@/components/sales/NewProjectModal'
 import { announce } from '@/lib/tour-events'
 import Link from 'next/link'
-import { ArrowLeft, StickyNote, ArrowRight, Trash2, Plus, Search, X, Copy, Archive, Handshake } from 'lucide-react'
+import { StickyNote, ArrowRight, Trash2, Plus, Search, X, Copy, Archive, Handshake } from 'lucide-react'
 import { confirmAndArchive } from '@/lib/project-archive'
 import { DuplicateProjectModal } from '@/components/project/DuplicateProjectModal'
 import { setProjectLostReason } from '@/lib/lead-sources'
@@ -268,12 +268,6 @@ function KanbanInner() {
     <>
       <div className="max-w-[1400px] mx-auto px-6 py-6">
         <div className="flex items-center gap-3 mb-5">
-          <Link
-            href="/sales"
-            className="p-2 rounded-lg text-[#9CA3AF] hover:text-[#111] hover:bg-[#F3F4F6] transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-[#111]">Sales pipeline</h1>
             <p className="text-xs text-[#6B7280] mt-0.5">

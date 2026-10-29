@@ -369,6 +369,11 @@ function hoursFmt(n: number): string {
 
 // ── Page ──
 
+/** Sold and beyond — the stages that live on the /projects board. */
+function isSoldStage(stage: string | null | undefined): boolean {
+  return stage === 'sold' || stage === 'production' || stage === 'installed' || stage === 'complete'
+}
+
 export default function ProjectCoverPage() {
   const { id: projectId } = useParams() as { id: string }
   const router = useRouter()
@@ -1723,12 +1728,15 @@ export default function ProjectCoverPage() {
         {/* Project sub-bar — sticks below the global Nav (Nav is sticky
             top-0 z-50). top-14 = 56px = the Nav's natural height. */}
         <div className="sticky top-14 z-30 bg-white border-b border-[#E5E7EB] px-6 py-3 flex items-center justify-between">
+          {/* Back goes to the board the job lives on (Andrew 2026-10-29):
+              sold and beyond → the projects kanban, anything unsold (bids,
+              lost) → the sales kanban. */}
           <button
-            onClick={() => router.push(`/projects`)}
+            onClick={() => router.push(isSoldStage(project?.stage) ? '/projects' : '/sales/kanban')}
             className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111] transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to projects
+            {isSoldStage(project?.stage) ? 'Back to projects' : 'Back to sales'}
           </button>
           <StagePill stage={project.stage} />
         </div>

@@ -63,23 +63,19 @@ export default function FirstProjectPrompt({
       </h2>
       <p className="text-sm text-[#6B7280] max-w-lg mx-auto mb-5">
         {canSell
-          ? 'Drop a bid PDF on the sales page and it becomes a pipeline project. Drag through the stages — Sold flips it live, and the bid-vs-actual loop turns on the moment someone logs an hour.'
+          ? 'Start a sale on the sales board and drag it through the stages — Sold flips it live, and the bid-vs-actual loop turns on the moment someone logs an hour.'
           : 'A project tracks bid vs. actual so you can see profit the day it changes — not months later. Set a bid amount, log time, and watch the margin.'}
       </p>
       <div className="flex flex-wrap items-center justify-center gap-3">
         {canSell ? (
           <>
+            {/* The /sales dashboard (and its drop-drawings parser) was retired
+                2026-10-29 — new sales start on the kanban's New project. */}
             <Link
-              href="/sales"
+              href="/sales/kanban"
               className="inline-flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white text-sm font-medium rounded-lg hover:bg-[#1D4ED8] transition-colors"
             >
               <Plus className="w-4 h-4" /> New sale
-            </Link>
-            <Link
-              href="/sales"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-[#E5E7EB] text-[#111] text-sm font-medium rounded-lg hover:bg-[#F9FAFB] transition-colors"
-            >
-              Drop drawings
             </Link>
           </>
         ) : (

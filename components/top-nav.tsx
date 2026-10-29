@@ -4,7 +4,8 @@
 // TopNav — horizontal top bar, hoisted into app/(app)/layout.tsx (renders once)
 // ============================================================================
 // Text-only (no icons). Three groups:
-//   Sales ▾    → /sales (click), dropdown: Kanban · Invoices · Clients
+//   Sales ▾    → /sales/kanban (click), dropdown: Estimates · Change orders ·
+//                Invoices · Payments · Clients
 //   Projects ▾ → /projects (click), dropdown: Schedule · Capacity
 //   Manage ▾   → (not a link) dropdown: My day · Tasks · Reports · Suggestions ·
 //                Rate book · Supplies · Team · Time · Guides · Archive
@@ -44,11 +45,12 @@ interface GroupSpec {
 const NAV: GroupSpec[] = [
   {
     label: 'Sales',
-    href: '/sales',
+    // The kanban IS the sales page now (Andrew 2026-10-29) — the old /sales
+    // dashboard was retired; /sales redirects here for old links.
+    href: '/sales/kanban',
     feature: 'sales',
     tour: 'nav-sales',
     children: [
-      { href: '/sales/kanban', label: 'Kanban', feature: 'sales' },
       { href: '/estimates', label: 'Estimates', feature: 'sales' },
       { href: '/change-orders', label: 'Change orders', feature: 'sales' },
       { href: '/invoices', label: 'Invoices', feature: 'invoices' },
