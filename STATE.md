@@ -6,7 +6,9 @@
 
 **Last updated:** 2026-10-29 · **Branch:** `main`
 
-**Left off (2026-10-29, last):** board polish from Andrew's look, PUSHED (`0461217`): the Imported tag is OFF the kanban cards entirely (both boards; Andrew's call — the project page keeps it), and the card layout is back to before (`d45a081`; the brief own-row badge layout is reverted). Practice still shows beside the title. /projects PRODUCTION column now sorts by PROJECT AGE alone, newest on top (sold date, else created for imports); the fill ring no longer reorders it. The other columns keep level-then-newest. `verify-attention` covers both. Next: Andrew's live look at both boards (verify lists in the 10-29 CURRENT FOCUS blocks).
+**Left off (2026-10-29, final):** KANBAN CARD LAYOUT PASS BUILT + PUSHED (`773c363`), see its CURRENT FOCUS block. Next build: the PROJECT P&L PANEL + TIME DASHBOARD + EXPENSE LEDGER (needs migration `124` `project_expenses`).
+
+**Earlier (2026-10-29, last):** board polish from Andrew's look, PUSHED (`0461217`): the Imported tag is OFF the kanban cards entirely (both boards; Andrew's call — the project page keeps it), and the card layout is back to before (`d45a081`; the brief own-row badge layout is reverted). Practice still shows beside the title. /projects PRODUCTION column now sorts by PROJECT AGE alone, newest on top (sold date, else created for imports); the fill ring no longer reorders it. The other columns keep level-then-newest. `verify-attention` covers both. Next: Andrew's live look at both boards (verify lists in the 10-29 CURRENT FOCUS blocks).
 
 **Earlier (2026-10-29, latest):** NAV + BACK BUTTON, PUSHED (`e8aabc7`): the project page's Back goes to the board the job lives on (sold/production/installed/complete → /projects "Back to projects"; bids + lost → /sales/kanban "Back to sales"). Clicking Sales in the nav opens the kanban; the dropdown's Kanban item is gone. **The /sales dashboard is RETIRED** — `/sales` redirects to the kanban; the old page is in git history before `e8aabc7`. ⚠️ It was the drawing-PDF PARSER's only door (Pro+ "drop a bid PDF"), so the parser has no entry point now; `lib/pdf-parser` + the create helpers are untouched. The /pm first-project prompt lost its "Drop drawings" button. `reports/components/SalesCard.tsx` is now unused (left in place). Andrew 2026-10-29: **leave the parser off for now** — no new home; revisit only if he brings it back.
 
@@ -34,7 +36,9 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
-**NEW 2026-10-29 (Andrew's live look at the new boards): KANBAN CARD LAYOUT PASS — small, both boards, the shared card component. Build next.**
+**✅ 2026-10-29: KANBAN CARD LAYOUT PASS — BUILT + PUSHED (`773c363`).** In the shared `KanbanCard`: the title wraps in full (`break-words`, no truncate) with the ⋯ pinned top-right; the client line is gone (the `subtitle` prop no longer exists); the attention chip moved to a bottom row's RIGHT corner, beside a new `footer` slot (sales: the stage / Estimate-sent chip; /projects: subs-ready / the hours bar / the complete-card Archive button). "Sold Nd ago" is dropped. Both boards use the one card. Checked on `/dev/attention-rings` with a 3-line Leonard-length title; `verify-attention` pins it. **Live verify (Andrew):** the Leonard JW Marriott ×3 cards read in full on both boards at the sales-column width.
+
+**(spec, for reference) KANBAN CARD LAYOUT PASS.**
 - **The title is the card:** remove the CLIENT line entirely; the title WRAPS to full length (no truncation — "Leonard – JW Marri…" is unreadable). Checkbox/chip alignment survives 3-line titles.
 - **The age chip (7d/2w/…) moves to the BOTTOM corner** of the card, off the title row.
 - **Keep:** the $ total · the tracked-hours bar on production cards ("415h of 648h") · "N of M subprojects ready" on pre-prod cards.
