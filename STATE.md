@@ -6,7 +6,9 @@
 
 **Last updated:** 2026-10-29 · **Branch:** `main`
 
-**Left off (2026-10-29):** PROJECTS KANBAN + ATTENTION RINGS BUILT + PUSHED (`03985b2`), no migration; tsc + `next build` clean, `verify-attention` 57/57, tour targets pass, rings eyeballed on `/dev/attention-rings`. Next: Andrew's live look (verify list in the two 10-29 blocks).
+**Left off (2026-10-29, later):** fixes from Andrew's first look, PUSHED (`456fa36`): (1) columns now sort ring LEVEL first, then newest, so a column only darkens downward (mixed lead/sent clocks had put calm cards under amber ones); (2) sales Sold + Lost show THIS CALENDAR MONTH only (null date = gone; /archive's "still on the board" rule follows); (3) /projects loads in bulk: one rate-book load instead of one per card, hours only for production/installed. ⚠️ Found while there, NOT fixed: `loadProjectDeptHours` (capacity, schedule, team, reports) never selects `subprojects.quantity`, so a "(TYP) ×N" sub counts once there. The new bulk loader copies that behaviour, so the board agrees with capacity. It's Andrew's call, because fixing it moves capacity numbers. Next: Andrew re-looks at both boards.
+
+**Earlier (2026-10-29):** PROJECTS KANBAN + ATTENTION RINGS BUILT + PUSHED (`03985b2`), no migration; tsc + `next build` clean, `verify-attention` 57/57, tour targets pass, rings eyeballed on `/dev/attention-rings`. Next: Andrew's live look (verify list in the two 10-29 blocks).
 
 **Earlier (2026-10-28):** $ / % TOGGLE + PINNED DRAWS BUILT + PUSHED (`fac9985`); **migration `123` ✅ on prod and verified** (column live; all 114 existing draws unpinned, so nothing moved). Next: Andrew's Leonard live check (CURRENT FOCUS).
 
