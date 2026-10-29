@@ -40,6 +40,8 @@ const EMPTY: ProjectDeptHoursResult = { totalHours: 0, deptHours: {} }
 interface SubRow {
   id: string
   consumable_markup_pct: number | null
+  /** 097 — "(TYP) ×N": N times the shop work. */
+  quantity?: number | null
 }
 
 interface DeptRow {
@@ -85,7 +87,11 @@ export async function loadProjectDeptHours(
         .single(),
       supabase
         .from('subprojects')
-        .select('id, consumable_markup_pct')
+        // ⛔ `quantity` (097) WAS NEVER SELECTED HERE until 2026-10-29 — the
+        // rollup below read `sub.quantity ?? 1`, so every ×N sub counted ONCE
+        // on capacity / schedule / team / reports. Same bug project-totals had
+        // (fixed 10-22).
+        .select('id, consumable_markup_pct, quantity')
         .eq('project_id', projectId),
       supabase
         .from('departments')
@@ -133,7 +139,7 @@ export async function loadProjectDeptHours(
         rateBook.itemsById,
         new Map(),
         ctx,
-        (sub as { quantity?: number }).quantity ?? 1,
+        Number(sub.quantity) || 1,
       )
       totalHours += rollup.totalHours
       for (const key of LABOR_DEPTS) {
@@ -166,7 +172,7 @@ export async function loadProjectsTotalHours(orgId: string, projectIds: string[]
   try {
     const [{ data: orgData }, { data: subsData }, rateBook] = await Promise.all([
       supabase.from('orgs').select('consumable_markup_pct, shop_rate').eq('id', orgId).single(),
-      supabase.from('subprojects').select('id, project_id, consumable_markup_pct').in('project_id', projectIds),
+      supabase.from('subprojects').select('id, project_id, consumable_markup_pct, quantity').in('project_id', projectIds),
       loadRateBook(orgId),
     ])
     const subs = (subsData || []) as (SubRow & { project_id: string })[]
@@ -179,7 +185,7 @@ export async function loadProjectsTotalHours(orgId: string, projectIds: string[]
         rateBook.itemsById,
         new Map(),
         { shopRate, consumableMarkupPct: sub.consumable_markup_pct ?? orgConsumables, profitMarginPct: 0 },
-        (sub as { quantity?: number }).quantity ?? 1,
+        Number(sub.quantity) || 1,
       )
       out[sub.project_id] = (out[sub.project_id] || 0) + rollup.totalHours
     }
