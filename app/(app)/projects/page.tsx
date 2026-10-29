@@ -54,7 +54,7 @@ import { announce } from '@/lib/tour-events'
 import KanbanColumn from '@/components/kanban/KanbanColumn'
 import KanbanCard from '@/components/kanban/KanbanCard'
 import TouchedBaseModal from '@/components/kanban/TouchedBaseModal'
-import { ageAttention, boardOrder, fillAttention, type Attention } from '@/lib/attention'
+import { ageAttention, boardOrder, fillAttention, newestFirst, type Attention } from '@/lib/attention'
 import { loadProjectTouches, type ProjectTouches } from '@/lib/attention-data'
 
 interface ProjectRow {
@@ -65,6 +65,7 @@ interface ProjectRow {
   bid_total: number
   due_date: string | null
   updated_at: string
+  created_at?: string | null
   /** Non-null when the job came from Built OS (6c) — drives the badge. */
   imported_at?: string | null
   /** Stamped on the transition into 'sold' (094). Null on anything sold
@@ -167,7 +168,7 @@ export default function ProjectsPage() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const BASE_COLS = 'id, name, client_name, stage, bid_total, due_date, updated_at, imported_at'
+      const BASE_COLS = 'id, name, client_name, stage, bid_total, due_date, created_at, updated_at, imported_at'
       const load = (cols: string) =>
         supabase
           .from('projects')
@@ -342,8 +343,17 @@ export default function ProjectsPage() {
       if (p.stage === 'sold') return a && a.kind === 'age' ? a.since : p.sold_at ?? null
       return touches[p.id]?.stageAt ?? p.updated_at
     }
-    for (const c of ORDER)
+    for (const c of ORDER) {
+      // PRODUCTION sorts by PROJECT AGE alone — newest job on top, oldest at
+      // the bottom (Andrew 2026-10-29: "org by project age"). Age = sold date,
+      // falling back to created for imports with no sold_at. The fill ring
+      // doesn't reorder it; the other columns keep level-then-newest.
+      if (c === 'production') {
+        out[c].sort((a, b) => newestFirst(a.sold_at ?? a.created_at, b.sold_at ?? b.created_at))
+        continue
+      }
       out[c].sort((a, b) => boardOrder({ attention: attention[a.id], key: key(a) }, { attention: attention[b.id], key: key(b) }))
+    }
     return out
   }, [projects, enriched, debouncedQuery, attention, touches])
 

@@ -15,6 +15,7 @@
 import { notFound } from 'next/navigation'
 import KanbanColumn from '@/components/kanban/KanbanColumn'
 import KanbanCard from '@/components/kanban/KanbanCard'
+import ImportedBadge from '@/components/imported-badge'
 import { ageAttention, fillAttention, type Attention } from '@/lib/attention'
 
 const DAY = 86400000
@@ -77,7 +78,7 @@ export default function AttentionRingsFixture() {
         {COLS.map((col) => (
           <KanbanColumn key={col.title} title={col.title} count={col.cards.length} sum={col.cards.reduce((s, c) => s + c.value, 0)} hint="Fixture" isOver={false}>
             {col.cards.map((c) => (
-              <KanbanCard key={c.name} title={c.name} subtitle={c.client} attention={c.a} onOpen={() => {}} menu={[{ label: 'Touched base', onClick: () => {} }]}>
+              <KanbanCard key={c.name} title={c.name} subtitle={c.client} titleBadges={c.name === 'Bonzer' ? <ImportedBadge importedAt="2026-08-01" /> : undefined} attention={c.a} onOpen={() => {}} menu={[{ label: 'Touched base', onClick: () => {} }]}>
                 <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2">${c.value.toLocaleString()}</div>
               </KanbanCard>
             ))}

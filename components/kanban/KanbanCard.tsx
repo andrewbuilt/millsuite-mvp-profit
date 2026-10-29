@@ -111,11 +111,12 @@ export default function KanbanCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className="text-sm font-semibold text-[#111] truncate">{title}</div>
-            {titleBadges}
-          </div>
+          <div className="text-sm font-semibold text-[#111] truncate">{title}</div>
           {subtitle && <div className="text-[11px] text-[#6B7280] truncate mt-0.5">{subtitle}</div>}
+          {/* Badges (Imported, Practice) get their OWN row under the client —
+              beside the title they ate the name ("Leonard – JW …", Andrew
+              2026-10-29). Collapses when a card has none. */}
+          <div className="flex items-center gap-1.5 mt-1 empty:hidden">{titleBadges}</div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <AttentionChip attention={a} />
