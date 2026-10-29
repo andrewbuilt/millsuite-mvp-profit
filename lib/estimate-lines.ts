@@ -175,6 +175,42 @@ export async function loadEstimateLines(subprojectId: string): Promise<EstimateL
   return (data || []).map(normalizeLine)
 }
 
+/**
+ * Every line for MANY subprojects, keyed by subproject id — the bulk twin of
+ * loadEstimateLines for boards that roll up a dozen jobs at once (/projects).
+ * Same columns, same normalization, same sort. Ids are chunked (.in() length)
+ * and rows paged (PostgREST caps a response at 1000 rows).
+ */
+export async function loadEstimateLinesForSubs(subprojectIds: string[]): Promise<Record<string, EstimateLine[]>> {
+  const out: Record<string, EstimateLine[]> = {}
+  for (let i = 0; i < subprojectIds.length; i += 100) {
+    const ids = subprojectIds.slice(i, i + 100)
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase
+        .from('estimate_lines')
+        .select(
+          `id, subproject_id, sort_order, description, rate_book_item_id,
+           quantity, unit, material_mode_override, linear_cost_override,
+           lump_cost_override, dept_hour_overrides, material_description,
+           install_mode, install_params, finish_specs, callouts,
+           unit_price_override, notes, product_key, product_slots, spec_label`
+        )
+        .in('subproject_id', ids)
+        .order('subproject_id', { ascending: true })
+        .order('sort_order', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + 999)
+      if (error) {
+        console.error('loadEstimateLinesForSubs', error)
+        break
+      }
+      for (const row of data || []) (out[row.subproject_id] ||= []).push(normalizeLine(row))
+      if (!data || data.length < 1000) break
+    }
+  }
+  return out
+}
+
 function normalizeLine(row: any): EstimateLine {
   return {
     id: row.id,

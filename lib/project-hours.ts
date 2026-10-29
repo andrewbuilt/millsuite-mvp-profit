@@ -21,6 +21,7 @@ import { supabase } from './supabase'
 import {
   computeSubprojectRollup,
   loadEstimateLines,
+  loadEstimateLinesForSubs,
   loadRateBook,
   type PricingContext,
 } from './estimate-lines'
@@ -149,4 +150,41 @@ export async function loadProjectDeptHours(
     console.error('loadProjectDeptHours', err)
     return EMPTY
   }
+}
+
+/**
+ * Total estimated hours for MANY projects at once — the /projects board's
+ * loader. Same math as loadProjectDeptHours (same rollup, same pricing
+ * context, same quantity handling) but the org, the rate book, the subs and
+ * the lines are each loaded ONCE instead of once per project; per-project it
+ * re-loaded the whole rate book, which is what made the board slow.
+ * Best-effort: failures leave a project at 0h.
+ */
+export async function loadProjectsTotalHours(orgId: string, projectIds: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {}
+  if (!orgId || projectIds.length === 0) return out
+  try {
+    const [{ data: orgData }, { data: subsData }, rateBook] = await Promise.all([
+      supabase.from('orgs').select('consumable_markup_pct, shop_rate').eq('id', orgId).single(),
+      supabase.from('subprojects').select('id, project_id, consumable_markup_pct').in('project_id', projectIds),
+      loadRateBook(orgId),
+    ])
+    const subs = (subsData || []) as (SubRow & { project_id: string })[]
+    const orgConsumables = Number((orgData as { consumable_markup_pct: number | null } | null)?.consumable_markup_pct ?? 10)
+    const shopRate = Number((orgData as { shop_rate: number | null } | null)?.shop_rate ?? 0)
+    const lines = await loadEstimateLinesForSubs(subs.map((s) => s.id))
+    for (const sub of subs) {
+      const rollup = computeSubprojectRollup(
+        lines[sub.id] || [],
+        rateBook.itemsById,
+        new Map(),
+        { shopRate, consumableMarkupPct: sub.consumable_markup_pct ?? orgConsumables, profitMarginPct: 0 },
+        (sub as { quantity?: number }).quantity ?? 1,
+      )
+      out[sub.project_id] = (out[sub.project_id] || 0) + rollup.totalHours
+    }
+  } catch (err) {
+    console.error('loadProjectsTotalHours', err)
+  }
+  return out
 }

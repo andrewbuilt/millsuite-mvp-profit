@@ -49,7 +49,7 @@ import { useTours } from '@/components/walkthroughs/TourProvider'
 import KanbanColumn from '@/components/kanban/KanbanColumn'
 import KanbanCard from '@/components/kanban/KanbanCard'
 import TouchedBaseModal from '@/components/kanban/TouchedBaseModal'
-import { ageAttention, newestFirst, type AgeAttention } from '@/lib/attention'
+import { ageAttention, boardOrder, newestFirst, type AgeAttention } from '@/lib/attention'
 import { loadProjectTouches, type ProjectTouches } from '@/lib/attention-data'
 
 /** What a SOLD card's badge says. Reuses the project page's cover-stage
@@ -76,6 +76,14 @@ function fmtMoney(n: number | null | undefined) {
 
 const WEEK_MS = 7 * 86400000
 
+/** In the current LOCAL calendar month. */
+function inThisMonth(iso: string | null | undefined): boolean {
+  if (!iso) return false
+  const d = new Date(iso)
+  const now = new Date()
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+}
+
 /** Sold-column progress groups, in board order (Andrew 2026-10-29). */
 function soldGroup(p: SalesProject, now: number): number {
   if (p.project_stage === 'sold') {
@@ -89,7 +97,7 @@ const COLUMN_HINT: Record<SalesStage, string> = {
   new_lead: 'Just came in',
   fifty_fifty: 'Could go either way',
   ninety_percent: 'About to close',
-  sold: 'Becomes a project',
+  sold: 'Sold this month',
   lost: "Didn't happen",
 }
 
@@ -162,14 +170,15 @@ function KanbanInner() {
       lost: [],
     }
     const q = normalizeQuery(query)
-    const cutoff = Date.now() - 30 * 86400000
     for (const p of projects) {
       if (!matchesProjectSearch(p, q)) continue
-      // Lost cards leave the LIVE board after 30 days — the archive
-      // (/archive) keeps them forever. A null lost_at (pre-116, no event
-      // to backfill from) STAYS visible: unknown age isn't old age, and a
-      // re-drag or the archive is how it gets resolved.
-      if (p.stage === 'lost' && p.lost_at && new Date(p.lost_at).getTime() < cutoff) continue
+      // SOLD and LOST show THIS CALENDAR MONTH only (Andrew 2026-10-29): sold
+      // work is tracked on the /projects board, lost lives in /archive. On
+      // the 1st both columns start empty. A null date (pre-094 / pre-116) is
+      // never "this month", so those cards leave too — they're still on
+      // /projects or in the archive.
+      if (p.stage === 'sold' && !inThisMonth(p.sold_at)) continue
+      if (p.stage === 'lost' && !inThisMonth(p.lost_at)) continue
       out[p.stage]?.push(p)
     }
     // Newest at top, keyed on the attention clock (Andrew 2026-10-29) — the
@@ -177,7 +186,12 @@ function KanbanInner() {
     // the colour still catches it.
     const now = Date.now()
     for (const s of ['new_lead', 'fifty_fifty', 'ninety_percent'] as const) {
-      out[s].sort((a, b) => newestFirst(attention[a.id]?.since ?? a.created_at, attention[b.id]?.since ?? b.created_at))
+      out[s].sort((a, b) =>
+        boardOrder(
+          { attention: attention[a.id], key: attention[a.id]?.since ?? a.created_at },
+          { attention: attention[b.id], key: attention[b.id]?.since ?? b.created_at },
+        ),
+      )
     }
     const soldKey = (p: SalesProject) =>
       p.project_stage === 'sold' ? p.sold_at ?? null : touches[p.id]?.stageAt ?? p.updated_at
@@ -221,7 +235,15 @@ function KanbanInner() {
     setProjects((prev) =>
       prev.map((p) =>
         p.id === project.id
-          ? { ...p, stage: targetStage, project_stage: targetStage as ProjectStage }
+          ? {
+              ...p,
+              stage: targetStage,
+              project_stage: targetStage as ProjectStage,
+              // Mirror the stamps updateProjectStage writes, so a card dragged
+              // into Sold / Lost stays in the this-month column.
+              sold_at: targetStage === 'sold' ? p.sold_at ?? new Date().toISOString() : p.sold_at,
+              lost_at: targetStage === 'lost' ? new Date().toISOString() : null,
+            }
           : p,
       ),
     )
@@ -315,7 +337,14 @@ function KanbanInner() {
                   count={cards.length}
                   sum={columnSum}
                   hint={
-                    stage === 'lost' ? (
+                    stage === 'sold' ? (
+                      <>
+                        {COLUMN_HINT.sold} ·{' '}
+                        <Link href="/projects" className="text-[#2563EB] hover:underline">
+                          Projects →
+                        </Link>
+                      </>
+                    ) : stage === 'lost' ? (
                       <Link href="/archive" className="text-[#2563EB] hover:underline">
                         Archive →
                       </Link>

@@ -20,6 +20,7 @@ import {
   ageAttention,
   ageChip,
   attentionScore,
+  boardOrder,
   clockFor,
   fillAttention,
   fillGradient,
@@ -93,6 +94,23 @@ ck('calm scores 0', attentionScore(lead(2)) === 0 && attentionScore(half) === 0)
 const keys = [ago(10), null, ago(1), ago(30)].sort(newestFirst)
 ck('newest first, unknown last', keys[0] === ago(1) && keys[2] === ago(30) && keys[3] === null)
 
+// ── board order: calm on top, darkens downward (10-29 fix) ──
+// The 50/50 case from Andrew's screenshot: a lead-clock card at 7d (amber)
+// and a sent-clock card at 8d (calm). Newest-first alone put calm BELOW amber.
+const leadAmber = ageAttention({ stage: 'fifty_fifty', created_at: ago(7) }, NOW)
+const sentCalm = ageAttention({ stage: 'fifty_fifty', estimate_sent_at: ago(8) }, NOW)
+const col = [
+  { attention: lead(25), key: lead(25).since },
+  { attention: leadAmber, key: leadAmber.since },
+  { attention: sentCalm, key: sentCalm.since },
+  { attention: lead(14), key: lead(14).since },
+  { attention: null, key: null },
+].sort(boardOrder)
+const levels = col.map((c) => (c.attention ? (c.attention.kind === 'age' ? c.attention.level : 0) : 0))
+ck('column levels never go DOWN top→bottom', levels.every((l, i) => i === 0 || l >= levels[i - 1]))
+ck('calm sent card sits above the amber lead card', col.indexOf(col.find((c) => c.attention === sentCalm)) < col.indexOf(col.find((c) => c.attention === leadAmber)))
+ck('over-hours production sinks below calm production', boardOrder({ attention: over, key: ago(1) }, { attention: half, key: ago(30) }) > 0)
+
 // ── wiring ──
 const read = (f) => fs.readFileSync(f, 'utf8')
 const sales = read('app/(app)/sales/kanban/page.tsx')
@@ -101,7 +119,7 @@ const pm = read('app/(app)/pm/page.tsx')
 for (const [name, src] of [['sales kanban', sales], ['/projects', projects]]) {
   ck(`${name} uses the shared KanbanColumn + KanbanCard`, /components\/kanban\/KanbanColumn/.test(src) && /components\/kanban\/KanbanCard/.test(src))
   ck(`${name} offers Touched base`, /TouchedBaseModal/.test(src) && /'Touched base'/.test(src))
-  ck(`${name} sorts newest first`, /newestFirst/.test(src))
+  ck(`${name} sorts by boardOrder (level, then newest)`, /boardOrder\(/.test(src))
 }
 ck('sales kanban keeps its tour targets', /data-tour="kanban-board"/.test(sales) && /'tour-project-card'/.test(sales))
 ck('the tour card suppresses the attention ring', /suppressRing=\{isTourProject\}/.test(sales))
@@ -110,6 +128,9 @@ ck('/projects lost the metric boxes + filter buttons', !/MetricCard/.test(projec
 ck('/projects keeps search', /matchesProjectSearch/.test(projects))
 ck('/projects keeps temp + archived off', /temp\.has\(r\.id\)/.test(projects) && /archived\.has\(r\.id\)/.test(projects))
 ck('/projects keeps the complete-card Archive button', /canArchive\(p\.stage\)/.test(projects))
+ck('sales Sold + Lost show this calendar month only', /p\.stage === 'sold' && !inThisMonth\(p\.sold_at\)/.test(sales) && /p\.stage === 'lost' && !inThisMonth\(p\.lost_at\)/.test(sales))
+ck('sales board no longer uses the 30-day lost window', !/30 \* 86400000/.test(sales))
+ck('/projects enriches in bulk (no per-project rate-book reload)', /loadProjectsTotalHours\(orgId, hoursIds\)/.test(projects) && !/loadProjectDeptHours/.test(projects) && !/rows\.map\(async/.test(projects))
 ck('/pm mounts the attention list', /<AttentionCard orgId=/.test(pm))
 ck('Touched base logs a project event', /eventType: 'touched_base'/.test(read('lib/attention-data.ts')))
 ck('the shared column carries no tour attribute (pages own those)', !/data-tour/.test(read('components/kanban/KanbanColumn.tsx')))

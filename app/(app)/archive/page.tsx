@@ -9,7 +9,7 @@
 //   · every project archived by hand (archived_at, migration 119) — any stage;
 //     Unarchive puts it back on the board / projects list.
 //   · every LOST project, archived or not — lost cards leave the board on
-//     their own after 30 days, and this is where they live forever, with the
+//     their own when the month turns (2026-10-29), and this is where they live forever, with the
 //     post-mortem columns the old page carried (source, reason, days in
 //     pipeline).
 // DISPLAY ONLY: reports and the sales report still count all of it.
@@ -22,7 +22,6 @@ import { useAuth } from '@/lib/auth-context'
 import { listArchivePage, unarchiveProject, type ArchivedProject } from '@/lib/project-archive'
 import { matchesProjectSearch, normalizeQuery } from '@/lib/project-search'
 
-const LOST_BOARD_DAYS = 30 // same window as the kanban's lost filter
 
 function money(n: number): string {
   return n > 0 ? `$${Math.round(n).toLocaleString()}` : '—'
@@ -78,11 +77,13 @@ function daysInPipeline(r: ArchivedProject): number | null {
   return Math.round(ms / 86400000)
 }
 
-/** A lost card nobody archived is still on the board for its first 30 days
- *  (a null lost_at stays on the board too — unknown age isn't old age). */
+/** A lost card nobody archived is still on the board in the month it was
+ *  lost — the same this-calendar-month rule as the kanban's Lost column. */
 function lostStillOnBoard(r: ArchivedProject): boolean {
-  if (!r.lost_at) return true
-  return Date.now() - new Date(r.lost_at).getTime() < LOST_BOARD_DAYS * 86400000
+  if (!r.lost_at) return false
+  const d = new Date(r.lost_at)
+  const now = new Date()
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
 }
 
 export default function ArchivePage() {
@@ -153,7 +154,7 @@ export default function ArchivePage() {
           <p className="text-xs text-[#6B7280] mt-0.5">
             {rows.length} project{rows.length === 1 ? '' : 's'} ·{' '}
             <span className="font-mono tabular-nums">{money(total)}</span> — archived projects, plus every lost
-            project (lost cards leave the board after {LOST_BOARD_DAYS} days). Everything here still counts in
+            project (lost cards leave the board when the month ends). Everything here still counts in
             reports.
           </p>
         </div>

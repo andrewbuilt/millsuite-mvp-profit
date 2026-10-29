@@ -42,8 +42,7 @@ import { isDepositReceived, startProduction } from '@/lib/project-stage'
 import { updateProjectStage } from '@/lib/sales'
 import { soldAgoLabel } from '@/lib/project-events'
 import { STAGE_COLORS } from '@/components/project/StagePill'
-import { loadProjectDeptHours } from '@/lib/project-hours'
-import { loadProjectActuals } from '@/lib/actual-hours'
+import { loadProjectsTotalHours } from '@/lib/project-hours'
 import ImportedBadge from '@/components/imported-badge'
 import PracticeBadge from '@/components/practice-badge'
 import { usePracticeProjects } from '@/hooks/usePracticeProjects'
@@ -55,7 +54,7 @@ import { announce } from '@/lib/tour-events'
 import KanbanColumn from '@/components/kanban/KanbanColumn'
 import KanbanCard from '@/components/kanban/KanbanCard'
 import TouchedBaseModal from '@/components/kanban/TouchedBaseModal'
-import { ageAttention, fillAttention, newestFirst, type Attention } from '@/lib/attention'
+import { ageAttention, boardOrder, fillAttention, type Attention } from '@/lib/attention'
 import { loadProjectTouches, type ProjectTouches } from '@/lib/attention-data'
 
 interface ProjectRow {
@@ -211,51 +210,100 @@ export default function ProjectsPage() {
           setCoOpen(counts)
         })
 
-      // Enrich each project once. Hours for all; readiness + approval activity
-      // only for sold projects. Per-project loads run in parallel — fine at
-      // beta scale; revisit with bulk queries if the list grows large.
-      const entries = await Promise.all(
-        rows.map(async (p): Promise<[string, Enriched]> => {
-          const [hours, actuals] = await Promise.all([loadProjectDeptHours(orgId, p.id), loadProjectActuals(p.id)])
-          let readySubs = 0
-          let totalSubs = 0
-          let depositIn = false
-          let approvalActivity = false
-          if (p.stage === 'sold') {
-            const { data: subs } = await supabase.from('subprojects').select('id').eq('project_id', p.id)
-            const subIds = ((subs || []) as { id: string }[]).map((s) => s.id)
-            totalSubs = subIds.length
-            const [statusMap, deposit, touched] = await Promise.all([
-              loadSubprojectStatusMap(subIds),
-              isDepositReceived(p.id),
-              subIds.length
-                ? supabase
-                    .from('approval_items')
-                    .select('id')
-                    .in('subproject_id', subIds)
-                    .is('dismissed_at', null) // 122
-                    .neq('state', 'pending')
-                    .limit(1)
-                : Promise.resolve({ data: [] as { id: string }[] }),
-            ])
-            readySubs = subIds.filter((id) => statusMap[id]?.ready_for_scheduling === true).length
-            depositIn = deposit
-            approvalActivity = ((touched.data || []) as unknown[]).length > 0
+      // Enrich in BULK (2026-10-29 — Andrew: "the projects dash always
+      // takes a long time to load"). The old per-card loop ran ~10 queries
+      // per project and re-loaded the whole RATE BOOK for each one. Now each
+      // table is read once for the whole board, and estimated hours are only
+      // rolled up for the cards that show them (production / installed).
+      const ids = (stages: ProjectStage[]) => rows.filter((r) => stages.includes(r.stage)).map((r) => r.id)
+      const soldIds = ids(['sold'])
+      const hoursIds = ids(['production', 'installed'])
+      const chunks = <T,>(xs: T[], n = 100) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n))
+
+      const trackedMinutes: Record<string, number> = {}
+      const loadTracked = async () => {
+        for (const chunk of chunks(hoursIds)) {
+          for (let from = 0; ; from += 1000) {
+            const { data: te } = await supabase
+              .from('time_entries')
+              .select('project_id, duration_minutes')
+              .in('project_id', chunk)
+              .order('id', { ascending: true })
+              .range(from, from + 999)
+            for (const r of (te || []) as { project_id: string; duration_minutes: number | null }[])
+              trackedMinutes[r.project_id] = (trackedMinutes[r.project_id] || 0) + (Number(r.duration_minutes) || 0)
+            if (!te || te.length < 1000) break
           }
-          return [
-            p.id,
-            {
-              estHours: hours.totalHours,
-              trackedHours: actuals.totalMinutes / 60,
-              readySubs,
-              totalSubs,
-              depositIn,
-              ready: totalSubs > 0 && readySubs === totalSubs && depositIn,
-              approvalActivity,
-            },
-          ]
-        }),
+        }
+      }
+
+      const [estHours, , subsRes, overrideRes, paymentsRes] = await Promise.all([
+        loadProjectsTotalHours(orgId, hoursIds),
+        loadTracked(),
+        soldIds.length
+          ? supabase.from('subprojects').select('id, project_id').in('project_id', soldIds)
+          : Promise.resolve({ data: [] }),
+        soldIds.length
+          ? supabase.from('projects').select('id, deposit_override').in('id', soldIds)
+          : Promise.resolve({ data: [] }),
+        soldIds.length
+          ? supabase.from('project_payments').select('project_id, amount').in('project_id', soldIds)
+          : Promise.resolve({ data: [] }),
+      ])
+      const subs = (subsRes.data || []) as { id: string; project_id: string }[]
+      const subIds = subs.map((s) => s.id)
+      const [statusMap, approvalRows] = await Promise.all([
+        loadSubprojectStatusMap(subIds),
+        Promise.all(
+          chunks(subIds).map((chunk) =>
+            supabase
+              .from('approval_items')
+              .select('subproject_id')
+              .in('subproject_id', chunk)
+              .is('dismissed_at', null) // 122
+              .neq('state', 'pending'),
+          ),
+        ),
+      ])
+      const activeSubs = new Set(
+        approvalRows.flatMap((r) => ((r.data || []) as { subproject_id: string }[]).map((x) => x.subproject_id)),
       )
+      // Deposit: the same three signals as isDepositReceived, two of them read
+      // in bulk. Only a job with neither an override nor ledger money falls
+      // through to the per-project contract-invoice check.
+      const depositIn = new Set<string>()
+      for (const r of (overrideRes.data || []) as { id: string; deposit_override?: boolean }[])
+        if (r.deposit_override) depositIn.add(r.id)
+      const received: Record<string, number> = {}
+      for (const r of (paymentsRes.data || []) as { project_id: string; amount: number | null }[])
+        received[r.project_id] = (received[r.project_id] || 0) + (Number(r.amount) || 0)
+      for (const [id, amt] of Object.entries(received)) if (Math.round(amt * 100) > 0) depositIn.add(id)
+      await Promise.all(
+        soldIds
+          .filter((id) => !depositIn.has(id))
+          .map(async (id) => {
+            if (await isDepositReceived(id)) depositIn.add(id)
+          }),
+      )
+
+      const entries = rows.map((p): [string, Enriched] => {
+        const mine = subs.filter((s) => s.project_id === p.id)
+        const readySubs = mine.filter((s) => statusMap[s.id]?.ready_for_scheduling === true).length
+        const totalSubs = mine.length
+        const dep = depositIn.has(p.id)
+        return [
+          p.id,
+          {
+            estHours: estHours[p.id] || 0,
+            trackedHours: (trackedMinutes[p.id] || 0) / 60,
+            readySubs,
+            totalSubs,
+            depositIn: dep,
+            ready: p.stage === 'sold' && totalSubs > 0 && readySubs === totalSubs && dep,
+            approvalActivity: mine.some((s) => activeSubs.has(s.id)),
+          },
+        ]
+      })
       if (cancelled) return
       setEnriched(Object.fromEntries(entries))
       setLoading(false)
@@ -294,7 +342,8 @@ export default function ProjectsPage() {
       if (p.stage === 'sold') return a && a.kind === 'age' ? a.since : p.sold_at ?? null
       return touches[p.id]?.stageAt ?? p.updated_at
     }
-    for (const c of ORDER) out[c].sort((a, b) => newestFirst(key(a), key(b)))
+    for (const c of ORDER)
+      out[c].sort((a, b) => boardOrder({ attention: attention[a.id], key: key(a) }, { attention: attention[b.id], key: key(b) }))
     return out
   }, [projects, enriched, debouncedQuery, attention, touches])
 

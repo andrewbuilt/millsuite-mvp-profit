@@ -212,3 +212,21 @@ export function newestFirst(a: string | null | undefined, b: string | null | und
   if (fb) return 1
   return 0
 }
+
+/** Column order for both boards: CALMEST at top, then newest within a level
+ *  (Andrew 2026-10-29, "some of the colors are out of order"). Newest-first
+ *  alone isn't enough — one column mixes clocks with different thresholds (a
+ *  50/50 card on the lead clock rings amber at 7d, its neighbour on the sent
+ *  clock stays calm until 10d), so pure age put an unringed card below an
+ *  amber one. Level first guarantees the column only darkens downward. */
+export function ringLevel(a: Attention | null | undefined): number {
+  if (!a) return 0
+  if (a.kind === 'fill') return a.overHours >= 1 ? 3 : 0
+  return a.level
+}
+export function boardOrder(
+  a: { attention: Attention | null | undefined; key: string | null | undefined },
+  b: { attention: Attention | null | undefined; key: string | null | undefined },
+): number {
+  return ringLevel(a.attention) - ringLevel(b.attention) || newestFirst(a.key, b.key)
+}
