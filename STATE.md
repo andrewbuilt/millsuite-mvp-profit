@@ -6,7 +6,9 @@
 
 **Last updated:** 2026-10-29 · **Branch:** `main`
 
-**Left off (2026-10-29, final):** KANBAN CARD LAYOUT PASS BUILT + PUSHED (`773c363`), see its CURRENT FOCUS block. Next build: the PROJECT P&L PANEL + TIME DASHBOARD + EXPENSE LEDGER (needs migration `124` `project_expenses`).
+**Left off (2026-10-29, P&L):** PROJECT P&L PANEL BUILT (`81abbc5`), HELD UNPUSHED. Next: Andrew runs migration `124` → verify → push (see its CURRENT FOCUS block).
+
+**Earlier (2026-10-29, final):** KANBAN CARD LAYOUT PASS BUILT + PUSHED (`773c363`), see its CURRENT FOCUS block. Next build: the PROJECT P&L PANEL + TIME DASHBOARD + EXPENSE LEDGER (needs migration `124` `project_expenses`).
 
 **Earlier (2026-10-29, last):** board polish from Andrew's look, PUSHED (`0461217`): the Imported tag is OFF the kanban cards entirely (both boards; Andrew's call — the project page keeps it), and the card layout is back to before (`d45a081`; the brief own-row badge layout is reverted). Practice still shows beside the title. /projects PRODUCTION column now sorts by PROJECT AGE alone, newest on top (sold date, else created for imports); the fill ring no longer reorders it. The other columns keep level-then-newest. `verify-attention` covers both. Next: Andrew's live look at both boards (verify lists in the 10-29 CURRENT FOCUS blocks).
 
@@ -47,7 +49,16 @@
 - Verify: longest real titles (Leonard JW Marriott ×3) read in full on both boards; rings/chips/bars all land in their corners at the narrow sales-column width.
 
 
-**NEW 2026-10-29 (Cowork design pass with Andrew): PROJECT P&L PANEL + TIME DASHBOARD + EXPENSE LEDGER. The big one after the kanban/rings. Migration (next number): `project_expenses`.**
+**✅ 2026-10-29: PROJECT P&L PANEL + TIME DASHBOARD + EXPENSE LEDGER — BUILT (`81abbc5`), tsc + `next build` clean, HELD UNPUSHED until Andrew runs migration `124`.**
+- **Two calls Andrew made at build time:** (1) **NO `project_expenses` table.** `invoices` already WAS the vendor-bill ledger (the /pm dropzone writes it; project-outcome, the /reports drawer, the Watch list, the shop report and the weekly snapshot read it as material spend; 0 rows on prod). `124_invoices_expense_ledger.sql` extends it: `source` parsed/manual, `note`, `entered_by`, `edited_by`/`edited_at`, `updated_at`, plus the org RLS policy on `invoices` + `invoice_line_items` (no migration had ever set one). (2) **Bids keep the estimating panel**; the P&L replaces it only once a job is SOLD.
+- `lib/project-pnl.ts` (pure): contract = live `bid_total`; labor budget = Σ dept est hours (incl. install prefill) × rate, actual = tracked × the same rate; material allowance = material + hardware + options + custom + consumables (Built's per-sub budget on imports); margin to date = contract − (labor actual + material spent), labelled "reads high early". Rate = `pnlRate` (locked rate, else org), NOT `effectiveShopRate`, which is $0 on imports. `lib/project-expenses.ts` does list/create/update/delete plus a duplicate warning (same vendor + cents, within 7 days; warns, never blocks).
+- UI: `ProjectPnlPanel` (Labor row → `TimeDashboardModal`: dept tracked vs budget with bars, plus a "No department" row; pick one → who/when/hours, links to /time) (Material row → `MaterialModal`: allowance/spent/left, bills with parsed/typed tag and added/edited-by, edit in place, delete with confirm, add by hand, drop a bill = the same `InvoiceParser`, locked to the project). The old HOURS table, cost breakdown and imported Estimated-hours block are gone on sold jobs. **Stage actions (Mark installed / Pre-production / deposit / start production) moved to the HEADER** under the price; still one `stage-actions` hook, and tour targets pass. The /pm dropzone now saves through `createExpense` (line items finally carry `org_id`).
+- Temp projects: already a separate hours-only page, so nothing needed. The /reports drawer reads `invoices` via project-outcome, so it shows real spend once bills exist (link now "See the bills →"; outcomes are computed when a job closes).
+- Proof: `npx tsx scripts/verify-project-pnl.mjs` (Murtagh-shaped panel foots by hand, over states, edges, dup warning, wiring). Fixture `/dev/pnl-panel` (dev-only), eyeballed incl. the duplicate warning.
+- **Next: Andrew runs `pbcopy < db/migrations/124_invoices_expense_ledger.sql` in the Supabase SQL editor → verify `invoices:source,note,entered_by,edited_by,edited_at,updated_at` → push.**
+- **Live verify (Andrew):** on Murtagh, the panel's margin foots by hand · drop a real supplier bill from the Material modal → Material spent moves · the dept modal totals match /time · the moved header buttons still gate correctly.
+
+**(spec, for reference) PROJECT P&L PANEL + TIME DASHBOARD + EXPENSE LEDGER.**
 **The structural piece — a material-spend ledger finally exists:** `project_expenses` (org, project, vendor, amount, date, source 'parsed'|'manual', note, upload ref nullable, entered_by, timestamps; org RLS). This closes the diagnostic drawer's "no spend manifest" hole. Parsed invoices (the /pm dropzone AND a drop target inside the material modal) extract vendor/amount/date then ask WHICH PROJECT; manual entry is a plain row form; warn on likely duplicates (same vendor+amount±date). Expenses are editable/deletable with an edited-by stamp (the time-entry pattern).
 **The side panel simplifies to TWO sections — P&L + Payments:**
 - **P&L (replaces PROJECT TOTAL + the HOURS table + ESTIMATED HOURS — all three retire):**
