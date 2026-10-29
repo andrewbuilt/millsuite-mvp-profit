@@ -26,6 +26,19 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
+**NEW 2026-10-29 (Cowork design pass with Andrew, his mockup): ATTENTION RINGS — at-a-glance project status. Scoped; build after the $/% toggle. No migration expected (clocks derive from existing stamps + `project_events`; "Touched base" is an event row).**
+**The system: ring grabs the eye, chip states the fact.** Stepped colors (neutral → amber → orange → red at thresholds — NOT a continuous fade; color never carries meaning alone, every ring pairs with a small fact chip). Per-stage clocks:
+- **New lead:** days since created / last activity → chip "12d quiet". Amber 7d · orange 14d · red 21d.
+- **Estimate sent:** days since `estimate_sent_at` → "sent 3w ago". Amber 10d · red 21d.
+- **Pre-production:** weeks since `sold_at` (the /pm card's math) → "4w in pre-prod". Amber 2w · red 4w.
+- **Production:** NOT time — the fill ring: card border fills clockwise green with tracked ÷ estimated hours (conic border), red segment past 100% + "+8h over" chip. Same data as the production bar.
+Thresholds are constants in one module (`lib/attention.ts`) — org-tunable is LATER, not v1.
+**Clock resets (Andrew's call):** real events reset automatically (stage move, estimate sent/re-sent, CO activity, payment recorded — i.e., relevant `project_events`) **plus a one-click "Touched base" on the card ⋯ menu** → logs a timeline event (who/when, optional one-line note), resets the clock, builds the contact log for free. Sold/complete/temp/archived never wear aging rings.
+**Surfaces (Andrew's call — all three in v1):** kanban cards · /projects dash cards · **/pm attention list**: the same signals sorted worst-first across stages ("Batia · sent 3w ago" → links to the project), capped ~8 rows, replacing/absorbing the at-risk box if one exists there. Tooltips say what the clock measures + the last activity; `check-tour-targets` after (cards are ringed by tours too — the ring is a border treatment, don't collide with the tour ring's visual language; if they're confusable, the attention ring yields on tour-active cards).
+**One honest-data rule:** a clock with no stamp (imported job, null sold_at) shows NO ring rather than a fake age — same rule as weeks-waiting.
+Verify: a lead created 3w ago burns red with "21d quiet"; Touched base resets it and the event shows in the drawer; a sent bid shows "sent Nd ago" matching `estimate_sent_at`; a production job's ring matches its fill bar to the pixel-ish; /pm lists worst-first and every row's chip agrees with its card.
+
+
 **✅ 2026-10-28: $ / % TOGGLE IN THE DRAW EDITORS — BUILT + PUSHED (`fac9985`), tsc + `next build` clean; migration `123` ✅ on prod and verified 2026-10-28 (114 draws, 0 pinned).**
 - **Both editors** (the payments-board set-up / Edit draws modal AND the project page's milestone builder) have a **Percent | Dollars** toggle, remembered per device (separate keys).
 - **Dollars mode:** typed amounts are exact. The footer reads "$X of $CONTRACT · $Z left/over", Save is gated on footing to the dollar, and a one-click "+$Z" on a row puts the remainder there. Percentages show as derived.
