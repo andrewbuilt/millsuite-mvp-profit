@@ -9,7 +9,7 @@
 //
 // The ring (lib/attention):
 //   · age  → the border itself thickens + darkens (box-shadow, so the card
-//            doesn't shift as it ages). Tiny "12d" chip by the ⋯; the words
+//            doesn't shift as it ages). Tiny "12d" chip in the bottom-right corner; the words
 //            are in the tooltip.
 //   · fill → a conic border filling clockwise green with tracked ÷ estimated
 //            hours, red slice past 100%, "+8h over" chip.
@@ -57,10 +57,14 @@ export function AttentionChip({ attention }: { attention: Attention | null | und
   )
 }
 
+function hasChip(a: Attention | null): boolean {
+  if (!a) return false
+  return a.kind === 'fill' ? !!a.chip : a.level > 0
+}
+
 export default function KanbanCard({
   title,
   titleBadges,
-  subtitle,
   menu,
   onOpen,
   draggable = true,
@@ -71,10 +75,10 @@ export default function KanbanCard({
   attention,
   suppressRing,
   children,
+  footer,
 }: {
   title: string
   titleBadges?: ReactNode
-  subtitle?: string | null
   menu: KanbanMenuItem[]
   onOpen: () => void
   draggable?: boolean
@@ -85,6 +89,9 @@ export default function KanbanCard({
   attention?: Attention | null
   suppressRing?: boolean
   children?: ReactNode
+  /** The card's last row, left side — the attention chip sits in the bottom
+   *  RIGHT corner beside it (Andrew 2026-10-29: chip off the title row). */
+  footer?: ReactNode
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const a = suppressRing ? null : attention ?? null
@@ -109,16 +116,16 @@ export default function KanbanCard({
         draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
       } ${age ? '' : 'hover:border-[#9CA3AF]'} ${isDragging ? 'opacity-40 scale-95' : ''}`}
     >
+      {/* THE TITLE IS THE CARD (Andrew 2026-10-29 layout pass): it WRAPS to
+          full length — "Leonard – JW Marri…" was unreadable — and the client
+          line is gone. The ⋯ stays pinned top-right however many lines the
+          title takes. */}
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className="text-sm font-semibold text-[#111] truncate">{title}</div>
-            {titleBadges}
-          </div>
-          {subtitle && <div className="text-[11px] text-[#6B7280] truncate mt-0.5">{subtitle}</div>}
+        <div className="min-w-0 flex-1 text-sm font-semibold leading-snug text-[#111] break-words">
+          {title}
+          {titleBadges && <span className="inline-flex align-middle ml-1.5">{titleBadges}</span>}
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <AttentionChip attention={a} />
+        <div className="flex items-center flex-shrink-0">
           <button
             data-kebab
             onClick={(e) => {
@@ -134,6 +141,15 @@ export default function KanbanCard({
       </div>
 
       {children}
+
+      {(footer || hasChip(a)) && (
+        <div className="flex items-end justify-between gap-2 mt-1.5">
+          <div className="min-w-0 flex-1">{footer}</div>
+          <div className="flex-shrink-0">
+            <AttentionChip attention={a} />
+          </div>
+        </div>
+      )}
 
       {menuOpen && (
         <>

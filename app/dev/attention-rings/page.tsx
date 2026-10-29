@@ -24,7 +24,7 @@ const COLS: { title: string; cards: { name: string; client: string; value: numbe
   {
     title: 'New lead',
     cards: [3, 8, 15, 24].map((d, i) => ({
-      name: ['Hartley kitchen', 'Marsh vanities', 'Okafor built-ins', 'Batia library'][i],
+      name: ['Hartley kitchen', 'Marsh vanities', 'Leonard – JW Marriott – Lobby Bar Phase 1 – Back Bar Millwork', 'Batia library'][i],
       client: 'Fixture client',
       value: 40000 + i * 12000,
       a: ageAttention({ stage: 'new_lead', created_at: ago(d) }),
@@ -77,7 +77,7 @@ export default function AttentionRingsFixture() {
         {COLS.map((col) => (
           <KanbanColumn key={col.title} title={col.title} count={col.cards.length} sum={col.cards.reduce((s, c) => s + c.value, 0)} hint="Fixture" isOver={false}>
             {col.cards.map((c) => (
-              <KanbanCard key={c.name} title={c.name} subtitle={c.client} attention={c.a} onOpen={() => {}} menu={[{ label: 'Touched base', onClick: () => {} }]}>
+              <KanbanCard key={c.name} title={c.name} attention={c.a} onOpen={() => {}} menu={[{ label: 'Touched base', onClick: () => {} }]}>
                 <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2">${c.value.toLocaleString()}</div>
               </KanbanCard>
             ))}

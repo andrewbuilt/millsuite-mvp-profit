@@ -40,7 +40,6 @@ import { type ProjectStage } from '@/lib/types'
 import { loadSubprojectStatusMap } from '@/lib/subproject-status'
 import { isDepositReceived, startProduction } from '@/lib/project-stage'
 import { updateProjectStage } from '@/lib/sales'
-import { soldAgoLabel } from '@/lib/project-events'
 import { STAGE_COLORS } from '@/components/project/StagePill'
 import { loadProjectsTotalHours } from '@/lib/project-hours'
 import PracticeBadge from '@/components/practice-badge'
@@ -593,7 +592,29 @@ function ProjectCard({
           {isPractice && <PracticeBadge />}
         </>
       }
-      subtitle={p.client_name}
+      // Bottom row: subs-ready / the hours bar / Archive — the attention chip
+      // shares it, in the right corner (Andrew 2026-10-29 layout pass).
+      footer={
+        <>
+          <CardContext column={column} enriched={e} />
+          {/* Archive button on completed cards — kept from the old grid
+              (Andrew 2026-10-22: "keep the buttons on the project cards"). */}
+          {canArchive(p.stage) && (
+            <div className="flex justify-end">
+              <button
+                data-kebab
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  onArchive()
+                }}
+                className="text-[11px] font-medium text-[#6B7280] hover:text-[#111] px-1.5 py-0.5 rounded hover:bg-[#F3F4F6]"
+              >
+                Archive
+              </button>
+            </div>
+          )}
+        </>
+      }
       attention={attention}
       onOpen={onOpen}
       onDragStart={onDragStart}
@@ -609,7 +630,7 @@ function ProjectCard({
         { label: 'Archive', icon: <Archive className={icon} />, onClick: onArchive },
       ]}
     >
-      <div className="flex items-center justify-between gap-2 mt-2">
+      <div className="flex items-center justify-between gap-2 mt-1.5">
         <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF]">{fmtMoney(p.bid_total)}</div>
         <div className="flex items-center gap-1">
           {openCos > 0 && (
@@ -638,29 +659,6 @@ function ProjectCard({
         </div>
       </div>
 
-      <CardContext column={column} enriched={e} />
-
-      {/* Quiet, and only when we actually know (094). */}
-      {(column === 'new' || column === 'pre') && soldAgoLabel(p.sold_at) && (
-        <div className="text-[10.5px] text-[#9CA3AF] mt-1">{soldAgoLabel(p.sold_at)}</div>
-      )}
-
-      {/* Archive button on completed cards — kept from the old grid (Andrew
-          2026-10-22: "keep the buttons that are on the project cards"). */}
-      {canArchive(p.stage) && (
-        <div className="pt-1 flex justify-end">
-          <button
-            data-kebab
-            onClick={(ev) => {
-              ev.stopPropagation()
-              onArchive()
-            }}
-            className="text-[11px] font-medium text-[#6B7280] hover:text-[#111] px-1.5 py-0.5 rounded hover:bg-[#F3F4F6]"
-          >
-            Archive
-          </button>
-        </div>
-      )}
     </KanbanCard>
   )
 }
@@ -670,7 +668,7 @@ function CardContext({ column, enriched: e }: { column: Column; enriched: Enrich
 
   if (column === 'new' || column === 'pre') {
     return (
-      <div className="text-[11px] text-[#6B7280] mt-1">
+      <div className="text-[11px] text-[#6B7280]">
         {e.totalSubs === 0
           ? 'No subprojects yet'
           : `${e.readySubs} of ${e.totalSubs} subproject${e.totalSubs === 1 ? '' : 's'} ready`}
@@ -684,7 +682,7 @@ function CardContext({ column, enriched: e }: { column: Column; enriched: Enrich
   const pct = e.estHours > 0 ? Math.min(100, (e.trackedHours / e.estHours) * 100) : 0
   const over = e.estHours > 0 && e.trackedHours > e.estHours
   return (
-    <div className="space-y-1 mt-1">
+    <div className="space-y-1">
       <div className="text-[11px] text-[#6B7280]">
         <span className="font-mono tabular-nums text-[#374151]">{fmtHours(e.trackedHours)}</span> of{' '}
         <span className="font-mono tabular-nums text-[#374151]">{fmtHours(e.estHours)}</span> est.

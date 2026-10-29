@@ -600,7 +600,28 @@ function SalesCard({
           {isPractice && <PracticeBadge />}
         </>
       }
-      subtitle={project.client_name}
+      // Bottom row: where the job is (sold) / estimate sent — the attention
+      // chip shares it, in the right corner.
+      footer={project.stage === 'sold' ? (
+        <div>
+          {/* ⛔ Colour comes from the shared STAGE_COLORS, not a class here. */}
+          <span
+            className="inline-block text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider"
+            style={soldStageColors(project.project_stage)}
+          >
+            {soldStageLabel(project.project_stage)}
+          </span>
+        </div>
+      ) : project.estimate_sent_at ? (
+        <div>
+          <span
+            title={`Estimate sent ${new Date(project.estimate_sent_at).toLocaleDateString()}`}
+            className="inline-block text-[9px] px-1.5 py-0.5 bg-[#EFF6FF] text-[#1E40AF] rounded font-semibold uppercase tracking-wider"
+          >
+            Estimate sent
+          </span>
+        </div>
+      ) : null}
       dataTour={isTourProject ? 'tour-project-card' : undefined}
       // The tour draws its own ring on this card — the attention ring yields.
       attention={attention}
@@ -620,38 +641,9 @@ function SalesCard({
         { label: 'Delete', icon: <Trash2 className="w-3.5 h-3.5" />, onClick: onDelete, danger: true, dividerBefore: true },
       ]}
     >
-      <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-2">
+      <div className="text-[11px] font-mono tabular-nums text-[#9CA3AF] mt-1.5">
         {fmtMoney(project.bid_total || project.estimated_price)}
       </div>
-      {/* Chip gets its OWN row. Sharing a line with the price meant a big
-          number and a long label ($438,506 + ESTIMATE SENT) couldn't both fit
-          in a five-column board, and the chip clipped mid-word.
-
-          Sold cards show where the JOB actually is, from the shared cover-stage
-          mapping in components/project/StagePill so the board and the project
-          page can't drift apart; don't re-map it here. On a sold card this
-          replaces the estimate-sent chip: once it's won, the estimate's
-          history isn't the headline any more. */}
-      {project.stage === 'sold' ? (
-        <div className="mt-1.5">
-          {/* ⛔ Colour comes from the shared STAGE_COLORS, not a class here. */}
-          <span
-            className="inline-block text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider"
-            style={soldStageColors(project.project_stage)}
-          >
-            {soldStageLabel(project.project_stage)}
-          </span>
-        </div>
-      ) : project.estimate_sent_at ? (
-        <div className="mt-1.5">
-          <span
-            title={`Estimate sent ${new Date(project.estimate_sent_at).toLocaleDateString()}`}
-            className="inline-block text-[9px] px-1.5 py-0.5 bg-[#EFF6FF] text-[#1E40AF] rounded font-semibold uppercase tracking-wider"
-          >
-            Estimate sent
-          </span>
-        </div>
-      ) : null}
     </KanbanCard>
   )
 }
