@@ -34,6 +34,21 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
+**NEW 2026-10-29 (Cowork design pass with Andrew): PROJECT P&L PANEL + TIME DASHBOARD + EXPENSE LEDGER. The big one after the kanban/rings. Migration (next number): `project_expenses`.**
+**The structural piece — a material-spend ledger finally exists:** `project_expenses` (org, project, vendor, amount, date, source 'parsed'|'manual', note, upload ref nullable, entered_by, timestamps; org RLS). This closes the diagnostic drawer's "no spend manifest" hole. Parsed invoices (the /pm dropzone AND a drop target inside the material modal) extract vendor/amount/date then ask WHICH PROJECT; manual entry is a plain row form; warn on likely duplicates (same vendor+amount±date). Expenses are editable/deletable with an edited-by stamp (the time-entry pattern).
+**The side panel simplifies to TWO sections — P&L + Payments:**
+- **P&L (replaces PROJECT TOTAL + the HOURS table + ESTIMATED HOURS — all three retire):**
+  Contract $X (live bid_total, CO-aware)
+  · **Labor** — budget hrs+$ (est hours × the job's PINNED rate) → actual hrs+$ (tracked × same rate) → remaining/over. Row click opens the **Time dashboard modal**.
+  · **Material** — allowance $ (budgeted material + consumables budget, CO-aware) → spent $ (Σ expenses) → remaining/over. Row click opens the **Material modal**.
+  · **Running margin** — contract − (labor actual + material spent), $ and %, updating as time tracks and invoices land. On imported jobs this IS the margin story ("price fixed, margin measured from actuals" becomes literal). Early-job margin reads high by nature — label it "margin to date", never pretend it's final.
+- **Time dashboard modal:** departments listed with tracked vs budget (the dept table that leaves the panel moves HERE, with bars); select a department → the entries: who, when, hours (links to /time filtered). Data = existing actual-hours lib, project-scoped.
+- **Material modal:** allowance vs spent header; the expense list (parsed + manual, vendor/date/$); drop an invoice right here; add manually; running total.
+- **Buttons move:** "Mark installed" / "Pre-production" leave the panel for the HEADER beside the stage tag. Payments section unchanged below the P&L.
+**Calls (veto-able):** labor valued at the pinned shop rate on BOTH sides (margin means margin-vs-quote; real wages are owner-only data and don't belong on a manager-visible panel) · consumables fold into the material allowance · budgets read live CO-aware totals · temp projects show the time side only (no $).
+Verify on Murtagh (real tracked hours): panel margin foots by hand; drop a real supplier invoice → assign → Material spent moves and the drawer on /reports stops saying "budget used as actual" for jobs with expenses; dept modal totals match /time; the moved buttons still gate correctly (`check-tour-targets` — stage-action hooks live there).
+
+
 **✅ 2026-10-29: PROJECTS DASH IS A KANBAN — BUILT + PUSHED (`03985b2`), with the attention rings below. No migration.** What shipped vs the spec:
 - Shared shells `components/kanban/KanbanColumn` + `KanbanCard` (the ring lives in the card shell); both boards use them. /projects: the five columns, header count + $ sum, search kept, metric boxes + filter buttons + card grid gone. Complete cards keep their Archive button; every card has Archive in ⋯.
 - Drag: Brand-new / Pre-production aren't drop targets. → Production only via `startProduction`; an unready drag bounces with the reason ("2 of 4 subprojects are approved and the deposit isn't recorded"). Production → Installed → Complete one step forward at a time via `updateProjectStage`; backward or skipping bounces with a one-line note.
