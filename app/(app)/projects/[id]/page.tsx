@@ -80,13 +80,14 @@ import {
   type BucketMargins,
 } from '@/lib/pricing'
 import { allocateRounded, allocationDrift } from '@/lib/allocate'
-import { todayStamp } from '@/lib/payments'
+import { projectReceivedTotal, todayStamp } from '@/lib/payments'
 import { ProjectPaymentLedger } from '@/components/project/ProjectPaymentLedger'
 import ProjectPnlPanel from '@/components/project/ProjectPnlPanel'
 import TimeDashboardModal from '@/components/project/TimeDashboardModal'
 import MaterialModal from '@/components/project/MaterialModal'
 import { computeProjectPnl, pnlRate } from '@/lib/project-pnl'
 import { listProjectExpenses, sumExpenses, type ProjectExpense } from '@/lib/project-expenses'
+import { loadRosterNamesByUserId } from '@/lib/roster-names'
 import type { LaborDept } from '@/lib/rate-book-seed'
 import {
   loadProjectActuals,
@@ -438,23 +439,28 @@ export default function ProjectCoverPage() {
   // ledger, 124) + the two drill-in modals.
   const [expenses, setExpenses] = useState<ProjectExpense[]>([])
   const [expenseUserNames, setExpenseUserNames] = useState<Record<string, string>>({})
+  /** Net cash in on this job (project_payments) — the P&L's Amount received. */
+  const [received, setReceived] = useState(0)
   const [timeOpen, setTimeOpen] = useState(false)
   const [materialOpen, setMaterialOpen] = useState(false)
   const reloadExpenses = useCallback(async () => {
     if (!projectId) return
     const rows = await listProjectExpenses(projectId)
     setExpenses(rows)
-    const ids = [...new Set(rows.flatMap((r) => [r.entered_by, r.edited_by]).filter(Boolean))] as string[]
-    if (ids.length) {
-      const { data } = await supabase.from('users').select('id, name').in('id', ids)
-      setExpenseUserNames(
-        Object.fromEntries(((data || []) as { id: string; name: string | null }[]).map((u) => [u.id, u.name || 'Someone'])),
-      )
+    // Who entered / edited each bill — names from the ROSTER, not `users`
+    // (RLS hides other people's rows; lib/roster-names).
+    if (org?.id && rows.some((r) => r.entered_by || r.edited_by)) {
+      const roster = await loadRosterNamesByUserId(org.id)
+      setExpenseUserNames(Object.fromEntries(Object.entries(roster).map(([uid, r]) => [uid, r.name])))
     }
-  }, [projectId])
+  }, [projectId, org?.id])
   useEffect(() => {
     void reloadExpenses()
   }, [reloadExpenses])
+  useEffect(() => {
+    if (!projectId) return
+    void projectReceivedTotal(projectId).then(setReceived)
+  }, [projectId])
   const [coListOpen, setCoListOpen] = useState(false)
 
   // ── Change orders v2 (migration 107) ──────────────────────────────────────
@@ -1576,6 +1582,7 @@ export default function ProjectCoverPage() {
   const stageCover = project ? coverStageOf(project.stage) : null
 
   // ── P&L (sold jobs) — lib/project-pnl, pinned by verify-project-pnl ──
+  // Money out (labor + material spent) vs money in (received) so far.
   // Budget hours are Σ hoursByDept, NOT proj.totalHours: install-prefill hours
   // live only on hoursByDept.install (invariant 17b) and install time is
   // tracked like any other, so leaving them out would put every install over.
@@ -1592,11 +1599,14 @@ export default function ProjectCoverPage() {
       contract: Number(project?.bid_total) || proj.priceTotal,
       estHours,
       trackedHours: projectActualMinutes / 60,
-      rate: pnlRate(project?.locked_shop_rate, orgShopRate),
+      // TODAY's shop rate (Andrew 10-29: "the current hourly rate not what we
+      // billed") — lib/project-pnl's header says why.
+      rate: pnlRate(orgShopRate, project?.locked_shop_rate),
       materialAllowance,
       materialSpent: sumExpenses(expenses),
+      received,
     })
-  }, [proj, isImported, importedMaterialBudget, project?.bid_total, project?.locked_shop_rate, orgShopRate, projectActualMinutes, expenses])
+  }, [proj, isImported, importedMaterialBudget, project?.bid_total, project?.locked_shop_rate, orgShopRate, projectActualMinutes, expenses, received])
 
   // ── Estimate PDF (MillSuite-native; available in both modes) ──
   // Builds the same computed lines shown on screen so the PDF total reconciles
@@ -3365,48 +3375,28 @@ export default function ProjectCoverPage() {
         />
       )}
 
-      {timeOpen && project && (
-
+      {timeOpen && project && org?.id && (
         <TimeDashboardModal
-
-          projectId={projectId}
-
-          budgetHours={proj.hoursByDept}
-
-          actualMinutes={projectActualByDept}
-
-          totalActualMinutes={projectActualMinutes}
-
-          deptKeyById={deptKeyById}
-
-          onClose={() => setTimeOpen(false)}
-
-        />
-
-      )}
-
-      {materialOpen && project && org?.id && (
-
-        <MaterialModal
-
           orgId={org.id}
-
-          userId={user?.id}
-
           projectId={projectId}
-
-          allowance={pnl.material.budget}
-
-          expenses={expenses}
-
-          userNames={expenseUserNames}
-
-          onChanged={() => void reloadExpenses()}
-
-          onClose={() => setMaterialOpen(false)}
-
+          budgetHours={proj.hoursByDept}
+          actualMinutes={projectActualByDept}
+          totalActualMinutes={projectActualMinutes}
+          deptKeyById={deptKeyById}
+          onClose={() => setTimeOpen(false)}
         />
-
+      )}
+      {materialOpen && project && org?.id && (
+        <MaterialModal
+          orgId={org.id}
+          userId={user?.id}
+          projectId={projectId}
+          allowance={pnl.material.budget}
+          expenses={expenses}
+          userNames={expenseUserNames}
+          onChanged={() => void reloadExpenses()}
+          onClose={() => setMaterialOpen(false)}
+        />
       )}
 
       {dupOpen && (

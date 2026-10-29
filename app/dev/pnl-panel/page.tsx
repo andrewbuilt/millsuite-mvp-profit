@@ -45,9 +45,10 @@ const BILLS = [
 export default function PnlFixture() {
   const [open, setOpen] = useState(false)
   if (process.env.NODE_ENV === 'production') notFound()
-  const onBudget = computeProjectPnl({ contract: 26227, estHours: 180, trackedHours: 69, rate: 81.21, materialAllowance: 6200, materialSpent: 2450.5 })
-  const over = computeProjectPnl({ contract: 10667, estHours: 45, trackedHours: 61, rate: 81.21, materialAllowance: 2100, materialSpent: 2840 })
-  const empty = computeProjectPnl({ contract: 172563, estHours: 648, trackedHours: 0, rate: 77.98, materialAllowance: 41000, materialSpent: 0 })
+  const onBudget = computeProjectPnl({ contract: 26227, estHours: 180, trackedHours: 69, rate: 77.98, materialAllowance: 6200, materialSpent: 2450.5, received: 13113 })
+  const over = computeProjectPnl({ contract: 10667, estHours: 45, trackedHours: 61, rate: 77.98, materialAllowance: 2100, materialSpent: 2840, received: 3200 })
+  // Leonard Lobby Bar Ph 1 from Andrew's screenshot (no bills, nothing in yet).
+  const empty = computeProjectPnl({ contract: 172563, estHours: 648, trackedHours: 415.5, rate: 77.98, materialAllowance: 105809, materialSpent: 0, received: 0 })
   return (
     <ConfirmProvider>
       <div className="min-h-screen bg-[#F9FAFB] p-6">

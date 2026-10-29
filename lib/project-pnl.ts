@@ -1,37 +1,35 @@
 // ============================================================================
-// lib/project-pnl.ts — the project P&L panel's numbers (2026-10-29, Cowork)
+// lib/project-pnl.ts — the project P&L panel's numbers (2026-10-29)
 // ============================================================================
 // PURE — no supabase, so scripts/verify-project-pnl.mjs can pin it.
 //
-//   Contract        live bid_total (change orders land in it as lines)
-//   Labor           budget  = estimated hours × the job's PINNED rate
-//                   actual  = tracked hours   × the SAME rate
-//   Material        allowance = budgeted material + hardware + options +
-//                   custom/vendor + consumables (CO-aware: COs are lines)
-//                   spent     = Σ vendor bills (the `invoices` ledger, 124)
-//   Margin to date  contract − (labor actual + material spent)
+// Andrew's sketch (2026-10-29, second pass): the panel is about MONEY OUT vs
+// MONEY IN so far, not margin against the contract.
 //
-// Calls (veto-able, from the spec):
-//   · labor is valued at the pinned shop rate on BOTH sides, so margin means
-//     margin-vs-quote. Real wages are owner-only data and don't belong on a
-//     manager-visible panel.
-//   · an imported job prices at $0/hr (its price is frozen) — but its HOURS
-//     still cost the shop, so the P&L values them at the job's locked rate,
-//     falling back to the org rate. That is what makes "margin measured from
-//     actuals" literal on imports.
-//   · early in a job the margin reads high by nature (little spent yet) — the
-//     panel labels it "margin to date", never final.
+//   Contract                  live bid_total (the headline, as before)
+//   Labor     budget hours · value  →  AMOUNT SPENT (tracked × rate) · left
+//   Material  allowance             →  AMOUNT SPENT (Σ vendor bills) · left
+//   Amount received           Σ project_payments (the payments ledger)
+//   Cash flow to date         received − (labor spent + material spent)
+//
+// ⛔ LABOR IS VALUED AT TODAY'S SHOP RATE, not the job's pinned (billed) rate
+// — Andrew: "this should use the current hourly rate not what we billed".
+// Spent is what the hours COST the shop now; the pinned rate is what the
+// client was charged, which belongs to pricing (lib/pricing), not here. The
+// budget's value uses the same rate so budget and spent compare like-for-like.
 // ============================================================================
 
 export interface PnlInput {
   contract: number
   estHours: number
   trackedHours: number
-  /** $/hr used for BOTH labor columns. */
+  /** $/hr for BOTH labor columns — today's shop rate (see pnlRate). */
   rate: number
   /** Budgeted non-labor cost (material + hardware + options + custom + consumables). */
   materialAllowance: number
   materialSpent: number
+  /** Net cash received on the job (project_payments). */
+  received: number
 }
 
 export interface PnlLine {
@@ -50,13 +48,11 @@ export interface ProjectPnl {
   laborHours: PnlLine
   labor: PnlLine
   material: PnlLine
-  /** contract − (labor actual + material spent). */
-  marginToDate: number
-  /** marginToDate ÷ contract, as a percent; null with no contract. */
-  marginToDatePct: number | null
-  /** What the quote expected: contract − (labor budget + material allowance). */
-  plannedMargin: number
-  plannedMarginPct: number | null
+  /** labor.actual + material.actual */
+  spent: number
+  received: number
+  /** received − spent. Negative = the shop is carrying the job. */
+  cashFlowToDate: number
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -69,29 +65,26 @@ function line(budget: number, actual: number): PnlLine {
 
 export function computeProjectPnl(i: PnlInput): ProjectPnl {
   const rate = Math.max(0, Number(i.rate) || 0)
-  const contract = r2(Math.max(0, Number(i.contract) || 0))
-  const laborHours = line(i.estHours, i.trackedHours)
   const labor = line(i.estHours * rate, i.trackedHours * rate)
   const material = line(i.materialAllowance, i.materialSpent)
-  const marginToDate = r2(contract - (labor.actual + material.actual))
-  const plannedMargin = r2(contract - (labor.budget + material.budget))
-  const pct = (n: number) => (contract > 0 ? (n / contract) * 100 : null)
+  const spent = r2(labor.actual + material.actual)
+  const received = r2(Number(i.received) || 0)
   return {
-    contract,
+    contract: r2(Math.max(0, Number(i.contract) || 0)),
     rate,
-    laborHours,
+    laborHours: line(i.estHours, i.trackedHours),
     labor,
     material,
-    marginToDate,
-    marginToDatePct: pct(marginToDate),
-    plannedMargin,
-    plannedMarginPct: pct(plannedMargin),
+    spent,
+    received,
+    cashFlowToDate: r2(received - spent),
   }
 }
 
-/** The rate a P&L values hours at: the job's pinned rate, else the org's.
- *  Deliberately NOT lib/pricing.effectiveShopRate, which is 0 on a frozen
- *  (imported) job — right for PRICING, wrong for what an hour COSTS. */
-export function pnlRate(lockedShopRate: number | null | undefined, orgShopRate: number | null | undefined): number {
-  return Number(lockedShopRate) || Number(orgShopRate) || 0
+/** The rate the P&L values hours at: TODAY's org shop rate (Andrew 10-29),
+ *  falling back to the job's locked rate only if the org has none set.
+ *  Deliberately not lib/pricing.effectiveShopRate — that's the BILLED rate
+ *  (pinned, and $0 on a frozen imported job). */
+export function pnlRate(orgShopRate: number | null | undefined, lockedShopRate: number | null | undefined): number {
+  return Number(orgShopRate) || Number(lockedShopRate) || 0
 }

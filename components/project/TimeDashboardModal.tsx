@@ -18,6 +18,7 @@ import Link from 'next/link'
 import { X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { fmtActualHours } from '@/lib/actual-hours'
+import { loadRosterNamesByUserId, type RosterName } from '@/lib/roster-names'
 
 type DeptKey = 'eng' | 'cnc' | 'assembly' | 'finish' | 'install'
 const DEPTS: { key: DeptKey; label: string }[] = [
@@ -39,6 +40,7 @@ interface Entry {
 }
 
 export default function TimeDashboardModal({
+  orgId,
   projectId,
   budgetHours,
   actualMinutes,
@@ -46,6 +48,7 @@ export default function TimeDashboardModal({
   deptKeyById,
   onClose,
 }: {
+  orgId: string
   projectId: string
   budgetHours: Record<DeptKey, number>
   actualMinutes: Record<DeptKey, number>
@@ -55,7 +58,7 @@ export default function TimeDashboardModal({
 }) {
   const [selected, setSelected] = useState<Selected | null>(null)
   const [entries, setEntries] = useState<Entry[] | null>(null)
-  const [names, setNames] = useState<Record<string, string>>({})
+  const [names, setNames] = useState<Record<string, RosterName>>({})
 
   const mappedMinutes = DEPTS.reduce((s, d) => s + (actualMinutes[d.key] || 0), 0)
   const noDeptMinutes = Math.max(0, totalActualMinutes - mappedMinutes)
@@ -64,22 +67,21 @@ export default function TimeDashboardModal({
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const { data } = await supabase
-        .from('time_entries')
-        .select('id, user_id, department_id, started_at, duration_minutes, notes')
-        .eq('project_id', projectId)
-        .not('ended_at', 'is', null)
-        .order('started_at', { ascending: false })
-        .limit(2000)
+      const [{ data }, roster] = await Promise.all([
+        supabase
+          .from('time_entries')
+          .select('id, user_id, department_id, started_at, duration_minutes, notes')
+          .eq('project_id', projectId)
+          .not('ended_at', 'is', null)
+          .order('started_at', { ascending: false })
+          .limit(2000),
+        // Names from the ROSTER, not `users` (RLS hides other people's rows
+        // — the "…" bug). See lib/roster-names.
+        loadRosterNamesByUserId(orgId),
+      ])
       if (cancelled) return
-      const rows = (data || []) as Entry[]
-      setEntries(rows)
-      const ids = [...new Set(rows.map((r) => r.user_id).filter(Boolean))] as string[]
-      if (ids.length) {
-        const { data: us } = await supabase.from('users').select('id, name').in('id', ids)
-        if (cancelled) return
-        setNames(Object.fromEntries(((us || []) as { id: string; name: string | null }[]).map((u) => [u.id, u.name || 'Someone'])))
-      }
+      setEntries((data || []) as Entry[])
+      setNames(roster)
     })()
     return () => {
       cancelled = true
@@ -176,12 +178,12 @@ export default function TimeDashboardModal({
                   {shown.map((e) => (
                     <tr key={e.id} title={e.notes || undefined}>
                       <td className="py-1.5 text-[#111]">
-                        {e.user_id ? (
-                          <Link href={`/time?member=${e.user_id}`} className="hover:underline">
-                            {names[e.user_id] || '…'}
+                        {e.user_id && names[e.user_id] ? (
+                          <Link href={`/time?member=${names[e.user_id].memberId}`} className="hover:underline">
+                            {names[e.user_id].name}
                           </Link>
                         ) : (
-                          '—'
+                          <span className="text-[#9CA3AF]">Unknown</span>
                         )}
                       </td>
                       <td className="py-1.5 text-[#6B7280]">

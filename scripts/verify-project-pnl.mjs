@@ -20,28 +20,32 @@ const ck = (label, ok) => {
 const near = (a, b) => Math.abs(a - b) < 0.01
 
 // ── The panel foots by hand (Murtagh-shaped: $26,227 · 180h est · 69h tracked) ──
-const m = computeProjectPnl({ contract: 26227, estHours: 180, trackedHours: 69, rate: 81.21, materialAllowance: 6200, materialSpent: 2450.5 })
-ck('labor budget = 180h × $81.21 = $14,617.80', near(m.labor.budget, 14617.8))
-ck('labor actual = 69h × $81.21 = $5,603.49', near(m.labor.actual, 5603.49))
-ck('labor remaining = budget − actual', near(m.labor.remaining, 14617.8 - 5603.49) && !m.labor.over)
-ck('material remaining = 6,200 − 2,450.50', near(m.material.remaining, 3749.5))
-ck('margin to date = 26,227 − (5,603.49 + 2,450.50) = $18,173.01', near(m.marginToDate, 18173.01))
-ck('margin to date % = 69.3%', near(Math.round(m.marginToDatePct * 10) / 10, 69.3))
-ck('planned margin = 26,227 − (14,617.80 + 6,200) = $5,409.20', near(m.plannedMargin, 5409.2))
+// Andrew's second pass: money out vs money in, labor at TODAY's shop rate.
+const m = computeProjectPnl({ contract: 26227, estHours: 180, trackedHours: 69, rate: 77.98, materialAllowance: 6200, materialSpent: 2450.5, received: 13113 })
+ck('labor budget value = 180h × $77.98 = $14,036.40', near(m.labor.budget, 14036.4))
+ck('labor spent = 69h × $77.98 = $5,380.62', near(m.labor.actual, 5380.62))
+ck('labor left = budget − spent', near(m.labor.remaining, 14036.4 - 5380.62) && !m.labor.over)
+ck('material left = 6,200 − 2,450.50', near(m.material.remaining, 3749.5))
+ck('spent = labor + material = $7,831.12', near(m.spent, 7831.12))
+ck('cash flow to date = 13,113 − 7,831.12 = $5,281.88', near(m.cashFlowToDate, 5281.88))
 ck('hours line carries raw hours', m.laborHours.budget === 180 && m.laborHours.actual === 69)
+ck('contract is the headline, untouched by spend', m.contract === 26227)
+
+// ── Leonard, from Andrew's screenshot: nothing received yet → the shop is carrying it ──
+const l = computeProjectPnl({ contract: 172563, estHours: 648, trackedHours: 415.5, rate: 77.98, materialAllowance: 105809, materialSpent: 0, received: 0 })
+ck('Leonard: cash flow is negative labor spent (−$32,400.69)', near(l.cashFlowToDate, -32400.69))
 
 // ── Over ──
-const o = computeProjectPnl({ contract: 10000, estHours: 40, trackedHours: 52, rate: 80, materialAllowance: 2000, materialSpent: 2600 })
+const o = computeProjectPnl({ contract: 10000, estHours: 40, trackedHours: 52, rate: 80, materialAllowance: 2000, materialSpent: 2600, received: 0 })
 ck('labor over flags + negative remaining', o.labor.over && near(o.labor.remaining, -960))
 ck('material over flags + negative remaining', o.material.over && near(o.material.remaining, -600))
-ck('margin to date can go negative-ish correctly', near(o.marginToDate, 10000 - (4160 + 2600)))
 
 // ── Edges ──
-const z = computeProjectPnl({ contract: 0, estHours: 0, trackedHours: 5, rate: 80, materialAllowance: 0, materialSpent: 0 })
-ck('no contract → margin % is null, not NaN/Infinity', z.marginToDatePct === null && z.plannedMarginPct === null)
+const z = computeProjectPnl({ contract: 0, estHours: 0, trackedHours: 5, rate: 80, materialAllowance: 0, materialSpent: 0, received: 0 })
 ck('no budget → ratio 0, not Infinity', z.labor.ratio === 0)
-ck('pnlRate: locked wins', pnlRate(81.21, 77.98) === 81.21)
-ck('pnlRate: no lock → org rate (imports still cost hours)', pnlRate(null, 77.98) === 77.98 && pnlRate(0, 77.98) === 77.98)
+ck('a refund (negative received) flows through', near(computeProjectPnl({ ...m, contract: 1, received: -500 }).received, -500))
+ck('pnlRate: TODAY\'s org rate wins over the billed/locked rate', pnlRate(77.98, 81.21) === 77.98)
+ck('pnlRate: no org rate → locked rate', pnlRate(null, 81.21) === 81.21 && pnlRate(0, 81.21) === 81.21)
 ck('pnlRate: neither → 0', pnlRate(null, null) === 0)
 
 // ── Duplicate warning ──
@@ -65,7 +69,9 @@ ck('124 is idempotent + reloads the schema', /ADD COLUMN IF NOT EXISTS source/.t
 ck('124 org-scopes invoices + line items', /invoices_own_org/.test(mig) && /invoice_line_items_own_org/.test(mig))
 ck('the parser saves through createExpense (line items carry org_id)', /createExpense\(/.test(parser) && !/from\('invoice_line_items'\)\.insert/.test(parser))
 ck('project page computes the panel with computeProjectPnl', /computeProjectPnl\(/.test(page))
-ck('project page values hours with pnlRate, not the frozen pricing rate', /pnlRate\(/.test(page))
+ck('project page values hours at today\'s rate (pnlRate(orgShopRate, …))', /pnlRate\(orgShopRate,/.test(page))
+ck('panel shows received + cash flow, not margin', /received/.test(read('components/project/ProjectPnlPanel.tsx')) && /Cash flow to date/.test(read('components/project/ProjectPnlPanel.tsx')) && !/marginToDate/.test(read('components/project/ProjectPnlPanel.tsx')))
+ck('time modal names come from the roster, not users (the "…" bug)', /loadRosterNamesByUserId/.test(read('components/project/TimeDashboardModal.tsx')) && !/from\('users'\)/.test(read('components/project/TimeDashboardModal.tsx')))
 ck('stage actions live in the header (one stage-actions hook)', (page.match(/data-tour="stage-actions"/g) || []).length === 1)
 ck('the old HOURS section left the panel', !/<ProjectHoursSection/.test(page))
 
