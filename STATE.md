@@ -26,8 +26,16 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
+**NEW 2026-10-29 (same pass): PROJECTS DASH BECOMES A KANBAN — one board language across the site. Build WITH the attention rings (they share the card work).**
+- **/projects = a kanban: Brand-new sale · Pre-production · Production · Installed · Complete.** Same column/card components and styling as the sales kanban — continuity is the point; extract shared components rather than copying (`KanbanColumn`/`KanbanCard`). Column headers carry count + $ sum like the sales board.
+- **"Brand-new sale" = sold in the last 7 days** (the SOLD-THIS-WEEK group); cards graduate to Pre-production at 7 days or on first approval activity, whichever first (judgment call, veto-able). Columns 1↔2 therefore aren't drag targets; **drag elsewhere respects the real gates**: into Production only when the readiness gate passes (blocked drag explains why — `startProduction` stays the sole writer), Production → Installed → Complete are real stage writes with the existing semantics.
+- **Sorting, BOTH kanbans, every column: newest at top, oldest at bottom — keyed on the attention clock's timestamp** (time entered the state / last touch), so with the rings the column literally darkens downward — the glance IS the triage (Andrew's insight). Sales board's SOLD column groups by progress (new sale → pre-prod → in production), newest-first within each group.
+- **Remove from /projects: the VALUE / EST HOURS / TRACKED HOURS header boxes and the filter buttons** — the columns replace them (sums live in column headers). Keep the search field. The old card grid retires; `check-tour-targets` after (project cards are tour targets).
+- Verify: both boards side by side read as one product; a ready job drags into Production and an unready one bounces with the reason; every column's top card is its newest; temp/archived stay off.
+
+
 **NEW 2026-10-29 (Cowork design pass with Andrew, his mockup): ATTENTION RINGS — at-a-glance project status. Scoped; build after the $/% toggle. No migration expected (clocks derive from existing stamps + `project_events`; "Touched base" is an event row).**
-**The system: ring grabs the eye, chip states the fact.** Stepped colors (neutral → amber → orange → red at thresholds — NOT a continuous fade; color never carries meaning alone, every ring pairs with a small fact chip). Per-stage clocks:
+**The system — VISUAL FIRST (Andrew 10-29: "I want to read less"): the ring gets THICKER AND DARKER together as age climbs** — e.g. 2px amber → 3px orange → 4px deep red at the thresholds; thickness is the signal that survives color-blindness, so the pair covers accessibility. The fact chip stays but SMALL and secondary (the number for when you've already looked: "12d", "3w"); full wording moves to the tooltip. Stepped, never a continuous fade. Per-stage clocks:
 - **New lead:** days since created / last activity → chip "12d quiet". Amber 7d · orange 14d · red 21d.
 - **Estimate sent:** days since `estimate_sent_at` → "sent 3w ago". Amber 10d · red 21d.
 - **Pre-production:** weeks since `sold_at` (the /pm card's math) → "4w in pre-prod". Amber 2w · red 4w.
