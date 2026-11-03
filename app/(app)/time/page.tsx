@@ -11,6 +11,7 @@ import {
   type TimeRangeChip,
 } from '@/lib/time-filters'
 import { triggerPhaseAdvance, triggerProjectRollup } from '@/lib/phase-client'
+import CrewEdits from '@/components/time/CrewEdits'
 import { loadArchivedProjectIds } from '@/lib/project-archive'
 import { useAuth } from '@/lib/auth-context'
 import { Play, Square, Trash2, Pencil, Check, X, Clock, BookOpen, Download, Search } from 'lucide-react'
@@ -60,6 +61,8 @@ interface TimeEntry {
   /** Migration 117 — last manual edit on this page. Absent pre-117. */
   edited_by?: string | null
   edited_at?: string | null
+  /** 127 — a worker's own edit from /me, not yet acknowledged. */
+  needs_review?: boolean
   project?: Project
   subproject?: Subproject
   department?: Department
@@ -779,6 +782,18 @@ export default function TimePage() {
 
       {/* ═══════ DESKTOP VIEW ═══════ */}
       <div className="hidden md:block max-w-6xl mx-auto px-6 py-8 space-y-8">
+        {/* Crew self-edits waiting on a manager (Nov batch 2 #7). Managers
+            only — a worker's own edits show on their /me. */}
+        {org?.id && user?.role !== 'member' && (
+          <CrewEdits
+            orgId={org.id}
+            nameByUserId={(id) => memberByUserId.get(id)?.name || 'Former team member'}
+            projectNameById={Object.fromEntries(projects.map((p) => [p.id, p.name]))}
+            deptNameById={Object.fromEntries(departments.map((d) => [d.id, d.name]))}
+            onChanged={fetchEntries}
+            refreshKey={entries}
+          />
+        )}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">Time Tracking</h1>
           <button
@@ -1150,7 +1165,7 @@ export default function TimePage() {
                                     : ''
                                 }`}
                               >
-                                edited
+                                {entry.needs_review ? 'crew edit' : 'edited'}
                               </span>
                             )}
                             <button

@@ -252,6 +252,8 @@ export default function MePage() {
           onChanged={refresh}
           email={authUser?.email ?? null}
           projects={projects}
+          orgId={orgId!}
+          userId={userId!}
         />
       )}
 

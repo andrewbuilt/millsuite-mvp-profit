@@ -25,6 +25,19 @@ export interface TimeEntry {
   duration_minutes: number
   notes: string | null
   created_at: string
+  edited_by?: string | null
+  edited_at?: string | null
+  /** 127 — a worker's own edit a manager hasn't acknowledged yet. */
+  needs_review?: boolean
+  edit_before?: EntrySnapshot | null
+}
+
+/** The fields a self-edit can change — and what edit_before remembers. */
+export interface EntrySnapshot {
+  duration_minutes: number
+  project_id: string
+  subproject_id: string | null
+  department_id: string | null
 }
 
 export interface ScheduledJob {
@@ -187,17 +200,92 @@ export async function clockOut(entry: TimeEntry, notes?: string | null): Promise
   if (error) throw error
 }
 
-export async function updateEntryMinutes(id: string, minutes: number): Promise<void> {
-  const { error } = await supabase
-    .from('time_entries')
-    .update({ duration_minutes: Math.max(0, Math.round(minutes)) })
-    .eq('id', id)
-  if (error) throw error
+// ── Crew self-edits (Nov batch 2 #7, migration 127) ──
+//
+// ⛔ NOTHING SILENT. /me's History used to let a worker change hours or
+// delete an entry with no trace. Now every self-edit stamps edited_by +
+// needs_review and remembers the pre-edit values (edit_before — only the
+// FIRST unreviewed edit's, so three edits in a row still show the manager
+// the original). "Remove" zeroes the hours and flags it; the row is only
+// really deleted when a manager acknowledges it on /time.
+
+export function snapshotOf(e: TimeEntry): EntrySnapshot {
+  return {
+    duration_minutes: e.duration_minutes,
+    project_id: e.project_id,
+    subproject_id: e.subproject_id ?? null,
+    department_id: e.department_id ?? null,
+  }
 }
 
-export async function deleteEntry(id: string): Promise<void> {
-  const { error } = await supabase.from('time_entries').delete().eq('id', id)
+/** The patch a worker's self-edit writes. Pure. */
+export function selfEditPatch(
+  entry: TimeEntry,
+  change: Partial<EntrySnapshot>,
+  userId: string,
+  nowISO = new Date().toISOString(),
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {
+    ...change,
+    edited_by: userId,
+    edited_at: nowISO,
+    needs_review: true,
+    edit_before: entry.needs_review && entry.edit_before ? entry.edit_before : snapshotOf(entry),
+  }
+  if (change.duration_minutes != null) {
+    const mins = Math.max(0, Math.round(change.duration_minutes))
+    patch.duration_minutes = mins
+    // Keep the span consistent with the hours (same as the /time edit).
+    if (entry.started_at) patch.ended_at = new Date(new Date(entry.started_at).getTime() + mins * 60000).toISOString()
+  }
+  return patch
+}
+
+export async function selfEditEntry(entry: TimeEntry, change: Partial<EntrySnapshot>, userId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from('time_entries')
+    .update(selfEditPatch(entry, change, userId))
+    .eq('id', entry.id)
+    .select('id')
+  if (error) {
+    if (String((error as { code?: string }).code) === '42703') throw new Error('Editing your time needs migration 127.')
+    throw error
+  }
+  if (!data || data.length === 0) throw new Error('That edit didn’t save.')
+}
+
+/** A worker "removing" an entry: hours to 0, flagged. A manager deletes it. */
+export function selfRemoveEntry(entry: TimeEntry, userId: string): Promise<void> {
+  return selfEditEntry(entry, { duration_minutes: 0 }, userId)
+}
+
+/** Every unacknowledged crew edit in the org, newest edit first. */
+export async function loadCrewEdits(orgId: string): Promise<TimeEntry[]> {
+  const { data, error } = await supabase
+    .from('time_entries')
+    .select('*')
+    .eq('org_id', orgId)
+    .eq('needs_review', true)
+    .order('edited_at', { ascending: false })
+  if (error) return [] // pre-127: nothing to review
+  return (data || []) as TimeEntry[]
+}
+
+/** Manager acknowledges a crew edit: clears the flag. A crew REMOVAL (0h)
+ *  is deleted for real at this point. */
+export async function acknowledgeCrewEdit(entry: TimeEntry): Promise<void> {
+  if ((entry.duration_minutes || 0) === 0) {
+    const { error } = await supabase.from('time_entries').delete().eq('id', entry.id)
+    if (error) throw error
+    return
+  }
+  const { data, error } = await supabase
+    .from('time_entries')
+    .update({ needs_review: false, edit_before: null })
+    .eq('id', entry.id)
+    .select('id')
   if (error) throw error
+  if (!data || data.length === 0) throw new Error('That didn’t save.')
 }
 
 // ── Week helpers ──

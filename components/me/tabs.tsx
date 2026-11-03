@@ -12,13 +12,15 @@
 // nothing. Now a dev harness can mount each tab directly.
 // ============================================================================
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import ChangePassword from '@/components/change-password'
 import { Clock, CalendarDays, Palmtree, ListChecks, Trash2 } from 'lucide-react'
 import { ClockInFlow } from '@/components/me/clockin-flow'
+import { supabase } from '@/lib/supabase'
+import { triggerPhaseAdvance, triggerProjectRollup } from '@/lib/phase-client'
 import {
-  updateEntryMinutes,
-  deleteEntry,
+  selfEditEntry,
+  selfRemoveEntry,
   isoDate,
   type TimeEntry,
   type ScheduledJob,
@@ -351,13 +353,35 @@ export function HistoryTab({
   onChanged,
   email,
   projects,
+  orgId,
+  userId,
 }: {
   entries: TimeEntry[]
   onChanged: () => Promise<void>
   email: string | null
-  /** Needed only to name each row — a history entry stores project_id. */
+  /** Names each row, and the project picker when a row is edited. */
   projects: Array<{ id: string; name: string }>
+  orgId: string
+  /** Who's editing — every self-edit is stamped + flagged (127). */
+  userId: string
 }) {
+  // Departments for the edit picker — loaded once, only for this tab.
+  const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([])
+  useEffect(() => {
+    let cancelled = false
+    void supabase
+      .from('departments')
+      .select('id, name')
+      .eq('org_id', orgId)
+      .eq('active', true)
+      .order('display_order')
+      .then(({ data }) => {
+        if (!cancelled) setDepartments((data || []) as Array<{ id: string; name: string }>)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [orgId])
   const projName = (id: string | null) => projects.find((p) => p.id === id)?.name || 'Other work'
   const fmt = (iso: string | null) =>
     iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
@@ -365,6 +389,9 @@ export function HistoryTab({
     <div className="space-y-1.5">
       <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-1">
         Recent entries
+      </div>
+      <div className="text-[11px] text-[#9CA3AF] -mt-0.5 mb-1">
+        Fix your own time here — every change is shown to your manager.
       </div>
       {entries.length === 0 ? (
         <div className="text-xs text-[#9CA3AF] py-2">No time logged yet.</div>
@@ -376,6 +403,9 @@ export function HistoryTab({
             fmtDate={fmt}
             onChanged={onChanged}
             projectName={projName(e.project_id)}
+            projects={projects}
+            departments={departments}
+            userId={userId}
           />
         ))
       )}
@@ -397,69 +427,198 @@ export function HistoryRow({
   fmtDate,
   onChanged,
   projectName,
+  projects,
+  departments,
+  userId,
 }: {
   entry: TimeEntry
   fmtDate: (iso: string | null) => string
   onChanged: () => Promise<void>
   projectName: string
+  projects: Array<{ id: string; name: string }>
+  departments: Array<{ id: string; name: string }>
+  userId: string
 }) {
+  // ⛔ SELF-EDITS ARE FLAGGED, NEVER SILENT (Nov batch 2 #7, 127). Hours,
+  // project, sub and dept are all editable; each save stamps edited_by and
+  // needs_review, and the manager acknowledges it on /time. "Remove" zeroes
+  // the entry for the manager to confirm rather than deleting it here.
   const [editing, setEditing] = useState(false)
   const [hours, setHours] = useState((entry.duration_minutes / 60).toFixed(2))
+  const [projectId, setProjectId] = useState(entry.project_id)
+  const [subId, setSubId] = useState(entry.subproject_id || '')
+  const [deptId, setDeptId] = useState(entry.department_id || '')
+  const [subs, setSubs] = useState<Array<{ id: string; name: string }>>([])
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!editing || !projectId) return
+    let cancelled = false
+    void supabase
+      .from('subprojects')
+      .select('id, name')
+      .eq('project_id', projectId)
+      .order('sort_order')
+      .then(({ data }) => {
+        if (!cancelled) setSubs((data || []) as Array<{ id: string; name: string }>)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [editing, projectId])
+
+  function open() {
+    setHours((entry.duration_minutes / 60).toFixed(2))
+    setProjectId(entry.project_id)
+    setSubId(entry.subproject_id || '')
+    setDeptId(entry.department_id || '')
+    setErr(null)
+    setEditing(true)
+  }
+
+  async function run(fn: () => Promise<void>) {
+    setBusy(true)
+    setErr(null)
+    try {
+      await fn()
+      for (const pid of new Set([entry.project_id, projectId])) {
+        if (pid) {
+          void triggerProjectRollup(pid)
+          void triggerPhaseAdvance(pid)
+        }
+      }
+      setEditing(false)
+      await onChanged()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'That didn’t save.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function save() {
     const mins = Math.round((parseFloat(hours) || 0) * 60)
-    await updateEntryMinutes(entry.id, mins)
-    setEditing(false)
-    await onChanged()
+    if (mins <= 0) {
+      setErr('Hours must be more than 0 — use Remove to take the entry out.')
+      return
+    }
+    const change: Record<string, unknown> = {}
+    if (mins !== entry.duration_minutes) change.duration_minutes = mins
+    if (projectId !== entry.project_id) change.project_id = projectId
+    if ((subId || null) !== (entry.subproject_id ?? null)) change.subproject_id = subId || null
+    if ((deptId || null) !== (entry.department_id ?? null)) change.department_id = deptId || null
+    if (Object.keys(change).length === 0) {
+      setEditing(false)
+      return
+    }
+    await run(() => selfEditEntry(entry, change, userId))
   }
 
+  const removed = entry.needs_review && (entry.duration_minutes || 0) === 0
+  const sel =
+    'w-full px-2 py-2 text-sm border border-[#E5E7EB] rounded-lg bg-white outline-none focus:border-[#2563EB]'
+
   return (
-    <div className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white px-3 py-2">
-      <div className="text-sm text-[#111] min-w-0 flex-1">
-        <div className="truncate">{projectName}</div>
-        <div className="text-[11px] text-[#9CA3AF] font-mono">{fmtDate(entry.started_at)}</div>
+    <div className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2">
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-[#111] min-w-0 flex-1">
+          <div className={`truncate ${removed ? 'line-through text-[#9CA3AF]' : ''}`}>{projectName}</div>
+          <div className="text-[11px] text-[#9CA3AF] font-mono">
+            {fmtDate(entry.started_at)}
+            {entry.needs_review && (
+              <span className="ml-1.5 font-sans text-[#B45309]">
+                · {removed ? 'removed — waiting on your manager' : 'edited — your manager will see it'}
+              </span>
+            )}
+          </div>
+        </div>
+        {!editing && (
+          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+            <span className="font-mono tabular-nums text-[#6B7280]">
+              {fmtActualHours(entry.duration_minutes || 0)}
+            </span>
+            {!removed && (
+              <button
+                onClick={open}
+                className="text-xs text-[#2563EB] min-h-[44px] min-w-[44px] -my-2 inline-flex items-center justify-center"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+        )}
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-        {editing ? (
-          <>
+
+      {editing && (
+        <div className="mt-2 space-y-2">
+          <div className="flex items-center gap-2">
             <input
               value={hours}
               onChange={(e) => setHours(e.target.value)}
               inputMode="decimal"
-              className="w-16 px-2 py-1 text-sm font-mono border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
+              className="w-20 px-2 py-2 text-sm font-mono border border-[#E5E7EB] rounded-lg outline-none focus:border-[#2563EB]"
             />
-            <span className="text-[11px] text-[#9CA3AF]">h</span>
+            <span className="text-[11px] text-[#9CA3AF]">hours</span>
+          </div>
+          <select
+            value={projectId}
+            onChange={(e) => {
+              setProjectId(e.target.value)
+              setSubId('')
+            }}
+            className={sel}
+          >
+            {!projects.some((p) => p.id === projectId) && <option value={projectId}>{projectName}</option>}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <select value={subId} onChange={(e) => setSubId(e.target.value)} className={sel}>
+            <option value="">Other work (no subproject)</option>
+            {subs.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <select value={deptId} onChange={(e) => setDeptId(e.target.value)} className={sel}>
+            <option value="">No department</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+          {err && <div className="text-[11.5px] text-[#B91C1C]">{err}</div>}
+          <div className="flex items-center justify-between pt-1">
             <button
-              onClick={save}
-              className="text-xs font-semibold text-[#2563EB] min-h-[44px] min-w-[44px] -my-2 inline-flex items-center justify-center"
+              disabled={busy}
+              onClick={() => void run(() => selfRemoveEntry(entry, userId))}
+              className="inline-flex items-center gap-1 text-xs text-[#DC2626] min-h-[44px] disabled:opacity-50"
             >
-              Save
+              <Trash2 className="w-3.5 h-3.5" /> Remove
             </button>
-          </>
-        ) : (
-          <>
-            <span className="font-mono tabular-nums text-[#6B7280]">
-              {fmtActualHours(entry.duration_minutes || 0)}
-            </span>
-            <button
-              onClick={() => setEditing(true)}
-              className="text-xs text-[#2563EB] min-h-[44px] min-w-[44px] -my-2 inline-flex items-center justify-center"
-            >
-              Edit
-            </button>
-            <button
-              onClick={async () => {
-                await deleteEntry(entry.id)
-                await onChanged()
-              }}
-              aria-label="Delete entry"
-              className="text-[#D1D5DB] hover:text-[#DC2626] min-h-[44px] min-w-[44px] -my-2 inline-flex items-center justify-center"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </>
-        )}
-      </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setEditing(false)}
+                className="text-xs text-[#6B7280] min-h-[44px] min-w-[44px] px-2"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => void save()}
+                className="text-xs font-semibold text-white bg-[#2563EB] rounded-lg px-4 py-2 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
