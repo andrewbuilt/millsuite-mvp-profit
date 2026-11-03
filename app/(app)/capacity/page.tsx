@@ -1264,20 +1264,8 @@ function ProjectCard({
         <span className="text-[9px] font-mono tabular-nums text-[#6B7280]">{Math.round(card.hours)}h</span>
         {splitLabel && <span className="text-[8px] font-mono text-[#2563EB]">{splitLabel}</span>}
       </div>
-      {card.departmentHours && Object.keys(card.departmentHours).length > 0 && (
-        <div className="flex flex-wrap gap-x-1.5 gap-y-0.5 mt-1">
-          {departments.map(dept => {
-            const hrs = card.departmentHours?.[dept.id]
-            if (!hrs) return null
-            return (
-              <div key={dept.id} className="flex items-center gap-0.5" title={`${dept.name}: ${Math.round(hrs)}h`}>
-                <div className="w-1.5 h-1.5 rounded-sm" style={{ background: dept.color }} />
-                <span className="text-[8px] font-mono tabular-nums text-[#9CA3AF]">{Math.round(hrs)}h</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {/* Per-dept hour chips removed from the card (Andrew, 2026-11-04) —
+          the side pane and the expanded month header carry the breakdown. */}
     </div>
   )
 }
