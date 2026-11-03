@@ -70,6 +70,7 @@ import {
 import {
   computeBucketedPrice,
   resolveMarginsForNewScope,
+  resolveBucketMargins,
   isSubFrozen,
   priceMixedBuckets,
   emptyBuckets,
@@ -226,6 +227,7 @@ interface Project {
   target_margin_pct: number | null
   // Per-bucket margin pins (migration 052). NULL = inherit org default.
   labor_margin_pct: number | null
+  install_margin_pct?: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
   /** Non-null when the job came from Built OS (6c, migration 080). */
@@ -309,12 +311,14 @@ interface ProjectRollup {
   marginAmount: number
   priceTotal: number
   // Per-bucket group costs + prices (migration 052) for the transparent
-  // breakdown. labor group = labor+install; material group = material+
-  // hardware+options; consumable group = consumables.
+  // breakdown. labor group = labor; install group = install (125); material
+  // group = material+hardware+options; consumable group = consumables.
   laborGroupCost: number
+  installGroupCost: number
   materialGroupCost: number
   consumableGroupCost: number
   laborPrice: number
+  installPrice: number
   materialPrice: number
   consumablePrice: number
   blendedMarginPct: number
@@ -415,9 +419,11 @@ export default function ProjectCoverPage() {
       (project as { locked_margins?: unknown } | null)?.locked_margins,
       project?.imported_at,
       project?.labor_margin_pct,
+      project?.install_margin_pct,
       project?.material_margin_pct,
       project?.consumable_margin_pct,
       org?.labor_margin_pct,
+      org?.install_margin_pct,
       org?.material_margin_pct,
       org?.consumable_margin_pct,
     ],
@@ -850,7 +856,7 @@ export default function ProjectCoverPage() {
               customCost: rollup.customCost,
             },
             isSubFrozen(loadedProject, sub)
-              ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+              ? { laborMarginPct: 0, installMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
               : qbMargins,
           ).priceTotal,
         )
@@ -1153,9 +1159,11 @@ export default function ProjectCoverPage() {
       marginAmount: 0,
       priceTotal: 0,
       laborGroupCost: 0,
+      installGroupCost: 0,
       materialGroupCost: 0,
       consumableGroupCost: 0,
       laborPrice: 0,
+      installPrice: 0,
       materialPrice: 0,
       consumablePrice: 0,
       blendedMarginPct: 0,
@@ -1262,9 +1270,11 @@ export default function ProjectCoverPage() {
     acc.marginPct = priced.blendedMarginPct
     acc.blendedMarginPct = priced.blendedMarginPct
     acc.laborGroupCost = priced.laborGroupCost
+    acc.installGroupCost = priced.installGroupCost
     acc.materialGroupCost = priced.materialGroupCost
     acc.consumableGroupCost = priced.consumableGroupCost
     acc.laborPrice = priced.laborPrice
+    acc.installPrice = priced.installPrice
     acc.materialPrice = priced.materialPrice
     acc.consumablePrice = priced.consumablePrice
 
@@ -1313,7 +1323,7 @@ export default function ProjectCoverPage() {
           customCost: rollup.customCost,
         },
         isSubFrozen(project, sub)
-          ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+          ? { laborMarginPct: 0, installMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
           : margins,
       ).priceTotal,
     )
@@ -2927,6 +2937,7 @@ export default function ProjectCoverPage() {
                   projectId={projectId}
                   pins={{
                     labor: project.labor_margin_pct,
+                    install: project.install_margin_pct ?? null,
                     material: project.material_margin_pct,
                     consumable: project.consumable_margin_pct,
                   }}
@@ -2934,6 +2945,12 @@ export default function ProjectCoverPage() {
                   // not today's org default — that's what it actually prices at.
                   orgDefaults={{
                     labor: lockedOf(project)?.labor ?? org?.labor_margin_pct ?? null,
+                    // What install inherits = the full chain with its own pin
+                    // removed (a pre-125 lock follows the labor number).
+                    install: resolveBucketMargins(
+                      { ...project, install_margin_pct: null, locked_margins: lockedOf(project) },
+                      org,
+                    ).installMarginPct,
                     material: lockedOf(project)?.material ?? org?.material_margin_pct ?? null,
                     consumable: lockedOf(project)?.consumable ?? org?.consumable_margin_pct ?? null,
                   }}
@@ -3038,9 +3055,14 @@ export default function ProjectCoverPage() {
                     </span>
                   </div>
                   <MarginGroupRow
-                    label="Labor + install"
+                    label="Labor"
                     pct={margins.laborMarginPct}
                     amount={proj.laborPrice - proj.laborGroupCost}
+                  />
+                  <MarginGroupRow
+                    label="Install"
+                    pct={margins.installMarginPct}
+                    amount={proj.installPrice - proj.installGroupCost}
                   />
                   <MarginGroupRow
                     label="Material + hardware"
@@ -3617,13 +3639,14 @@ function MarginGroupRow({
 }
 
 // ── Per-bucket margin editor ──
-// Three pinnable TRUE gross-margin knobs (migration 052): labor+install,
-// material+hardware+options, consumables. Each writes its own
+// Four pinnable TRUE gross-margin knobs (migration 052; install split out by
+// 125): labor, install, material+hardware+options, consumables. Each writes its own
 // projects.*_margin_pct column. Blank = inherit the org default; a value
 // pins the project. Read-only once the project leaves bidding — margin
 // changes then belong to a change order.
 type MarginField =
   | 'labor_margin_pct'
+  | 'install_margin_pct'
   | 'material_margin_pct'
   | 'consumable_margin_pct'
 
@@ -3635,9 +3658,10 @@ function BucketMarginEditor({
   onChange,
 }: {
   projectId: string
-  pins: { labor: number | null; material: number | null; consumable: number | null }
+  pins: { labor: number | null; install: number | null; material: number | null; consumable: number | null }
   orgDefaults: {
     labor: number | null
+    install: number | null
     material: number | null
     consumable: number | null
   }
@@ -3652,9 +3676,15 @@ function BucketMarginEditor({
   }[] = [
     {
       key: 'labor_margin_pct',
-      label: 'Labor + install',
+      label: 'Labor',
       pin: pins.labor,
       orgDefault: orgDefaults.labor,
+    },
+    {
+      key: 'install_margin_pct',
+      label: 'Install',
+      pin: pins.install,
+      orgDefault: orgDefaults.install,
     },
     {
       key: 'material_margin_pct',

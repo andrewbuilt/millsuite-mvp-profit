@@ -105,6 +105,7 @@ interface Project {
   target_margin_pct: number | null
   // Per-bucket margin pins (migration 052). NULL = inherit org default.
   labor_margin_pct: number | null
+  install_margin_pct?: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
   // ⛔ These two DECIDE THE PRICE and were missing from this interface, which
@@ -405,9 +406,11 @@ function HandoffPageInner() {
     [
       (project as { locked_margins?: unknown } | null)?.locked_margins,
       project?.labor_margin_pct,
+      project?.install_margin_pct,
       project?.material_margin_pct,
       project?.consumable_margin_pct,
       org?.labor_margin_pct,
+      org?.install_margin_pct,
       org?.material_margin_pct,
       org?.consumable_margin_pct,
     ],

@@ -63,6 +63,7 @@ const ALLOWED = {
   'lib/pricing.ts': 'effectiveShopRate signature',
   'lib/change-orders.ts': 'doc comment',
   'components/project/ShopRateBanner.tsx': 'the gateway compares pinned vs org',
+  'lib/project-pnl.ts': "P&L panel MEASURES spend at today's org rate (Andrew, 10-29) — never prices or writes bid_total",
 }
 const raw = execSync(
   `grep -rnE "org\\??\\.shop_rate|orgShopRate|orgRow\\??\\.shop_rate" app lib components --include='*.ts' --include='*.tsx' || true`,
@@ -146,11 +147,14 @@ const { data: projects } = await sb
 const lockRes = await sb.from('projects').select('id, locked_margins')
 const lockById = {}
 for (const r of lockRes.error ? [] : lockRes.data || []) lockById[r.id] = r.locked_margins
-const orgMarginsRes = await sb.from('orgs').select('id, labor_margin_pct, material_margin_pct, consumable_margin_pct')
+// install_margin_pct (125) read with a fallback select: pre-125 it doesn't exist.
+let orgMarginsRes = await sb.from('orgs').select('id, labor_margin_pct, install_margin_pct, material_margin_pct, consumable_margin_pct')
+if (orgMarginsRes.error) orgMarginsRes = await sb.from('orgs').select('id, labor_margin_pct, material_margin_pct, consumable_margin_pct')
 const orgMargins = {}
 for (const r of orgMarginsRes.data || [])
   orgMargins[r.id] = {
     labor: Number(r.labor_margin_pct ?? 35),
+    install: Number(r.install_margin_pct ?? r.labor_margin_pct ?? 35),
     material: Number(r.material_margin_pct ?? 35),
     consumable: Number(r.consumable_margin_pct ?? 35),
   }
@@ -212,7 +216,7 @@ for (const org of orgs || []) {
     // ── Margins (121): org default margins +5 pts must move nothing. ──
     const om = orgMargins[org.id]
     if (om) {
-      const up = { labor: om.labor + 5, material: om.material + 5, consumable: om.consumable + 5 }
+      const up = { labor: om.labor + 5, install: om.install + 5, material: om.material + 5, consumable: om.consumable + 5 }
       const lock = lockById[p.id] || (ASSUME_121 ? om : undefined) // --assume-121: the backfill
       const m1 = await computeProjectPrice(p.id, { orgMargins: om, ...(lock ? { lockedMargins: lock } : {}) })
       const m2 = await computeProjectPrice(p.id, { orgMargins: up, ...(lock ? { lockedMargins: lock } : {}) })

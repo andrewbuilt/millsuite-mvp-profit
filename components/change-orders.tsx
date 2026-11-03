@@ -1123,7 +1123,9 @@ function LegacyCoEditor({
                       {pricing.margins
                         ? `incl. ${pricing.consumableMarkupPct}% consumables · margins ${pricing.margins.laborMarginPct.toFixed(
                             0,
-                          )}% labor / ${pricing.margins.materialMarginPct.toFixed(
+                          )}% labor / ${pricing.margins.installMarginPct.toFixed(
+                            0,
+                          )}% install / ${pricing.margins.materialMarginPct.toFixed(
                             0,
                           )}% material / ${pricing.margins.consumableMarginPct.toFixed(
                             0,

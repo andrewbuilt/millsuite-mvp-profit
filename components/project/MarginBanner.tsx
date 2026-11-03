@@ -38,7 +38,7 @@ type ProjectLike = MarginOfferProject & {
 
 const money = (n: number) => `$${Math.round(n).toLocaleString()}`
 const pct = (n: number) => `${Math.round(n * 10) / 10}%`
-const LABEL = { labor: 'labor', material: 'material', consumable: 'consumables' } as const
+const LABEL = { labor: 'labor', install: 'install', material: 'material', consumable: 'consumables' } as const
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 

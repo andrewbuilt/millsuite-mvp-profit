@@ -79,11 +79,13 @@ const IMPORTED_PINNED = { ...IMPORTED, labor_margin_pct: 0, material_margin_pct:
 const ORG = { labor_margin_pct: 40, material_margin_pct: 30, consumable_margin_pct: 20 }
 check('the plain resolver still returns the frozen zeros', resolveBucketMargins(IMPORTED_PINNED, ORG), {
   laborMarginPct: 0,
+  installMarginPct: 0,
   materialMarginPct: 0,
   consumableMarginPct: 0,
 })
 check('new scope ignores the importer pins and uses the org', resolveMarginsForNewScope(IMPORTED_PINNED, ORG), {
   laborMarginPct: 40,
+  installMarginPct: 40,
   materialMarginPct: 30,
   consumableMarginPct: 20,
 })
@@ -91,18 +93,20 @@ check('new scope ignores the importer pins and uses the org', resolveMarginsForN
 const NATIVE_PINNED = { ...NATIVE, labor_margin_pct: 50, material_margin_pct: 50, consumable_margin_pct: 50 }
 check('a native project keeps its own pins', resolveMarginsForNewScope(NATIVE_PINNED, ORG), {
   laborMarginPct: 50,
+  installMarginPct: 50,
   materialMarginPct: 50,
   consumableMarginPct: 50,
 })
 check('no pins anywhere ⇒ the 35 default', resolveMarginsForNewScope(NATIVE, null), {
   laborMarginPct: 35,
+  installMarginPct: 35,
   materialMarginPct: 35,
   consumableMarginPct: 35,
 })
 
 // ── A mixed project ─────────────────────────────────────────────────────────
 console.log('\na mixed project prices its halves separately')
-const MARGINS = { laborMarginPct: 50, materialMarginPct: 50, consumableMarginPct: 50 }
+const MARGINS = { laborMarginPct: 50, installMarginPct: 50, materialMarginPct: 50, consumableMarginPct: 50 }
 // Built's migrated room: $10,000 sitting in the material lump, no hours priced.
 const frozenHalf = { ...emptyBuckets(), materialCost: 10_000 }
 // A change order's new room: $1,000 labor + $1,000 material of real cost.
@@ -122,7 +126,7 @@ const naiveAllMargin = computeBucketedPrice(
 check('one-sum-with-margin would bill Built twice', naiveAllMargin, 24_000)
 const naiveNoMargin = computeBucketedPrice(
   { ...emptyBuckets(), laborCost: 1_000, materialCost: 11_000 },
-  { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 },
+  { laborMarginPct: 0, installMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 },
 ).priceTotal
 // This is what shipped before 108: the change order's $4,000 of work billed at
 // $2,000 of cost. The $2,000 gap is the margin, given away silently.

@@ -107,7 +107,7 @@ ck(
 )
 
 // ── 3. IMPORTED jobs: margins pinned to 0, price must equal cost ───────────
-const ZERO = { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+const ZERO = { laborMarginPct: 0, installMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
 const frozen = [
   sub({ customCost: 168090 }),
   sub({ laborCost: 4890 }),

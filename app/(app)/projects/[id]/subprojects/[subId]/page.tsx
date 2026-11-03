@@ -132,6 +132,7 @@ interface ProjectRow {
   target_margin_pct: number | null
   // Per-bucket margin pins (052) — used to price change orders here.
   labor_margin_pct: number | null
+  install_margin_pct?: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
   // 6c: the job's pinned labor rate. Wins over the org's current shop rate so
@@ -280,9 +281,11 @@ export default function SubprojectEditorPage() {
       org,
       project?.locked_margins,
       project?.labor_margin_pct,
+      project?.install_margin_pct,
       project?.material_margin_pct,
       project?.consumable_margin_pct,
       org?.labor_margin_pct,
+      org?.install_margin_pct,
       org?.material_margin_pct,
       org?.consumable_margin_pct,
     ],
@@ -297,7 +300,7 @@ export default function SubprojectEditorPage() {
       const [projRes, subRes, siblingsRes, linesData, rb, opts, lineOpts, subActuals, deptRes, composerRb, composerSubDefaults] = await Promise.all([
         supabase
           .from('projects')
-          .select('id, name, client_name, stage, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at, estimate_sent_at, estimate_number, estimate_snapshot_json, locked_margins')
+          .select('id, name, client_name, stage, target_margin_pct, labor_margin_pct, install_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at, estimate_sent_at, estimate_number, estimate_snapshot_json, locked_margins')
           .eq('id', projectId)
           .single(),
         supabase

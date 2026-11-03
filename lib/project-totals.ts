@@ -39,6 +39,7 @@ import {
   priceMixedBuckets,
   resolveBucketMargins,
   resolveMarginsForNewScope,
+  type BucketMargins,
   type CostBuckets,
   type LockedMargins,
 } from './pricing'
@@ -59,6 +60,7 @@ interface ProjectRow {
   imported_at: string | null
   target_margin_pct: number | null
   labor_margin_pct: number | null
+  install_margin_pct?: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
   /** 121 — the defaults this project inherits. */
@@ -138,12 +140,15 @@ export async function computeProjectPrice(
     orgMargins?: LockedMargins
     /** Pretend the PROJECT's lock (121) is this (the margin banner's preview). */
     lockedMargins?: LockedMargins
+    /** Adjust the RESOLVED margins before pricing — the 125 proof prices each
+     *  job with install at its labor number (the pre-125 formula). */
+    mapMargins?: (m: BucketMargins) => BucketMargins
   } = {},
-): Promise<{ priceTotal: number; stored: number } | null> {
+): Promise<{ priceTotal: number; stored: number; liveInstallCost?: number } | null> {
   const { data: projData, error: projErr } = await supabase
     .from('projects')
     .select(
-      'id, org_id, bid_total, locked_shop_rate, imported_at, temp_at, target_margin_pct, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_margins',
+      'id, org_id, bid_total, locked_shop_rate, imported_at, temp_at, target_margin_pct, labor_margin_pct, install_margin_pct, material_margin_pct, consumable_margin_pct, locked_margins',
     )
     .eq('id', projectId)
     .single()
@@ -163,7 +168,7 @@ export async function computeProjectPrice(
   const { data: orgData } = await supabase
     .from('orgs')
     .select(
-      'consumable_markup_pct, shop_rate, labor_margin_pct, material_margin_pct, consumable_margin_pct',
+      'consumable_markup_pct, shop_rate, labor_margin_pct, install_margin_pct, material_margin_pct, consumable_margin_pct',
     )
     .eq('id', project.org_id)
     .single()
@@ -171,6 +176,7 @@ export async function computeProjectPrice(
     consumable_markup_pct: number | null
     shop_rate: number | null
     labor_margin_pct: number | null
+    install_margin_pct: number | null
     material_margin_pct: number | null
     consumable_margin_pct: number | null
   } | null
@@ -214,16 +220,19 @@ export async function computeProjectPrice(
   // hard-zeroes it. This one is for the LIVE half, and on an imported
   // project it deliberately ignores the importer's pinned zeros; see
   // `resolveMarginsForNewScope`.
-  const margins = resolveMarginsForNewScope(
+  const resolved = resolveMarginsForNewScope(
     { ...project, locked_margins: whatIf.lockedMargins ?? project.locked_margins },
     whatIf.orgMargins
       ? {
           labor_margin_pct: whatIf.orgMargins.labor,
+          install_margin_pct: whatIf.orgMargins.install,
           material_margin_pct: whatIf.orgMargins.material,
           consumable_margin_pct: whatIf.orgMargins.consumable,
         }
       : orgRow,
   )
+
+  const margins = whatIf.mapMargins ? whatIf.mapMargins(resolved) : resolved
 
   const SUB_COLS =
     'id, consumable_markup_pct, install_guys, install_days, install_complexity_pct, install_rate_per_hour, install_included'
@@ -320,7 +329,7 @@ export async function computeProjectPrice(
   }
 
   const priceTotal = Math.round(priceMixedBuckets(frozenBuckets, liveBuckets, margins).priceTotal)
-  return { priceTotal, stored: Number(project.bid_total) || 0 }
+  return { priceTotal, stored: Number(project.bid_total) || 0, liveInstallCost: liveBuckets.installCost }
 }
 
 /** Convenience wrapper: resolve project_id from a subproject_id, then

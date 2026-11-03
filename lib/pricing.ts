@@ -2,15 +2,16 @@
 // Project pricing math — the single source of truth for turning costs
 // into a customer price.
 //
-// Pricing model (migration 052): three independent TRUE gross-margin
-// knobs applied to three groups of cost buckets:
+// Pricing model (migration 052, install split out by 125): four independent
+// TRUE gross-margin knobs applied to four groups of cost buckets:
 //
-//   labor margin      → labor + install        (shop time)
+//   labor margin      → labor                  (shop time)
+//   install margin    → install                (field time; 125)
 //   material margin   → material + hardware + options (purchased goods + upcharges)
 //   consumable margin → consumables
 //
 // Each group: groupPrice = groupCost / (1 - margin/100). The project
-// price is the sum of the three group prices. Because true margin is
+// price is the sum of the group prices. Because true margin is
 // additive across buckets, equal knobs reproduce the old single-knob
 // price exactly — see migration 052.
 //
@@ -39,17 +40,22 @@ export interface CostBuckets {
 
 export interface BucketMargins {
   laborMarginPct: number
+  /** 125. Resolves to the labor margin wherever nothing set its own — see
+   *  resolveBucketMargins — so a shop that never touches it prices as before. */
+  installMarginPct: number
   materialMarginPct: number
   consumableMarginPct: number
 }
 
 export interface BucketedPrice {
   // Group costs (the three knobs' worth of cost)
-  laborGroupCost: number // labor + install
+  laborGroupCost: number // labor only (install split out, 125)
+  installGroupCost: number // install
   materialGroupCost: number // material + hardware + options
   consumableGroupCost: number // consumables
   // Group prices (each group's cost marked up by its own true margin)
   laborPrice: number
+  installPrice: number
   materialPrice: number
   consumablePrice: number
   // Totals
@@ -63,6 +69,7 @@ export interface BucketedPrice {
  *  columns. NULL means "inherit" (project → org → DEFAULT_MARGIN_PCT). */
 export interface MarginSource {
   labor_margin_pct?: number | null
+  install_margin_pct?: number | null
   material_margin_pct?: number | null
   consumable_margin_pct?: number | null
   /** Projects only (migration 121): the org defaults this project INHERITS,
@@ -73,6 +80,7 @@ export interface MarginSource {
 
 export interface LockedMargins {
   labor?: number | null
+  install?: number | null
   material?: number | null
   consumable?: number | null
 }
@@ -98,8 +106,21 @@ export function resolveBucketMargins(
   const lock = project?.locked_margins || null
   const pick = (p?: number | null, l?: number | null, o?: number | null) =>
     p ?? l ?? o ?? DEFAULT_MARGIN_PCT
+  const laborMarginPct = pick(project?.labor_margin_pct, lock?.labor, org?.labor_margin_pct)
   return {
-    laborMarginPct: pick(project?.labor_margin_pct, lock?.labor, org?.labor_margin_pct),
+    laborMarginPct,
+    // ⛔ INSTALL FALLS BACK TO LABOR, NOT TO 35 (125). Install was priced at
+    // the labor margin for every job ever quoted; with nothing set at any
+    // level (a pre-125 database, a new org) it must keep doing exactly that.
+    // 125's backfill copies labor into every level, so this fallback is what
+    // makes the code correct on BOTH sides of the migration.
+    // A lock stamped before 125 has no install key: that project priced install
+    // at its labor number, so it keeps doing so — never the org's CURRENT
+    // install default (that would be 121's hole, reopened for install).
+    installMarginPct:
+      project?.install_margin_pct ??
+      lock?.install ??
+      (lock ? laborMarginPct : (org?.install_margin_pct ?? laborMarginPct)),
     materialMarginPct: pick(project?.material_margin_pct, lock?.material, org?.material_margin_pct),
     consumableMarginPct: pick(project?.consumable_margin_pct, lock?.consumable, org?.consumable_margin_pct),
   }
@@ -235,6 +256,7 @@ export function priceMixedBuckets(
 ): { priceTotal: number; frozenPrice: number; livePrice: number } {
   const NO_MARGIN: BucketMargins = {
     laborMarginPct: 0,
+    installMarginPct: 0,
     materialMarginPct: 0,
     consumableMarginPct: 0,
   }
@@ -279,8 +301,8 @@ function priceFromMargin(cost: number, pct: number): number {
 
 /**
  * The canonical cost→price function. Buckets are grouped per the migration-
- * 052 mapping, each group is marked up by its own true margin, and the
- * three group prices are summed. Returns every intermediate value so the
+ * 052 mapping (install its own group since 125), each group is marked up by
+ * its own true margin, and the group prices are summed. Returns every intermediate value so the
  * UI can show the math transparently (cost → margin → price per group,
  * plus the blended margin).
  */
@@ -288,7 +310,8 @@ export function computeBucketedPrice(
   buckets: CostBuckets,
   margins: BucketMargins,
 ): BucketedPrice {
-  const laborGroupCost = buckets.laborCost + buckets.installCost
+  const laborGroupCost = buckets.laborCost
+  const installGroupCost = buckets.installCost
   // Custom/vendor lines group with material: they're overwhelmingly bought
   // goods (a vendor product, a one-off slab), and it's where optionsCost —
   // the other "flat dollars, no hours" bucket — already sits. Grouping them
@@ -298,6 +321,7 @@ export function computeBucketedPrice(
   const consumableGroupCost = buckets.consumablesCost
 
   const laborPrice = priceFromMargin(laborGroupCost, margins.laborMarginPct)
+  const installPrice = priceFromMargin(installGroupCost, margins.installMarginPct)
   const materialPrice = priceFromMargin(
     materialGroupCost,
     margins.materialMarginPct,
@@ -307,17 +331,19 @@ export function computeBucketedPrice(
     margins.consumableMarginPct,
   )
 
-  const costTotal = laborGroupCost + materialGroupCost + consumableGroupCost
-  const priceTotal = laborPrice + materialPrice + consumablePrice
+  const costTotal = laborGroupCost + installGroupCost + materialGroupCost + consumableGroupCost
+  const priceTotal = laborPrice + installPrice + materialPrice + consumablePrice
   const marginAmount = priceTotal - costTotal
   const blendedMarginPct =
     priceTotal > 0 ? (marginAmount / priceTotal) * 100 : 0
 
   return {
     laborGroupCost: round(laborGroupCost),
+    installGroupCost: round(installGroupCost),
     materialGroupCost: round(materialGroupCost),
     consumableGroupCost: round(consumableGroupCost),
     laborPrice: round(laborPrice),
+    installPrice: round(installPrice),
     materialPrice: round(materialPrice),
     consumablePrice: round(consumablePrice),
     costTotal: round(costTotal),

@@ -111,6 +111,9 @@ export default function SettingsPage() {
   // own. profit_margin_pct is the legacy single knob, kept only as a
   // fallback for orgs not yet migrated.
   const [laborMargin, setLaborMargin] = useState('35')
+  // 125: install split off labor. An org that never set it shows its labor
+  // number — that is what install has been pricing at.
+  const [installMargin, setInstallMargin] = useState('35')
   const [materialMargin, setMaterialMargin] = useState('35')
   const [consumableMargin, setConsumableMargin] = useState('35')
 
@@ -259,6 +262,9 @@ export default function SettingsPage() {
         setConsumableMarkup(org.consumable_markup_pct?.toString() || '10')
         setLaborMargin(
           (org.labor_margin_pct ?? org.profit_margin_pct ?? 35).toString(),
+        )
+        setInstallMargin(
+          (org.install_margin_pct ?? org.labor_margin_pct ?? org.profit_margin_pct ?? 35).toString(),
         )
         setMaterialMargin(
           (org.material_margin_pct ?? org.profit_margin_pct ?? 35).toString(),
@@ -409,6 +415,7 @@ export default function SettingsPage() {
     () => ({
       consumable_markup_pct: parseFloat(consumableMarkup) || 0,
       labor_margin_pct: parseFloat(laborMargin) || 0,
+      install_margin_pct: parseFloat(installMargin) || 0,
       material_margin_pct: parseFloat(materialMargin) || 0,
       consumable_margin_pct: parseFloat(consumableMargin) || 0,
       name: businessName.trim() || undefined,
@@ -422,6 +429,7 @@ export default function SettingsPage() {
     [
       consumableMarkup,
       laborMargin,
+      installMargin,
       materialMargin,
       consumableMargin,
       businessName,
@@ -1061,7 +1069,7 @@ export default function SettingsPage() {
               <label className="text-sm text-[#6B7280]">
                 Labor margin
                 <span className="block text-[11px] text-[#9CA3AF]">
-                  Labor + install
+                  Shop labor
                 </span>
               </label>
               <div className="flex items-center gap-1">
@@ -1071,6 +1079,26 @@ export default function SettingsPage() {
                   value={laborMargin}
                   onChange={(e) =>
                     setLaborMargin(e.target.value.replace(/[^0-9.]/g, ''))
+                  }
+                  className={inputClass}
+                />
+                <span className="text-sm text-[#9CA3AF]">%</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-3 border-t border-[#F3F4F6]">
+              <label className="text-sm text-[#6B7280]">
+                Install margin
+                <span className="block text-[11px] text-[#9CA3AF]">
+                  Install crew time
+                </span>
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={installMargin}
+                  onChange={(e) =>
+                    setInstallMargin(e.target.value.replace(/[^0-9.]/g, ''))
                   }
                   className={inputClass}
                 />

@@ -65,6 +65,7 @@ interface Project {
   sold_at: string | null
   target_start_date: string | null
   labor_margin_pct: number | null
+  install_margin_pct?: number | null
   material_margin_pct: number | null
   consumable_margin_pct: number | null
   locked_shop_rate: number | null
@@ -164,7 +165,7 @@ export default function PreProductionPage() {
     const [projRes, subsRes] = await Promise.all([
       supabase
         .from('projects')
-        .select('id, name, client_name, delivery_address, stage, bid_total, sold_at, target_start_date, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at, locked_margins')
+        .select('id, name, client_name, delivery_address, stage, bid_total, sold_at, target_start_date, labor_margin_pct, install_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at, locked_margins')
         .eq('id', projectId)
         .single(),
       supabase

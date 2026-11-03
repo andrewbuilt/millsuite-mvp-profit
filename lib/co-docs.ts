@@ -135,7 +135,7 @@ export async function loadProjectPricing(projectId: string): Promise<ProjectPric
   const { data: project, error } = await supabase
     .from('projects')
     .select(
-      'id, org_id, bid_total, imported_at, locked_shop_rate, labor_margin_pct, material_margin_pct, consumable_margin_pct, locked_margins',
+      'id, org_id, bid_total, imported_at, locked_shop_rate, labor_margin_pct, install_margin_pct, material_margin_pct, consumable_margin_pct, locked_margins',
     )
     .eq('id', projectId)
     .maybeSingle()
@@ -146,7 +146,7 @@ export async function loadProjectPricing(projectId: string): Promise<ProjectPric
   const { data: org } = await supabase
     .from('orgs')
     .select(
-      'consumable_markup_pct, shop_rate, labor_margin_pct, material_margin_pct, consumable_margin_pct',
+      'consumable_markup_pct, shop_rate, labor_margin_pct, install_margin_pct, material_margin_pct, consumable_margin_pct',
     )
     .eq('id', project.org_id)
     .single()
@@ -293,7 +293,7 @@ export async function priceSubprojectAtContract(
     (sub as { quantity?: number } | null)?.quantity ?? 1,
   )
   const margins = frozen
-    ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+    ? { laborMarginPct: 0, installMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
     : p.margins
   return Math.round(computeBucketedPrice(bucketsOf(rollup), margins).priceTotal)
 }
@@ -338,7 +338,7 @@ export async function priceContractLines(
     1,
   )
   const margins = frozen
-    ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+    ? { laborMarginPct: 0, installMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
     : p.margins
   return Math.round(computeBucketedPrice(bucketsOf(rollup), margins).priceTotal)
 }
@@ -374,7 +374,7 @@ export async function priceContractLinesIndividually(
     profitMarginPct: 0,
   }
   const margins = frozen
-    ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+    ? { laborMarginPct: 0, installMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
     : p.margins
 
   const out: Record<string, number> = {}

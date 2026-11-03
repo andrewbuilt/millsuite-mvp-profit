@@ -967,6 +967,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     projHours += installBucketHours
     const cost = computeBucketedPrice(buckets, {
       laborMarginPct: 0,
+      installMarginPct: 0,
       materialMarginPct: 0,
       consumableMarginPct: 0,
     }).costTotal
@@ -978,6 +979,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
     // show once these margins land on the project.
     const reconstructed = computeBucketedPrice(buckets, {
       laborMarginPct: marginPct,
+      installMarginPct: marginPct,
       materialMarginPct: marginPct,
       consumableMarginPct: marginPct,
     }).priceTotal
@@ -1026,6 +1028,7 @@ export async function migrateEstimateLines(ctx: Ctx): Promise<void> {
       .update({
         target_margin_pct: marginPct,
         labor_margin_pct: marginPct,
+        install_margin_pct: marginPct,
         material_margin_pct: marginPct,
         consumable_margin_pct: marginPct,
       })
@@ -1568,6 +1571,7 @@ export async function migrateEstimateLinesFrozen(ctx: Ctx): Promise<void> {
       .update({
         target_margin_pct: 0,
         labor_margin_pct: 0,
+        install_margin_pct: 0,
         material_margin_pct: 0,
         consumable_margin_pct: 0,
         bid_total: contract,

@@ -112,7 +112,7 @@ function priceOld(project, org) {
     addBuckets(b, bucketsFor(sub, project, org, frozen))
   }
   const margins = frozen
-    ? { laborMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
+    ? { laborMarginPct: 0, installMarginPct: 0, materialMarginPct: 0, consumableMarginPct: 0 }
     : resolveBucketMargins(project, org)
   return Math.round(computeBucketedPrice(b, margins).priceTotal)
 }

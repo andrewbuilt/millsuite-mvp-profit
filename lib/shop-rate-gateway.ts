@@ -153,6 +153,7 @@ export async function priceAtRate(projectId: string, rate: number): Promise<numb
 
 export interface MarginOfferProject extends RateOfferProject {
   labor_margin_pct?: number | null
+  install_margin_pct?: number | null
   material_margin_pct?: number | null
   consumable_margin_pct?: number | null
   imported_at?: string | null
@@ -171,18 +172,22 @@ export interface MarginOffer {
 
 const BUCKETS = [
   ['labor', 'labor_margin_pct'],
+  ['install', 'install_margin_pct'],
   ['material', 'material_margin_pct'],
   ['consumable', 'consumable_margin_pct'],
 ] as const
 
-/** The org's current defaults as a lock-shaped object (null org column → 35). */
+/** The org's current defaults as a lock-shaped object (null org column → 35;
+ *  null install → the labor default, as lib/pricing resolves it — 125). */
 export function orgMarginDefaults(org: {
   labor_margin_pct?: number | null
+  install_margin_pct?: number | null
   material_margin_pct?: number | null
   consumable_margin_pct?: number | null
 } | null | undefined): Required<{ [K in keyof LockedMargins]: number }> {
   return {
     labor: Number(org?.labor_margin_pct ?? 35),
+    install: Number(org?.install_margin_pct ?? org?.labor_margin_pct ?? 35),
     material: Number(org?.material_margin_pct ?? 35),
     consumable: Number(org?.consumable_margin_pct ?? 35),
   }
@@ -201,6 +206,8 @@ export function marginOffer(
   const to = orgMarginDefaults(org)
   const from = {
     labor: Number(lock.labor ?? to.labor),
+    // A pre-125 lock has no install key; it priced install at its labor.
+    install: Number(lock.install ?? lock.labor ?? to.install),
     material: Number(lock.material ?? to.material),
     consumable: Number(lock.consumable ?? to.consumable),
   }
@@ -210,7 +217,9 @@ export function marginOffer(
   const buckets = BUCKETS.filter(([b, col]) => !pinned(col) && !same(from[b], to[b])).map(([b]) => b)
   if (buckets.length === 0) return null
   const ig = project.margins_ignored
-  if (ig && BUCKETS.every(([b]) => same(Number(ig[b] ?? NaN), to[b]))) return null
+  // A pre-125 "Keep" has no install key — it kept labor's number for both.
+  const igOf = (b: keyof LockedMargins) => Number(ig?.[b] ?? (b === 'install' ? ig?.labor : undefined) ?? NaN)
+  if (ig && BUCKETS.every(([b]) => same(igOf(b), to[b]))) return null
   return { from, to, buckets }
 }
 
