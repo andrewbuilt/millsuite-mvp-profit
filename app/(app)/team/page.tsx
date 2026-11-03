@@ -24,6 +24,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import PlanGate from '@/components/plan-gate'
 import ReviewsAndNotes from '@/components/team/ReviewsAndNotes'
+import UpcomingReviews from '@/components/team/UpcomingReviews'
 import { fireDueReviewTasks } from '@/lib/employee-reviews'
 import { useAutosave } from '@/hooks/use-autosave'
 import { awaitPendingOrgWrites } from '@/lib/org-write'
@@ -885,6 +886,22 @@ function TeamContent() {
           />
         )}
 
+        {/* Reviews in the next 30 days (Nov batch 2 #5) — managers only;
+            reloads when the member editor closes. */}
+        {org?.id && callerRole !== 'member' && (
+          <UpcomingReviews
+            orgId={org.id}
+            nameById={Object.fromEntries(team.map((m) => [m.id, m.name || 'Unnamed']))}
+            // The editor renders inside the (search-filtered) roster row, so
+            // clear the search or a filtered-out person's modal never shows.
+            onOpenMember={(id) => {
+              setRosterSearch('')
+              setExpandedMemberId(id)
+            }}
+            refreshKey={expandedMemberId}
+          />
+        )}
+
         {/* Company holidays + manual PTO (moved here from owner-only Settings
             so managers can run time-off). Visible to all /team viewers. */}
         {org?.id && <HolidaysAndPtoSection orgId={org.id} team={team} />}
@@ -1267,7 +1284,7 @@ function TeamContent() {
                   </div>
                 </div>
 
-                {/* Reviews + notes/offenses (125). Managers only — and the
+                {/* Reviews + notes/warnings (125). Managers only — and the
                     employee sees every word of it on /me (no blindsides). */}
                 {org?.id && callerRole !== 'member' && (
                   <ReviewsAndNotes

@@ -15,12 +15,18 @@
 // member_id = the ROSTER id (orgs.team_members[].id), like PTO and capacity.
 // author_id = a LOGIN id (users.id). Names come from the roster.
 //
-// THE REVIEW TASK reuses the auto-task plumbing (createTask, a Today task) —
-// there's no scheduler in this app, so it fires LAZILY: whenever a manager
-// loads /pm or /team, any review within REVIEW_TASK_LEAD_DAYS of its date
-// (or past it, not held) gets its task, once. The once is a conditional stamp
-// (`task_fired_at IS NULL` → now) so two managers loading at the same moment
-// can't both create it.
+// THE REVIEW TASKS reuse the auto-task plumbing (createTask, a Today task) —
+// there's no scheduler in this app, so they fire LAZILY: whenever a manager
+// loads /pm or /team. Two per review (Nov batch 2, Andrew's defaults): one
+// REVIEW_TASK_LEAD_DAYS before ("coming up", stamp `task_fired_at`) and one
+// on the day ("today", stamp `dayof_task_fired_at`, 127). Each is a
+// conditional stamp (`… IS NULL` → now) so two managers loading at the same
+// moment can't both create it. A review scheduled inside the lead window
+// gets the lead task; one scheduled for today (or overdue) gets only the
+// day-of task, never both at once.
+//
+// "Offense" is the stored kind; the UI says WARNING (Nov batch 2 #5) via
+// NOTE_KIND_LABEL — no data migration.
 // ============================================================================
 
 import { supabase } from './supabase'
@@ -40,11 +46,15 @@ export interface EmployeeReview {
   action_items: string | null
   author_id: string | null
   task_fired_at: string | null
+  dayof_task_fired_at: string | null
   created_at: string
   updated_at: string
 }
 
 export type NoteKind = 'note' | 'offense'
+
+/** What each stored kind is CALLED. 'offense' reads "Warning" (Nov batch 2). */
+export const NOTE_KIND_LABEL: Record<NoteKind, string> = { note: 'Note', offense: 'Warning' }
 
 export interface EmployeeNote {
   id: string
@@ -58,7 +68,7 @@ export interface EmployeeNote {
 }
 
 const REVIEW_COLS =
-  'id, org_id, member_id, scheduled_at, held_at, strengths, improvements, action_items, author_id, task_fired_at, created_at, updated_at'
+  'id, org_id, member_id, scheduled_at, held_at, strengths, improvements, action_items, author_id, task_fired_at, dayof_task_fired_at, created_at, updated_at'
 const NOTE_COLS = 'id, org_id, member_id, kind, note_date, body, author_id, created_at'
 
 const notReady = (msg: string) => /employee_(reviews|notes)|does not exist|schema cache/i.test(msg)
@@ -76,10 +86,35 @@ function addDays(iso: string, n: number): string {
   return todayISO(new Date(y, m - 1, d + n))
 }
 
-/** Is this review's "coming up" task due to fire today? Pure. */
-export function reviewTaskDue(r: Pick<EmployeeReview, 'scheduled_at' | 'held_at' | 'task_fired_at'>, today: string): boolean {
-  if (!r.scheduled_at || r.held_at || r.task_fired_at) return false
-  return addDays(r.scheduled_at, -REVIEW_TASK_LEAD_DAYS) <= today
+type TaskStamps = Pick<EmployeeReview, 'scheduled_at' | 'held_at' | 'task_fired_at'> &
+  Partial<Pick<EmployeeReview, 'dayof_task_fired_at'>>
+
+/** Which review task (if any) is due to fire today. Pure.
+ *  'dayof' — the review is today or overdue and not held.
+ *  'lead'  — it's within the lead window and the lead task hasn't fired. */
+export function reviewTaskKind(r: TaskStamps, today: string): 'lead' | 'dayof' | null {
+  if (!r.scheduled_at || r.held_at) return null
+  if (r.scheduled_at <= today) return r.dayof_task_fired_at ? null : 'dayof'
+  if (r.task_fired_at) return null
+  return addDays(r.scheduled_at, -REVIEW_TASK_LEAD_DAYS) <= today ? 'lead' : null
+}
+
+export function reviewTaskDue(r: TaskStamps, today: string): boolean {
+  return reviewTaskKind(r, today) !== null
+}
+
+/** Should /me say "Review coming up"? Same window as the author's lead task. */
+export function reviewComingUpDate(reviews: EmployeeReview[], today: string): string | null {
+  const next = nextReviewDate(reviews, today)
+  return next && addDays(next, -REVIEW_TASK_LEAD_DAYS) <= today ? next : null
+}
+
+/** Scheduled, not-held reviews in [today, today + days], soonest first. Pure. */
+export function reviewsInWindow(reviews: EmployeeReview[], today: string, days = 30): EmployeeReview[] {
+  const end = addDays(today, days)
+  return reviews
+    .filter((r) => r.scheduled_at && !r.held_at && r.scheduled_at >= today && r.scheduled_at <= end)
+    .sort((a, b) => (a.scheduled_at as string).localeCompare(b.scheduled_at as string))
 }
 
 /** The next upcoming (not held) review date for a member, or null. Pure. */
@@ -113,7 +148,7 @@ export async function listNotes(orgId: string, memberId?: string): Promise<Emplo
   return (data || []) as EmployeeNote[]
 }
 
-const writeErr = (msg: string) => (notReady(msg) ? 'Run migration 125 first.' : msg)
+const writeErr = (msg: string) => (notReady(msg) ? 'Run migrations 125 and 127 first.' : msg)
 
 export async function scheduleReview(args: { orgId: string; memberId: string; date: string; authorId: string }): Promise<EmployeeReview> {
   const { data, error } = await supabase
@@ -172,7 +207,7 @@ export async function deleteNote(id: string): Promise<void> {
 }
 
 /**
- * Fire every due "review coming up" task, once each. Never throws — the page
+ * Fire every due review task (lead + day-of), once each. Never throws — the page
  * that calls it is about something else. Returns how many fired.
  */
 export async function fireDueReviewTasks(orgId: string): Promise<number> {
@@ -180,13 +215,15 @@ export async function fireDueReviewTasks(orgId: string): Promise<number> {
     const today = todayISO()
     const { data, error } = await supabase
       .from('employee_reviews')
-      .select('id, member_id, scheduled_at, held_at, task_fired_at, author_id')
+      .select('id, member_id, scheduled_at, held_at, task_fired_at, dayof_task_fired_at, author_id')
       .eq('org_id', orgId)
-      .is('task_fired_at', null)
+      .or('task_fired_at.is.null,dayof_task_fired_at.is.null')
       .is('held_at', null)
       .not('scheduled_at', 'is', null)
     if (error || !data?.length) return 0
-    const due = (data as EmployeeReview[]).filter((r) => reviewTaskDue(r, today))
+    const due = (data as EmployeeReview[])
+      .map((r) => ({ r, kind: reviewTaskKind(r, today) }))
+      .filter((x): x is { r: EmployeeReview; kind: 'lead' | 'dayof' } => x.kind !== null)
     if (due.length === 0) return 0
 
     const { data: org } = await supabase.from('orgs').select('team_members').eq('id', orgId).maybeSingle()
@@ -195,13 +232,18 @@ export async function fireDueReviewTasks(orgId: string): Promise<number> {
     const byLogin = new Map(roster.filter((m) => m.user_id).map((m) => [String(m.user_id), m]))
 
     let fired = 0
-    for (const r of due) {
+    for (const { r, kind } of due) {
       // Claim it first: only the caller whose stamp lands creates the task.
+      // The day-of claim also fills a missing lead stamp, so a review added
+      // for today never fires a stale "coming up" task afterwards.
+      const now = new Date().toISOString()
+      const stampCol = kind === 'lead' ? 'task_fired_at' : 'dayof_task_fired_at'
+      const patch = kind === 'lead' ? { task_fired_at: now } : { dayof_task_fired_at: now, task_fired_at: r.task_fired_at ?? now }
       const { data: claimed } = await supabase
         .from('employee_reviews')
-        .update({ task_fired_at: new Date().toISOString() })
+        .update(patch)
         .eq('id', r.id)
-        .is('task_fired_at', null)
+        .is(stampCol, null)
         .select('id')
       if (!claimed?.length) continue
       const author = r.author_id ? byLogin.get(r.author_id) : undefined
@@ -211,7 +253,12 @@ export async function fireDueReviewTasks(orgId: string): Promise<number> {
       const who = String(byId.get(r.member_id)?.name || 'team member')
       await createTask({
         orgId,
-        title: `Review · ${who} · ${formatDateRange(r.scheduled_at as string)}`,
+        title:
+          kind === 'lead'
+            ? `Review coming up · ${who} · ${formatDateRange(r.scheduled_at as string)}`
+            : (r.scheduled_at as string) < today
+              ? `Review overdue · ${who} · ${formatDateRange(r.scheduled_at as string)}`
+              : `Review today · ${who}`,
         bucket: 'today',
         assigneeIds: [String(author.id)],
         createdBy: null,

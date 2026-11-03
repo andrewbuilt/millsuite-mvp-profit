@@ -212,7 +212,7 @@ export default function MePage() {
         <MentionsStrip />
       </div>
 
-      {/* Your reviews, action items, notes and offenses (125) — everything a
+      {/* Your reviews, action items, notes and warnings (125) — everything a
           manager logs about you on /team. No blindsides. */}
       {orgId && <MyReviews orgId={orgId} memberId={me.id} />}
 

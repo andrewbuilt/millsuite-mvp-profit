@@ -4,11 +4,12 @@
 // MyReviews — the employee's own reviews, action items and notes on /me (125)
 // ============================================================================
 // The no-blindside half of November item 4: everything a manager logs about
-// you on /team is shown to you here — notes AND offenses, plainly. RLS already
+// you on /team is shown to you here — notes AND warnings, plainly. RLS already
 // limits the read to your own rows (125); this filters by your roster id too
 // so a manager viewing /me doesn't see the whole shop's.
 //
-// An upcoming review shows as "Review coming up {date}"; a review's write-up
+// An upcoming review shows as "Review coming up {date}" from 7 days out (the
+// same window as the author's task); a review's write-up
 // shows once it's held. Renders nothing when there's nothing (day-one rule).
 // ============================================================================
 
@@ -17,7 +18,8 @@ import { ClipboardCheck } from 'lucide-react'
 import {
   listNotes,
   listReviews,
-  nextReviewDate,
+  NOTE_KIND_LABEL,
+  reviewComingUpDate,
   todayISO,
   type EmployeeNote,
   type EmployeeReview,
@@ -48,7 +50,7 @@ export default function MyReviews({ orgId, memberId }: { orgId: string; memberId
     }
   }, [orgId, memberId])
 
-  const upcoming = nextReviewDate(reviews, todayISO())
+  const upcoming = reviewComingUpDate(reviews, todayISO())
   const held = reviews.filter((r) => r.held_at).sort((a, b) => (b.held_at || '').localeCompare(a.held_at || ''))
   if (!upcoming && held.length === 0 && notes.length === 0) return null
 
@@ -91,7 +93,7 @@ export default function MyReviews({ orgId, memberId }: { orgId: string; memberId
                         (n.kind === 'offense' ? 'bg-[#FEF2F2] text-[#B91C1C]' : 'bg-[#F3F4F6] text-[#6B7280]')
                       }
                     >
-                      {n.kind}
+                      {NOTE_KIND_LABEL[n.kind]}
                     </span>
                     <span className="text-[10.5px] text-[#9CA3AF]">{fmtDate(n.note_date)}</span>
                   </div>

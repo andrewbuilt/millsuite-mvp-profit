@@ -1,10 +1,11 @@
 'use client'
 
 // ============================================================================
-// ReviewsAndNotes — the /team expanded card's reviews + notes/offense log (125)
+// ReviewsAndNotes — the /team member modal's reviews + notes/warning log (125)
 // ============================================================================
 // Managers schedule a review, write it up (doing well / needs improvement /
-// action items, then mark it held), and log dated notes and offenses.
+// action items, then mark it held), and log dated notes and warnings.
+// (The stored kind is still 'offense'; NOTE_KIND_LABEL says "Warning".)
 //
 // ⛔ Everything here is visible to the employee on /me — the no-blindside rule
 // is enforced in RLS, and this card SAYS so, so nobody writes something here
@@ -26,6 +27,7 @@ import {
   type EmployeeNote,
   type EmployeeReview,
   type NoteKind,
+  NOTE_KIND_LABEL,
 } from '@/lib/employee-reviews'
 
 const fmtDate = (iso: string | null) => {
@@ -138,7 +140,7 @@ export default function ReviewsAndNotes({
         </div>
       )}
 
-      {/* Notes + offenses */}
+      {/* Notes + warnings */}
       <div className="mt-3 rounded-lg border border-[#F3F4F6] p-2.5">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex rounded-lg border border-[#E5E7EB] overflow-hidden text-[11.5px]">
@@ -155,7 +157,7 @@ export default function ReviewsAndNotes({
                     : 'bg-white text-[#6B7280]')
                 }
               >
-                {k === 'note' ? 'Note' : 'Offense'}
+                {NOTE_KIND_LABEL[k]}
               </button>
             ))}
           </div>
@@ -179,7 +181,7 @@ export default function ReviewsAndNotes({
             }
             className="px-2.5 py-1 text-[11.5px] font-semibold rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] disabled:opacity-40"
           >
-            Log {noteKind === 'offense' ? 'offense' : 'note'}
+            Log {NOTE_KIND_LABEL[noteKind].toLowerCase()}
           </button>
         </div>
         {notes.length > 0 && (
@@ -192,7 +194,7 @@ export default function ReviewsAndNotes({
                     (n.kind === 'offense' ? 'bg-[#FEF2F2] text-[#B91C1C]' : 'bg-[#F3F4F6] text-[#6B7280]')
                   }
                 >
-                  {n.kind}
+                  {NOTE_KIND_LABEL[n.kind]}
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="text-[10.5px] text-[#9CA3AF]">{fmtDate(n.note_date)}</div>
