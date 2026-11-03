@@ -553,7 +553,8 @@ function TeamContent() {
   }
 
   function getMembersForDept(deptId: string): TeamMember[] {
-    return team.filter((m) => (m.dept_assignments || []).includes(deptId))
+    // Active only — the dept cards' "N people" is current headcount.
+    return team.filter((m) => isActiveMember(m) && (m.dept_assignments || []).includes(deptId))
   }
 
   // ⛔ THE PROMOTE-RATE PATH MOVED TO /reports WITH THE LADDER. It lived here

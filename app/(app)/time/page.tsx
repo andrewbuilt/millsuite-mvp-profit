@@ -133,7 +133,7 @@ export default function TimePage() {
   // users row — a `users(name)` join returns null for every entry but your
   // own. `orgs.team_members[].user_id` is the only client-side bridge, which
   // is the same rule the task system follows for `created_by`.
-  const [roster, setRoster] = useState<Array<{ id: string; name: string; userId: string | null }>>([])
+  const [roster, setRoster] = useState<Array<{ id: string; name: string; userId: string | null; active: boolean }>>([])
   /**
    * ⛔ SEEDED FROM `?member=`, so /team's "tracked this week" link lands on a
    * filtered timesheet instead of the whole shop's. Without this the link is
@@ -283,6 +283,7 @@ export default function TimePage() {
             id: String(m?.id ?? ''),
             name: String(m?.name ?? '').trim(),
             userId: m?.user_id ? String(m.user_id) : null,
+            active: m?.active !== false,
           }))
           .filter((m) => m.id && m.name)
           .sort((a, b) => a.name.localeCompare(b.name)),
@@ -1077,7 +1078,9 @@ export default function TimePage() {
             filter={filter}
             setFilter={setFilter}
             projects={projects}
-            roster={roster}
+            // Inactive people leave the picker (Nov batch 2 B); their
+            // entries still name them through memberByUserId (full roster).
+            roster={roster.filter((r) => r.active || r.id === filter.memberId)}
           />
 
           {loading ? (

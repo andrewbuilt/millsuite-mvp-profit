@@ -63,7 +63,8 @@ export default function HolidaysAndPtoSection({
   }, [orgId])
 
   const billableMembers = useMemo(
-    () => team.filter((m) => m.billable && m.name.trim().length > 0),
+    // Inactive people can't be given PTO (Nov batch 2 B — lib/team-lifecycle).
+    () => team.filter((m) => m.billable && m.active !== false && m.name.trim().length > 0),
     [team],
   )
   const memberById = useMemo(() => {

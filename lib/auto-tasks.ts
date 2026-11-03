@@ -21,7 +21,7 @@
 
 import { supabase } from './supabase'
 import { updateOrgChecked } from './org-write'
-import { createTask } from './tasks'
+import { createTask, listAssignees } from './tasks'
 
 export const AUTO_TASK_RULES = ['preprod_coordinator', 'pto_coordinator'] as const
 export type AutoTaskRule = (typeof AUTO_TASK_RULES)[number]
@@ -66,6 +66,9 @@ export async function fireAutoTask(
     const rules = await loadAutoTaskRules(orgId)
     const assignee = rules[rule]
     if (!assignee) return
+    // A deactivated coordinator (Nov batch 2 B) gets nothing — listAssignees
+    // is active-only. Settings → Automatic tasks shows the slot empty.
+    if (!(await listAssignees(orgId)).some((a) => a.id === assignee)) return
     await createTask({
       orgId,
       title: task.title,

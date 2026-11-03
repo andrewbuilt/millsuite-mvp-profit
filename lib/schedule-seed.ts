@@ -138,7 +138,7 @@ export async function seedAllocationsForProduction(projectId: string): Promise<v
   const setup = await loadShopRateSetup(orgId)
   const headcountById: Record<string, number> = {}
   for (const m of setup.team) {
-    if (!m.billable) continue
+    if (!m.billable || m.active === false) continue
     for (const did of m.dept_assignments || []) {
       headcountById[did] = (headcountById[did] || 0) + 1
     }

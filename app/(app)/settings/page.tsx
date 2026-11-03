@@ -596,14 +596,8 @@ export default function SettingsPage() {
     }))
   }
 
-  function addTeamMember() {
-    setTeam((prev) => [...prev, makeTeamMember('', 0, true)])
-  }
   function updateTeamMember(id: string, patch: Partial<TeamMember>) {
     setTeam((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)))
-  }
-  function removeTeamMember(id: string) {
-    setTeam((prev) => prev.filter((m) => m.id !== id))
   }
 
   // ── Save derived rate to orgs.shop_rate ──
@@ -922,13 +916,16 @@ export default function SettingsPage() {
               <h3 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">
                 Team &amp; comp
               </h3>
-              <button
-                type="button"
-                onClick={addTeamMember}
-                className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium inline-flex items-center gap-1"
+              {/* ⛔ PEOPLE COME AND GO ON /team ONLY (Nov batch 2 B). This
+                  card used to add and hard-delete roster rows itself — a
+                  second door that skipped the deactivate rules. It edits
+                  comp + billable for the ACTIVE roster now. */}
+              <Link
+                href="/team"
+                className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium"
               >
-                <Plus className="w-3 h-3" /> Add team member
-              </button>
+                Add or remove people on Team →
+              </Link>
             </div>
             <p className="text-[11px] text-[#9CA3AF] leading-snug mb-2">
               Owner counts here too. Billable = Yes for production roles
@@ -936,7 +933,7 @@ export default function SettingsPage() {
               owner time = No.
             </p>
             <div className="space-y-1.5">
-              {team.map((m) => (
+              {team.filter((m) => m.active !== false).map((m) => (
                 <div
                   key={m.id}
                   className="flex items-center gap-2 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg"
@@ -980,19 +977,11 @@ export default function SettingsPage() {
                       <option value="no">No</option>
                     </select>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => removeTeamMember(m.id)}
-                    aria-label={`Remove ${m.name || 'team member'}`}
-                    className="text-[#9CA3AF] hover:text-[#991B1B]"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
                 </div>
               ))}
               {team.length === 0 && (
                 <div className="text-xs text-[#9CA3AF] italic py-3 text-center">
-                  No team yet. Add yourself as the first member.
+                  No team yet — add people on the Team page.
                 </div>
               )}
             </div>
@@ -1000,8 +989,8 @@ export default function SettingsPage() {
               <div>
                 <div className="text-[#6B7280]">Annual team comp</div>
                 <div className="text-[10.5px] text-[#9CA3AF]">
-                  {team.filter((m) => m.billable).length} billable ·{' '}
-                  {team.filter((m) => !m.billable).length} non-billable
+                  {team.filter((m) => m.active !== false && m.billable).length} billable ·{' '}
+                  {team.filter((m) => m.active !== false && !m.billable).length} non-billable
                 </div>
               </div>
               <span className="font-mono tabular-nums font-semibold">
