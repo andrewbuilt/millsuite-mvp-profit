@@ -110,6 +110,7 @@ const ALLOWED = [
   'components/me/MyReviews.tsx',
   'components/team/ReviewsAndNotes.tsx',
   'lib/employee-reviews.ts',
+  'lib/team-lifecycle.ts', // head-only COUNT for the delete gate — reads no text
 ]
 for (const f of users) ok(ALLOWED.includes(f), `review data read somewhere unexpected: ${f}`)
 ok(/review/i.test(read('scripts/rls-audit.mjs')) && /employee_reviews employee_notes/.test(read('scripts/rls-audit.mjs')), 'the RLS audit lists both tables')
