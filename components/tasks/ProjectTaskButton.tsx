@@ -11,6 +11,7 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react'
+import TitleTextarea from '@/components/tasks/TitleTextarea'
 import { ListChecks, Plus } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { BUCKET_LABEL, TASK_BUCKETS, createTask, type TaskBucket } from '@/lib/tasks'
@@ -96,7 +97,7 @@ export default function ProjectTaskButton({ projectId }: { projectId: string }) 
               {error}
             </div>
           )}
-          <input
+          <TitleTextarea
             autoFocus
             value={title}
             onChange={(e) => setTitle(e.target.value)}

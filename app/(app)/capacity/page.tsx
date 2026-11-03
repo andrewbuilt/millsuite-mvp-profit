@@ -1,18 +1,18 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import PlanGate from '@/components/plan-gate'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { ChevronLeft, ChevronRight, X, RefreshCw, ExternalLink } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { loadProjectDeptHours } from '@/lib/project-hours'
-import { loadShopRateSetup, deptDailyHoursByTeam, capacityReductionsByDay, type TeamMember } from '@/lib/shop-rate-setup'
+import { loadShopRateSetup, deptDailyHoursByTeam, capacityReductionsByDay, excludedCapacityDepts, type TeamMember } from '@/lib/shop-rate-setup'
 import { loadPracticeProjectIds } from '@/lib/practice'
 import { loadTempProjectIds } from '@/lib/temp-projects'
 
-interface Department { id: string; name: string; color: string; hours_per_day: number }
+interface Department { id: string; name: string; color: string; hours_per_day: number; counts_in_capacity?: boolean | null }
 interface Project { id: string; name: string; client_name: string | null; stage: string; bid_total: number; isTemp?: boolean; tempHours?: number }
 interface Subproject { id: string; project_id: string; name: string }
 interface DeptAllocation { id: string; subproject_id: string; department_id: string; estimated_hours: number }
@@ -155,14 +155,22 @@ function CapacityContent() {
   const [windowStart, setWindowStart] = useState<Date>(() => firstOfThisMonth())
   // Pipeline toggle: false = "Sold only" (default), true = "Sold + pipeline".
   const [showPipeline, setShowPipeline] = useState(false)
-  // ⛔ THE DEPARTMENT LENS (Nov batch 2 C). null = whole shop. A dept id
-  // recomputes the WHOLE page for that dept — month bars, %, over-by, card
-  // hours — rather than adding more pixels. "How busy is engineering?"
-  const [deptLens, setDeptLens] = useState<string | null>(null)
+  // Capacity round 2 (2026-11-04): the dept-lens chips are gone. Month
+  // headers COLLAPSE / EXPAND instead — expanded shows one row per dept for
+  // that month, several can be open while dragging. Ids of open months:
+  const [openMonths, setOpenMonths] = useState<Set<string>>(new Set())
   // Tracked minutes per month (+ per dept), from time_entries in the window —
   // the "tracked X of booked Y" read on current/past months.
   const [trackedByMonth, setTrackedByMonth] = useState<Record<string, { total: number; byDept: Record<string, number> }>>({})
-  const [departments, setDepartments] = useState<Department[]>([])
+  const [allDepartments, setDepartments] = useState<Department[]>([])
+  // ⛔ MANAGEMENT LEAVES CAPACITY (round 2 item 1, migration 128). Every read
+  // on this page uses `departments` = the COUNTING depts only; the helpers
+  // get the excluded set so a member's day splits over production depts.
+  const departments = useMemo(() => allDepartments.filter((d) => d.counts_in_capacity !== false), [allDepartments])
+  const excludedDepts = useMemo(() => excludedCapacityDepts(allDepartments), [allDepartments])
+  // Guards against a slower, older loadData overwriting a newer one (round 2
+  // item 2: "the numbers changed between two looks").
+  const loadSeq = useRef(0)
   const [projects, setProjects] = useState<Project[]>([])
   const [subprojects, setSubprojects] = useState<Subproject[]>([])
   const [deptAllocations, setDeptAllocations] = useState<DeptAllocation[]>([])
@@ -189,7 +197,35 @@ function CapacityContent() {
 
   useEffect(() => { if (org?.id) loadData() }, [org?.id, windowStart])
 
+  // Tracked time, current/past months of the window only (future months
+  // have none). Keyed by the LOCAL month of started_at, like /time.
+  async function loadTrackedByMonth(practice: Set<string>) {
+    const endMonth = addMonths(windowStart, WINDOW_MONTHS - 1)
+    const nowFirst = firstOfThisMonth()
+    const trackEnd = endMonth < nowFirst ? endMonth : nowFirst
+    const tracked: Record<string, { total: number; byDept: Record<string, number> }> = {}
+    if (windowStart <= nowFirst) {
+      const trackEndLast = new Date(trackEnd.getFullYear(), trackEnd.getMonth() + 1, 1)
+      const { data: te } = await supabase
+        .from('time_entries')
+        .select('started_at, created_at, duration_minutes, department_id, project_id')
+        .eq('org_id', org!.id)
+        .gte('started_at', new Date(windowStart.getFullYear(), windowStart.getMonth(), 1).toISOString())
+        .lt('started_at', trackEndLast.toISOString())
+      for (const r of (te || []) as Array<{ started_at: string | null; created_at: string; duration_minutes: number; department_id: string | null; project_id: string }>) {
+        if (practice.has(r.project_id)) continue
+        const ym = ymOf(new Date(r.started_at || r.created_at))
+        const bucket = (tracked[ym] ||= { total: 0, byDept: {} })
+        const mins = Number(r.duration_minutes) || 0
+        bucket.total += mins
+        if (r.department_id) bucket.byDept[r.department_id] = (bucket.byDept[r.department_id] || 0) + mins
+      }
+    }
+    return tracked
+  }
+
   async function loadData() {
+    const seq = ++loadSeq.current
     setLoading(true)
     // Rolling window bounds: leftmost month through the 12th month. Month
     // allocation rows are always first-of-month, so lte the last month's
@@ -239,6 +275,7 @@ function CapacityContent() {
       loadPracticeProjectIds(org!.id),
       loadTempProjectIds(org!.id),
     ])
+    if (seq !== loadSeq.current) return
     const kept = (projs || []).filter((p) => !practice.has(p.id))
     const tempHours = new Map<string, number>()
     await Promise.all(
@@ -246,6 +283,11 @@ function CapacityContent() {
         .filter((p) => temp.has(p.id))
         .map(async (p) => tempHours.set(p.id, (await loadProjectDeptHours(org!.id, p.id)).totalHours)),
     )
+    // ⛔ EVERYTHING lands in one batch AFTER every read — tracked time
+    // included — so the page never paints a partial (round 2 item 2).
+    const tracked = await loadTrackedByMonth(practice)
+    if (seq !== loadSeq.current) return
+    setTrackedByMonth(tracked)
     setDepartments(depts || [])
     setProjects(
       kept.map((p) => (temp.has(p.id) ? { ...p, isTemp: true, tempHours: tempHours.get(p.id) || 0 } : p)),
@@ -256,29 +298,6 @@ function CapacityContent() {
     setCapacityOverrides((overrides || []) as CapacityOverride[])
     setTeam(shopRateSetup.team)
     setOrgHrsPerWeek(Number(shopRateSetup.billable?.hrs_per_week) || 40)
-    // Tracked time, current/past months of the window only (future months
-    // have none). Keyed by the LOCAL month of started_at, like /time.
-    const nowFirst = firstOfThisMonth()
-    const trackEnd = endMonth < nowFirst ? endMonth : nowFirst
-    const tracked: Record<string, { total: number; byDept: Record<string, number> }> = {}
-    if (windowStart <= nowFirst) {
-      const trackEndLast = new Date(trackEnd.getFullYear(), trackEnd.getMonth() + 1, 1)
-      const { data: te } = await supabase
-        .from('time_entries')
-        .select('started_at, created_at, duration_minutes, department_id, project_id')
-        .eq('org_id', org!.id)
-        .gte('started_at', new Date(windowStart.getFullYear(), windowStart.getMonth(), 1).toISOString())
-        .lt('started_at', trackEndLast.toISOString())
-      for (const r of (te || []) as Array<{ started_at: string | null; created_at: string; duration_minutes: number; department_id: string | null; project_id: string }>) {
-        if (practice.has(r.project_id)) continue
-        const ym = ymOf(new Date(r.started_at || r.created_at))
-        const bucket = (tracked[ym] ||= { total: 0, byDept: {} })
-        const mins = Number(r.duration_minutes) || 0
-        bucket.total += mins
-        if (r.department_id) bucket.byDept[r.department_id] = (bucket.byDept[r.department_id] || 0) + mins
-      }
-    }
-    setTrackedByMonth(tracked)
     setLoading(false)
   }
 
@@ -301,8 +320,8 @@ function CapacityContent() {
   // join table, which /team stopped writing in the shop-rate PR — reading
   // it left every month at 0h capacity.
   const dailyHoursByDept = useMemo(
-    () => deptDailyHoursByTeam(team, orgHrsPerWeek),
-    [team, orgHrsPerWeek],
+    () => deptDailyHoursByTeam(team, orgHrsPerWeek, excludedDepts),
+    [team, orgHrsPerWeek, excludedDepts],
   )
 
   // Capacity per department per month — one entry per column in the rolling
@@ -323,7 +342,7 @@ function CapacityContent() {
       // Department-scoped holidays only knock days off that one dept; the
       // common case (company-wide) has department_id NULL.
       const monthOverrides = capacityOverrides.filter((o) => o.override_date.startsWith(month))
-      const monthReductions = capacityReductionsByDay(monthOverrides, team, orgHrsPerWeek)
+      const monthReductions = capacityReductionsByDay(monthOverrides, team, orgHrsPerWeek, excludedDepts)
       const holidays = monthOverrides.filter((o) => o.team_member_id == null)
       const ptos = monthOverrides.filter((o) => o.team_member_id != null)
 
@@ -384,7 +403,7 @@ function CapacityContent() {
       }
       // The card's "PTO hours" figure = what PTO alone actually removed
       // (a non-billable person's day off is no longer counted here either).
-      const ptoHours = Object.values(capacityReductionsByDay(ptos, team, orgHrsPerWeek)).reduce(
+      const ptoHours = Object.values(capacityReductionsByDay(ptos, team, orgHrsPerWeek, excludedDepts)).reduce(
         (sum, byDept) => sum + Object.values(byDept).reduce((a, b) => a + b, 0),
         0,
       )
@@ -427,38 +446,38 @@ function CapacityContent() {
       )
 
       // Sold vs pipeline hour totals — feed the two-segment utilization bar.
-      let shopSold = 0
-      let shopPipeline = 0
+      let soldAllocated = 0
+      let pipelineAllocated = 0
       const deptAllocated: Record<string, number> = {}
-      let lensSold = 0
-      let lensPipeline = 0
+      // Per dept, sold only — the expanded header's dept rows (same basis as
+      // the month's "booked": sold hours over available hours).
+      const deptSold: Record<string, number> = {}
       for (const { alloc, proj } of visibleAllocs) {
         const pipe = isPipelineStage(proj.stage)
-        if (pipe) shopPipeline += alloc.hours_allocated
-        else shopSold += alloc.hours_allocated
+        // A non-counting dept's hours (management) never count as load.
+        let excludedHrs = 0
         if (alloc.department_hours) {
           for (const [deptId, hrs] of Object.entries(alloc.department_hours)) {
+            if (excludedDepts.has(deptId)) {
+              excludedHrs += Number(hrs) || 0
+              continue
+            }
             deptAllocated[deptId] = (deptAllocated[deptId] || 0) + (hrs as number)
-          }
-          if (deptLens) {
-            const h = Number(alloc.department_hours[deptLens]) || 0
-            if (pipe) lensPipeline += h
-            else lensSold += h
+            if (!pipe) deptSold[deptId] = (deptSold[deptId] || 0) + (hrs as number)
           }
         }
+        const h = Math.max(0, alloc.hours_allocated - excludedHrs)
+        if (pipe) pipelineAllocated += h
+        else soldAllocated += h
       }
-      // Lens: the dept's own capacity + hours stand in for the shop's, so
-      // every read below (%, bars, over-by, heat, next opening) is the dept's.
-      const shopCapacity = totalCapacity
-      if (deptLens) totalCapacity = deptCapacity[deptLens] || 0
-      const soldAllocated = deptLens ? lensSold : shopSold
-      const pipelineAllocated = deptLens ? lensPipeline : shopPipeline
       const totalAllocated = soldAllocated + pipelineAllocated
       const hasCapacity = totalCapacity > 0
       const trackedRow = trackedByMonth[month]
       const trackedHours = trackedRow
-        ? (deptLens ? trackedRow.byDept[deptLens] || 0 : trackedRow.total) / 60
+        ? (trackedRow.total - Object.entries(trackedRow.byDept).reduce((a, [d, m]) => a + (excludedDepts.has(d) ? m : 0), 0)) / 60
         : 0
+      const trackedByDept: Record<string, number> = {}
+      for (const [d, m] of Object.entries(trackedRow?.byDept || {})) trackedByDept[d] = m / 60
 
       // With zero capacity, a naive ratio would read 0% (looks healthy).
       // Instead: any allocated hours against no capacity is "over" (OVER_UTIL
@@ -470,13 +489,10 @@ function CapacityContent() {
       const soldUtil = utilFor(soldAllocated)
       const pipelineUtil = utilFor(pipelineAllocated)
 
-      const projectCards = visibleAllocs
-        // Lens: only jobs with hours in that dept, showing those hours.
-        .filter(({ alloc: a }) => !deptLens || (Number(a.department_hours?.[deptLens]) || 0) > 0)
-        .map(({ alloc: a, proj }) => ({
+      const projectCards = visibleAllocs.map(({ alloc: a, proj }) => ({
         ...proj,
         allocationId: a.id,
-        hours: deptLens ? Number(a.department_hours?.[deptLens]) || 0 : a.hours_allocated,
+        hours: a.hours_allocated,
         departmentHours: a.department_hours,
         splitIndex: a.split_index || 0,
         splitTotal: a.split_total || 0,
@@ -485,7 +501,7 @@ function CapacityContent() {
 
       return {
         month, label, longLabel, showYear, year: y,
-        totalCapacity, totalAllocated, utilization, hasCapacity, shopCapacity, trackedHours,
+        totalCapacity, totalAllocated, utilization, hasCapacity, trackedHours, trackedByDept, deptSold,
         isPastOrCurrent: month <= ymOf(firstOfThisMonth()),
         soldAllocated, pipelineAllocated, soldUtil, pipelineUtil,
         deptCapacity, deptAllocated, projectCards,
@@ -494,7 +510,7 @@ function CapacityContent() {
         daySummaries,
       }
     })
-  }, [departments, dailyHoursByDept, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById, team, orgHrsPerWeek, deptLens, trackedByMonth])
+  }, [departments, dailyHoursByDept, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById, team, orgHrsPerWeek, trackedByMonth, excludedDepts])
 
   // Unscheduled projects (not in any month). Pipeline-stage projects only
   // appear in the tray when the toggle is on — so they're only draggable
@@ -768,27 +784,13 @@ function CapacityContent() {
   // No capacity anywhere in the window = team not assigned to departments.
   // Every downstream stat is meaningless in this state, so it drives a
   // dedicated banner + staffing message instead of the normal reads.
-  // Whole-shop, even under a lens — a dept with no people isn't "no team".
-  const noCapacityConfigured = months.reduce((s, m) => s + m.shopCapacity, 0) <= 0
+  const noCapacityConfigured = totalCap12 <= 0
   // Next opening = first month under 80% util (only meaningful with capacity;
   // a no-capacity month is "over", so it's correctly skipped).
   const nextOpeningIdx = months.findIndex((m) => m.hasCapacity && m.utilization < 80)
   const nextOpening = nextOpeningIdx >= 0 ? months[nextOpeningIdx] : null
   // Over-capacity months feed the staffing signal.
   const overMonths = months.filter((m) => m.utilization > 100)
-
-  // Lens chips: each dept's next-3-months load, visible BEFORE clicking, so
-  // the bottleneck shows itself. From the first three window months; the
-  // dept's own hours ÷ its own capacity (pipeline folds in with the toggle).
-  const lensMonths = months.slice(0, 3)
-  const deptChips = departments.map((d) => {
-    const cap = lensMonths.reduce((a, m) => a + (m.deptCapacity[d.id] || 0), 0)
-    const hrs = lensMonths.reduce((a, m) => a + (m.deptAllocated[d.id] || 0), 0)
-    return { dept: d, cap, hrs, pct: cap > 0 ? (hrs / cap) * 100 : hrs > 0 ? OVER_UTIL : 0 }
-  })
-  const shopCap3 = lensMonths.reduce((a, m) => a + m.shopCapacity, 0)
-  const shopHrs3 = lensMonths.reduce((a, m) => a + Object.values(m.deptAllocated).reduce((x, y) => x + y, 0), 0)
-  const lensName = deptLens ? departments.find((d) => d.id === deptLens)?.name || 'Department' : null
 
   const windowLabel = `${months[0].label} ${months[0].year} – ${months[WINDOW_MONTHS - 1].label} ${months[WINDOW_MONTHS - 1].year}`
 
@@ -859,41 +861,6 @@ function CapacityContent() {
               >
                 Go to Team →
               </button>
-            </div>
-          )}
-
-          {/* ⛔ THE DEPARTMENT LENS (Nov batch 2 C). One row of chips; each
-              shows that dept's next-3-months % so the bottleneck is visible
-              before clicking. Selecting one recomputes the whole page. */}
-          <div className="mb-4 flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] mr-1">Next 3 mo</span>
-            {[{ id: null as string | null, name: 'All', pct: shopCap3 > 0 ? (shopHrs3 / shopCap3) * 100 : 0, color: '#111' },
-              ...deptChips.map((c) => ({ id: c.dept.id as string | null, name: c.dept.name, pct: c.pct, color: c.dept.color }))].map((c) => {
-              const on = deptLens === c.id
-              return (
-                <button
-                  key={c.id ?? 'all'}
-                  onClick={() => setDeptLens(c.id)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs transition-colors ${
-                    on ? 'bg-[#111] border-[#111] text-white' : 'bg-white border-[#E5E7EB] text-[#374151] hover:border-[#9CA3AF]'
-                  }`}
-                >
-                  {c.id && <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />}
-                  {c.name}
-                  <span
-                    className="font-mono tabular-nums font-semibold"
-                    style={{ color: on ? '#fff' : utilColor(c.pct) }}
-                  >
-                    {c.pct >= OVER_UTIL ? 'over' : `${Math.round(c.pct)}%`}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-          {lensName && (
-            <div className="mb-3 -mt-2 text-[11px] text-[#6B7280]">
-              Showing <span className="font-semibold text-[#111]">{lensName}</span> only — capacity, hours, % and cards are this department’s.{' '}
-              <button onClick={() => setDeptLens(null)} className="text-[#2563EB] hover:underline">Back to the whole shop</button>
             </div>
           )}
 
@@ -1042,16 +1009,32 @@ function CapacityContent() {
                         <span className="text-sm font-semibold text-[#111]">{m.label}</span>
                         {m.showYear && <span className="text-[10px] text-[#9CA3AF] tabular-nums">{m.year}</span>}
                       </div>
-                      {/* Working days beside the hours (Nov batch 2 #1): Dec, Jan
-                          and Feb all read 1440h at Built because 23−3, 21−1 and 20
-                          weekdays are all 20 days — holidays WERE coming off, the
-                          card just didn't say so. */}
-                      <div
-                        className="text-[10px] text-[#9CA3AF] font-mono tabular-nums mt-0.5"
-                        title={`${m.workingDays} weekdays${m.workingDays > m.effectiveWorkingDays ? ` − ${m.workingDays - m.effectiveWorkingDays} holiday${m.workingDays - m.effectiveWorkingDays === 1 ? '' : 's'}` : ''} = ${m.effectiveWorkingDays} working days${m.ptoHours > 0 ? `, less ${Math.round(m.ptoHours)}h PTO` : ''}`}
+                      {/* ⛔ COLLAPSIBLE HEADER (capacity round 2 item 3). Collapsed:
+                          booked/available · days, the bar, tracked vs booked.
+                          Expanded: one row PER DEPARTMENT for this month —
+                          booked/available/% on the SAME basis as the month
+                          line (sold hours ÷ holiday/PTO-adjusted available),
+                          so several months can be open while dragging and
+                          you watch departments saturate in place. */}
+                      <button
+                        onClick={() =>
+                          setOpenMonths((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(m.month)) next.delete(m.month)
+                            else next.add(m.month)
+                            return next
+                          })
+                        }
+                        className="w-full text-left mt-0.5"
+                        title={`${m.workingDays} weekdays${m.workingDays > m.effectiveWorkingDays ? ` − ${m.workingDays - m.effectiveWorkingDays} holiday${m.workingDays - m.effectiveWorkingDays === 1 ? '' : 's'}` : ''} = ${m.effectiveWorkingDays} working days${m.ptoHours > 0 ? `, less ${Math.round(m.ptoHours)}h PTO` : ''} · click for departments`}
                       >
-                        {Math.round(m.totalAllocated)}/{Math.round(m.totalCapacity)}h · {m.effectiveWorkingDays}d
-                      </div>
+                        <div className="flex items-center justify-between text-[10px] text-[#9CA3AF] font-mono tabular-nums">
+                          <span>
+                            {Math.round(m.totalAllocated)}/{Math.round(m.totalCapacity)}h · {m.effectiveWorkingDays}d
+                          </span>
+                          <ChevronDown className={`w-3 h-3 transition-transform ${openMonths.has(m.month) ? 'rotate-180' : ''}`} />
+                        </div>
+                      </button>
                       {/* Utilization bar — sold solid, pipeline a lighter
                           second segment stacked after it (toggle on only). */}
                       <div className="bg-[#E5E7EB] rounded-full overflow-hidden h-1.5 mt-1.5 flex">
@@ -1070,23 +1053,6 @@ function CapacityContent() {
                           />
                         )}
                       </div>
-                      {/* Tracked vs booked (Nov batch 2 C): current + past
-                          months only — a thin bar of hours actually clocked
-                          (in the lens dept when one is picked) against the
-                          same capacity scale. */}
-                      {m.isPastOrCurrent && (m.trackedHours > 0 || m.totalAllocated > 0) && (
-                        <>
-                          <div className="bg-[#F3F4F6] rounded-full overflow-hidden h-[3px] mt-1">
-                            <div
-                              className="h-full bg-[#6B7280]"
-                              style={{ width: `${m.hasCapacity ? Math.min((m.trackedHours / m.totalCapacity) * 100, 100) : 0}%` }}
-                            />
-                          </div>
-                          <div className="text-[9.5px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
-                            tracked {Math.round(m.trackedHours)} of booked {Math.round(m.soldAllocated)}h
-                          </div>
-                        </>
-                      )}
                       <div className="flex items-center justify-between mt-1">
                         <span
                           className="text-[10px] font-mono tabular-nums font-medium"
@@ -1100,6 +1066,39 @@ function CapacityContent() {
                           </span>
                         )}
                       </div>
+                      {m.isPastOrCurrent && (m.trackedHours > 0 || m.soldAllocated > 0) && (
+                        <div className="text-[9.5px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
+                          tracked {Math.round(m.trackedHours)} of booked {Math.round(m.soldAllocated)}h
+                        </div>
+                      )}
+                      {openMonths.has(m.month) && (
+                        <div className="mt-2 pt-2 border-t border-[#E5E7EB] space-y-1">
+                          {departments.map((d) => {
+                            const cap = m.deptCapacity[d.id] || 0
+                            const planned = m.deptAllocated[d.id] || 0
+                            const pct = cap > 0 ? (planned / cap) * 100 : planned > 0 ? OVER_UTIL : 0
+                            return (
+                              <div key={d.id} title={`${d.name}: ${Math.round(planned)}h booked of ${Math.round(cap)}h available${m.isPastOrCurrent ? ` · tracked ${Math.round(m.trackedByDept[d.id] || 0)}h` : ''}`}>
+                                <div className="flex items-center justify-between gap-1 text-[10px] tabular-nums">
+                                  <span className="flex items-center gap-1 min-w-0 text-[#374151]">
+                                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: d.color }} />
+                                    <span className="truncate">{d.name}</span>
+                                  </span>
+                                  <span className="font-mono text-[#6B7280] flex-shrink-0">
+                                    {Math.round(planned)}/{Math.round(cap)}
+                                    <span className="ml-1 font-semibold" style={{ color: utilColor(pct) }}>
+                                      {cap > 0 ? `${Math.round(pct)}%` : planned > 0 ? 'no cap' : '—'}
+                                    </span>
+                                  </span>
+                                </div>
+                                <div className="h-1 bg-[#E5E7EB] rounded-full overflow-hidden mt-0.5">
+                                  <div className="h-full" style={{ width: `${Math.min(pct, 100)}%`, background: utilColor(pct) }} />
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     {/* Tiny dept-stacked bar — dept mix at a glance for hiring. */}

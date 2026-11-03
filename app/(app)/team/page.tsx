@@ -69,6 +69,8 @@ interface Department {
   color: string
   display_order: number
   hours_per_day: number
+  /** 128 — false = management / non-production; off capacity. */
+  counts_in_capacity?: boolean | null
 }
 
 const DEPT_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#6B7280']
@@ -436,6 +438,22 @@ function TeamContent() {
     setDepartments((prev) => [...prev, data as Department])
     setNewDeptName('')
     setAddingDept(false)
+  }
+
+  async function setDeptCounts(id: string, counts: boolean) {
+    const { data, error } = await supabase
+      .from('departments')
+      .update({ counts_in_capacity: counts })
+      .eq('id', id)
+      .select('id')
+    if (error || !data?.length) {
+      await showAlert({
+        title: 'Couldn’t change that',
+        message: error?.message?.includes('counts_in_capacity') ? 'Run migration 128 first.' : error?.message || 'The database refused the change.',
+      })
+      return
+    }
+    setDepartments((prev) => prev.map((d) => (d.id === id ? { ...d, counts_in_capacity: counts } : d)))
   }
 
   async function deleteDepartment(id: string) {
@@ -876,6 +894,24 @@ function TeamContent() {
                       <span className="text-sm font-medium text-[#111]">{dept.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* Capacity round 2 (128): management / non-production
+                          depts stay off /capacity + /schedule; people in
+                          them split their day over their other depts. */}
+                      <button
+                        onClick={() => void setDeptCounts(dept.id, dept.counts_in_capacity === false)}
+                        title={
+                          dept.counts_in_capacity === false
+                            ? 'Not counted in capacity (management / non-production). Click to count it.'
+                            : 'Counted in capacity. Click to leave it out (management / non-production).'
+                        }
+                        className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                          dept.counts_in_capacity === false
+                            ? 'border-[#E5E7EB] text-[#9CA3AF]'
+                            : 'border-[#BFDBFE] text-[#1D4ED8] bg-[#EFF6FF]'
+                        }`}
+                      >
+                        {dept.counts_in_capacity === false ? 'Not in capacity' : 'In capacity'}
+                      </button>
                       <span className="text-xs text-[#9CA3AF]">{members.length} people</span>
                       <button
                         onClick={() => deleteDepartment(dept.id)}

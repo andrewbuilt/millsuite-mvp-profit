@@ -115,6 +115,10 @@ export function memberDailyHours(m: TeamMember, defaultHrsPerWeek = 40): number 
 export function deptDailyHoursByTeam(
   team: TeamMember[],
   defaultHrsPerWeek = 40,
+  /** Depts with counts_in_capacity = false (128 — management). A member's
+   *  day splits over their OTHER depts only; someone only in excluded depts
+   *  adds nothing. */
+  excludedDeptIds?: ReadonlySet<string>,
 ): Record<string, number> {
   const out: Record<string, number> = {}
   for (const m of team || []) {
@@ -122,7 +126,7 @@ export function deptDailyHoursByTeam(
     if (m.active === false) continue
     const daily = memberDailyHours(m, defaultHrsPerWeek)
     if (daily <= 0) continue
-    const depts = m.dept_assignments || []
+    const depts = countingDepts(m, excludedDeptIds)
     if (depts.length === 0) continue
     const share = daily / depts.length
     for (const deptId of depts) {
@@ -130,6 +134,18 @@ export function deptDailyHoursByTeam(
     }
   }
   return out
+}
+
+/** A member's dept_assignments minus non-counting depts (128). */
+export function countingDepts(m: TeamMember, excludedDeptIds?: ReadonlySet<string>): string[] {
+  const depts = m.dept_assignments || []
+  return excludedDeptIds && excludedDeptIds.size ? depts.filter((d) => !excludedDeptIds.has(d)) : depts
+}
+
+/** The excluded-dept set from a departments read (counts_in_capacity false;
+ *  a pre-128 row without the column counts). */
+export function excludedCapacityDepts(depts: Array<{ id: string; counts_in_capacity?: boolean | null }>): Set<string> {
+  return new Set(depts.filter((d) => d.counts_in_capacity === false).map((d) => d.id))
 }
 
 /** A capacity_overrides row, as far as capacity math cares (045). */
@@ -165,8 +181,9 @@ export function capacityReductionsByDay(
   overrides: CapacityOverrideRow[],
   team: TeamMember[],
   defaultHrsPerWeek = 40,
+  excludedDeptIds?: ReadonlySet<string>,
 ): Record<string, Record<string, number>> {
-  const dailyByDept = deptDailyHoursByTeam(team, defaultHrsPerWeek)
+  const dailyByDept = deptDailyHoursByTeam(team, defaultHrsPerWeek, excludedDeptIds)
   const byId = new Map((team || []).map((m) => [m.id, m]))
   const out: Record<string, Record<string, number>> = {}
   const add = (date: string, deptId: string, h: number) => {
@@ -185,6 +202,7 @@ export function capacityReductionsByDay(
       holidayDepts[ov.override_date] = 'all'
       for (const [deptId, h] of Object.entries(dailyByDept)) add(ov.override_date, deptId, h)
     } else {
+      if (excludedDeptIds?.has(ov.department_id)) continue
       const cur = holidayDepts[ov.override_date]
       if (cur === 'all') continue
       const set = cur || new Set<string>()
@@ -200,7 +218,7 @@ export function capacityReductionsByDay(
     if (ov.reason?.startsWith('Reassigned to')) continue
     const m = byId.get(ov.team_member_id)
     if (!m || !m.billable || m.active === false) continue
-    const depts = m.dept_assignments || []
+    const depts = countingDepts(m, excludedDeptIds)
     if (depts.length === 0) continue
     const daily = memberDailyHours(m, defaultHrsPerWeek)
     const raw = Number(ov.hours_reduction) || 0

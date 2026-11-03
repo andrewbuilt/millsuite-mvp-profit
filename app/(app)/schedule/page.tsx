@@ -1004,6 +1004,8 @@ export default function SchedulePage() {
 
   // --- Data state ---
   const [departments, setDepartments] = useState<Department[]>([])
+  // Non-counting depts (management, 128) — the capacity helpers skip them.
+  const excludedDeptsRef = useRef<Set<string>>(new Set())
   const [projects, setProjects] = useState<Project[]>([])
   const [subprojectsByProject, setSubprojectsByProject] = useState<Record<string, Subproject[]>>({})
   const [subStatusMap, setSubStatusMap] = useState<Record<string, SubprojectStatus>>({})
@@ -1272,8 +1274,13 @@ export default function SchedulePage() {
     // Filter out management (and the MGMT short-form variant the org may
     // use) and enforce production order
     const PROD_ORDER = ['engineering', 'cnc', 'cnc / mill', 'cnc/mill', 'assembly', 'case assembly', 'finishing', 'finish', 'install', 'installation']
+    // Round 2 (128): the counts_in_capacity flag is the rule; the name match
+    // stays as the fallback for a shop that hasn't set it.
+    const notCounting = (d: { name: string; counts_in_capacity?: boolean | null }) =>
+      d.counts_in_capacity === false || /management|mgmt/i.test(d.name)
+    excludedDeptsRef.current = new Set((deptData || []).filter(notCounting).map((d) => d.id))
     const depts: Department[] = (deptData || [])
-      .filter(d => !/management|mgmt/i.test(d.name))
+      .filter(d => !notCounting(d))
       .sort((a, b) => {
         const ai = PROD_ORDER.findIndex(p => a.name.toLowerCase().includes(p))
         const bi = PROD_ORDER.findIndex(p => b.name.toLowerCase().includes(p))
@@ -1352,7 +1359,7 @@ export default function SchedulePage() {
     // toward capacity (billable still counts toward the shop-rate numerator).
     const setup = await loadShopRateSetup(org.id)
     const orgHpw = Number(setup.billable?.hrs_per_week) || 40
-    setDailyHoursByDept(deptDailyHoursByTeam(setup.team, orgHpw))
+    setDailyHoursByDept(deptDailyHoursByTeam(setup.team, orgHpw, excludedDeptsRef.current))
 
     // Time off → per-dept, per-week capacity reductions. Same helper
     // /capacity uses, so the two pages subtract identically. A wide window
@@ -1369,7 +1376,7 @@ export default function SchedulePage() {
         .gte('override_date', isoDay(from))
         .lte('override_date', isoDay(to))
       if (ovErr) console.warn('/schedule: capacity_overrides', ovErr)
-      const perDay = capacityReductionsByDay((ovs || []) as CapacityOverrideRow[], setup.team, orgHpw)
+      const perDay = capacityReductionsByDay((ovs || []) as CapacityOverrideRow[], setup.team, orgHpw, excludedDeptsRef.current)
       const out: Record<string, number> = {}
       for (const [date, byDept] of Object.entries(perDay)) {
         const d = new Date(date + 'T00:00:00')

@@ -104,6 +104,22 @@ r = capacityReductionsByDay(
 const weekOut = days.reduce((s, d) => s + (r[d]?.[A] || 0), 0)
 ck('a PTO week: assembly weekly cap 60 → 20 (−Hunter\'s 40)', daily[A] * 5 - weekOut, 20)
 
+// ── Capacity round 2 (128): management depts don't count ──────────────────
+const M = 'dept-mgmt'
+const E = 'dept-eng'
+const trent = { id: 'trent', name: 'Trent', billable: true, active: true, dept_assignments: [M, E, A] }
+const boss = { id: 'kay2', name: 'Office', billable: false, active: true, dept_assignments: [M] }
+const ex = new Set([M])
+const d2 = deptDailyHoursByTeam([trent, boss], 40, ex)
+ck('128: a MGMT+Eng+Asm member splits 8h over Eng + Asm only (4 each)', d2[E], 4)
+ck('128: MGMT gets no capacity', d2[M] || 0, 0)
+ck('128: without the flag the old 1/3 split still applies', deptDailyHoursByTeam([trent], 40)[E], 8 / 3)
+const r2 = capacityReductionsByDay([pto('trent', '2026-10-20')], [trent], 40, ex)
+ck('128: his PTO day comes off Eng + Asm in the same split', (r2['2026-10-20']?.[E] || 0) + (r2['2026-10-20']?.[A] || 0), 8)
+ck('128: and nothing off MGMT', r2['2026-10-20']?.[M] || 0, 0)
+const r3 = capacityReductionsByDay([{ override_date: '2026-12-25', team_member_id: null, department_id: null, reason: 'Xmas', hours_reduction: 0 }], [trent], 40, ex)
+ck('128: a holiday removes the counting depts\' whole day (8h), not MGMT', Object.values(r3['2026-12-25'] || {}).reduce((a, b) => a + b, 0), 8)
+
 // ── Live, read-only ──────────────────────────────────────────────────────────
 if (process.argv.includes('--live')) {
   const fs = await import('node:fs')

@@ -17,6 +17,7 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import TitleTextarea from '@/components/tasks/TitleTextarea'
 import Link from 'next/link'
 import { Plus, Settings2, X } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
@@ -367,7 +368,7 @@ export default function TasksPanel() {
         <div className="px-4 py-2.5 border-b border-[#F3F4F6]">
           {adding ? (
             <div className="space-y-2">
-              <input
+              <TitleTextarea
                 autoFocus
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}

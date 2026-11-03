@@ -13,6 +13,7 @@
 // ============================================================================
 
 import { useCallback, useMemo, useRef, useState } from 'react'
+import TitleTextarea from '@/components/tasks/TitleTextarea'
 import Link from 'next/link'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
@@ -328,7 +329,7 @@ export default function TasksPage() {
 
                   {addingIn === b ? (
                     <div className="mt-2 border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-2 space-y-2">
-                      <input
+                      <TitleTextarea
                         autoFocus
                         value={newTitle}
                         onChange={(e) => setNewTitle(e.target.value)}

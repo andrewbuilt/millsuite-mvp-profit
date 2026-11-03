@@ -2,7 +2,7 @@
 // verify-november-2.mjs — November batch 2 (items 4, 6, 7 and B)
 // ============================================================================
 // Run: npx tsx scripts/verify-november-2.mjs     (pure + static, no database)
-// Item 5 lives in verify-reviews.mjs; C in verify-capacity-lens.mjs.
+// Item 5 lives in verify-reviews.mjs; capacity in verify-capacity-round2.mjs.
 // ============================================================================
 
 import fs from 'fs'

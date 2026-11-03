@@ -38,6 +38,7 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import TitleTextarea from '@/components/tasks/TitleTextarea'
 import Link from 'next/link'
 import { ArrowUpRight, CheckCircle2, Plus, Receipt } from 'lucide-react'
 import PlanGate from '@/components/plan-gate'
@@ -376,7 +377,7 @@ function TodayCard() {
 
       {adding && (
         <div className="mx-4 mt-3 border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-2.5 space-y-2">
-          <input
+          <TitleTextarea
             autoFocus
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
