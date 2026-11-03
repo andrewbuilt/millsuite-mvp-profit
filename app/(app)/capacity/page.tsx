@@ -373,7 +373,15 @@ function CapacityContent() {
       const holidayCount = holidays.length
       const ptoDayCount = new Set(ptos.map((p) => p.override_date)).size
       const ptoPersonCount = new Set(ptos.map((p) => p.team_member_id)).size
-      const effectiveWorkingDays = Math.max(0, workingDays - holidayCount)
+      // Distinct weekday, shop-wide holidays only — a Saturday holiday or a
+      // one-dept day off doesn't remove a shop working day.
+      const weekdayHolidays = new Set(
+        holidays
+          .filter((h) => !h.department_id && !h.reason?.startsWith('Reassigned to'))
+          .map((h) => h.override_date)
+          .filter((d) => { const w = new Date(d + 'T12:00:00').getDay(); return w !== 0 && w !== 6 }),
+      ).size
+      const effectiveWorkingDays = Math.max(0, workingDays - weekdayHolidays)
 
       // Allocations for this month, joined to their project so we can
       // partition sold vs pipeline. When the pipeline toggle is off,
@@ -933,8 +941,15 @@ function CapacityContent() {
                         <span className="text-sm font-semibold text-[#111]">{m.label}</span>
                         {m.showYear && <span className="text-[10px] text-[#9CA3AF] tabular-nums">{m.year}</span>}
                       </div>
-                      <div className="text-[10px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
-                        {Math.round(m.totalAllocated)}/{Math.round(m.totalCapacity)}h
+                      {/* Working days beside the hours (Nov batch 2 #1): Dec, Jan
+                          and Feb all read 1440h at Built because 23−3, 21−1 and 20
+                          weekdays are all 20 days — holidays WERE coming off, the
+                          card just didn't say so. */}
+                      <div
+                        className="text-[10px] text-[#9CA3AF] font-mono tabular-nums mt-0.5"
+                        title={`${m.workingDays} weekdays${m.workingDays > m.effectiveWorkingDays ? ` − ${m.workingDays - m.effectiveWorkingDays} holiday${m.workingDays - m.effectiveWorkingDays === 1 ? '' : 's'}` : ''} = ${m.effectiveWorkingDays} working days${m.ptoHours > 0 ? `, less ${Math.round(m.ptoHours)}h PTO` : ''}`}
+                      >
+                        {Math.round(m.totalAllocated)}/{Math.round(m.totalCapacity)}h · {m.effectiveWorkingDays}d
                       </div>
                       {/* Utilization bar — sold solid, pipeline a lighter
                           second segment stacked after it (toggle on only). */}
