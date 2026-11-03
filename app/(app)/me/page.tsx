@@ -10,6 +10,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { MentionsStrip } from '@/components/project/MentionsStrip'
+import MyReviews from '@/components/me/MyReviews'
 import { TodayTab, WeekTab, PtoTab, HistoryTab, BottomTabs, type Tab } from '@/components/me/tabs'
 import type { TeamMember } from '@/lib/shop-rate-setup'
 import {
@@ -210,6 +211,10 @@ export default function MePage() {
       <div className="mb-3 empty:hidden">
         <MentionsStrip />
       </div>
+
+      {/* Your reviews, action items, notes and offenses (125) — everything a
+          manager logs about you on /team. No blindsides. */}
+      {orgId && <MyReviews orgId={orgId} memberId={me.id} />}
 
       <WeekHoursBar
         minutes={weekEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0)}

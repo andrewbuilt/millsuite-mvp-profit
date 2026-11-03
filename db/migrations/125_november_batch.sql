@@ -173,6 +173,106 @@ CREATE POLICY comment_mentions_update ON public.project_comment_mentions FOR UPD
     AND user_id = (SELECT u.id FROM public.users u WHERE u.auth_user_id = auth.uid() LIMIT 1)
   );
 
+-- ── Item 4: employee reviews + notes (the /team expansion) ───────────────────
+-- member_id is the ROSTER id (orgs.team_members[].id) — the identity PTO and
+-- capacity use — so a person without a login can still be reviewed.
+--
+-- ⛔ THE NO-BLINDSIDE RULE IS IN THE POLICY, NOT JUST THE UI (Andrew): managers
+-- (owner/admin) read and write everyone's; a worker READS their own rows —
+-- reviews, action items AND the offense log — and nothing else. An offense the
+-- employee can't see defeats the purpose. Keyed on the roster link
+-- (team_members[].user_id = their users.id), the payments-allowlist pattern.
+-- Review/offense text stays on /team and /me only: no export or report reads it.
+
+CREATE TABLE IF NOT EXISTS public.employee_reviews (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id         uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
+  member_id      uuid NOT NULL,                -- orgs.team_members[].id
+  scheduled_at   date NULL,
+  held_at        date NULL,
+  strengths      text NULL,                    -- "doing well"
+  improvements   text NULL,                    -- "needs improvement"
+  action_items   text NULL,
+  author_id      uuid NULL REFERENCES public.users(id) ON DELETE SET NULL,
+  task_fired_at  timestamptz NULL,             -- the "review coming up" Today task, once
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_employee_reviews_member ON public.employee_reviews(org_id, member_id);
+
+CREATE TABLE IF NOT EXISTS public.employee_notes (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
+  member_id   uuid NOT NULL,                   -- orgs.team_members[].id
+  kind        text NOT NULL DEFAULT 'note' CHECK (kind IN ('note', 'offense')),
+  note_date   date NOT NULL DEFAULT CURRENT_DATE,
+  body        text NOT NULL CHECK (length(btrim(body)) > 0),
+  author_id   uuid NULL REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_employee_notes_member ON public.employee_notes(org_id, member_id);
+
+-- Owner or admin of target_org.
+CREATE OR REPLACE FUNCTION public.is_org_manager(target_org uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.users u
+    WHERE u.auth_user_id = auth.uid()
+      AND u.org_id = target_org
+      AND u.role IN ('owner', 'admin')
+  );
+$$;
+
+-- The caller's roster id(s) in target_org, as text (roster ids live in jsonb).
+CREATE OR REPLACE FUNCTION public.my_roster_member_ids(target_org uuid)
+RETURNS SETOF text
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT m->>'id'
+  FROM public.users u
+  JOIN public.orgs o ON o.id = u.org_id
+  CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o.team_members, '[]'::jsonb)) m
+  WHERE u.auth_user_id = auth.uid()
+    AND o.id = target_org
+    AND m->>'user_id' = u.id::text;
+$$;
+
+REVOKE ALL ON FUNCTION public.is_org_manager(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.my_roster_member_ids(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_org_manager(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.my_roster_member_ids(uuid) TO authenticated;
+
+ALTER TABLE public.employee_reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.employee_notes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS employee_reviews_select ON public.employee_reviews;
+DROP POLICY IF EXISTS employee_reviews_write  ON public.employee_reviews;
+CREATE POLICY employee_reviews_select ON public.employee_reviews FOR SELECT TO authenticated
+  USING (
+    org_id = public.current_org_id()
+    AND (
+      public.is_org_manager(org_id)
+      OR member_id::text IN (SELECT public.my_roster_member_ids(org_id))
+    )
+  );
+CREATE POLICY employee_reviews_write ON public.employee_reviews FOR ALL TO authenticated
+  USING (org_id = public.current_org_id() AND public.is_org_manager(org_id))
+  WITH CHECK (org_id = public.current_org_id() AND public.is_org_manager(org_id));
+
+DROP POLICY IF EXISTS employee_notes_select ON public.employee_notes;
+DROP POLICY IF EXISTS employee_notes_write  ON public.employee_notes;
+CREATE POLICY employee_notes_select ON public.employee_notes FOR SELECT TO authenticated
+  USING (
+    org_id = public.current_org_id()
+    AND (
+      public.is_org_manager(org_id)
+      OR member_id::text IN (SELECT public.my_roster_member_ids(org_id))
+    )
+  );
+CREATE POLICY employee_notes_write ON public.employee_notes FOR ALL TO authenticated
+  USING (org_id = public.current_org_id() AND public.is_org_manager(org_id))
+  WITH CHECK (org_id = public.current_org_id() AND public.is_org_manager(org_id));
+
 COMMIT;
 
 NOTIFY pgrst, 'reload schema';

@@ -62,6 +62,7 @@ import {
 import { pickableProjects, useTasks } from '@/components/tasks/TasksProvider'
 import CompletedForYou from '@/components/tasks/CompletedForYou'
 import { MentionsStrip } from '@/components/project/MentionsStrip'
+import { fireDueReviewTasks } from '@/lib/employee-reviews'
 import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
 import { BUCKET_LABEL, TASK_TAG_COLORS, createTask, type Task } from '@/lib/tasks'
 import {
@@ -92,6 +93,12 @@ export default function PmPage() {
   // the RLS that would blank their data anyway.
   const payVis = usePaymentsVisibility()
   const canSeePayments = hasAccess(org?.plan || 'starter', 'invoices') && payVis.canSee
+
+  // Review "coming up" tasks (125): fired lazily when a manager lands here —
+  // the app has no scheduler. Best-effort; the task appears on the next load.
+  useEffect(() => {
+    if (org?.id) void fireDueReviewTasks(org.id)
+  }, [org?.id])
 
   return (
     <PlanGate requires="projects">

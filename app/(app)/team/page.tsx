@@ -23,6 +23,8 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import PlanGate from '@/components/plan-gate'
+import ReviewsAndNotes from '@/components/team/ReviewsAndNotes'
+import { fireDueReviewTasks } from '@/lib/employee-reviews'
 import { useAutosave } from '@/hooks/use-autosave'
 import { awaitPendingOrgWrites } from '@/lib/org-write'
 import SaveStatus from '@/components/save-status'
@@ -190,6 +192,12 @@ function TeamContent() {
   }, [org?.id])
 
   const todayISO = useMemo(() => new Date().toISOString().slice(0, 10), [])
+
+  // Review "coming up" tasks (125) fire lazily — there's no scheduler. Never
+  // throws; nothing on this page waits on it.
+  useEffect(() => {
+    if (org?.id) void fireDueReviewTasks(org.id)
+  }, [org?.id])
 
   async function reloadPto() {
     if (!org?.id) return
@@ -1253,6 +1261,17 @@ function TeamContent() {
                     </Link>
                   </div>
                 </div>
+
+                {/* Reviews + notes/offenses (125). Managers only — and the
+                    employee sees every word of it on /me (no blindsides). */}
+                {org?.id && callerRole !== 'member' && (
+                  <ReviewsAndNotes
+                    orgId={org.id}
+                    memberId={member.id}
+                    memberName={member.name || ''}
+                    authorId={user?.id ?? null}
+                  />
+                )}
 
                 <AccountControls
                   member={member}
