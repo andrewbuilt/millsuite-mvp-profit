@@ -19,9 +19,9 @@
 // an onClick could never do.
 // ============================================================================
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ExternalLink, Link2, Plus, Trash2, X } from 'lucide-react'
+import { ExternalLink, GripVertical, Link2, Plus, Trash2, X } from 'lucide-react'
 import {
   BUCKET_LABEL,
   TASK_BUCKETS,
@@ -120,6 +120,28 @@ export function TaskRow({
   isDragging: boolean
 }) {
   const [title, setTitle] = useState(task.title)
+  // ⛔ DRAG STARTS FROM THE HANDLE ONLY (Nov batch 2 #3). The whole row used
+  // to be `draggable`, so trying to select the title text — collapsed or in
+  // the edit field — picked up the card instead. The row is draggable only
+  // while the grip is held down.
+  const [dragArmed, setDragArmed] = useState(false)
+  useEffect(() => {
+    if (!dragArmed) return
+    // Released without dragging (anywhere on the page) → disarm, or the row
+    // would stay draggable and swallow the next text selection.
+    const off = () => setDragArmed(false)
+    window.addEventListener('mouseup', off)
+    return () => window.removeEventListener('mouseup', off)
+  }, [dragArmed])
+  const titleRef = useRef<HTMLTextAreaElement>(null)
+  // Autogrow: the edit field wraps and grows with the title instead of being
+  // an endless one-line input.
+  useLayoutEffect(() => {
+    const el = titleRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [title, expanded])
   const [comments, setComments] = useState<TaskComment[]>([])
   const [commentBody, setCommentBody] = useState('')
   const [loadedComments, setLoadedComments] = useState(false)
@@ -200,14 +222,30 @@ export function TaskRow({
 
   return (
     <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
+      draggable={dragArmed}
+      onDragStart={(e) => {
+        if (!dragArmed) {
+          e.preventDefault()
+          return
+        }
+        onDragStart()
+      }}
+      onDragEnd={() => {
+        setDragArmed(false)
+        onDragEnd()
+      }}
       className={`rounded-lg border border-transparent hover:border-[#E5E7EB] hover:bg-[#FAFCFF] transition-colors ${
         isDragging ? 'opacity-40' : ''
       }`}
     >
-      <div className="flex items-start gap-2 px-1.5 py-1.5">
+      <div className="group flex items-start gap-2 px-1.5 py-1.5">
+        <span
+          onMouseDown={() => setDragArmed(true)}
+          title="Drag to move"
+          className="-ml-1 -mr-1.5 mt-0.5 text-[#D1D5DB] opacity-0 group-hover:opacity-100 hover:text-[#6B7280] cursor-grab active:cursor-grabbing flex-shrink-0"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </span>
         <button
           // `userId` = who's clicking — stamps completed_by for the creator's
           // "Completed for you" strip (114).
@@ -219,15 +257,28 @@ export function TaskRow({
         {/* Title expands; the chips below are siblings so the project chip can
             be a real anchor. See the header. */}
         <div className="flex-1 min-w-0">
-          <button
-            onClick={onToggleExpand}
+          <div
+            role="button"
+            tabIndex={0}
+            // A click toggles; a drag-select (text highlighted) doesn't, so
+            // the title can be copied without opening the row.
+            onClick={() => {
+              if (window.getSelection()?.toString()) return
+              onToggleExpand()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onToggleExpand()
+              }
+            }}
             // Wraps, never truncates (October batch item 6): the full title
             // always reads. `whitespace-normal` + overflow-wrap so a pasted
             // URL or long part number breaks instead of running off the row.
-            className="w-full text-left cursor-pointer text-[13px] text-[#111] leading-snug whitespace-normal [overflow-wrap:anywhere]"
+            className="w-full text-left cursor-pointer select-text text-[13px] text-[#111] leading-snug whitespace-normal [overflow-wrap:anywhere]"
           >
             {task.title}
-          </button>
+          </div>
           <div className="flex items-center gap-1.5 flex-wrap mt-1">
             {pastDue > 0 && (
               <span
@@ -285,15 +336,26 @@ export function TaskRow({
 
       {expanded && (
         <div className="px-1.5 pb-2.5 pt-1 border-t border-[#F3F4F6] mt-1 space-y-2.5">
-          <input
+          <textarea
+            ref={titleRef}
+            rows={1}
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            // A title is one line of meaning: Enter saves rather than adding a
+            // newline, and pasted newlines fold to spaces.
+            onChange={(e) => setTitle(e.target.value.replace(/\s*\n\s*/g, ' '))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                e.currentTarget.blur()
+              }
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
             onBlur={() => {
               if (title.trim() && title !== task.title) {
                 void onRun(() => updateTask(task.id, { title }, orgId))
               }
             }}
-            className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
+            className="w-full px-2 py-1.5 text-[13px] leading-snug border border-[#E5E7EB] rounded-md resize-none overflow-hidden whitespace-pre-wrap [overflow-wrap:anywhere] focus:outline-none focus:border-[#2563EB]"
           />
 
           {/* Who put this on the list.
