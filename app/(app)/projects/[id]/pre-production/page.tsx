@@ -654,10 +654,9 @@ export default function PreProductionPage() {
                 </div>
 
                 {/* Two columns: approvals | drawings.
-                    Drawings gets 320px and only splits at xl — its header row
-                    carries two action buttons ("Mark approved manually" /
-                    "Upload revision"), and at the mockup's 260px on lg they
-                    were clipped. Below xl the two tracks stack full-width. */}
+                    Drawings gets 320px and only splits at xl. Its buttons
+                    (Submit Rev N · Accepted, Nov batch 2) wrap on one row
+                    instead of overlapping. Below xl the tracks stack. */}
                 <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px]">
                   <div className="xl:border-r border-[#F3F4F6] border-b xl:border-b-0 pb-3">
                     <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.08em] px-[18px] pt-3 pb-1.5">

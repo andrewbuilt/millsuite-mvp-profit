@@ -132,6 +132,80 @@ export async function uploadNewRevision(
   return data as DrawingRevision
 }
 
+// ── The rev counter (Nov batch 2 #6) ──
+//
+// ⛔ THE UPLOAD FLOW IS GONE FROM THE UI. Andrew's drawings live in Drive /
+// on paper; a required link per revision was friction with no payoff. Now
+// one button "Submit Rev N" logs a round (timestamped, state in_review —
+// it's gone to the client), and "Accepted" approves the latest. A link is
+// optional and can be added to any logged rev after the fact. The schema and
+// the gate (latest.state === 'approved') are unchanged.
+
+/** Log the next revision as submitted to the client. Demotes the current
+ *  latest — so submitting Rev 3 after Rev 2 was accepted puts the gate back
+ *  to waiting until Rev 3 is accepted. */
+export async function submitNextRevision(
+  subprojectId: string,
+  input: { uploaded_by_user_id?: string; file_url?: string | null } = {}
+): Promise<DrawingRevision | null> {
+  const { data: maxRow } = await supabase
+    .from('drawing_revisions')
+    .select('revision_number')
+    .eq('subproject_id', subprojectId)
+    .order('revision_number', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextRevisionNumber = (maxRow?.revision_number ?? 0) + 1
+
+  const { error: demoteErr } = await supabase
+    .from('drawing_revisions')
+    .update({ is_latest: false, updated_at: new Date().toISOString() })
+    .eq('subproject_id', subprojectId)
+    .eq('is_latest', true)
+  if (demoteErr) {
+    console.error('submitNextRevision demote', demoteErr)
+    return null
+  }
+
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('drawing_revisions')
+    .insert({
+      subproject_id: subprojectId,
+      revision_number: nextRevisionNumber,
+      file_url: input.file_url?.trim() || null,
+      state: 'in_review' as ApprovalState,
+      is_latest: true,
+      uploaded_by_user_id: input.uploaded_by_user_id || null,
+      submitted_at: now,
+    })
+    .select()
+    .single()
+  if (error) {
+    console.error('submitNextRevision insert', error)
+    return null
+  }
+  return data as DrawingRevision
+}
+
+/** Attach / change / clear the optional link on a logged revision. */
+export async function setRevisionLink(revisionId: string, url: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('drawing_revisions')
+    .update({ file_url: url?.trim() || null, updated_at: new Date().toISOString() })
+    .eq('id', revisionId)
+  if (error) throw error
+}
+
+/** Undo "Accepted" on the latest revision — back to waiting on the client. */
+export async function unacceptRevision(revisionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('drawing_revisions')
+    .update({ state: 'in_review' as ApprovalState, responded_at: null, updated_at: new Date().toISOString() })
+    .eq('id', revisionId)
+  if (error) throw error
+}
+
 // ── State transitions ──
 
 interface TransitionArgs {

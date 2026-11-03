@@ -1,42 +1,41 @@
 // ============================================================================
-// drawings-track.tsx — Phase 2 UI for drawing revisions
+// drawings-track.tsx — drawing approvals as a REV COUNTER (Nov batch 2 #6)
 // ============================================================================
-// Upload revision (URL paste for V1), list revisions with state badges,
-// transition revisions through pending → in_review → approved. Latest
-// revision is highlighted; older revisions collapse to a dim "superseded"
-// row. Per D8, approval is the shop user marking it on the client's behalf
-// after verbal/email sign-off. No client-facing surface in V1.
+// ⛔ REPLACED THE UPLOAD-REVISION FLOW. Andrew's screenshot: overlapping
+// pills ("Mark approved manually" / "Upload revision" ran into each other in
+// the narrow pre-pro column) and a forced Drive link per revision. Now:
 //
-// Not in scope (later phases):
-//   - Blob storage upload (V1: URL paste)
-//   - Inline PDF preview
-//   - Phase 3 ties this into the scheduling gate
+//   [Submit Rev N]  [Accepted]
+//   Rev 2 · submitted Nov 3 · + link
+//   Rev 1 · submitted Oct 28 · drive.google.com/…
+//
+//   · Submit Rev N — logs the round, timestamped, state in_review (it's with
+//     the client). The button then reads Submit Rev N+1. Submitting after an
+//     acceptance supersedes it: the gate waits again until the new rev is
+//     accepted (confirmed first, because it un-greens the gate).
+//   · Accepted — approves the latest rev (no rev yet → logs an accepted one
+//     with no submission, the old "approved manually" row). THE GATE IS
+//     UNCHANGED: latest.state === 'approved' (isDrawingsGateGreen + 002's view).
+//   · A link is optional on every rev, addable after the fact. Never required.
+//
+// Legacy rows (an uploaded rev still 'pending', i.e. never sent) render in the
+// same log as "logged". Superseded revs are just older lines in the log.
 // ============================================================================
 
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import {
-  CheckCircle2,
-  Clock,
-  Send,
-  RotateCcw,
-  Upload,
-  ExternalLink,
-  FileText,
-  X,
-} from 'lucide-react'
+import { CheckCircle2, ExternalLink, Link2, Send, Undo2 } from 'lucide-react'
 import {
   DrawingRevision,
   approveRevision,
   isDrawingsGateGreen,
   loadDrawingRevisions,
   markDrawingsApprovedManually,
-  reopenRevision,
-  submitRevisionForReview,
-  uploadNewRevision,
+  setRevisionLink,
+  submitNextRevision,
+  unacceptRevision,
 } from '@/lib/drawings'
-import type { ApprovalState } from '@/lib/approvals'
 import { useConfirm } from '@/components/confirm-dialog'
 import { announce } from '@/lib/tour-events'
 
@@ -44,16 +43,14 @@ interface Props {
   subprojectId: string
   /** Optional, set as uploaded_by_user_id on new revision rows. */
   actorUserId?: string
-  /** Called after every successful state mutation (upload / submit /
-   *  approve / reopen / manual-approve). Lets the parent refetch the
+  /** Called after every successful change. Lets the parent refetch the
    *  scheduling-gate view so the project header updates immediately. */
   onChange?: () => void
-  /** data-tour hook for the manual-approve button. Passed by the pre-prod
-   *  page for its first subproject only, so the value stays unique. */
+  /** data-tour hook for the Accepted button. Passed by the pre-prod page for
+   *  its first subproject only, so the value stays unique. */
   tourTag?: string
-  /** Drop the component's own "Drawings · R2" line — the pre-production card
-   *  already prints a DRAWINGS column head above it. The ACTION BUTTONS stay:
-   *  they live on that same row, which is why this hides the label only. */
+  /** The pre-production card already prints a DRAWINGS column head; drop
+   *  this component's own "Drawings" word (the status stays). */
   hideHeader?: boolean
 }
 
@@ -61,12 +58,11 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange, tou
   const { confirm, alert } = useConfirm()
   const [revs, setRevs] = useState<DrawingRevision[]>([])
   const [loading, setLoading] = useState(true)
-  const [busyRevId, setBusyRevId] = useState<string | null>(null)
-  const [showUpload, setShowUpload] = useState(false)
-  const [markingManual, setMarkingManual] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [linkFor, setLinkFor] = useState<string | null>(null)
+  const [linkDraft, setLinkDraft] = useState('')
 
   const reload = useCallback(async () => {
-    setLoading(true)
     const next = await loadDrawingRevisions(subprojectId)
     setRevs(next)
     setLoading(false)
@@ -76,26 +72,23 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange, tou
     reload()
   }, [reload])
 
-  const runTransition = async (
-    fn: (id: string) => Promise<void>,
-    revId: string,
-    /** Announced after the transition + reload succeed. */
-    announceOnSuccess?: 'ms:drawings-approved'
-  ) => {
-    setBusyRevId(revId)
+  async function run(fn: () => Promise<unknown>, failTitle: string, after?: () => void) {
+    if (busy) return
+    setBusy(true)
     try {
-      await fn(revId)
+      const result = await fn()
+      if (result === null) throw new Error('no row')
       await reload()
       onChange?.()
-      if (announceOnSuccess) announce(announceOnSuccess)
+      after?.()
     } catch (err) {
       console.error(err)
       await alert({
-        title: 'Couldn’t update revision',
-        message: 'Something went wrong saving the revision change. Open the browser console for the full error and try again.',
+        title: failTitle,
+        message: 'Something went wrong saving that. Open the browser console for the full error and try again.',
       })
     } finally {
-      setBusyRevId(null)
+      setBusy(false)
     }
   }
 
@@ -104,436 +97,190 @@ export default function DrawingsTrack({ subprojectId, actorUserId, onChange, tou
   }
 
   const latest = revs.find((r) => r.is_latest)
-  const superseded = revs.filter((r) => !r.is_latest)
-  const gateGreen = isDrawingsGateGreen(revs)
-  // Item 4: once the latest revision is approved the manual-approve path
-  // can't add new information — clicking it would just stack synthetic
-  // R2/R3/etc revisions in the same approved state. To genuinely change
-  // what's approved, the operator uploads a new revision (which demotes
-  // the current latest to superseded and starts the new one as pending).
-  const alreadyApproved = !!latest && latest.state === 'approved'
+  const accepted = isDrawingsGateGreen(revs)
+  const nextN = (revs[0]?.revision_number ?? 0) + 1
+
+  async function submitNext() {
+    if (accepted && latest) {
+      const ok = await confirm({
+        title: `Submit Rev ${nextN}?`,
+        message: `Rev ${latest.revision_number} is accepted. Logging Rev ${nextN} means the client has new drawings to look at — this subproject waits on drawings again until you mark Rev ${nextN} accepted.`,
+        confirmLabel: `Submit Rev ${nextN}`,
+      })
+      if (!ok) return
+    }
+    await run(
+      () => submitNextRevision(subprojectId, { uploaded_by_user_id: actorUserId }),
+      'Couldn’t log the revision',
+    )
+  }
+
+  async function accept() {
+    await run(
+      () =>
+        latest
+          ? approveRevision(latest.id)
+          : markDrawingsApprovedManually(subprojectId, {
+              uploaded_by_user_id: actorUserId,
+              notes: 'Accepted with no revision logged',
+            }),
+      'Couldn’t mark drawings accepted',
+      // After the approval actually lands — the sell-it guide waits on this.
+      () => announce('ms:drawings-approved'),
+    )
+  }
+
+  async function saveLink(revId: string) {
+    const url = linkDraft.trim()
+    await run(() => setRevisionLink(revId, url || null), 'Couldn’t save the link', () => {
+      setLinkFor(null)
+      setLinkDraft('')
+    })
+  }
+
+  const status = accepted
+    ? `Accepted ${fmtDate(latest?.responded_at || latest?.updated_at || null)}`
+    : latest
+      ? latest.state === 'in_review'
+        ? `Rev ${latest.revision_number} with the client`
+        : `Rev ${latest.revision_number} logged, not sent`
+      : 'Nothing submitted yet'
 
   return (
-    <div className="space-y-3">
-      {/* Section header */}
-      {/* Header + actions. `flex-wrap` matters: in the pre-production card's
-          narrow Drawings column these two groups can't sit side by side, and
-          without wrapping the buttons got clipped off the right edge. */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className={'text-sm font-medium text-neutral-700' + (hideHeader ? ' sr-only' : '')}>
-          Drawings
-          {latest ? (
-            <span className="ml-2 text-neutral-500 font-normal">
-              R{latest.revision_number}
-              {gateGreen ? (
-                <span className="ml-2 text-emerald-600">· approved</span>
-              ) : (
-                <span className="ml-2 text-neutral-400">· {latest.state.replace('_', ' ')}</span>
-              )}
-            </span>
-          ) : (
-            <span className="ml-2 text-neutral-400 font-normal">no revisions yet</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="space-y-2">
+      <div className="text-[12px] text-neutral-600">
+        {!hideHeader && <span className="font-medium text-neutral-700 mr-1.5">Drawings</span>}
+        <span className={accepted ? 'text-emerald-700 font-medium' : ''}>{status}</span>
+      </div>
+
+      {/* One wrapping row — the old pills overlapped in the narrow column. */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          onClick={() => void submitNext()}
+          disabled={busy}
+          className="text-xs whitespace-nowrap inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-neutral-900 text-white hover:bg-neutral-700 disabled:opacity-50"
+        >
+          <Send className="w-3 h-3" />
+          Submit Rev {nextN}
+        </button>
+        {accepted ? (
+          <span className="text-xs whitespace-nowrap inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <CheckCircle2 className="w-3 h-3" />
+            Accepted
+            <button
+              onClick={() => latest && void run(() => unacceptRevision(latest.id), 'Couldn’t undo')}
+              disabled={busy}
+              title="Undo — back to waiting on the client"
+              className="ml-1 text-emerald-600 hover:text-emerald-900"
+            >
+              <Undo2 className="w-3 h-3" />
+            </button>
+          </span>
+        ) : (
           <button
-            onClick={async () => {
-              if (markingManual || alreadyApproved) return
-              const ok = await confirm({
-                title: 'Mark drawings approved manually?',
-                message:
-                  "Use this when shop drawings live outside the system and the client signed off verbally. The card will read \"Manually approved (no revision uploaded)\" so it's auditable.",
-                confirmLabel: 'Mark approved',
-              })
-              if (!ok) return
-              setMarkingManual(true)
-              try {
-                const result = await markDrawingsApprovedManually(subprojectId, {
-                  uploaded_by_user_id: actorUserId,
-                })
-                if (!result) {
-                  await alert({
-                    title: 'Couldn’t mark drawings approved',
-                    message:
-                      'Something went wrong creating the manual-approve revision. Open the browser console for the full error and try again.',
-                  })
-                  return
-                }
-                await reload()
-                onChange?.()
-                // After the approval actually lands — the sell-it guide
-                // waits on this.
-                announce('ms:drawings-approved')
-              } finally {
-                setMarkingManual(false)
-              }
-            }}
+            onClick={() => void accept()}
+            disabled={busy}
             data-tour={tourTag}
-            disabled={markingManual || alreadyApproved}
-            className="text-xs whitespace-nowrap inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed"
             title={
-              alreadyApproved
-                ? 'Latest revision is already approved. Upload a new revision to supersede it.'
-                : 'Mark drawings approved without uploading a revision (drawings live outside the system)'
+              latest
+                ? `Client accepted Rev ${latest.revision_number}`
+                : 'Client accepted drawings that live outside MillSuite'
             }
+            className="text-xs whitespace-nowrap inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
           >
             <CheckCircle2 className="w-3 h-3" />
-            {markingManual ? 'Marking…' : 'Mark approved manually'}
+            Accepted
           </button>
-          <button
-            onClick={() => setShowUpload(true)}
-            className="text-xs whitespace-nowrap inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
-          >
-            <Upload className="w-3 h-3" />
-            Upload revision
-          </button>
-        </div>
-      </div>
-
-      {/* Empty state */}
-      {revs.length === 0 && (
-        <div className="text-sm text-neutral-500 border border-dashed border-neutral-300 rounded p-4">
-          No drawings uploaded yet. Upload the first revision when shop drawings are ready for client review.
-        </div>
-      )}
-
-      {/* Latest revision */}
-      {latest && (
-        <RevisionCard
-          rev={latest}
-          isLatest
-          isBusy={busyRevId === latest.id}
-          onSubmit={() => runTransition(submitRevisionForReview, latest.id)}
-          onApprove={() => runTransition(approveRevision, latest.id, 'ms:drawings-approved')}
-          onReopen={() => runTransition(reopenRevision, latest.id)}
-        />
-      )}
-
-      {/* Superseded revisions (collapsed) */}
-      {superseded.length > 0 && (
-        <div className="pt-1">
-          <div className="text-[10px] uppercase tracking-wider text-neutral-400 mb-1">
-            Superseded
-          </div>
-          <div className="space-y-1">
-            {superseded.map((r) => (
-              <SupersededRow key={r.id} rev={r} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Upload modal */}
-      {showUpload && (
-        <UploadRevisionModal
-          subprojectId={subprojectId}
-          actorUserId={actorUserId}
-          onClose={() => setShowUpload(false)}
-          onUploaded={async () => {
-            setShowUpload(false)
-            await reload()
-            onChange?.()
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-// ── Revision card ──
-
-interface RevisionCardProps {
-  rev: DrawingRevision
-  isLatest: boolean
-  isBusy: boolean
-  onSubmit: () => void
-  onApprove: () => void
-  onReopen: () => void
-}
-
-function RevisionCard({
-  rev,
-  isLatest,
-  isBusy,
-  onSubmit,
-  onApprove,
-  onReopen,
-}: RevisionCardProps) {
-  return (
-    <div
-      className={`border rounded px-4 py-3 ${
-        isLatest ? stateBorderClass(rev.state) : 'border-neutral-200 opacity-60'
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-neutral-500" />
-            <div className="font-medium text-sm">Revision {rev.revision_number}</div>
-            <StateBadge state={rev.state} />
-            {isLatest && (
-              <span className="text-[10px] uppercase tracking-wider text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                Latest
-              </span>
-            )}
-          </div>
-          {rev.file_url && (
-            <a
-              href={rev.file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 truncate max-w-full"
-            >
-              <ExternalLink className="w-3 h-3 flex-shrink-0" />
-              <span className="truncate">{rev.file_url}</span>
-            </a>
-          )}
-          {rev.notes && (
-            <div className="mt-1 text-xs text-neutral-600">{rev.notes}</div>
-          )}
-          <div className="mt-2 text-[11px] text-neutral-500 flex flex-wrap gap-x-3 gap-y-0.5">
-            {rev.submitted_at && (
-              <span>Submitted {fmtTimestamp(rev.submitted_at)}</span>
-            )}
-            {rev.responded_at && (
-              <span>Responded {fmtTimestamp(rev.responded_at)}</span>
-            )}
-          </div>
-        </div>
-
-        {isLatest && (
-          <RevisionActions
-            state={rev.state}
-            isBusy={isBusy}
-            onSubmit={onSubmit}
-            onApprove={onApprove}
-            onReopen={onReopen}
-          />
         )}
       </div>
-    </div>
-  )
-}
 
-function SupersededRow({ rev }: { rev: DrawingRevision }) {
-  return (
-    <div className="flex items-center justify-between text-xs text-neutral-500 px-3 py-1.5 rounded bg-neutral-50">
-      <div className="flex items-center gap-2 min-w-0">
-        <FileText className="w-3 h-3 flex-shrink-0" />
-        <span className="font-medium">R{rev.revision_number}</span>
-        <StateBadge state={rev.state} small />
-        {rev.file_url && (
-          <a
-            href={rev.file_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="truncate text-blue-600 hover:text-blue-800"
-          >
-            {rev.file_url}
-          </a>
-        )}
-      </div>
-      <span className="text-[10px]">{fmtTimestamp(rev.responded_at || rev.submitted_at || rev.created_at)}</span>
-    </div>
-  )
-}
-
-// ── Action buttons per state ──
-
-interface RevisionActionsProps {
-  state: ApprovalState
-  isBusy: boolean
-  onSubmit: () => void
-  onApprove: () => void
-  onReopen: () => void
-}
-
-function RevisionActions({
-  state,
-  isBusy,
-  onSubmit,
-  onApprove,
-  onReopen,
-}: RevisionActionsProps) {
-  if (state === 'pending') {
-    return (
-      <button
-        disabled={isBusy}
-        onClick={onSubmit}
-        className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-neutral-900 text-white hover:bg-neutral-700 disabled:opacity-50"
-      >
-        <Send className="w-3 h-3" /> Sent to client
-      </button>
-    )
-  }
-  if (state === 'in_review') {
-    return (
-      <div className="flex gap-1 flex-shrink-0">
-        <button
-          disabled={isBusy}
-          onClick={onApprove}
-          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-        >
-          <CheckCircle2 className="w-3 h-3" /> Client approved
-        </button>
-        <button
-          disabled={isBusy}
-          onClick={onReopen}
-          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 text-neutral-700 hover:border-neutral-500 disabled:opacity-50"
-        >
-          <RotateCcw className="w-3 h-3" /> Needs rework
-        </button>
-      </div>
-    )
-  }
-  // approved — no primary action. New revision comes via the upload button.
-  return (
-    <div className="text-[11px] text-neutral-400 flex-shrink-0">
-      Upload a new revision to supersede
-    </div>
-  )
-}
-
-// ── State badge + helpers ──
-
-function StateBadge({ state, small }: { state: ApprovalState; small?: boolean }) {
-  const tone =
-    state === 'approved'
-      ? 'bg-emerald-100 text-emerald-800'
-      : state === 'in_review'
-      ? 'bg-amber-100 text-amber-800'
-      : 'bg-neutral-200 text-neutral-700'
-  const size = small ? 'text-[9px] px-1 py-0' : 'text-[10px] px-1.5 py-0.5'
-  return (
-    <span className={`${size} uppercase tracking-wider rounded font-medium ${tone}`}>
-      {state.replace('_', ' ')}
-    </span>
-  )
-}
-
-function stateBorderClass(state: ApprovalState): string {
-  if (state === 'approved') return 'border-emerald-300'
-  if (state === 'in_review') return 'border-amber-300'
-  return 'border-neutral-300'
-}
-
-function fmtTimestamp(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
-
-// ── Upload modal ──
-
-interface UploadModalProps {
-  subprojectId: string
-  actorUserId?: string
-  onClose: () => void
-  onUploaded: () => Promise<void>
-}
-
-function UploadRevisionModal({
-  subprojectId,
-  actorUserId,
-  onClose,
-  onUploaded,
-}: UploadModalProps) {
-  const { alert } = useConfirm()
-  const [fileUrl, setFileUrl] = useState('')
-  const [notes, setNotes] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  const canSave = fileUrl.trim().length > 0 && !saving
-
-  const save = async () => {
-    if (!canSave) return
-    setSaving(true)
-    try {
-      const result = await uploadNewRevision(subprojectId, {
-        file_url: fileUrl.trim(),
-        notes: notes.trim() || undefined,
-        uploaded_by_user_id: actorUserId,
-      })
-      if (!result) {
-        await alert({
-          title: 'Couldn’t upload revision',
-          message:
-            'Something went wrong creating the revision row. Open the browser console for the full error and try again.',
-        })
-        return
-      }
-      await onUploaded()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-200">
-          <div className="font-medium text-sm">Upload drawing revision</div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700">
-            <X className="w-4 h-4" />
-          </button>
+      {/* The log — newest first. */}
+      {revs.length > 0 && (
+        <div className="space-y-0.5">
+          {revs.map((r) => (
+            <div key={r.id} className="text-[11px] text-neutral-500 leading-snug">
+              <div className="flex flex-wrap items-center gap-x-1.5">
+                <span className={`font-medium ${r.is_latest ? 'text-neutral-800' : ''}`}>Rev {r.revision_number}</span>
+                <span>·</span>
+                <span>
+                  {r.submitted_at && r.state !== 'pending'
+                    ? `submitted ${fmtDate(r.submitted_at)}`
+                    : r.submitted_at
+                      ? `logged ${fmtDate(r.submitted_at)}`
+                      : `logged ${fmtDate(r.created_at)}`}
+                </span>
+                {r.state === 'approved' && (
+                  <span className="text-emerald-700">· accepted {fmtDate(r.responded_at)}</span>
+                )}
+                {linkFor !== r.id &&
+                  (r.file_url ? (
+                    <a
+                      href={r.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-0.5 text-blue-600 hover:text-blue-800 max-w-[180px] truncate"
+                      title={r.file_url}
+                    >
+                      · <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" />
+                      <span className="truncate">{shortUrl(r.file_url)}</span>
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setLinkFor(r.id)
+                        setLinkDraft('')
+                      }}
+                      className="inline-flex items-center gap-0.5 text-neutral-400 hover:text-blue-600"
+                    >
+                      · <Link2 className="w-2.5 h-2.5" /> link
+                    </button>
+                  ))}
+              </div>
+              {r.notes && <div className="text-neutral-400">{r.notes}</div>}
+              {linkFor === r.id && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <input
+                    autoFocus
+                    type="url"
+                    value={linkDraft}
+                    onChange={(e) => setLinkDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void saveLink(r.id)
+                      if (e.key === 'Escape') setLinkFor(null)
+                    }}
+                    placeholder="Paste a link (optional)"
+                    className="flex-1 min-w-0 border border-neutral-300 rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    onClick={() => void saveLink(r.id)}
+                    disabled={busy}
+                    className="text-[11px] px-1.5 py-0.5 rounded bg-neutral-900 text-white disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                  <button onClick={() => setLinkFor(null)} className="text-[11px] px-1 text-neutral-500">
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-
-        <div className="p-4 space-y-3">
-          <div>
-            <label className="text-xs font-medium text-neutral-700 block mb-1">
-              File URL <span className="text-red-600">*</span>
-            </label>
-            <input
-              type="url"
-              value={fileUrl}
-              onChange={(e) => setFileUrl(e.target.value)}
-              placeholder="https://drive.google.com/… or https://dropbox.com/…"
-              className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              autoFocus
-            />
-            <p className="mt-1 text-[11px] text-neutral-500">
-              Paste a share link. Make sure the client has view access.
-            </p>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-neutral-700 block mb-1">
-              Notes (optional)
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              placeholder="What changed since the last revision?"
-              className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="text-[11px] text-neutral-500 bg-neutral-50 rounded px-2 py-1.5">
-            <Clock className="w-3 h-3 inline mr-1" />
-            Starts in <span className="font-medium">pending</span>. Mark as sent once you've shared it with the client.
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-neutral-200">
-          <button
-            onClick={onClose}
-            className="text-xs px-3 py-1.5 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={save}
-            disabled={!canSave}
-            className="text-xs px-3 py-1.5 rounded bg-neutral-900 text-white hover:bg-neutral-700 disabled:opacity-50"
-          >
-            {saving ? 'Uploading…' : 'Upload revision'}
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   )
+}
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function shortUrl(url: string): string {
+  try {
+    const u = new URL(url)
+    return u.hostname.replace(/^www\./, '') + (u.pathname.length > 1 ? '/…' : '')
+  } catch {
+    return url
+  }
 }

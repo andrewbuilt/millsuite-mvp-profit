@@ -540,7 +540,7 @@ const SOLD_TO_PRODUCTION: Tour = {
       route: (ctx) => (ctx.projectPath ? `${ctx.projectPath}/pre-production` : null),
       target: 'drawings-approve',
       title: 'Approve the drawings',
-      body: 'Click Mark approved manually for now. Do the same on each subproject. When your drawings live in MillSuite, you’ll approve the revision itself.',
+      body: 'Click Accepted for now. Do the same on each subproject. On a real job, Submit Rev 1 logs each round you send the client, and Accepted closes it out.',
       placement: 'left',
       advanceOnEvent: 'ms:drawings-approved',
     },
