@@ -25,6 +25,7 @@ import { useAuth } from '@/lib/auth-context'
 import { hasAccess } from '@/lib/feature-flags'
 import { MLogo } from '@/components/logo'
 import TasksNavButton from '@/components/tasks/TasksNavButton'
+import { MentionsBadge } from '@/components/project/MentionsStrip'
 
 interface Leaf {
   href: string
@@ -172,6 +173,8 @@ export default function TopNav() {
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
           {/* Shared action list. Renders nothing for workers. */}
           <TasksNavButton />
+          {/* @mentions in project notes (125). Renders nothing at zero. */}
+          <MentionsBadge />
           {showExternalShortcuts && (
             <div className="hidden xl:flex items-center gap-3 mr-2 text-xs text-[#9CA3AF] whitespace-nowrap">
               <a href="https://takeoff.millsuite.com" className="hover:text-[#111] transition-colors">

@@ -61,6 +61,7 @@ import {
 } from '@/lib/shop-rate-setup'
 import { pickableProjects, useTasks } from '@/components/tasks/TasksProvider'
 import CompletedForYou from '@/components/tasks/CompletedForYou'
+import { MentionsStrip } from '@/components/project/MentionsStrip'
 import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
 import { BUCKET_LABEL, TASK_TAG_COLORS, createTask, type Task } from '@/lib/tasks'
 import {
@@ -116,6 +117,8 @@ export default function PmPage() {
             {/* Tasks you created that someone else finished — your close-out
                 (114). Renders nothing when there's nothing to acknowledge. */}
             <CompletedForYou variant="page" />
+            {/* @mentions in project notes (125) — same close-out loop. */}
+            <MentionsStrip />
             <TodayCard />
             {/* Attention rings, worst first across stages (2026-10-29).
                 Renders nothing when nothing's aging — day-one rule. */}

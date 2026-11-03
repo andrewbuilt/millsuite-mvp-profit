@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import { MentionsStrip } from '@/components/project/MentionsStrip'
 import { TodayTab, WeekTab, PtoTab, HistoryTab, BottomTabs, type Tab } from '@/components/me/tabs'
 import type { TeamMember } from '@/lib/shop-rate-setup'
 import {
@@ -204,6 +205,11 @@ export default function MePage() {
   return (
     <div className="max-w-md mx-auto px-4 pt-6 pb-24">
       <h1 className="text-xl font-semibold tracking-tight mb-3">Hi {firstName}</h1>
+
+      {/* Someone @'d you in a project note (125). Nothing at zero. */}
+      <div className="mb-3 empty:hidden">
+        <MentionsStrip />
+      </div>
 
       <WeekHoursBar
         minutes={weekEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0)}

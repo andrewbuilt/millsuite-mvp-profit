@@ -22,6 +22,8 @@
 //      banked its deposit still saw "deposit forthcoming" and had to override
 //      the gate every single time. Built is a QB org, so that was every job.
 //      Andrew hit it on Bonzer with $51,630 recorded against the project.
+//   4. the HANDOFF is filled (125): a point of contact, the jobsite address
+//      and the client's deadline — lib/handoff. Imported jobs are exempt.
 // ============================================================================
 
 import { supabase } from './supabase'
@@ -29,6 +31,7 @@ import { recordProjectEvent } from './project-events'
 import { loadSubprojectStatusMap } from './subproject-status'
 import { seedAllocationsForProduction } from './schedule-seed'
 import { projectReceivedTotal } from './payments'
+import { loadHandoffGaps } from './handoff'
 import {
   ensureContractInvoice,
   findContractInvoice,
@@ -48,6 +51,8 @@ export async function isReadyForProduction(projectId: string): Promise<boolean> 
     .eq('id', projectId)
     .single()
   if (project?.stage !== 'sold') return false
+
+  if ((await loadHandoffGaps(projectId)).length > 0) return false
 
   const { data: subs } = await supabase
     .from('subprojects')

@@ -182,6 +182,7 @@ import {
 import { downloadCoDocPdf, generateCoDocPdf } from '@/lib/co-doc-pdf'
 import { useConfirm } from '@/components/confirm-dialog'
 import { isReadyForProduction, startProduction, forceStartProduction, isDepositReceived, markDepositReceived } from '@/lib/project-stage'
+import ProjectNotes from '@/components/project/ProjectNotes'
 
 // ── Types ──
 
@@ -1087,7 +1088,7 @@ export default function ProjectCoverPage() {
     try {
       const ok = await startProduction(projectId)
       if (!ok) {
-        showToast('Not ready for production yet — check approvals and deposit.')
+        showToast('Not ready for production yet — check approvals, deposit and the handoff on the pre-production page.')
         return
       }
       setProject((p) => (p ? { ...p, stage: 'production' } : p))
@@ -2858,6 +2859,10 @@ export default function ProjectCoverPage() {
                 )}
               </div>
             )}
+
+            {/* Notes (125) — timestamped, with @mentions; the same pane as the
+                pre-production page. Never shown on the client portal. */}
+            <ProjectNotes projectId={projectId} className="mt-6" />
 
             {/* Documents (CO step 7) — every doc tied to the project in one
                 place: estimate, contract + CO invoices, and manual links. */}

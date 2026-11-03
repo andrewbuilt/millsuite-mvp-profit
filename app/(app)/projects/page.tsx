@@ -39,6 +39,13 @@ import { Search, X, ArrowRight, Archive, Handshake } from 'lucide-react'
 import { type ProjectStage } from '@/lib/types'
 import { loadSubprojectStatusMap } from '@/lib/subproject-status'
 import { isDepositReceived, startProduction } from '@/lib/project-stage'
+import {
+  HANDOFF_COLS,
+  handoffMissing,
+  handoffMissingPhrase,
+  type HandoffFields,
+  type HandoffGap,
+} from '@/lib/handoff'
 import { updateProjectStage } from '@/lib/sales'
 import { STAGE_COLORS } from '@/components/project/StagePill'
 import { loadProjectsTotalHours } from '@/lib/project-hours'
@@ -88,6 +95,8 @@ interface Enriched {
   readySubs: number
   totalSubs: number
   depositIn: boolean
+  /** Handoff facts still missing (125) — empty when clear or imported. */
+  handoffGaps: HandoffGap[]
   /** Sold job that clears every production gate. */
   ready: boolean
   /** Any approval card past 'pending' — graduates a brand-new sale. */
@@ -120,9 +129,10 @@ function notReadyReason(e: Enriched | undefined): string {
   if (e.totalSubs === 0) parts.push('it has no subprojects yet')
   else if (e.readySubs < e.totalSubs) parts.push(`${e.readySubs} of ${e.totalSubs} subprojects are approved`)
   if (!e.depositIn) parts.push('the deposit isn’t recorded')
+  if (e.handoffGaps.length) parts.push(handoffMissingPhrase(e.handoffGaps))
   return parts.length
     ? `Not ready for production: ${parts.join(' and ')}. Finish pre-production on the project page.`
-    : 'Not ready for production yet — check approvals and deposit on the project page.'
+    : 'Not ready for production yet — check approvals, deposit and the handoff on the pre-production page.'
 }
 
 // Small inline debounce so a search keystroke doesn't refilter on every char.
@@ -236,7 +246,7 @@ export default function ProjectsPage() {
         }
       }
 
-      const [estHours, , subsRes, overrideRes, paymentsRes] = await Promise.all([
+      const [estHours, , subsRes, overrideRes, handoffRes, paymentsRes] = await Promise.all([
         loadProjectsTotalHours(orgId, hoursIds),
         loadTracked(),
         soldIds.length
@@ -244,6 +254,12 @@ export default function ProjectsPage() {
           : Promise.resolve({ data: [] }),
         soldIds.length
           ? supabase.from('projects').select('id, deposit_override').in('id', soldIds)
+          : Promise.resolve({ data: [] }),
+        // Handoff (125), its own select: pre-125 the columns don't exist and
+        // one unknown column fails the whole read. A failed read gates nothing
+        // — same rule as lib/handoff.loadHandoffGaps.
+        soldIds.length
+          ? supabase.from('projects').select(`id, ${HANDOFF_COLS}`).in('id', soldIds)
           : Promise.resolve({ data: [] }),
         soldIds.length
           ? supabase.from('project_payments').select('project_id, amount').in('project_id', soldIds)
@@ -285,6 +301,10 @@ export default function ProjectsPage() {
           }),
       )
 
+      const gapsById: Record<string, HandoffGap[]> = {}
+      if (!('error' in handoffRes && handoffRes.error))
+        for (const r of (handoffRes.data || []) as (HandoffFields & { id: string })[]) gapsById[r.id] = handoffMissing(r)
+
       const entries = rows.map((p): [string, Enriched] => {
         const mine = subs.filter((s) => s.project_id === p.id)
         const readySubs = mine.filter((s) => statusMap[s.id]?.ready_for_scheduling === true).length
@@ -298,7 +318,8 @@ export default function ProjectsPage() {
             readySubs,
             totalSubs,
             depositIn: dep,
-            ready: p.stage === 'sold' && totalSubs > 0 && readySubs === totalSubs && dep,
+            handoffGaps: gapsById[p.id] || [],
+            ready: p.stage === 'sold' && totalSubs > 0 && readySubs === totalSubs && dep && !(gapsById[p.id] || []).length,
             approvalActivity: mine.some((s) => activeSubs.has(s.id)),
           },
         ]

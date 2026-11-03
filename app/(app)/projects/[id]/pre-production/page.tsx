@@ -39,6 +39,9 @@ import ChangeOrders, {
 import { loadSubprojectStatusMap, type SubprojectStatus } from '@/lib/subproject-status'
 import StagePill from '@/components/project/StagePill'
 import { isDepositReceived, isReadyForProduction, startProduction } from '@/lib/project-stage'
+import { HANDOFF_GAP_LABEL, handoffMissing } from '@/lib/handoff'
+import HandoffCard from '@/components/project/HandoffCard'
+import ProjectNotes from '@/components/project/ProjectNotes'
 import {
   loadApprovalItemsForSubproject,
   seedApprovalItemsFromEstimate,
@@ -71,6 +74,12 @@ interface Project {
   locked_shop_rate: number | null
   imported_at?: string | null
   locked_margins?: LockedMargins | null
+  // Handoff (125) — lib/handoff.
+  poc_name?: string | null
+  poc_phone?: string | null
+  poc_email?: string | null
+  client_deadline?: string | null
+  site_access_notes?: string | null
 }
 
 /** One open thing standing between this project and production. Derived
@@ -165,7 +174,7 @@ export default function PreProductionPage() {
     const [projRes, subsRes] = await Promise.all([
       supabase
         .from('projects')
-        .select('id, name, client_name, delivery_address, stage, bid_total, sold_at, target_start_date, labor_margin_pct, install_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at, locked_margins')
+        .select('id, name, client_name, delivery_address, stage, bid_total, sold_at, target_start_date, labor_margin_pct, install_margin_pct, material_margin_pct, consumable_margin_pct, locked_shop_rate, imported_at, locked_margins, poc_name, poc_phone, poc_email, client_deadline, site_access_notes')
         .eq('id', projectId)
         .single(),
       supabase
@@ -318,6 +327,15 @@ export default function PreProductionPage() {
     const open: PunchItem[] = []
     const done: PunchItem[] = []
 
+    // Handoff (125) first — it's the sales side's homework, and it gates.
+    const gaps = handoffMissing(project)
+    for (const g of gaps) {
+      open.push({ key: `handoff-${g}`, anchorId: 'handoff', label: `Handoff · ${HANDOFF_GAP_LABEL[g]}`, who: 'sales', tone: 'pending' })
+    }
+    if (project && !project.imported_at && gaps.length === 0) {
+      done.push({ key: 'handoff', anchorId: 'handoff', label: 'Handoff complete', who: '', tone: 'pending', done: true })
+    }
+
     for (const it of allItems) {
       const subName = subNameById[it.subproject_id] || 'Subproject'
       if (it.state === 'approved') continue
@@ -371,7 +389,7 @@ export default function PreProductionPage() {
     }
 
     return [...open, ...done]
-  }, [allItems, subs, statusMap, subNameById, depositIn])
+  }, [allItems, subs, statusMap, subNameById, depositIn, project])
 
   const openCount = punchList.filter((p) => !p.done).length
 
@@ -431,7 +449,8 @@ export default function PreProductionPage() {
   }
 
   const readySubs = subs.filter((s) => statusMap[s.id]?.ready_for_scheduling).length
-  const allReady = readySubs === subs.length && subs.length > 0
+  const handoffGaps = handoffMissing(project)
+  const allReady = readySubs === subs.length && subs.length > 0 && handoffGaps.length === 0
 
   // Drawing totals for the gate strip, summed off the same status view the
   // punch list uses so the two can't disagree.
@@ -550,7 +569,7 @@ export default function PreProductionPage() {
                 {subs.length === 0
                   ? 'No subprojects on this project.'
                   : allReady
-                    ? 'Everything approved — ready for production'
+                    ? 'Everything approved and handed off — ready for production'
                     : `${openCount} item${openCount === 1 ? '' : 's'} to go before production`}
               </div>
               <div className={'text-[12px] mt-0.5 ' + (allReady ? 'text-[#047857]' : 'text-[#B45309]')}>
@@ -565,6 +584,9 @@ export default function PreProductionPage() {
             <GateStat label="Materials" value={`${counts.approved} / ${counts.total}`} ok={counts.total > 0 && counts.approved === counts.total} />
             <GateStat label="Drawings" value={`${drawingsApproved} / ${drawingsTotal}`} ok={drawingsTotal > 0 && drawingsApproved === drawingsTotal} />
             <GateStat label="Deposit" value={depositIn ? '✓' : '—'} ok={depositIn} />
+            {!project.imported_at && (
+              <GateStat label="Handoff" value={handoffGaps.length === 0 ? '✓' : `${3 - handoffGaps.length} / 3`} ok={handoffGaps.length === 0} />
+            )}
           </div>
         </div>
         {/* Progress bar — approved slots ÷ total. */}
@@ -579,6 +601,17 @@ export default function PreProductionPage() {
       {/* Main grid — cards beside the sticky punch list */}
       <div className="max-w-[1240px] mx-auto px-8 pt-6 pb-16 grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5 items-start">
         <div>
+          <HandoffCard
+            projectId={projectId}
+            values={project}
+            onSaved={(field, value) => {
+              setProject((p) => (p ? { ...p, [field]: value } : p))
+              // The gate reads the database — re-ask it so Start production
+              // turns green the moment the last handoff field lands.
+              void isReadyForProduction(projectId).then(setReadyForProduction)
+            }}
+          />
+
           {subs.length === 0 && (
             <div className="p-6 bg-white border border-[#E5E7EB] rounded-xl text-center text-sm text-[#9CA3AF]">
               This project has no subprojects yet.
@@ -681,10 +714,14 @@ export default function PreProductionPage() {
             </div>
           )}
 
+          {/* Notes (125) — handoff meeting, site notes, @mentions. Also on the
+              project page; the same component. */}
+          <ProjectNotes projectId={projectId} className="mt-4" />
+
           {/* Explainer — muted paragraph rather than the old blue panel. */}
           <p className="text-[12px] text-[#9CA3AF] leading-relaxed max-w-[640px] mt-[18px]">
-            Materials and drawings get approved here, per subproject. When every slot is green and
-            the deposit is in, production can start. Approved slots lock — changes after approval go
+            Materials and drawings get approved here, per subproject. When every slot is green, the
+            handoff is filled in and the deposit is in, production can start. Approved slots lock — changes after approval go
             through a change order. Client approval is a status you mark by hand after talking to
             them; nothing here emails or pushes to QuickBooks on its own.
           </p>
@@ -736,7 +773,7 @@ export default function PreProductionPage() {
 
             </button>
             <div className="text-[11px] text-[#9CA3AF] text-center mt-2">
-              {readyForProduction ? 'Everything is approved.' : 'Turns green when the last approval lands.'}
+              {readyForProduction ? 'Everything is approved and handed off.' : 'Turns green when the last item above is done.'}
             </div>
           </div>
         </div>
