@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context'
 import { ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { loadProjectDeptHours } from '@/lib/project-hours'
+import { mergeDeptHours, scaleDeptHours, sliceDeptHours } from '@/lib/capacity-math'
 import { loadShopRateSetup, deptDailyHoursByTeam, capacityReductionsByDay, excludedCapacityDepts, type TeamMember } from '@/lib/shop-rate-setup'
 import { loadPracticeProjectIds } from '@/lib/practice'
 import { loadTempProjectIds } from '@/lib/temp-projects'
@@ -456,8 +457,11 @@ function CapacityContent() {
         const pipe = isPipelineStage(proj.stage)
         // A non-counting dept's hours (management) never count as load.
         let excludedHrs = 0
-        if (alloc.department_hours) {
-          for (const [deptId, hrs] of Object.entries(alloc.department_hours)) {
+        // ⛔ The slice's OWN dept hours (lib/capacity-math) — a split row used
+        // to carry the whole job's map, so dept rows outran the month line.
+        const sliceDepts = sliceDeptHours(alloc)
+        {
+          for (const [deptId, hrs] of Object.entries(sliceDepts)) {
             if (excludedDepts.has(deptId)) {
               excludedHrs += Number(hrs) || 0
               continue
@@ -493,7 +497,7 @@ function CapacityContent() {
         ...proj,
         allocationId: a.id,
         hours: a.hours_allocated,
-        departmentHours: a.department_hours,
+        departmentHours: sliceDeptHours(a),
         splitIndex: a.split_index || 0,
         splitTotal: a.split_total || 0,
         splitGroupId: a.split_group_id || null,
@@ -610,7 +614,7 @@ function CapacityContent() {
     // month gets a coherent phase of departments instead of an even hours
     // slice. Needs a per-dept breakdown to partition; falls back to even
     // when department_hours is absent.
-    const deptHours = oldAlloc.department_hours
+    const deptHours = sliceDeptHours(oldAlloc)
     const useSmart =
       mode === 'smart' && !!deptHours && Object.keys(deptHours).length > 0
 
@@ -661,7 +665,8 @@ function CapacityContent() {
       const evenHrs =
         i === numMonths - 1 ? currentHours - hoursPerMonth * (numMonths - 1) : hoursPerMonth
       const hrs = useSmart ? smartPhases[i]?.hours ?? 0 : evenHrs
-      const deptHrs = useSmart ? smartPhases[i]?.deptHours ?? {} : oldAlloc.department_hours
+      // Even split: each slice carries ITS share of the mix, not the whole map.
+      const deptHrs = useSmart ? smartPhases[i]?.deptHours ?? {} : scaleDeptHours(deptHours, evenHrs)
       const { data } = await supabase
         .from('project_month_allocations')
         .insert({
@@ -705,6 +710,7 @@ function CapacityContent() {
       .from('project_month_allocations')
       .update({
         hours_allocated: totalHours,
+        department_hours: mergeDeptHours(groupAllocs),
         split_group_id: null,
         split_index: null,
         split_total: null,
@@ -728,15 +734,30 @@ function CapacityContent() {
     setRefreshing(true)
     try {
       const fresh = await loadProjectDeptHours(org.id, projectId)
-      await supabase
-        .from('project_month_allocations')
-        .update({
-          hours_allocated: fresh.totalHours,
-          department_hours:
-            Object.keys(fresh.deptHours).length > 0 ? fresh.deptHours : null,
-          hours_refreshed_at: new Date().toISOString(),
-        })
-        .eq('id', allocationId)
+      const freshMap = Object.keys(fresh.deptHours).length > 0 ? fresh.deptHours : null
+      const row = monthAllocations.find((a) => a.id === allocationId)
+      const group = row?.split_group_id
+        ? monthAllocations.filter((a) => a.split_group_id === row.split_group_id)
+        : row
+          ? [row]
+          : []
+      // A split job refreshes as a GROUP: each slice keeps its share of the
+      // job (its old hours ÷ the group's) applied to the fresh totals. It used
+      // to write the WHOLE job onto the one slice clicked.
+      const groupTotal = group.reduce((s, a) => s + (Number(a.hours_allocated) || 0), 0)
+      const now = new Date().toISOString()
+      for (const a of group) {
+        const share = group.length === 1 || groupTotal <= 0 ? 1 / group.length : (Number(a.hours_allocated) || 0) / groupTotal
+        const hrs = Math.round(fresh.totalHours * share * 100) / 100
+        await supabase
+          .from('project_month_allocations')
+          .update({
+            hours_allocated: hrs,
+            department_hours: group.length === 1 ? freshMap : scaleDeptHours(freshMap, hrs),
+            hours_refreshed_at: now,
+          })
+          .eq('id', a.id)
+      }
       await loadData()
     } finally {
       setRefreshing(false)
@@ -1392,7 +1413,8 @@ function ProjectSidePane({
               Object.keys(allocation.department_hours).length > 0 && (
                 <div className="space-y-1.5">
                   {departments.map((d) => {
-                    const hrs = allocation.department_hours?.[d.id] ?? 0
+                    // This slice's share, not the whole job (lib/capacity-math).
+                    const hrs = sliceDeptHours(allocation)[d.id] ?? 0
                     if (!hrs) return null
                     return (
                       <div
