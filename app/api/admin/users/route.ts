@@ -249,6 +249,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true })
   }
 
+  // ── Disable / re-enable a login (Nov batch 2, team lifecycle) ──
+  //
+  // ⛔ DEACTIVATE, DON'T DELETE. A deactivated member's history (time,
+  // tasks, reviews) is attributed through users.id ↔ roster user_id, so the
+  // login row has to survive. This bans the AUTH user (can't sign in) and
+  // leaves users + the roster link alone; re-enabling lifts the ban.
+  if (action === 'set_login_disabled') {
+    const userId = String(body.user_id || '')
+    const disabled = body.disabled === true
+    const target = await resolveOrgUser(userId, orgId)
+    if (!target?.auth_user_id) {
+      return NextResponse.json({ error: 'Login not found' }, { status: 404 })
+    }
+    const denied = checkAuthorityOver(guard, target)
+    if (denied) return denied
+    if (target.id === guard.callerId) {
+      return forbidden("You can't disable your own login.")
+    }
+    const { error: banErr } = await supabaseAdmin.auth.admin.updateUserById(target.auth_user_id, {
+      // ~100 years; 'none' lifts it.
+      ban_duration: disabled ? '876000h' : 'none',
+    })
+    if (banErr) {
+      return NextResponse.json({ error: banErr.message }, { status: 400 })
+    }
+    return NextResponse.json({ success: true, disabled })
+  }
+
   // ── Remove (unlink) a member's login ──
   if (action === 'unlink') {
     const userId = String(body.user_id || '')

@@ -25,6 +25,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import PlanGate from '@/components/plan-gate'
 import ReviewsAndNotes from '@/components/team/ReviewsAndNotes'
 import UpcomingReviews from '@/components/team/UpcomingReviews'
+import LifecycleControls from '@/components/team/LifecycleControls'
+import { isActiveMember } from '@/lib/team-lifecycle'
 import { fireDueReviewTasks } from '@/lib/employee-reviews'
 import { useAutosave } from '@/hooks/use-autosave'
 import { awaitPendingOrgWrites } from '@/lib/org-write'
@@ -105,6 +107,7 @@ function TeamContent() {
   /** Roster collapse + search (team upgrade item 1). One row open at a time —
    *  the point is to stop the page being twenty stacked edit panes. */
   const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null)
+  const [showInactive, setShowInactive] = useState(false)
   const [rosterSearch, setRosterSearch] = useState('')
   /** Departments collapse (Andrew, 2026-09-15). Set up once, rarely touched. */
   const [deptsOpen, setDeptsOpen] = useState(false)
@@ -373,16 +376,23 @@ function TeamContent() {
   )
 
   /** Roster filtered for DISPLAY ONLY — see the note at the search box. */
+  // ⛔ INACTIVE PEOPLE LEAVE THE LIST, NOT THE ROSTER (Nov batch 2 B). They
+  // sort to the bottom behind "Show inactive"; a search still finds them so
+  // they can be reactivated. Display only — writes go through the full team.
+  const inactiveCount = team.filter((m) => !isActiveMember(m)).length
   const visibleTeam = useMemo(() => {
     const q = rosterSearch.trim().toLowerCase()
-    if (!q) return team
-    return team.filter((m) => {
+    const ordered = [...team.filter(isActiveMember), ...team.filter((m) => !isActiveMember(m))]
+    // The open editor's row stays rendered (its modal lives in it), so
+    // deactivating someone doesn't yank the modal away mid-read.
+    if (!q) return showInactive ? ordered : ordered.filter((m) => isActiveMember(m) || m.id === expandedMemberId)
+    return ordered.filter((m) => {
       const deptNames = (m.dept_assignments || [])
         .map((id) => departments.find((d) => d.id === id)?.name || '')
         .join(' ')
       return `${m.name} ${m.title || ''} ${deptNames}`.toLowerCase().includes(q)
     })
-  }, [team, rosterSearch, departments])
+  }, [team, rosterSearch, departments, showInactive, expandedMemberId])
 
   // ⛔ THE MARGIN-ALERT QUERY MOVED TO /reports WITH THE CARD (item 2). It
   // loaded every active project plus its dept hours — N parallel calls — on
@@ -472,24 +482,60 @@ function TeamContent() {
     setTeam((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)))
   }
 
-  async function deleteMember(id: string) {
-    const member = team.find((m) => m.id === id)
-    if (!member) return
+  // ── Lifecycle (Nov batch 2 B) — see lib/team-lifecycle.ts ──
+  //
+  // Deactivate is the only way out for anyone with history; Delete exists
+  // only for a zero-history, login-less row (LifecycleControls decides which
+  // to offer). Neither touches the `users` row: the old delete removed it from
+  // the browser and orphaned the person's time entries and tasks.
+
+  async function setLoginDisabled(member: TeamMember, disabled: boolean): Promise<string | null> {
+    if (!member.user_id || member.user_id === user?.id) return null
+    try {
+      await callAdminUsers({ action: 'set_login_disabled', user_id: member.user_id, disabled })
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'The login could not be changed.'
+    }
+  }
+
+  async function deactivateMember(member: TeamMember) {
     const ok = await confirm({
-      title: 'Remove team member?',
-      message: `${member.name || 'This team member'} will be removed from this team. Their dept assignments and time entries stay intact.`,
-      confirmLabel: 'Remove',
+      title: `Deactivate ${member.name || 'this person'}?`,
+      message:
+        'They come off every picker, capacity, task assignees and PTO, and can’t sign in. Everything they did — time, tasks, reviews — stays on the books under their name. You can reactivate them any time.',
+      confirmLabel: 'Deactivate',
       variant: 'danger',
     })
     if (!ok) return
-    setTeam((prev) => prev.filter((m) => m.id !== id))
-    if (member.user_id) {
-      // Cascade: drop scheduling identity rows associated with this team
-      // member. The dept_assignments live on team_members so the local
-      // state update above already cleared them.
-      void supabase.from('department_members').delete().eq('user_id', member.user_id)
-      void supabase.from('users').delete().eq('id', member.user_id)
+    patchMember(member.id, { active: false })
+    const err = await setLoginDisabled(member, true)
+    if (err) {
+      await showAlert({
+        title: 'Deactivated — but their login still works',
+        message: `${err} They’re off the roster; ask the owner to turn off the login.`,
+      })
     }
+  }
+
+  async function reactivateMember(member: TeamMember) {
+    patchMember(member.id, { active: true })
+    const err = await setLoginDisabled(member, false)
+    if (err) {
+      await showAlert({ title: 'Reactivated — login still off', message: err })
+    }
+  }
+
+  async function deleteMember(member: TeamMember) {
+    const ok = await confirm({
+      title: 'Delete this row?',
+      message: `${member.name || 'This row'} has no history and no login, so it’s removed for good — for a typo or a duplicate add.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })
+    if (!ok) return
+    setExpandedMemberId(null)
+    setTeam((prev) => prev.filter((m) => m.id !== member.id))
   }
 
   // Department toggle now writes to team_members.dept_assignments (jsonb).
@@ -1001,6 +1047,14 @@ function TeamContent() {
             </div>
           )}
 
+          {inactiveCount > 0 && (
+            <button
+              onClick={() => setShowInactive((v) => !v)}
+              className="mb-2 text-[11px] text-[#6B7280] hover:text-[#111]"
+            >
+              {showInactive ? 'Hide' : 'Show'} inactive ({inactiveCount})
+            </button>
+          )}
           <div data-tour="team-roster" className="space-y-2">
             {visibleTeam.map((member) => {
               const expanded = expandedMemberId === member.id
@@ -1082,28 +1136,20 @@ function TeamContent() {
                     collapsed header stays the one place it's displayed.
                     Active + delete are ROW actions, so they sit on this line
                     rather than floating beside a second copy of the name. */}
-                <div className="flex items-center justify-end gap-2 mb-3 mt-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() =>
-                        patchMember(member.id, { active: member.active === false })
-                      }
-                      className={`text-[10px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
-                        member.active === false
-                          ? 'border-[#E5E7EB] text-[#9CA3AF] hover:border-[#D1D5DB]'
-                          : 'border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]'
-                      }`}
-                      title="Active members count toward capacity and the shop rate"
-                    >
-                      {member.active === false ? 'Inactive' : 'Active'}
-                    </button>
-                    <button
-                      onClick={() => deleteMember(member.id)}
-                      className="text-[#D1D5DB] hover:text-[#DC2626] transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                {/* Row actions — the lifecycle model (Nov batch 2 B): Active →
+                    Deactivate · Inactive → Reactivate · Delete only for a
+                    zero-history, login-less row. Button copy says what happens. */}
+                <div className="mb-3 mt-3">
+                  {org?.id && (
+                    <LifecycleControls
+                      orgId={org.id}
+                      member={member}
+                      isMe={!!member.user_id && member.user_id === user?.id}
+                      onDeactivate={() => void deactivateMember(member)}
+                      onReactivate={() => void reactivateMember(member)}
+                      onDelete={() => void deleteMember(member)}
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-4 mb-2">
                   {/* Annual Comp lives in Settings → Team & comp (owner-only),
