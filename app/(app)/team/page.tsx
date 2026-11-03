@@ -998,8 +998,8 @@ function TeamContent() {
               return (
               <div
                 key={member.id}
-                className={`bg-white border border-[#E5E7EB] rounded-xl ${
-                  expanded ? 'p-4' : 'px-4 py-2.5'
+                className={`bg-white border rounded-xl px-4 py-2.5 ${
+                  expanded ? 'border-[#2563EB]' : 'border-[#E5E7EB]'
                 } ${member.active === false ? 'opacity-60' : ''}`}
               >
                 {/* ⛔ THE COLLAPSED ROW. Twenty people meant twenty full edit
@@ -1010,11 +1010,7 @@ function TeamContent() {
                   onClick={() => setExpandedMemberId(expanded ? null : member.id)}
                   className="w-full flex items-center gap-3 text-left"
                 >
-                  <ChevronRight
-                    className={`w-3.5 h-3.5 flex-shrink-0 text-[#9CA3AF] transition-transform ${
-                      expanded ? 'rotate-90' : ''
-                    }`}
-                  />
+                  <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 text-[#9CA3AF]" />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-[#111] truncate">
                       {member.name || 'Unnamed'}
@@ -1032,28 +1028,37 @@ function TeamContent() {
                   {/* ⚠️ THE SAME BAR AS /me, FROM THE SAME HELPER. Two copies
                       of "am I at 100% this week?" would eventually disagree
                       about the same person on the same day. */}
-                  {!expanded && (
-                    <div className="w-28 flex-shrink-0 hidden sm:block">
-                      <div className="flex items-baseline justify-between mb-0.5">
-                        <span className="text-[9.5px] uppercase tracking-wider text-[#D1D5DB]">
-                          This week
-                        </span>
-                        <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">
-                          {fmtActualHours(bar.total)}
-                        </span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden">
-                        <div
-                          className="h-full rounded-full"
-                          style={{ width: `${bar.width}%`, background: bar.color }}
-                        />
-                      </div>
+                  <div className="w-28 flex-shrink-0 hidden sm:block">
+                    <div className="flex items-baseline justify-between mb-0.5">
+                      <span className="text-[9.5px] uppercase tracking-wider text-[#D1D5DB]">
+                        This week
+                      </span>
+                      <span className="text-[10px] font-mono tabular-nums text-[#6B7280]">
+                        {fmtActualHours(bar.total)}
+                      </span>
                     </div>
-                  )}
+                    <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${bar.width}%`, background: bar.color }}
+                      />
+                    </div>
+                  </div>
                 </button>
 
+                {/* ⛔ THE EDITOR IS A MODAL (Nov batch 2 #2). Inline expand
+                    stacked one person's fields between two other rows and
+                    Andrew couldn't see where one employee stopped and the next
+                    began. Same fields, same writes: every field still goes
+                    through patchMember → the page's roster autosave (which
+                    flushes on unmount), and FieldInput commits on every
+                    keystroke, so closing the modal mid-edit loses nothing. */}
                 {expanded && (
-                <>
+                <MemberModal
+                  title={member.name || 'Unnamed'}
+                  subtitle={[member.title, memberDeptNames.join(' · ')].filter(Boolean).join(' — ')}
+                  onClose={() => setExpandedMemberId(null)}
+                >
                 {/* ⛔ THE NAME IS NOT REPEATED. It was an h-sized input here
                     AND the header line above — Andrew: "the name shows twice".
                     It's now a field in the grid below with the others, and the
@@ -1293,7 +1298,7 @@ function TeamContent() {
                   onSetRole={(role) => setMemberRole(member, role)}
                 />
 
-                </>
+                </MemberModal>
                 )}
               </div>
               )
@@ -1318,6 +1323,49 @@ function TeamContent() {
       </div>
       )}
 
+    </div>
+  )
+}
+
+// The /team member editor's frame (Nov batch 2 #2). Escape and a backdrop
+// click close it; the confirm dialog sits above it (z-[100]).
+function MemberModal({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string
+  subtitle: string
+  onClose: () => void
+  children: React.ReactNode
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center px-4 py-10 overflow-y-auto"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-xl">
+        <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-[#F3F4F6]">
+          <div className="min-w-0">
+            <div className="text-base font-semibold text-[#111] truncate">{title}</div>
+            {subtitle && <div className="text-[11.5px] text-[#9CA3AF] truncate">{subtitle}</div>}
+          </div>
+          <button onClick={onClose} className="p-1 -mr-1 text-[#9CA3AF] hover:text-[#111]" aria-label="Close">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="px-5 pb-5">{children}</div>
+      </div>
     </div>
   )
 }
