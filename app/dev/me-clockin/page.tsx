@@ -67,6 +67,8 @@ export default function MeClockinFixture() {
 
   const [screen, setScreen] = useState<1 | 2 | 3 | '3-running'>(2)
 
+  const [fixtureDept, setFixtureDept] = useState('assembly')
+
   return (
     <div className="max-w-md mx-auto px-4 pt-6 pb-24">
       <div className="mb-4 flex gap-2 text-xs">
@@ -114,6 +116,12 @@ export default function MeClockinFixture() {
           onStart={() => setScreen('3-running')}
           onStop={() => setScreen(2)}
           onClose={() => setScreen(2)}
+          deptOptions={[
+            { id: 'assembly', name: 'Assembly' },
+            { id: 'install', name: 'Installation' },
+          ]}
+          deptId={fixtureDept}
+          onDeptChange={setFixtureDept}
         />
       )}
 

@@ -266,6 +266,9 @@ export function TimerSheet({
   onStart,
   onStop,
   onClose,
+  deptOptions,
+  deptId,
+  onDeptChange,
 }: {
   projectName: string
   subName: string | null
@@ -283,7 +286,13 @@ export function TimerSheet({
   onStart: () => void
   onStop: () => void
   onClose: () => void
+  /** Nov batch 2 #4 — a worker in 2+ depts (assembly + install) says which
+   *  one this time is for. Omitted / one option → nothing renders. */
+  deptOptions?: Array<{ id: string; name: string }>
+  deptId?: string | null
+  onDeptChange?: (id: string) => void
 }) {
+  const showDeptPick = !running && !!deptOptions && deptOptions.length > 1 && !!onDeptChange
   return (
     // z-30 keeps the bottom tab bar (z-40) visible and tappable above the
     // sheet — "same footer everywhere". bg is SOLID per the sketch callout.
@@ -299,6 +308,28 @@ export function TimerSheet({
           </div>
           <div className="mt-2 text-xl font-semibold text-[#111] leading-snug">{projectName}</div>
           <div className="mt-1 text-sm text-[#6B7280]">{subName || 'Other work'}</div>
+          {showDeptPick && (
+            <div className="mt-5 w-full">
+              <div className="text-[11px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-2">
+                Working in
+              </div>
+              <div className="flex flex-wrap justify-center gap-2">
+                {deptOptions!.map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() => onDeptChange!(d.id)}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                      deptId === d.id
+                        ? 'bg-[#111] text-white border-[#111]'
+                        : 'bg-white text-[#374151] border-[#E5E7EB]'
+                    }`}
+                  >
+                    {d.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mt-8 text-6xl font-mono tabular-nums text-[#111] tracking-tight">
             {timerLabel}
@@ -353,8 +384,9 @@ export function ClockInFlow({
   projects: Array<{ id: string; name: string }>
   active: TimeEntry | null
   now: number
-  /** The worker's dept assignments — a single dept tags the entry, several
-   *  tag nothing (a wrong guess is worse than an untagged one). */
+  /** The worker's dept assignments — a single dept tags the entry; with
+   *  several, the worker picks one on the timer sheet (default: the first
+   *  assigned). Nov batch 2 #4: they used to tag nothing. */
   myDeptIds: string[]
   onClockIn: (projectId: string, subprojectId: string | null, departmentId: string | null) => Promise<void>
   onClockOut: () => Promise<void>
@@ -369,6 +401,26 @@ export function ClockInFlow({
     subName: string | null
   } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [deptNames, setDeptNames] = useState<Record<string, string>>({})
+  const [deptId, setDeptId] = useState<string | null>(myDeptIds[0] ?? null)
+  const myDeptKey = myDeptIds.join(',')
+  useEffect(() => {
+    // Keep the pick valid if the roster changes under us.
+    setDeptId((cur) => (cur && myDeptIds.includes(cur) ? cur : myDeptIds[0] ?? null))
+    if (myDeptIds.length < 2) return
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase.from('departments').select('id, name').in('id', myDeptIds)
+      if (!cancelled) setDeptNames(Object.fromEntries((data || []).map((d) => [d.id, d.name])))
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myDeptKey])
+  // Assignment order, so "default = their first dept" holds; depts whose
+  // name didn't load (deleted / inactive) aren't offered.
+  const deptOptions = myDeptIds.filter((id) => deptNames[id]).map((id) => ({ id, name: deptNames[id] }))
   // Names for entries whose sub we didn't pick this session (e.g. a running
   // entry started before the page loaded).
   const [subNames, setSubNames] = useState<Record<string, string>>({})
@@ -419,8 +471,10 @@ export function ClockInFlow({
     if (!timer) return
     setBusy(true)
     try {
-      // Tag the dept only when it's unambiguous — one assigned department.
-      const departmentId = myDeptIds.length === 1 ? myDeptIds[0] : null
+      // One dept → that dept. Several → the one picked on the sheet (falls
+      // back to their first assigned when the names never loaded).
+      const departmentId =
+        myDeptIds.length === 1 ? myDeptIds[0] : deptId && myDeptIds.includes(deptId) ? deptId : myDeptIds[0] ?? null
       await onClockIn(timer.projectId, timer.subprojectId, timer.subprojectId ? departmentId : null)
     } finally {
       setBusy(false)
@@ -493,6 +547,11 @@ export function ClockInFlow({
           onStart={start}
           onStop={stop}
           onClose={() => setTimer(null)}
+          // Only subproject work is dept-tagged (unchanged rule), so only
+          // that sheet asks.
+          deptOptions={timer.subprojectId ? deptOptions : undefined}
+          deptId={deptId}
+          onDeptChange={setDeptId}
         />
       )}
     </>
