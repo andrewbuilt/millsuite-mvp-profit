@@ -7,7 +7,7 @@ import { useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import PlanGate from '@/components/plan-gate'
 import EngBoard, { type BoardApi } from '@/components/engineering/EngBoard'
-import { loadEngBoard, assignProject, updateAssignment, unassignProject } from '@/lib/eng-board'
+import { loadEngBoard, assignProject, updateAssignment, unassignProject, setEngineeringDone } from '@/lib/eng-board'
 import { clockIn, clockOut, type TimeEntry } from '@/lib/worker-time'
 
 export default function EngineeringPage() {
@@ -17,8 +17,10 @@ export default function EngineeringPage() {
     if (!orgId) return null
     return {
       load: (from, end) => loadEngBoard(orgId, from, end),
-      assign: (projectId, memberId, priority) => assignProject({ orgId, projectId, memberId, priority }),
+      assign: (projectId, memberId, priority, boardHours) => assignProject({ orgId, projectId, memberId, priority, boardHours }),
       update: (id, patch) => updateAssignment(id, patch),
+      setDone: (assignmentId, projectId, done, trackedHours) =>
+        setEngineeringDone({ orgId, assignmentId, projectId, done, trackedHours }),
       unassign: (id) => unassignProject(id),
       startTimer: async (userId, projectId, subprojectId, departmentId) => {
         await clockIn({ orgId, userId, projectId, subprojectId, departmentId })

@@ -12,6 +12,12 @@
 // Structure: mockups/engineering-board-mockup.html (v5). Aesthetics: the
 // /schedule swimlane (shared tokens in lib/schedule-style). Data: one layer —
 // see lib/eng-board.ts. Math: lib/eng-board-math.ts (pure, verified).
+//
+// ROUND 2 (2026-11-05): a strip that runs out of hours turns OVER and stays
+// until "Engineering done" · board hours break a budget out of the estimate
+// (the rest stays in the pool) · strips drag on BOTH axes — vertical =
+// priority / reassignment, horizontal = pin the start day (overlap allowed;
+// the day headers carry the truth, auto-pack never moves a placed strip).
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -19,11 +25,12 @@ import { X } from 'lucide-react'
 import { COLOR_PALETTE, MONO, UI_FONT, btnS, type PaletteColor } from '@/lib/schedule-style'
 import {
   entryMinutes, entryDay,
-  type BoardData, type BoardEntry, type EngAssignment, type BoardProject,
+  type AssignmentPatch, type BoardData, type BoardEntry, type EngAssignment, type BoardProject,
 } from '@/lib/eng-board'
 import {
   packLane, workdaysFrom, mondayOfKey, dateKey, parseKey, evenDivide, divisionsMatch,
-  priorityBetween, fmtH, remainingHours, type PackedLane, type PackedStrip, type Division,
+  priorityBetween, fmtH, remainingHours, stripBudget, poolRemainder, shiftWorkdays,
+  type PackedLane, type PackedStrip, type Division,
 } from '@/lib/eng-board-math'
 
 const DAY_W = 76
@@ -49,8 +56,11 @@ function shortDay(k: string | null): string {
  *  (lib/eng-board + lib/worker-time); /dev/eng-board wires local fixtures. */
 export interface BoardApi {
   load: (fromKey: string, horizonEndKey: string) => Promise<BoardData>
-  assign: (projectId: string, memberId: string, priority: number) => Promise<void>
-  update: (assignmentId: string, patch: Partial<Pick<EngAssignment, 'member_id' | 'priority' | 'divisions' | 'firm_date'>>) => Promise<void>
+  /** `boardHours` (131) = the strip's total budget; null/absent = the estimate. */
+  assign: (projectId: string, memberId: string, priority: number, boardHours?: number | null) => Promise<void>
+  update: (assignmentId: string, patch: AssignmentPatch) => Promise<void>
+  /** "Engineering done" / reopen — the only way a strip leaves the board. */
+  setDone: (assignmentId: string, projectId: string, done: boolean, trackedHours: number) => Promise<void>
   unassign: (assignmentId: string) => Promise<void>
   /** Same clockIn as /me — closes whatever that person had running first. */
   startTimer: (userId: string, projectId: string, subprojectId: string | null, departmentId: string | null) => Promise<void>
@@ -67,6 +77,8 @@ export default function EngBoard({ api }: { api: BoardApi }) {
   const [dragProject, setDragProject] = useState<string | null>(null)
   const [dropLane, setDropLane] = useState<string | null>(null)
   const [dropChip, setDropChip] = useState<string | null>(null)
+  /** Where a STRIP drag started (lane, row, grabbed day column) — chips have none. */
+  const dragFrom = useRef<{ memberId: string; row: number; col: number } | null>(null)
   const loadSeq = useRef(0)
 
   const today = dateKey(new Date(nowMs))
@@ -129,11 +141,20 @@ export default function EngBoard({ api }: { api: BoardApi }) {
   const loadedAt = useRef(Date.now())
   useEffect(() => { loadedAt.current = Date.now() }, [data])
 
+  // ⛔ "Engineering done" is the ONLY thing that takes a strip off the board.
   const liveAssignments = useMemo(
-    () => (data?.assignments || []).filter((a) => engineerIds.has(a.member_id) && projectById.has(a.project_id)),
+    () => (data?.assignments || []).filter((a) => !a.done_at && engineerIds.has(a.member_id) && projectById.has(a.project_id)),
     [data, engineerIds, projectById],
   )
   const assignmentByProject = useMemo(() => new Map(liveAssignments.map((a) => [a.project_id, a])), [liveAssignments])
+  /** Every assignment by project, done ones included (a done project stays out of the pool). */
+  const anyAssignmentByProject = useMemo(() => new Map((data?.assignments || []).map((a) => [a.project_id, a])), [data])
+  const doneThisMonth = useMemo(() => {
+    const month = today.slice(0, 7)
+    return (data?.assignments || [])
+      .filter((a) => a.done_at && dateKey(new Date(a.done_at)).slice(0, 7) === month && projectById.has(a.project_id))
+      .sort((a, b) => (b.done_at || '').localeCompare(a.done_at || ''))
+  }, [data, today, projectById])
 
   /** member → date → eng hours tracked (all projects), running included. */
   const trackedByMemberDay = useMemo(() => {
@@ -166,6 +187,7 @@ export default function EngBoard({ api }: { api: BoardApi }) {
             projectId: a.project_id, memberId: a.member_id, priority: a.priority,
             estHours: p.estHours, trackedHours: trackedMin(p) / 60,
             divisions: a.divisions, firmDate: a.firm_date,
+            boardHours: a.board_hours, startDate: a.start_date,
           }
         }),
         today,
@@ -183,12 +205,20 @@ export default function EngBoard({ api }: { api: BoardApi }) {
 
   const rail = useMemo(() => [...liveAssignments].sort((a, b) => a.priority - b.priority), [liveAssignments])
 
+  /** The pool: unassigned projects with engineering left, PLUS assigned ones
+   *  whose board budget is a break-out (their remainder stays here). A done
+   *  project is out of the pool entirely. */
   const tray = useMemo(() => {
     return (data?.projects || [])
-      .filter((p) => !assignmentByProject.has(p.id))
-      .filter((p) => remainingHours(p.estHours, trackedMin(p) / 60) > 0.05)
+      .filter((p) => {
+        const a = anyAssignmentByProject.get(p.id)
+        if (a?.done_at) return false
+        const tracked = trackedMin(p) / 60
+        if (!a) return remainingHours(p.estHours, tracked) > 0.05
+        return poolRemainder(p.estHours, tracked, a.board_hours) > 0.05
+      })
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [data, assignmentByProject, trackedMin])
+  }, [data, anyAssignmentByProject, trackedMin])
 
   const runningByMember = useMemo(() => {
     const m = new Map<string, BoardEntry>()
@@ -214,16 +244,53 @@ export default function EngBoard({ api }: { api: BoardApi }) {
     return ps.length ? Math.max(...ps) + 1 : 1
   }
 
-  function dropOnLane(memberId: string) {
+  function dropOnLane(memberId: string, pos: { row: number; col: number } | null) {
     const pid = dragProject
+    const from = dragFrom.current
+    dragFrom.current = null
     setDragProject(null); setDropLane(null)
     if (!pid) return
     const a = (data?.assignments || []).find((x) => x.project_id === pid)
-    if (a && a.member_id === memberId) return
-    run(async () => {
-      if (a) await api.update(a.id, { member_id: memberId })
-      else await api.assign(pid, memberId, nextPriority())
-    })
+    // A tray / rail chip: assign (board hours default to the full remaining)
+    // or move to this engineer.
+    if (!from || !a || !pos) {
+      if (a && a.member_id === memberId && !a.done_at) return
+      run(async () => {
+        if (a) await api.update(a.id, { member_id: memberId, ...(a.done_at ? { done_at: null } : {}) })
+        else await api.assign(pid, memberId, nextPriority())
+      })
+      return
+    }
+    // A STRIP: both axes.
+    const patch: AssignmentPatch = {}
+    // Vertical — priority (and the lane, when it changed). The target lane's
+    // visible rows ARE its pack order; land between the new neighbours.
+    if (memberId !== from.memberId || pos.row !== from.row) {
+      const lane = lanes.find((l) => l.packed.memberId === memberId)
+      const rows = (lane ? visibleStrips(lane.packed, viewDays) : []).map((s) => assignmentByProject.get(s.projectId)!).filter((x) => x && x.project_id !== pid)
+      const at = Math.max(0, Math.min(pos.row, rows.length))
+      patch.priority = priorityBetween(at > 0 ? rows[at - 1].priority : null, at < rows.length ? rows[at].priority : null)
+      if (memberId !== from.memberId) patch.member_id = memberId
+    }
+    // Horizontal — pin the start (or shift a divided plan) by the day delta.
+    const delta = pos.col - from.col
+    const strip = stripByProject.get(pid)
+    if (delta !== 0 && strip && !strip.over && strip.start) {
+      if (a.divisions && a.divisions.length) {
+        const merged: Record<string, number> = {}
+        for (const d of a.divisions) {
+          let k = shiftWorkdays(d.date, delta)
+          if (k < today) k = today
+          merged[k] = (merged[k] || 0) + (Number(d.hours) || 0)
+        }
+        patch.divisions = Object.entries(merged).sort(([x], [y]) => x.localeCompare(y)).map(([date, hours]) => ({ date, hours }))
+      } else {
+        const k = shiftWorkdays(strip.start, delta)
+        patch.start_date = k < today ? today : k
+      }
+    }
+    if (Object.keys(patch).length === 0) return
+    run(() => api.update(a.id, patch))
   }
 
   function dropOnChip(targetProjectId: string) {
@@ -279,12 +346,12 @@ export default function EngBoard({ api }: { api: BoardApi }) {
               const p = projectById.get(a.project_id)!
               const s = stripByProject.get(a.project_id)
               const c = colorOf(a.project_id)
-              const done = !s || s.remaining <= 0.05
+              const over = !!s?.over
               const lane = data!.engineers.find((e) => e.member.id === a.member_id)
               return (
                 <div key={a.id}
                   draggable
-                  onDragStart={(e) => { e.dataTransfer.setData('text/plain', a.project_id); setDragProject(a.project_id) }}
+                  onDragStart={(e) => { e.dataTransfer.setData('text/plain', a.project_id); dragFrom.current = null; setDragProject(a.project_id) }}
                   onDragEnd={() => { setDragProject(null); setDropChip(null) }}
                   onDragOver={(e) => { if (dragProject && rail.some((r) => r.project_id === dragProject)) { e.preventDefault(); setDropChip(a.project_id) } }}
                   onDragLeave={() => setDropChip((d) => (d === a.project_id ? null : d))}
@@ -300,11 +367,13 @@ export default function EngBoard({ api }: { api: BoardApi }) {
                   <span style={{ fontFamily: MONO, fontSize: 9, opacity: 0.65 }}>{i + 1}</span>
                   <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                   <span style={{ fontSize: 9, color: '#9CA3AF', fontWeight: 500 }}>{lane?.member.name.split(' ')[0]}</span>
-                  {done
-                    ? <span style={{ fontSize: 10, color: '#059669' }}>✓ done</span>
-                    : s!.atRisk
+                  {!s
+                    ? null
+                    : over
+                    ? <span style={{ fontSize: 10, color: '#DC2626', fontWeight: 700 }}>{s.overBy > 0.05 ? `${fmtH(s.overBy)}h over` : 'at budget'}</span>
+                    : s.atRisk
                       ? <span style={{ fontSize: 10, color: '#DC2626' }}>at risk</span>
-                      : <span style={{ fontSize: 10, color: '#059669', fontWeight: 500 }}>by {shortDay(s!.end)}</span>}
+                      : <span style={{ fontSize: 10, color: '#059669', fontWeight: 500 }}>by {shortDay(s.end)}</span>}
                   {a.firm_date && <span style={{ fontSize: 9, color: '#DC2626' }}>📌 {shortDay(a.firm_date)}</span>}
                 </div>
               )
@@ -336,8 +405,8 @@ export default function EngBoard({ api }: { api: BoardApi }) {
                 isDrop={dropLane === eng.member.id}
                 onDragOver={() => { if (dragProject) setDropLane(eng.member.id) }}
                 onDragLeave={() => setDropLane((d) => (d === eng.member.id ? null : d))}
-                onDrop={() => dropOnLane(eng.member.id)}
-                onStripDragStart={(pid) => setDragProject(pid)}
+                onDrop={(pos) => dropOnLane(eng.member.id, pos)}
+                onStripDragStart={(pid, row, col) => { dragFrom.current = { memberId: eng.member.id, row, col }; setDragProject(pid) }}
                 onStripDragEnd={() => { setDragProject(null); setDropLane(null) }}
                 onOpen={(pid) => setModal({ projectId: pid })}
               />
@@ -354,11 +423,13 @@ export default function EngBoard({ api }: { api: BoardApi }) {
             {tray.length === 0 && <span style={{ fontSize: 11, color: '#9CA3AF' }}>Every sold / production project with engineering hours is on a lane.</span>}
             {tray.map((p) => {
               const c = colorOf(p.id)
-              const left = remainingHours(p.estHours, trackedMin(p) / 60)
+              const tracked = trackedMin(p) / 60
+              const a = assignmentByProject.get(p.id)
+              const left = a ? poolRemainder(p.estHours, tracked, a.board_hours) : remainingHours(p.estHours, tracked)
               return (
                 <div key={p.id}
                   draggable
-                  onDragStart={(e) => { e.dataTransfer.setData('text/plain', p.id); setDragProject(p.id) }}
+                  onDragStart={(e) => { e.dataTransfer.setData('text/plain', p.id); dragFrom.current = null; setDragProject(p.id) }}
                   onDragEnd={() => { setDragProject(null); setDropLane(null) }}
                   onClick={() => setModal({ projectId: p.id })}
                   style={{
@@ -367,12 +438,38 @@ export default function EngBoard({ api }: { api: BoardApi }) {
                   }}>
                   <span style={{ fontSize: 10, fontWeight: 700, color: c.text }}>{p.name}</span>
                   {p.isTemp && <span style={{ fontSize: 8, fontWeight: 700, color: '#92400E', background: '#FEF3C7', borderRadius: 3, padding: '1px 4px' }}>TEMP</span>}
-                  <span style={{ fontSize: 9, fontWeight: 600, color: `${c.text}90`, fontFamily: MONO }}>{fmtH(left)}h left</span>
+                  <span style={{ fontSize: 9, fontWeight: 600, color: `${c.text}90`, fontFamily: MONO }}>
+                    {a ? `${fmtH(p.estHours)}h est · ${fmtH(Math.max(0, stripBudget(p.estHours, a.board_hours) - tracked))}h on board · ${fmtH(left)}h in pool` : `${fmtH(left)}h left`}
+                  </span>
                 </div>
               )
             })}
           </div>
         </div>
+
+        {doneThisMonth.length > 0 && (
+          <div style={{ padding: '0 20px 32px', marginTop: -16 }}>
+            <div style={{ fontSize: 9, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>
+              Engineering done this month · {doneThisMonth.length}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {doneThisMonth.map((a) => {
+                const p = projectById.get(a.project_id)!
+                const tracked = trackedMin(p) / 60
+                return (
+                  <div key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: STRIP_H, padding: '0 8px', borderRadius: 4, background: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#065F46' }}>✓ {p.name}</span>
+                    <span style={{ fontSize: 9, color: '#047857', fontFamily: MONO }}>{fmtH(tracked)}h · {shortDay(dateKey(new Date(a.done_at!)))}</span>
+                    <button onClick={() => run(() => api.setDone(a.id, a.project_id, false, tracked))}
+                      style={{ border: 'none', background: 'none', padding: 0, fontSize: 9.5, color: '#6B7280', cursor: 'pointer', textDecoration: 'underline' }}>
+                      Reopen
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {modal && modalProject && data && (
           <StripModal
@@ -390,10 +487,15 @@ export default function EngBoard({ api }: { api: BoardApi }) {
             today={today}
             horizon={horizon}
             onClose={() => setModal(null)}
-            onAssign={(memberId) => run(async () => {
+            onAssign={(memberId, boardHours) => run(async () => {
               const a = assignmentByProject.get(modal.projectId)
               if (a) await api.update(a.id, { member_id: memberId })
-              else await api.assign(modal.projectId, memberId, nextPriority())
+              else await api.assign(modal.projectId, memberId, nextPriority(), boardHours)
+            })}
+            onDone={() => run(async () => {
+              const a = assignmentByProject.get(modal.projectId)
+              if (a) await api.setDone(a.id, modal.projectId, true, trackedMin(modalProject) / 60)
+              setModal(null)
             })}
             onSave={(patch) => run(async () => {
               const a = assignmentByProject.get(modal.projectId)
@@ -420,6 +522,14 @@ export default function EngBoard({ api }: { api: BoardApi }) {
   )
 }
 
+/** A lane's strips that show in the view — in pack (priority) order, which is
+ *  also their ROW order, so a vertical drop's row maps to a priority. */
+function visibleStrips(packed: PackedLane, viewDays: string[]): PackedStrip[] {
+  const first = viewDays[0]
+  const last = viewDays[viewDays.length - 1]
+  return packed.strips.filter((s) => s.start && s.end && s.end >= first && s.start <= last)
+}
+
 // =====================================================
 // LANE — own day header, strip canvas, tracked band
 // =====================================================
@@ -441,15 +551,26 @@ function Lane({
   isDrop: boolean
   onDragOver: () => void
   onDragLeave: () => void
-  onDrop: () => void
-  onStripDragStart: (pid: string) => void
+  /** `pos` = the canvas row + day column dropped on (null = the header / band). */
+  onDrop: (pos: { row: number; col: number } | null) => void
+  onStripDragStart: (pid: string, row: number, col: number) => void
   onStripDragEnd: () => void
   onOpen: (pid: string) => void
 }) {
   const idx = new Map(viewDays.map((d, i) => [d, i]))
   const first = viewDays[0]
   const last = viewDays[viewDays.length - 1]
-  const visible = packed.strips.filter((s) => s.start && s.end && s.end >= first && s.start <= last)
+  const visible = visibleStrips(packed, viewDays)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  /** Row + day column under a pointer, from the canvas's own box. */
+  const posAt = (clientX: number, clientY: number): { row: number; col: number } | null => {
+    const r = canvasRef.current?.getBoundingClientRect()
+    if (!r || clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null
+    return {
+      row: Math.max(0, Math.floor((clientY - r.top - 6 + STRIP_GAP / 2) / (STRIP_H + STRIP_GAP))),
+      col: Math.max(0, Math.min(viewDays.length - 1, Math.floor((clientX - r.left) / DAY_W))),
+    }
+  }
   const canvasH = Math.max(1, visible.length) * (STRIP_H + STRIP_GAP) + 12
 
   // Tracked: per day, chronological.
@@ -472,7 +593,7 @@ function Lane({
     <div
       onDragOver={(e) => { e.preventDefault(); onDragOver() }}
       onDragLeave={onDragLeave}
-      onDrop={(e) => { e.preventDefault(); onDrop() }}
+      onDrop={(e) => { e.preventDefault(); onDrop(posAt(e.clientX, e.clientY)) }}
       style={{ border: `1px solid ${isDrop ? '#93C5FD' : '#E5E7EB'}`, borderRadius: 8, overflow: 'hidden', marginBottom: 12, background: isDrop ? '#F8FAFF' : '#FFF' }}>
       {/* Day header — this lane's own load per day */}
       <div style={{ display: 'flex' }}>
@@ -517,7 +638,7 @@ function Lane({
       {/* Strip canvas */}
       <div style={{ display: 'flex' }}>
         <div style={{ width: LABEL_W, minWidth: LABEL_W, flexShrink: 0, borderRight: '1px solid #E5E7EB', background: '#FAFBFC', position: 'sticky', left: 0, zIndex: 5 }} />
-        <div style={{ position: 'relative', width: viewDays.length * DAY_W, height: canvasH }}>
+        <div ref={canvasRef} style={{ position: 'relative', width: viewDays.length * DAY_W, height: canvasH }}>
           {viewDays.map((d, i) => (
             <div key={d} style={{ position: 'absolute', top: 0, bottom: 0, left: i * DAY_W, width: DAY_W, borderRight: '1px solid #F3F4F6', background: i % 2 === 0 ? '#FFF' : '#FAFBFC' }} />
           ))}
@@ -542,28 +663,43 @@ function Lane({
             const c = colorOf(s.projectId)
             const a = col(s.start!, 'start')
             const b = col(s.end!, 'end')
-            const tracked = Math.max(0, (p?.estHours || 0) - s.remaining)
+            const tracked = Math.max(0, s.budget - s.remaining)
             const daysTip = Object.entries(s.days).sort(([x], [y]) => x.localeCompare(y)).map(([d, h]) => `${shortDay(d)}: ${fmtH(h)}h`).join('\n')
             const isLive = running?.project_id === s.projectId
             return (
               <div key={s.projectId}
                 draggable
-                onDragStart={(e) => { e.dataTransfer.setData('text/plain', s.projectId); onStripDragStart(s.projectId) }}
+                data-strip={s.projectId}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', s.projectId)
+                  const pos = posAt(e.clientX, e.clientY)
+                  onStripDragStart(s.projectId, row, pos ? pos.col : a)
+                }}
                 onDragEnd={onStripDragEnd}
                 onClick={() => onOpen(s.projectId)}
-                title={`${p?.name}\n${daysTip}${s.overflow > 0 ? `\n${fmtH(s.overflow)}h past the horizon` : ''}`}
+                title={`${p?.name}\n${s.over ? `OVER — ${fmtH(s.overBy)}h past its ${fmtH(s.budget)}h budget; stays until Engineering done` : daysTip}${s.overflow > 0 ? `\n${fmtH(s.overflow)}h past the horizon` : ''}${s.pinned ? '\nPlaced by hand' : ''}`}
+                className={s.over && isLive ? 'eng-pulse' : undefined}
                 style={{
-                  position: 'absolute', top: 6 + row * (STRIP_H + STRIP_GAP), left: a * DAY_W + 2, width: (b - a + 1) * DAY_W - 4, height: STRIP_H,
-                  borderRadius: 4, background: `${c.bg}20`, border: `1.5px solid ${c.bg}50`,
+                  position: 'absolute', top: 6 + row * (STRIP_H + STRIP_GAP), left: a * DAY_W + 2, width: Math.max(1, b - a + 1) * DAY_W - 4, height: STRIP_H,
+                  borderRadius: 4,
+                  // ⛔ OVER = red, never gone. Hours exhausted ≠ drawings done.
+                  background: s.over ? '#FEE2E2' : `${c.bg}20`, border: s.over ? '1.5px solid #DC2626' : `1.5px solid ${c.bg}50`,
+                  borderLeft: s.pinned ? `4px solid ${s.over ? '#DC2626' : c.border}` : undefined,
                   boxShadow: s.atRisk ? '0 0 0 2px #FECACA' : 'none',
                   display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px', cursor: 'pointer', overflow: 'hidden', zIndex: 2,
                 }}>
                 {isLive && <span className="eng-pulse" style={{ width: 6, height: 6, borderRadius: 999, background: '#059669', flexShrink: 0 }} />}
                 {/* The name keeps its room; the hours line gives way first. */}
-                <span style={{ fontSize: 10, fontWeight: 700, color: c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 30, flexShrink: 1 }}>{p?.name}</span>
-                <span style={{ fontSize: 9, fontWeight: 600, color: `${c.text}90`, fontFamily: MONO, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flexShrink: 100 }}>
-                  {fmtH(s.remaining)}h left of {fmtH(p?.estHours || 0)}{tracked > 0.05 ? ` · ${fmtH(tracked)}h in` : ''}{s.divided ? ' · divided' : ''}
-                </span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: s.over ? '#991B1B' : c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 30, flexShrink: 1 }}>{p?.name}</span>
+                {s.over ? (
+                  <span style={{ fontSize: 9, fontWeight: 700, color: '#DC2626', fontFamily: MONO, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    {s.overBy > 0.05 ? `${fmtH(s.overBy)}h over` : 'at budget'}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 9, fontWeight: 600, color: `${c.text}90`, fontFamily: MONO, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flexShrink: 100 }}>
+                    {fmtH(s.remaining)}h left of {fmtH(s.budget)}{tracked > 0.05 ? ` · ${fmtH(tracked)}h in` : ''}{s.divided ? ' · divided' : ''}{s.pinned ? ' · placed' : ''}
+                  </span>
+                )}
                 {s.atRisk && <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, color: '#DC2626', flexShrink: 0 }}>at risk</span>}
               </div>
             )
@@ -615,7 +751,7 @@ function sumDay(list: BoardEntry[] | undefined, nowMs: number): number {
 // =====================================================
 function StripModal({
   project, assignment, strip, lane, engineers, trackedHours, subs, running, projectById, engDeptId, today, horizon,
-  onClose, onAssign, onSave, onUnassign, onTimer, canTime,
+  onClose, onAssign, onSave, onUnassign, onTimer, canTime, onDone,
 }: {
   project: BoardProject
   assignment: EngAssignment | null
@@ -630,14 +766,27 @@ function StripModal({
   today: string
   horizon: string[]
   onClose: () => void
-  onAssign: (memberId: string) => void
-  onSave: (patch: Partial<Pick<EngAssignment, 'divisions' | 'firm_date'>>) => void
+  /** `boardHours` (131): the total budget to put on the board; null = the estimate. */
+  onAssign: (memberId: string, boardHours: number | null) => void
+  onSave: (patch: AssignmentPatch) => void
+  onDone: () => void
   onUnassign: () => void
   onTimer: (action: 'start' | 'stop', userId: string, subId: string | null) => void
   canTime: boolean
 }) {
-  const remaining = remainingHours(project.estHours, trackedHours)
   const eng = assignment ? engineers.find((e) => e.member.id === assignment.member_id) || null : null
+  const estLeft = remainingHours(project.estHours, trackedHours)
+  // BOARD HOURS (131): typed as what to PUT ON THE BOARD from here (the
+  // remaining budget); stored as the total incl. what's tracked.
+  const savedBudget = stripBudget(project.estHours, assignment?.board_hours ?? null)
+  const [boardIn, setBoardIn] = useState(() => fmtH(Math.max(0, assignment ? savedBudget - trackedHours : estLeft)))
+  const boardTyped = Math.max(0, Number(boardIn) || 0)
+  const boardDirty = Math.abs(boardTyped - Math.max(0, savedBudget - trackedHours)) > 0.05
+  /** What the strip will burn: the typed board hours (they ARE what's left on it). */
+  const remaining = assignment ? boardTyped : estLeft
+  /** Total budget to store; null when it's the whole estimate (v1 behaviour). */
+  const boardTotal = (typed: number): number | null =>
+    Math.abs(typed - estLeft) <= 0.05 && (assignment?.board_hours ?? null) == null ? null : Math.round((trackedHours + typed) * 10) / 10
 
   const initialRows = useMemo<Division[]>(() => {
     const days = strip ? Object.entries(strip.days).filter(([, h]) => h > 0.001).sort(([a], [b]) => a.localeCompare(b)) : []
@@ -684,6 +833,7 @@ function StripModal({
     setDirty(true)
   }
   function evenSplit() {
+    // "Even split" also releases a manual placement (start_date) on save.
     const dates = rows.length ? rows.map((r) => r.date) : [horizon[0]]
     setRows(evenDivide(remaining, dates).map((r) => ({ date: r.date, hours: String(r.hours) })))
     setDirty(true)
@@ -695,8 +845,17 @@ function StripModal({
 
   const canSave = !dirty || (matches && !dupDates && parsed.every((r) => r.date >= today))
   function save() {
-    const patch: Partial<Pick<EngAssignment, 'divisions' | 'firm_date'>> = { firm_date: firmOn ? firmDate : null }
-    if (dirty) patch.divisions = parsed.filter((r) => r.hours > 0).sort((a, b) => a.date.localeCompare(b.date))
+    const patch: AssignmentPatch = { firm_date: firmOn ? firmDate : null }
+    if (boardDirty) {
+      patch.board_hours = boardTotal(boardTyped)
+      // A hand plan for the old budget no longer foots — back to auto-pack
+      // unless the rows were re-divided against the new number.
+      if (!dirty && strip?.divided) patch.divisions = null
+    }
+    if (dirty) {
+      patch.divisions = parsed.filter((r) => r.hours > 0).sort((a, b) => a.date.localeCompare(b.date))
+      patch.start_date = null
+    }
     onSave(patch)
   }
 
@@ -719,12 +878,44 @@ function StripModal({
           {/* Engineer */}
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#374151', marginBottom: 12 }}>
             Engineer
-            <select value={assignment?.member_id || ''} onChange={(e) => e.target.value && onAssign(e.target.value)}
+            <select value={assignment?.member_id || ''} onChange={(e) => e.target.value && onAssign(e.target.value, assignment ? null : boardTotal(boardTyped))}
               style={{ fontSize: 12, padding: '4px 6px', border: '1px solid #E5E7EB', borderRadius: 4, background: '#FFF', flex: 1 }}>
               {!assignment && <option value="">Unassigned — pick an engineer</option>}
               {engineers.map((e) => <option key={e.member.id} value={e.member.id}>{e.member.name}</option>)}
             </select>
           </label>
+
+          {/* BOARD HOURS — break a budget out of the estimate (131). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#374151', marginBottom: 12, flexWrap: 'wrap' }}>
+            {assignment ? 'On the board' : 'Put on the board'}
+            <input type="number" min={0} step={0.5} value={boardIn} onChange={(e) => setBoardIn(e.target.value)} aria-label="Board hours"
+              style={{ width: 70, fontSize: 12, padding: '4px 6px', border: `1px solid ${boardDirty ? '#93C5FD' : '#E5E7EB'}`, borderRadius: 4, textAlign: 'right', fontFamily: MONO }} />
+            <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: MONO }}>
+              h of {fmtH(estLeft)}h estimate left{boardTyped < estLeft - 0.05 ? ` · ${fmtH(estLeft - boardTyped)}h stays in the pool` : ''}
+            </span>
+            {Math.abs(boardTyped - estLeft) > 0.05 && (
+              <button onClick={() => setBoardIn(fmtH(estLeft))} style={{ border: 'none', background: 'none', padding: 0, fontSize: 11, color: '#2563EB', cursor: 'pointer' }}>
+                Full estimate
+              </button>
+            )}
+          </div>
+          {!assignment && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: -6, marginBottom: 12 }}>Pick an engineer to put these hours on their lane.</div>}
+
+          {/* OVER — the strip stays until a human says the drawings are done. */}
+          {assignment && strip?.over && (
+            <div style={{ fontSize: 12, color: '#991B1B', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>
+              <b>{strip.overBy > 0.05 ? `${fmtH(strip.overBy)}h over` : 'At budget'}</b> its {fmtH(strip.budget)}h on the board. It stays on {eng ? `${eng.member.name.split(' ')[0]}’s` : 'the'} lane
+              until you mark engineering done — or put more hours on the board above.
+            </div>
+          )}
+          {assignment && strip?.pinned && !strip.over && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, color: '#374151', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 6, padding: '6px 9px', marginBottom: 12 }}>
+              Placed by hand from {shortDay(assignment.start_date)} — overlap allowed, auto-pack works around it.
+              <button onClick={() => onSave({ start_date: null })} style={{ marginLeft: 'auto', border: 'none', background: 'none', padding: 0, fontSize: 11, color: '#2563EB', cursor: 'pointer' }}>
+                Release
+              </button>
+            </div>
+          )}
 
           {/* Timer — the same clock as /me */}
           {eng && canTime && (
@@ -786,7 +977,7 @@ function StripModal({
                 <button onClick={addDay} style={{ border: 'none', background: 'none', padding: 0, fontSize: 11, color: '#2563EB', cursor: 'pointer' }}>+ Add day</button>
                 <button onClick={evenSplit} style={{ border: 'none', background: 'none', padding: 0, fontSize: 11, color: '#2563EB', cursor: 'pointer' }}>Even split</button>
                 {(strip?.divided || dirty) && (
-                  <button onClick={() => onSave({ divisions: null, firm_date: firmOn ? firmDate : null })} style={{ border: 'none', background: 'none', padding: 0, fontSize: 11, color: '#6B7280', cursor: 'pointer', marginLeft: 'auto' }}>
+                  <button onClick={() => onSave({ divisions: null, start_date: null, firm_date: firmOn ? firmDate : null })} style={{ border: 'none', background: 'none', padding: 0, fontSize: 11, color: '#6B7280', cursor: 'pointer', marginLeft: 'auto' }}>
                     Back to auto-pack
                   </button>
                 )}
@@ -824,7 +1015,13 @@ function StripModal({
             )}
             <button onClick={onClose} style={btnS('#FFF', '#374151')}>{assignment ? 'Cancel' : 'Close'}</button>
             {assignment && (
-              <button onClick={onUnassign} style={{ marginLeft: 'auto', border: 'none', background: 'none', fontSize: 11, color: '#DC2626', cursor: 'pointer' }}>
+              <button onClick={onDone} title="Takes the strip off the board and logs it on the project timeline"
+                style={{ ...btnS(strip?.over ? '#059669' : '#FFF', strip?.over ? '#FFF' : '#047857'), border: '1px solid #059669', fontWeight: 600, marginLeft: 'auto' }}>
+                Engineering done
+              </button>
+            )}
+            {assignment && (
+              <button onClick={onUnassign} style={{ border: 'none', background: 'none', fontSize: 11, color: '#DC2626', cursor: 'pointer' }}>
                 Unassign
               </button>
             )}

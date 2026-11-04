@@ -32,6 +32,12 @@ export interface EngAssignment {
   priority: number
   divisions: Division[] | null
   firm_date: string | null
+  /** 131 — the strip's budget (total hours incl. tracked). Null = the estimate. */
+  board_hours: number | null
+  /** 131 — pinned start from a sideways drag. Null = auto-pack. */
+  start_date: string | null
+  /** 131 — "Engineering done". Set = off the board. */
+  done_at: string | null
 }
 
 export interface BoardProject {
@@ -138,6 +144,10 @@ export async function loadEngBoard(orgId: string, windowStart: string, horizonEn
     ...a,
     priority: Number(a.priority) || 0,
     divisions: Array.isArray(a.divisions) ? a.divisions : null,
+    // Pre-131 the columns are absent → null → v1 behaviour.
+    board_hours: a.board_hours != null && a.board_hours !== ('' as unknown) ? Number(a.board_hours) : null,
+    start_date: a.start_date ?? null,
+    done_at: a.done_at ?? null,
   }))
 
   const userIds = engineers.map((e) => e.member.user_id).filter(Boolean) as string[]
@@ -225,7 +235,7 @@ export function entryDay(e: Pick<BoardEntry, 'started_at' | 'created_at'>): stri
 
 // ── Writes ──
 
-export async function assignProject(args: { orgId: string; projectId: string; memberId: string; priority: number }): Promise<void> {
+export async function assignProject(args: { orgId: string; projectId: string; memberId: string; priority: number; boardHours?: number | null }): Promise<void> {
   const { error } = await supabase.from('eng_assignments').upsert(
     {
       org_id: args.orgId,
@@ -233,6 +243,9 @@ export async function assignProject(args: { orgId: string; projectId: string; me
       member_id: args.memberId,
       dept: ENG_DEPT,
       priority: args.priority,
+      // Only sent when a budget was broken out, so a plain drag still works
+      // on a pre-131 database.
+      ...(args.boardHours != null ? { board_hours: args.boardHours } : {}),
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'project_id,dept' },
@@ -242,7 +255,7 @@ export async function assignProject(args: { orgId: string; projectId: string; me
 
 export async function updateAssignment(
   id: string,
-  patch: Partial<Pick<EngAssignment, 'member_id' | 'priority' | 'divisions' | 'firm_date'>>,
+  patch: AssignmentPatch,
 ): Promise<void> {
   const { data, error } = await supabase
     .from('eng_assignments')
@@ -251,6 +264,24 @@ export async function updateAssignment(
     .select('id')
   if (error) throw error
   if (!data || data.length === 0) throw new Error('That change didn’t save.')
+}
+
+export type AssignmentPatch = Partial<
+  Pick<EngAssignment, 'member_id' | 'priority' | 'divisions' | 'firm_date' | 'board_hours' | 'start_date' | 'done_at'>
+>
+
+/** "Engineering done" (or undo) — the only way a strip leaves the board.
+ *  Logs a project_events row so the timeline says who called it and when. */
+export async function setEngineeringDone(args: { orgId: string; assignmentId: string; projectId: string; done: boolean; trackedHours: number }): Promise<void> {
+  await updateAssignment(args.assignmentId, { done_at: args.done ? new Date().toISOString() : null })
+  const { recordProjectEvent } = await import('./project-events')
+  await recordProjectEvent({
+    orgId: args.orgId,
+    projectId: args.projectId,
+    eventType: args.done ? 'engineering_done' : 'engineering_reopened',
+    label: args.done ? 'Engineering done' : 'Engineering reopened',
+    meta: { tracked_hours: Math.round(args.trackedHours * 10) / 10 },
+  })
 }
 
 export async function unassignProject(id: string): Promise<void> {

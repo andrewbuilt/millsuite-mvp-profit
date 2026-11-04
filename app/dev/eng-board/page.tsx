@@ -48,6 +48,8 @@ function fixture(): BoardData {
     started_at: new Date(Date.now() - 84 * 60000).toISOString(), ended_at: null, duration_minutes: 0, created_at: new Date().toISOString(), notes: null,
   })
   entries.push(entry('u-e', 'towers', today, 7, 150))
+  // Round 2: Murtagh is OVER — 2h estimated, 5h tracked last week.
+  entries.push(entry('u-h', 'murtagh', past[0] ?? today, 14, 300))
   const trackedFor = (pid: string) => entries.filter((e) => e.project_id === pid && e.ended_at).reduce((s, e) => s + e.duration_minutes, 0)
   const proj = (id: string, name: string, est: number, isTemp = false) => ({ id, name, clientName: null, stage: 'production', isTemp, estHours: est + trackedFor(id) / 60, trackedMinutes: trackedFor(id) })
   // Firm date for Towers: two workdays out — the pack won't make it.
@@ -67,13 +69,20 @@ function fixture(): BoardData {
       proj('schiller', 'Schiller – A&K', 14),
       proj('pajot', 'Hunt – Pajot', 10),
       proj('temp', 'Shop jig drawings', 6, true),
+      // Round 2: over-budget strip, a big-estimate pool job to break out, a
+      // second Hunter strip to drag Murtagh-style over.
+      { id: 'murtagh', name: 'Murtagh Bar', clientName: null, stage: 'production', isTemp: false, estHours: 2, trackedMinutes: 0 },
+      proj('batia', 'Batia', 163.7),
+      proj('chancey', 'Chancey – Stone table', 6),
     ],
     assignments: [
-      { id: 'a1', org_id: 'o', project_id: 'towers', member_id: 'm-e', dept: 'eng', priority: 1, divisions: null, firm_date: firm },
-      { id: 'a2', org_id: 'o', project_id: 'kinser', member_id: 'm-h', dept: 'eng', priority: 2, divisions: null, firm_date: null },
-      { id: 'a3', org_id: 'o', project_id: 'jw', member_id: 'm-h', dept: 'eng', priority: 3, divisions: null, firm_date: null },
-      { id: 'a4', org_id: 'o', project_id: 'bonzer', member_id: 'm-e', dept: 'eng', priority: 4, divisions: null, firm_date: null },
-      { id: 'a5', org_id: 'o', project_id: 'schiller', member_id: 'm-e', dept: 'eng', priority: 5, divisions: null, firm_date: null },
+      { id: 'a1', org_id: 'o', project_id: 'towers', member_id: 'm-e', dept: 'eng', priority: 1, divisions: null, firm_date: firm, board_hours: null, start_date: null, done_at: null },
+      { id: 'a2', org_id: 'o', project_id: 'kinser', member_id: 'm-h', dept: 'eng', priority: 2, divisions: null, firm_date: null, board_hours: null, start_date: null, done_at: null },
+      { id: 'a3', org_id: 'o', project_id: 'jw', member_id: 'm-h', dept: 'eng', priority: 3, divisions: null, firm_date: null, board_hours: null, start_date: null, done_at: null },
+      { id: 'a4', org_id: 'o', project_id: 'bonzer', member_id: 'm-e', dept: 'eng', priority: 4, divisions: null, firm_date: null, board_hours: null, start_date: null, done_at: null },
+      { id: 'a5', org_id: 'o', project_id: 'schiller', member_id: 'm-e', dept: 'eng', priority: 5, divisions: null, firm_date: null, board_hours: null, start_date: null, done_at: null },
+      { id: 'a6', org_id: 'o', project_id: 'murtagh', member_id: 'm-h', dept: 'eng', priority: 6, divisions: null, firm_date: null, board_hours: null, start_date: null, done_at: null },
+      { id: 'a7', org_id: 'o', project_id: 'chancey', member_id: 'm-h', dept: 'eng', priority: 7, divisions: null, firm_date: null, board_hours: null, start_date: null, done_at: null },
     ],
     entries,
     outByMember: { 'm-e': {}, 'm-h': { [workdaysFrom(today, 6)[5]]: 8 }, 'm-t': {} },
@@ -95,8 +104,13 @@ export default function EngBoardFixture() {
         for (const p of d.projects) p.trackedMinutes = d.entries.filter((e) => e.project_id === p.id).reduce((t, e) => t + entryMinutes(e), 0)
         return d
       },
-      assign: async (projectId, memberId, priority) => {
-        s().assignments.push({ id: `a${Date.now()}`, org_id: 'o', project_id: projectId, member_id: memberId, dept: 'eng', priority, divisions: null, firm_date: null })
+      assign: async (projectId, memberId, priority, boardHours) => {
+        s().assignments.push({ id: `a${Date.now()}`, org_id: 'o', project_id: projectId, member_id: memberId, dept: 'eng', priority, divisions: null, firm_date: null, board_hours: boardHours ?? null, start_date: null, done_at: null })
+        await tick()
+      },
+      setDone: async (id, _projectId, done) => {
+        const a = s().assignments.find((x) => x.id === id)
+        if (a) a.done_at = done ? new Date().toISOString() : null
         await tick()
       },
       update: async (id, patch) => {

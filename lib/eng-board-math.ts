@@ -42,6 +42,10 @@ export interface StripInput {
   trackedHours: number
   divisions: Division[] | null
   firmDate: string | null
+  /** Round 2: the board budget (total hours incl. tracked). Null = estHours. */
+  boardHours?: number | null
+  /** Round 2: a manual horizontal placement. Ignored when divided. */
+  startDate?: string | null
 }
 
 export interface PackedStrip {
@@ -56,6 +60,14 @@ export interface PackedStrip {
   /** Couldn't place everything inside the horizon. */
   overflow: number
   atRisk: boolean
+  /** Round 2: tracked has reached the budget. The strip stays on the board. */
+  over: boolean
+  /** Hours tracked past the budget (0 when not over). */
+  overBy: number
+  /** The budget the strip burns against (board hours, else the estimate). */
+  budget: number
+  /** Placed by hand from `startDate` (horizontal drag). */
+  pinned: boolean
 }
 
 export interface PackedLane {
@@ -67,6 +79,8 @@ export interface PackedLane {
 }
 
 const EPS = 1e-6
+/** At or past budget to within ~3 minutes reads as OVER (the strip stays). */
+const EPS_OVER = 0.05
 
 export function parseKey(k: string): Date {
   const [y, m, d] = k.split('-').map(Number)
@@ -104,6 +118,31 @@ export function mondayOfKey(k: string): string {
 /** Remaining = est − tracked, never negative. */
 export function remainingHours(est: number, tracked: number): number {
   return Math.max(0, (Number(est) || 0) - (Number(tracked) || 0))
+}
+
+/** The hours a strip burns against: board hours when set, else the estimate. */
+export function stripBudget(est: number, boardHours: number | null | undefined): number {
+  return boardHours != null && Number.isFinite(Number(boardHours)) ? Math.max(0, Number(boardHours)) : Math.max(0, Number(est) || 0)
+}
+
+/** What's left in the POOL once a board budget is broken out: the estimate
+ *  beyond whatever is on the board (or already tracked). Batia 163.7h est,
+ *  40h on board, nothing tracked → 123.7h stays in the pool. */
+export function poolRemainder(est: number, tracked: number, boardHours: number | null | undefined): number {
+  if (boardHours == null) return 0
+  return Math.max(0, (Number(est) || 0) - Math.max(Number(boardHours) || 0, Number(tracked) || 0))
+}
+
+/** Shift a date key by `n` workdays (negative = back). */
+export function shiftWorkdays(k: string, n: number): string {
+  const d = parseKey(k)
+  let left = Math.abs(n)
+  const step = n < 0 ? -1 : 1
+  while (left > 0) {
+    d.setDate(d.getDate() + step)
+    if (isWorkday(dateKey(d))) left--
+  }
+  return dateKey(d)
 }
 
 /** A lane's packable capacity on a day: daily − out, and today also − what
@@ -173,10 +212,14 @@ export function packLane(
 
   // 1) Divided strips reserve their hand-set days first.
   for (const s of ordered) {
-    const remaining = remainingHours(s.estHours, s.trackedHours)
+    const budget = stripBudget(s.estHours, s.boardHours)
+    const remaining = remainingHours(budget, s.trackedHours)
+    const divided = !!(s.divisions && s.divisions.length)
     const p: PackedStrip = {
       projectId: s.projectId, memberId: s.memberId, remaining, days: {},
-      start: null, end: null, divided: !!(s.divisions && s.divisions.length), overflow: 0, atRisk: false,
+      start: null, end: null, divided, overflow: 0, atRisk: false,
+      over: remaining <= EPS_OVER, overBy: Math.max(0, (Number(s.trackedHours) || 0) - budget), budget,
+      pinned: !divided && !!s.startDate,
     }
     byId.set(s.projectId, p)
     if (!p.divided || remaining <= EPS) continue
@@ -186,6 +229,25 @@ export function packLane(
       if (d.date in free) free[d.date] = Math.max(0, free[d.date] - d.hours)
     }
     if (eaten.rollForward > EPS) pendingRoll.push({ s: p, hours: eaten.rollForward, after: eaten.after })
+  }
+
+  // 1b) Pinned strips (dragged sideways): from their start day at the
+  // engineer's FULL day. ⛔ They do NOT reserve `free` — a manual placement
+  // overlaps by design and must not shove the auto strips.
+  for (const s of ordered) {
+    const p = byId.get(s.projectId)!
+    if (!p.pinned || p.remaining <= EPS) continue
+    const from = s.startDate! < today ? today : s.startDate!
+    let left = p.remaining
+    for (const d of horizon) {
+      if (left <= EPS) break
+      if (d < from) continue
+      const take = Math.min(dayCapacity(lane, d, today), left)
+      if (take <= EPS) continue
+      p.days[d] = (p.days[d] || 0) + take
+      left -= take
+    }
+    p.overflow += Math.max(0, left)
   }
 
   // 2) Auto strips (and divided roll-forward) pack greedily in priority order.
@@ -204,12 +266,18 @@ export function packLane(
   }
   for (const s of ordered) {
     const p = byId.get(s.projectId)!
-    if (!p.divided && p.remaining > EPS) fill(p, p.remaining, null)
+    if (!p.divided && !p.pinned && p.remaining > EPS) fill(p, p.remaining, null)
     const roll = pendingRoll.find((r) => r.s === p)
     if (roll) fill(p, roll.hours, roll.after)
     const keys = Object.keys(p.days).filter((k) => p.days[k] > EPS).sort()
     p.start = keys[0] || null
     p.end = keys[keys.length - 1] || null
+    // ⛔ OVER NEVER DISAPPEARS: no hours left to place, but the strip stays,
+    // one day wide on today, until a human marks engineering done.
+    if (p.over) {
+      p.start = today
+      p.end = today
+    }
     p.atRisk = !!s.firmDate && p.remaining > EPS && (p.overflow > EPS || (!!p.end && p.end > s.firmDate))
     out.push(p)
   }
