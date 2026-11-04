@@ -9,7 +9,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, ExternalLink } fr
 import Link from 'next/link'
 import { loadProjectDeptHours } from '@/lib/project-hours'
 import { mergeDeptHours, scaleDeptHours, sliceDeptHours } from '@/lib/capacity-math'
-import { loadShopRateSetup, deptDailyHoursByTeam, capacityReductionsByDay, excludedCapacityDepts, type TeamMember } from '@/lib/shop-rate-setup'
+import { loadShopRateSetup, deptDailyHoursByTeam, capacityReductionsByDay, excludedCapacityDepts, loadTrackedDeptMinutes, memberMix, memberDailyHours, type TeamMember, type TrackedDeptMinutes } from '@/lib/shop-rate-setup'
 import { loadPracticeProjectIds } from '@/lib/practice'
 import { loadTempProjectIds } from '@/lib/temp-projects'
 
@@ -181,6 +181,10 @@ function CapacityContent() {
   // Org default hrs/week — members without an explicit hours_per_week
   // inherit it for the per-dept capacity math.
   const [orgHrsPerWeek, setOrgHrsPerWeek] = useState(40)
+  /** Trailing 4 weeks of tracked minutes per member per dept → the LEARNED
+   *  dept split (lib/dept-mix). null until read / if the read fails → the
+   *  split falls back to pinned-else-even. */
+  const [trackedMix, setTrackedMix] = useState<TrackedDeptMinutes | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Drag state: source can be 'unscheduled' or 'month' (moving between months)
@@ -286,8 +290,15 @@ function CapacityContent() {
     )
     // ⛔ EVERYTHING lands in one batch AFTER every read — tracked time
     // included — so the page never paints a partial (round 2 item 2).
-    const tracked = await loadTrackedByMonth(practice)
+    const [tracked, mixMinutes] = await Promise.all([
+      loadTrackedByMonth(practice),
+      loadTrackedDeptMinutes(org!.id, shopRateSetup.team).catch((e) => {
+        console.warn('learned dept split: tracked read failed — even split', e)
+        return null
+      }),
+    ])
     if (seq !== loadSeq.current) return
+    setTrackedMix(mixMinutes)
     setTrackedByMonth(tracked)
     setDepartments(depts || [])
     setProjects(
@@ -321,9 +332,26 @@ function CapacityContent() {
   // join table, which /team stopped writing in the shop-rate PR — reading
   // it left every month at 0h capacity.
   const dailyHoursByDept = useMemo(
-    () => deptDailyHoursByTeam(team, orgHrsPerWeek, excludedDepts),
-    [team, orgHrsPerWeek, excludedDepts],
+    () => deptDailyHoursByTeam(team, orgHrsPerWeek, excludedDepts, trackedMix),
+    [team, orgHrsPerWeek, excludedDepts, trackedMix],
   )
+
+  /** Who makes up each dept's daily capacity, with their split + its source
+   *  (11-06 item 3) — the dept-row tooltips say it. */
+  const peopleByDept = useMemo(() => {
+    const out: Record<string, string[]> = {}
+    for (const m of team) {
+      if (!m.billable || m.active === false) continue
+      const mix = memberMix(m, excludedDepts, trackedMix)
+      const daily = memberDailyHours(m, orgHrsPerWeek)
+      const src = mix.source === 'pinned' ? 'pinned' : mix.source === 'learned' ? 'last 4 wks' : mix.shares.length > 1 ? 'even' : ''
+      for (const [d, f] of mix.shares) {
+        if (f <= 0) continue
+        ;(out[d] ||= []).push(`${m.name || 'Team member'} ${Math.round(daily * f * 10) / 10}h/day${mix.shares.length > 1 ? ` (${Math.round(f * 100)}%${src ? `, ${src}` : ''})` : ''}`)
+      }
+    }
+    return out
+  }, [team, excludedDepts, trackedMix, orgHrsPerWeek])
 
   // Capacity per department per month — one entry per column in the rolling
   // 12-month window, starting at windowStart (spans the year boundary).
@@ -343,7 +371,7 @@ function CapacityContent() {
       // Department-scoped holidays only knock days off that one dept; the
       // common case (company-wide) has department_id NULL.
       const monthOverrides = capacityOverrides.filter((o) => o.override_date.startsWith(month))
-      const monthReductions = capacityReductionsByDay(monthOverrides, team, orgHrsPerWeek, excludedDepts)
+      const monthReductions = capacityReductionsByDay(monthOverrides, team, orgHrsPerWeek, excludedDepts, trackedMix)
       const holidays = monthOverrides.filter((o) => o.team_member_id == null)
       const ptos = monthOverrides.filter((o) => o.team_member_id != null)
 
@@ -404,7 +432,7 @@ function CapacityContent() {
       }
       // The card's "PTO hours" figure = what PTO alone actually removed
       // (a non-billable person's day off is no longer counted here either).
-      const ptoHours = Object.values(capacityReductionsByDay(ptos, team, orgHrsPerWeek, excludedDepts)).reduce(
+      const ptoHours = Object.values(capacityReductionsByDay(ptos, team, orgHrsPerWeek, excludedDepts, trackedMix)).reduce(
         (sum, byDept) => sum + Object.values(byDept).reduce((a, b) => a + b, 0),
         0,
       )
@@ -514,7 +542,7 @@ function CapacityContent() {
         daySummaries,
       }
     })
-  }, [departments, dailyHoursByDept, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById, team, orgHrsPerWeek, trackedByMonth, excludedDepts])
+  }, [departments, dailyHoursByDept, monthAllocations, capacityOverrides, projects, windowStart, showPipeline, memberNameById, team, orgHrsPerWeek, trackedByMonth, excludedDepts, trackedMix])
 
   // Unscheduled projects (not in any month). Pipeline-stage projects only
   // appear in the tray when the toggle is on — so they're only draggable
@@ -1010,7 +1038,6 @@ function CapacityContent() {
               {months.map(m => {
                 const isOver = dragOverMonth === m.month
                 const isCurrentMonth = m.month === ymOf(firstOfThisMonth())
-                const overBy = m.totalAllocated - m.totalCapacity
                 return (
                   <div
                     id={`cap-col-${m.month}`}
@@ -1074,19 +1101,30 @@ function CapacityContent() {
                           />
                         )}
                       </div>
-                      <div className="flex items-center justify-between mt-1">
-                        <span
-                          className="text-[10px] font-mono tabular-nums font-medium"
-                          style={{ color: monthHeatColor(m.hasCapacity, m.totalAllocated, m.utilization) }}
-                        >
-                          {m.hasCapacity ? `${Math.round(m.utilization)}%` : m.totalAllocated > 0 ? 'over' : 'no cap'}
-                        </span>
-                        {overBy > 0 && (
-                          <span className="text-[10px] font-mono tabular-nums font-medium text-[#DC2626]">
-                            over by {Math.round(overBy)}h
-                          </span>
-                        )}
-                      </div>
+                      {/* ⛔ NO BLENDED MONTH % (11-06 item 2). "118% · over by
+                          286h" was arithmetic-true and useless — Install's
+                          slack blended the real story away. The dept rows ARE
+                          the story; collapsed, the WORST dept stands in for
+                          them so the bottleneck survives the fold. */}
+                      {!openMonths.has(m.month) && (() => {
+                        const worst = worstDept(m.deptAllocated, m.deptCapacity, departments)
+                        if (!worst) return m.hasCapacity ? null : (
+                          <div className="mt-1 text-[10px] font-mono text-[#9CA3AF]">{m.totalAllocated > 0 ? 'no capacity set' : 'no cap'}</div>
+                        )
+                        return (
+                          <div className="mt-1">
+                            <span
+                              data-worst-dept
+                              title={`Busiest department: ${worst.name} — ${Math.round(worst.planned)}h booked of ${Math.round(worst.cap)}h available. Open the month for every department.`}
+                              className="inline-flex items-center gap-1 px-1.5 py-px rounded text-[10px] font-mono tabular-nums font-semibold"
+                              style={{ color: utilColor(worst.pct), background: `${utilColor(worst.pct)}14` }}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ background: worst.color }} />
+                              {worst.name} {worst.cap > 0 ? `${Math.round(worst.pct)}%` : 'no cap'}
+                            </span>
+                          </div>
+                        )
+                      })()}
                       {m.isPastOrCurrent && (m.trackedHours > 0 || m.soldAllocated > 0) && (
                         <div className="text-[9.5px] text-[#9CA3AF] font-mono tabular-nums mt-0.5">
                           tracked {Math.round(m.trackedHours)} of booked {Math.round(m.soldAllocated)}h
@@ -1099,7 +1137,7 @@ function CapacityContent() {
                             const planned = m.deptAllocated[d.id] || 0
                             const pct = cap > 0 ? (planned / cap) * 100 : planned > 0 ? OVER_UTIL : 0
                             return (
-                              <div key={d.id} title={`${d.name}: ${Math.round(planned)}h booked of ${Math.round(cap)}h available${m.isPastOrCurrent ? ` · tracked ${Math.round(m.trackedByDept[d.id] || 0)}h` : ''}`}>
+                              <div key={d.id} title={`${d.name}: ${Math.round(planned)}h booked of ${Math.round(cap)}h available${m.isPastOrCurrent ? ` · tracked ${Math.round(m.trackedByDept[d.id] || 0)}h` : ''}${peopleByDept[d.id]?.length ? `\n\n${peopleByDept[d.id].join('\n')}` : ''}`}>
                                 <div className="flex items-center justify-between gap-1 text-[10px] tabular-nums">
                                   <span className="flex items-center gap-1 min-w-0 text-[#374151]">
                                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: d.color }} />
@@ -1533,4 +1571,24 @@ function ProjectSidePane({
       </div>
     </>
   )
+}
+
+/** The department under the most pressure this month: highest booked ÷
+ *  available; booked hours with no capacity at all beats any %. null = nothing
+ *  booked anywhere (11-06 item 2's collapsed-header chip). */
+function worstDept(
+  allocated: Record<string, number>,
+  capacity: Record<string, number>,
+  departments: Array<{ id: string; name: string; color: string }>,
+): { name: string; color: string; planned: number; cap: number; pct: number } | null {
+  let best: { name: string; color: string; planned: number; cap: number; pct: number } | null = null
+  for (const d of departments) {
+    const planned = allocated[d.id] || 0
+    const cap = capacity[d.id] || 0
+    if (planned <= 0.5) continue
+    const pct = cap > 0 ? (planned / cap) * 100 : Infinity
+    if (!best || pct > best.pct) best = { name: d.name, color: d.color, planned, cap, pct }
+  }
+  if (best && !Number.isFinite(best.pct)) best.pct = OVER_UTIL
+  return best
 }

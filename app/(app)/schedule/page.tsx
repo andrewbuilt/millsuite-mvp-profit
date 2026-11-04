@@ -11,6 +11,7 @@ import DivideBlockModal from '@/components/schedule/DivideBlockModal'
 import {
   loadShopRateSetup,
   deptDailyHoursByTeam,
+  loadTrackedDeptMinutes,
   capacityReductionsByDay,
   type CapacityOverrideRow,
 } from '@/lib/shop-rate-setup'
@@ -1332,7 +1333,10 @@ export default function SchedulePage() {
     // toward capacity (billable still counts toward the shop-rate numerator).
     const setup = await loadShopRateSetup(org.id)
     const orgHpw = Number(setup.billable?.hrs_per_week) || 40
-    setDailyHoursByDept(deptDailyHoursByTeam(setup.team, orgHpw, excludedDeptsRef.current))
+    // The LEARNED dept split (lib/dept-mix) — same read + same split as
+    // /capacity, so the two pages divide a person identically.
+    const mixMinutes = await loadTrackedDeptMinutes(org.id, setup.team).catch(() => null)
+    setDailyHoursByDept(deptDailyHoursByTeam(setup.team, orgHpw, excludedDeptsRef.current, mixMinutes))
 
     // Time off → per-dept, per-week capacity reductions. Same helper
     // /capacity uses, so the two pages subtract identically. A wide window
@@ -1349,7 +1353,7 @@ export default function SchedulePage() {
         .gte('override_date', isoDay(from))
         .lte('override_date', isoDay(to))
       if (ovErr) console.warn('/schedule: capacity_overrides', ovErr)
-      const perDay = capacityReductionsByDay((ovs || []) as CapacityOverrideRow[], setup.team, orgHpw, excludedDeptsRef.current)
+      const perDay = capacityReductionsByDay((ovs || []) as CapacityOverrideRow[], setup.team, orgHpw, excludedDeptsRef.current, mixMinutes)
       const out: Record<string, number> = {}
       for (const [date, byDept] of Object.entries(perDay)) {
         const d = new Date(date + 'T00:00:00')

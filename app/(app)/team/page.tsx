@@ -43,11 +43,16 @@ import HolidaysAndPtoSection from '@/components/team/HolidaysAndPtoSection'
 import {
   saveTeamMembersMerged,
   makeTeamMember,
+  excludedCapacityDepts,
+  loadTrackedDeptMinutes,
+  memberMix,
   type TeamMember,
+  type TrackedDeptMinutes,
   type OverheadInputs,
   type BillableHoursInputs,
 } from '@/lib/shop-rate-setup'
 import { loadProjectDeptHours } from '@/lib/project-hours'
+import { mixLabel, mixSourceLabel, type DeptMix } from '@/lib/dept-mix'
 import {
   loadPtoRequests,
   loadOrCreateDefaultPolicy,
@@ -119,6 +124,12 @@ function TeamContent() {
   /** roster member id → minutes logged since Monday. Drives the collapsed
    *  week bar and the "tracked this week" link. */
   const [weekMinutesByMember, setWeekMinutesByMember] = useState<Record<string, number>>({})
+  /** 11-06 item 3 — trailing 4 weeks of tracked minutes per member per dept:
+   *  the LEARNED split /capacity + /schedule use, shown on each card. */
+  const [deptMinutes, setDeptMinutes] = useState<TrackedDeptMinutes | null>(null)
+  /** 11-06 item 1 — roster member id → the project their timer is running
+   *  on (null name = a project this page can't name). Absent = not clocked in. */
+  const [clockedIn, setClockedIn] = useState<Record<string, { project: string | null }>>({})
   // Item 5 — role assignment. `roles` maps users.id → owner|admin|member (the
   // same id team_members[].user_id holds). Only the owner may change them;
   // `/api/admin/users` enforces that regardless of what this UI offers.
@@ -361,6 +372,76 @@ function TeamContent() {
     // `team` is intentionally a dependency: a member linked to a login mid-
     // session should get their bar without a reload.
   }, [orgId, loaded, team])
+
+  // Logins on the roster, as a stable key — the reads below re-run when
+  // someone gets linked, not on every keystroke in the editor.
+  const loginKey = useMemo(
+    () => team.map((m) => `${m.id}:${m.user_id || ''}`).sort().join(','),
+    [team],
+  )
+
+  // 11-06 item 3 — the tracked minutes behind the learned split.
+  useEffect(() => {
+    if (!orgId || !loaded) return
+    let cancelled = false
+    loadTrackedDeptMinutes(orgId, team)
+      .then((m) => { if (!cancelled) setDeptMinutes(m) })
+      .catch((e) => console.warn('learned dept split: tracked read failed', e))
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, loaded, loginKey])
+
+  // 11-06 item 1 — WHO'S CLOCKED IN. An open time entry (ended_at null) on a
+  // roster member's login = a green dot + "on {project}". Same read the
+  // engineering board does; re-read on focus / tab-visible and every 30s
+  // while visible, the timers' pattern (/time, /me).
+  useEffect(() => {
+    if (!orgId || !loaded) return
+    let alive = true
+    const memberByUser = new Map(team.filter((m) => m.user_id).map((m) => [m.user_id!, m.id]))
+    const read = async () => {
+      if (memberByUser.size === 0) return setClockedIn({})
+      const { data } = await supabase
+        .from('time_entries')
+        .select('user_id, project_id, started_at')
+        .eq('org_id', orgId)
+        .in('user_id', [...memberByUser.keys()])
+        .is('ended_at', null)
+      const open = (data || []) as Array<{ user_id: string; project_id: string | null; started_at: string | null }>
+      const ids = [...new Set(open.map((e) => e.project_id).filter(Boolean))] as string[]
+      const names = new Map<string, string>()
+      if (ids.length) {
+        const { data: projs } = await supabase.from('projects').select('id, name').in('id', ids)
+        for (const p of (projs || []) as Array<{ id: string; name: string }>) names.set(p.id, p.name)
+      }
+      if (!alive) return
+      const next: Record<string, { project: string | null }> = {}
+      for (const e of open) {
+        const mid = memberByUser.get(e.user_id)
+        if (mid) next[mid] = { project: e.project_id ? names.get(e.project_id) || null : null }
+      }
+      setClockedIn(next)
+    }
+    void read()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void read()
+    }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') void read()
+    }, 30000)
+    return () => {
+      alive = false
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(t)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, loaded, loginKey])
+
+  const excludedDepts = useMemo(() => excludedCapacityDepts(departments), [departments])
+  const deptName = useCallback((id: string) => departments.find((d) => d.id === id)?.name || 'Dept', [departments])
 
   /** ⛔ ALWAYS OPEN WHILE THERE ARE NO DEPARTMENTS. Capacity and the schedule
    *  both read dept assignments, so a new shop hiding the empty list behind a
@@ -1098,6 +1179,17 @@ function TeamContent() {
               const memberDeptNames = (member.dept_assignments || [])
                 .map((id) => departments.find((d) => d.id === id)?.name)
                 .filter(Boolean) as string[]
+              // The split capacity uses for this person — shown when there's
+              // more than one counting dept to split between.
+              const mix = memberMix(member, excludedDepts, deptMinutes)
+              const splitShown = mix.shares.length > 1
+              const deptLine = splitShown
+                ? [
+                    mixLabel(mix, deptName),
+                    ...memberDeptNames.filter((n) => !mix.shares.some(([d]) => deptName(d) === n)),
+                  ].join(' · ')
+                : memberDeptNames.join(' · ')
+              const live = clockedIn[member.id]
               const bar = weekBar(
                 weekMinutesByMember[member.id] || 0,
                 0,
@@ -1120,16 +1212,31 @@ function TeamContent() {
                 >
                   <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 text-[#9CA3AF]" />
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-[#111] truncate">
-                      {member.name || 'Unnamed'}
+                    <div className="text-sm font-medium text-[#111] truncate flex items-center gap-1.5">
+                      {live && (
+                        <span
+                          data-clocked-in
+                          title={`Clocked in${live.project ? ` on ${live.project}` : ''}`}
+                          className="w-2 h-2 rounded-full bg-[#059669] flex-shrink-0 animate-pulse"
+                        />
+                      )}
+                      <span className="truncate">{member.name || 'Unnamed'}</span>
+                      {live && (
+                        <span className="text-[11px] font-normal text-[#047857] truncate">
+                          on {live.project || 'a job'}
+                        </span>
+                      )}
                       {member.active === false && (
-                        <span className="ml-1.5 text-[10px] text-[#9CA3AF] font-normal">
+                        <span className="text-[10px] text-[#9CA3AF] font-normal">
                           inactive
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-[#9CA3AF] truncate">
-                      {[member.title, memberDeptNames.join(' · ')].filter(Boolean).join(' — ') ||
+                    <div
+                      className="text-[11px] text-[#9CA3AF] truncate"
+                      title={splitShown ? `Capacity split: ${mixLabel(mix, deptName)} — ${mixSourceLabel(mix)}` : undefined}
+                    >
+                      {[member.title, deptLine].filter(Boolean).join(' — ') ||
                         'No title or department'}
                     </div>
                   </div>
@@ -1334,6 +1441,15 @@ function TeamContent() {
                       )
                     })}
                   </div>
+                )}
+
+                {splitShown && (
+                  <DeptSplitEditor
+                    mix={mix}
+                    pin={member.dept_split || null}
+                    deptName={deptName}
+                    onPin={(split) => patchMember(member.id, { dept_split: split })}
+                  />
                 )}
 
                 {/* ⛔ THE TWO ACTIVITY READOUTS SIT TOGETHER. Time off and
@@ -2369,6 +2485,80 @@ function AccountControls({
               Share this password with {member.name || 'the worker'} — they can change it later.
             </span>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 11-06 item 3 — how capacity splits this person across their departments,
+ * where that came from, and the PIN for when the future won't look like the
+ * past ("Eng 100%" for the next month). Unpin → back to learning.
+ * ⛔ The pin is percentages that are normalised to 100 — one person's day is
+ * never counted twice (lib/dept-mix).
+ */
+function DeptSplitEditor({
+  mix,
+  pin,
+  deptName,
+  onPin,
+}: {
+  mix: DeptMix
+  /** The member's stored pin, as typed (may not sum to 100). */
+  pin: Record<string, number> | null
+  deptName: (id: string) => string
+  onPin: (split: Record<string, number> | null) => void
+}) {
+  const pinned = mix.source === 'pinned'
+  const typed = (d: string) => Number(pin?.[d]) || 0
+  const total = mix.shares.reduce((a, [d]) => a + typed(d), 0)
+  return (
+    <div data-dept-split className="mt-2 px-2.5 py-2 rounded-lg bg-[#F9FAFB] border border-[#F3F4F6]">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Capacity split</span>
+        {!pinned && <span className="text-[11.5px] text-[#374151] font-mono tabular-nums">{mixLabel(mix, deptName)}</span>}
+        <span className="text-[10.5px] text-[#9CA3AF]">{mixSourceLabel(mix)}</span>
+        <button
+          onClick={() =>
+            onPin(pinned ? null : Object.fromEntries(mix.shares.map(([d, f]) => [d, Math.round(f * 100)])))
+          }
+          className="ml-auto text-[11px] font-medium text-[#2563EB] hover:underline"
+        >
+          {pinned ? 'Unpin — learn from tracked time' : 'Pin this split'}
+        </button>
+      </div>
+      {pinned && (
+        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+          {mix.shares.map(([d]) => (
+            <label key={d} className="flex items-center gap-1 text-[11.5px] text-[#374151]">
+              {deptName(d)}
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={typed(d)}
+                onChange={(e) => {
+                  const v = Math.max(0, Math.min(100, Number(e.target.value) || 0))
+                  // Two depts: the other takes the rest, so it always reads 100.
+                  const next = Object.fromEntries(mix.shares.map(([k]) => [k, typed(k)]))
+                  next[d] = v
+                  if (mix.shares.length === 2) {
+                    const other = mix.shares.find(([k]) => k !== d)![0]
+                    next[other] = Math.max(0, 100 - v)
+                  }
+                  onPin(next)
+                }}
+                className="w-14 px-1.5 py-0.5 text-[11.5px] font-mono text-right border border-[#E5E7EB] rounded outline-none focus:border-[#2563EB] bg-white"
+              />
+              %
+            </label>
+          ))}
+          {Math.abs(total - 100) > 0.05 && (
+            <span className="text-[10.5px] text-[#B45309]">
+              adds to {Math.round(total)}% — capacity uses it scaled to 100: {mixLabel(mix, deptName)}
+            </span>
+          )}
         </div>
       )}
     </div>

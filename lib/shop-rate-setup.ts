@@ -19,6 +19,7 @@ import { supabase } from './supabase'
 import { updateOrgChecked } from './org-write'
 import { mergeTeam } from './team-merge'
 import { applyTeamComp, loadTeamComp } from './team-comp'
+import { LEARN_WINDOW_DAYS, memberDeptMix, type DeptMix } from './dept-mix'
 
 export type Period = 'monthly' | 'annual'
 
@@ -80,7 +81,16 @@ export interface TeamMember {
   /** Active on the roster. Inactive members drop out of capacity, the
    *  shop-rate denominator, and the worker app. Defaults true. */
   active?: boolean
+  /** 2026-11-06 — a PINNED department split, deptId → percent ("Eng 100").
+   *  Set on /team when the future won't look like the past; null / absent =
+   *  learn it from tracked time (lib/dept-mix). Never changes the member's
+   *  total hours, only how they divide. */
+  dept_split?: Record<string, number> | null
 }
+
+/** member id → dept id → minutes tracked in the learn window (see
+ *  loadTrackedDeptMinutes). Feeds the learned split. */
+export type TrackedDeptMinutes = Record<string, Record<string, number>>
 
 /** Standard work week used to convert a per-person weekly hours figure
  *  into a per-working-day rate for capacity math. */
@@ -94,8 +104,9 @@ export function memberDailyHours(m: TeamMember, defaultHrsPerWeek = 40): number 
 }
 
 /** Per-dept daily capacity hours from the team roster: for each active
- *  billable member, their per-day hours SPLIT EVENLY across the departments
- *  they're assigned to. This is the single source both /capacity and
+ *  billable member, their per-day hours SPLIT across the departments
+ *  they're assigned to — pinned, else LEARNED from `tracked`, else evenly
+ *  (lib/dept-mix; the fractions always sum to 1, so no hour counts twice). This is the single source both /capacity and
  *  /schedule use in place of the old `headcount × dept.hours_per_day`.
  *
  *  The split is the point. This used to add a member's FULL day to EVERY
@@ -119,6 +130,9 @@ export function deptDailyHoursByTeam(
    *  day splits over their OTHER depts only; someone only in excluded depts
    *  adds nothing. */
   excludedDeptIds?: ReadonlySet<string>,
+  /** Trailing tracked minutes per member per dept → the LEARNED split. Omit
+   *  and a member's day splits pinned-else-even. */
+  tracked?: TrackedDeptMinutes | null,
 ): Record<string, number> {
   const out: Record<string, number> = {}
   for (const m of team || []) {
@@ -126,12 +140,58 @@ export function deptDailyHoursByTeam(
     if (m.active === false) continue
     const daily = memberDailyHours(m, defaultHrsPerWeek)
     if (daily <= 0) continue
-    const depts = countingDepts(m, excludedDeptIds)
-    if (depts.length === 0) continue
-    const share = daily / depts.length
-    for (const deptId of depts) {
-      out[deptId] = (out[deptId] || 0) + share
+    for (const [deptId, f] of memberMix(m, excludedDeptIds, tracked).shares) {
+      out[deptId] = (out[deptId] || 0) + daily * f
     }
+  }
+  return out
+}
+
+/** One member's dept split as capacity uses it — the SAME call for capacity
+ *  and for its PTO subtraction, so the two can never disagree. */
+export function memberMix(
+  m: TeamMember,
+  excludedDeptIds?: ReadonlySet<string>,
+  tracked?: TrackedDeptMinutes | null,
+): DeptMix {
+  return memberDeptMix(m, countingDepts(m, excludedDeptIds), tracked ? tracked[m.id] || {} : null)
+}
+
+/**
+ * Minutes each roster member tracked per department over the last
+ * LEARN_WINDOW_DAYS (completed entries, any project). Members without a
+ * login have nothing tracked → they stay pinned-or-even.
+ */
+export async function loadTrackedDeptMinutes(
+  orgId: string,
+  team: TeamMember[],
+  now = new Date(),
+): Promise<TrackedDeptMinutes> {
+  const memberByUser = new Map<string, string>()
+  for (const m of team || []) if (m.user_id) memberByUser.set(m.user_id, m.id)
+  const out: TrackedDeptMinutes = {}
+  if (memberByUser.size === 0) return out
+  const from = new Date(now)
+  from.setDate(from.getDate() - LEARN_WINDOW_DAYS)
+  for (let at = 0; ; at += 1000) {
+    const { data, error } = await supabase
+      .from('time_entries')
+      .select('user_id, department_id, duration_minutes')
+      .eq('org_id', orgId)
+      .in('user_id', [...memberByUser.keys()])
+      .not('department_id', 'is', null)
+      .not('ended_at', 'is', null)
+      .gte('started_at', from.toISOString())
+      .order('id')
+      .range(at, at + 999)
+    if (error) throw error
+    for (const e of (data || []) as Array<{ user_id: string; department_id: string; duration_minutes: number | null }>) {
+      const mid = memberByUser.get(e.user_id)
+      if (!mid) continue
+      const row = (out[mid] ||= {})
+      row[e.department_id] = (row[e.department_id] || 0) + (Number(e.duration_minutes) || 0)
+    }
+    if (!data || data.length < 1000) break
   }
   return out
 }
@@ -159,13 +219,14 @@ export interface CapacityOverrideRow {
 
 /**
  * Hours each override takes out of each department, per day — the
- * subtraction half of `deptDailyHoursByTeam`, using the SAME even split so
- * the two can never disagree (October batch item 7).
+ * subtraction half of `deptDailyHoursByTeam`, using the SAME split
+ * (`memberMix` — pinned / learned / even) so the two can never disagree
+ * (October batch item 7; learned split 2026-11-06).
  *
  * Returns `date → deptId → hours`.
  *
  *   · Individual PTO (team_member_id set): the member's hours_reduction (0 →
- *     their own daily hours) split evenly across their dept_assignments —
+ *     their own daily hours) split across their depts by their mix —
  *     exactly the share they ADDED to each dept. Skipped when the member
  *     doesn't count toward capacity at all (non-billable, inactive, no
  *     depts, off the roster): their day off removes nothing that was there.
@@ -182,8 +243,10 @@ export function capacityReductionsByDay(
   team: TeamMember[],
   defaultHrsPerWeek = 40,
   excludedDeptIds?: ReadonlySet<string>,
+  /** The same tracked minutes deptDailyHoursByTeam was given. */
+  tracked?: TrackedDeptMinutes | null,
 ): Record<string, Record<string, number>> {
-  const dailyByDept = deptDailyHoursByTeam(team, defaultHrsPerWeek, excludedDeptIds)
+  const dailyByDept = deptDailyHoursByTeam(team, defaultHrsPerWeek, excludedDeptIds, tracked)
   const byId = new Map((team || []).map((m) => [m.id, m]))
   const out: Record<string, Record<string, number>> = {}
   const add = (date: string, deptId: string, h: number) => {
@@ -218,15 +281,15 @@ export function capacityReductionsByDay(
     if (ov.reason?.startsWith('Reassigned to')) continue
     const m = byId.get(ov.team_member_id)
     if (!m || !m.billable || m.active === false) continue
-    const depts = countingDepts(m, excludedDeptIds)
-    if (depts.length === 0) continue
+    const shares = memberMix(m, excludedDeptIds, tracked).shares
+    if (shares.length === 0) continue
     const daily = memberDailyHours(m, defaultHrsPerWeek)
     const raw = Number(ov.hours_reduction) || 0
     const hours = Math.min(raw > 0 ? raw : daily, daily)
     const hol = holidayDepts[ov.override_date]
-    for (const deptId of depts) {
+    for (const [deptId, f] of shares) {
       if (hol === 'all' || (hol && hol.has(deptId))) continue
-      add(ov.override_date, deptId, hours / depts.length)
+      add(ov.override_date, deptId, hours * f)
     }
   }
   return out

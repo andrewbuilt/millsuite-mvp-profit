@@ -64,6 +64,8 @@ const MERGEABLE_FIELD_SET: Record<Exclude<keyof TeamMember, 'id'>, true> = {
   birthday: true,
   hours_per_week: true,
   active: true,
+  // 2026-11-06 — the pinned department split, owned by /team.
+  dept_split: true,
 }
 
 const MERGEABLE_FIELDS = Object.keys(MERGEABLE_FIELD_SET) as Array<
@@ -76,6 +78,8 @@ function sameValue(a: unknown, b: unknown): boolean {
   }
   // undefined and null both mean "not set" for these optional fields.
   if (a == null && b == null) return true
+  // dept_split is a small object: compare by value, not reference.
+  if (a && b && typeof a === 'object' && typeof b === 'object') return JSON.stringify(a) === JSON.stringify(b)
   return a === b
 }
 
