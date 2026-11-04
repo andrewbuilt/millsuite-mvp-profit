@@ -134,5 +134,27 @@ ok('/join page: precheck runs BEFORE supabase.auth.signUp', joinPage.indexOf('pr
 
 ok('diagnostic script: --live hides orgs nobody can sign in to', /--live/.test(read('scripts/inspect-logins.mjs')) && /liveOnly && !liveOrg\(o\.id\)/.test(read('scripts/inspect-logins.mjs')))
 
+{
+  // inspect-duplicate-logins' REFS must cover every column that references
+  // users(id) — a missing one reads as "safe to delete" (it did, 2026-11-04).
+  const migDir = path.join(root, 'db/migrations')
+  const want = new Set()
+  for (const f of fs.readdirSync(migDir).filter((f) => f.endsWith('.sql'))) {
+    let table = null
+    for (const line of fs.readFileSync(path.join(migDir, f), 'utf8').split('\n')) {
+      const t = /CREATE TABLE (?:IF NOT EXISTS )?(?:public\.)?(\w+)/i.exec(line) || /ALTER TABLE (?:public\.)?(\w+)/i.exec(line)
+      if (t) table = t[1]
+      const c = /(\w+)\s+uuid[^,;]*REFERENCES\s+(?:public\.)?users\s*\(id\)/i.exec(line)
+      if (c && table) want.add(`${table}.${c[1]}`)
+    }
+  }
+  const refsSrc = read('scripts/login-refs.mjs')
+  const missing = [...want].filter((tc) => { const [t, c] = tc.split('.'); return !refsSrc.includes(`['${t}', '${c}']`) })
+  ok(`login-refs (inspect + fix-duplicate-logins) covers every users(id) reference in the migrations (${want.size})`, missing.length === 0, missing)
+}
+
+ok('fix-duplicate-logins fails closed on a column it could not read', /UNCHECKED/.test(read('scripts/fix-duplicate-logins.mjs')) && /loginReferences\(db, userId\)/.test(read('scripts/fix-duplicate-logins.mjs')))
+ok('both login scripts use the ONE shared list', /from '\.\/login-refs\.mjs'/.test(read('scripts/inspect-duplicate-logins.mjs')) && /from '\.\/login-refs\.mjs'/.test(read('scripts/fix-duplicate-logins.mjs')) && !/const REFS = \[/.test(read('scripts/inspect-duplicate-logins.mjs') + read('scripts/fix-duplicate-logins.mjs')))
+
 console.log(`\n${fail ? 'FAIL' : 'PASS'} — ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

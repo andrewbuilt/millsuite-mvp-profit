@@ -25,6 +25,7 @@
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
+import { loginReferences } from './login-refs.mjs'
 
 const env = Object.fromEntries(
   fs
@@ -59,34 +60,14 @@ const DOOMED = [
 /** ⛔ KEEP. Named explicitly so no future edit can add it to the list above. */
 const KEEP = '40bc9046-6082-419f-9c65-12fdab562685'
 
-const REFS = [
-  ['tasks', 'assigned_to'],
-  ['tasks', 'created_by'],
-  ['task_comments', 'author_id'],
-  ['time_entries', 'user_id'],
-  ['time_entries', 'created_by'],
-  ['pto_requests', 'approved_by'],
-  ['co_docs', 'accepted_by'],
-  ['project_payments', 'created_by'],
-  ['comments', 'author_id'],
-  ['project_events', 'actor_user_id'],
-  ['drawing_revisions', 'uploaded_by'],
-  ['suggestions', 'created_by'],
-]
 
 const { data: orgs } = await db.from('orgs').select('id, name, team_members')
 
+/** ⛔ FAILS CLOSED: a column it couldn't read counts as a reference, so the
+ *  row is refused rather than deleted on an unchecked "nothing attached". */
 async function referencesFor(userId) {
-  const hits = []
-  for (const [table, col] of REFS) {
-    const { count, error } = await db
-      .from(table)
-      .select('id', { count: 'exact', head: true })
-      .eq(col, userId)
-    if (error) continue
-    if ((count || 0) > 0) hits.push(`${table}.${col}=${count}`)
-  }
-  return hits
+  const { hits, unchecked } = await loginReferences(db, userId)
+  return [...hits, ...unchecked.map((u) => `UNCHECKED ${u}`)]
 }
 
 function rosterLinks(userId) {

@@ -17,6 +17,7 @@
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
+import { loginReferences } from './login-refs.mjs'
 
 const env = Object.fromEntries(
   fs
@@ -37,23 +38,7 @@ const { data: users } = await db
 const { data: orgs } = await db.from('orgs').select('id, name, team_members')
 const orgName = new Map((orgs || []).map((o) => [o.id, o.name]))
 
-// Every place a users.id is stamped. ⚠️ Hand-maintained: a table added later
-// that references users.id and is missing here would be invisible to this
-// report, which is exactly the class of mistake it exists to prevent.
-const REFS = [
-  ['tasks', 'assigned_to'],
-  ['tasks', 'created_by'],
-  ['task_comments', 'author_id'],
-  ['time_entries', 'user_id'],
-  ['time_entries', 'created_by'],
-  ['pto_requests', 'approved_by'],
-  ['co_docs', 'accepted_by'],
-  ['project_payments', 'created_by'],
-  ['comments', 'author_id'],
-  ['project_events', 'actor_user_id'],
-  ['drawing_revisions', 'uploaded_by'],
-  ['suggestions', 'created_by'],
-]
+// Every place a users.id is stamped — scripts/login-refs.mjs.
 
 // Which auth accounts actually exist, and when each was last used.
 const { data: authList } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 })
@@ -76,20 +61,11 @@ for (const u of users || []) {
   }
 
   // What is stamped on this id?
-  let total = 0
-  const hits = []
-  for (const [table, col] of REFS) {
-    const { count, error } = await db
-      .from(table)
-      .select('id', { count: 'exact', head: true })
-      .eq(col, u.id)
-    if (error) continue // table or column absent — nothing to orphan
-    if ((count || 0) > 0) {
-      hits.push(`${table}.${col}=${count}`)
-      total += count || 0
-    }
-  }
-  console.log(`     references: ${total === 0 ? 'NONE — safe to delete' : hits.join('  ')}`)
+  const { hits, unchecked, total } = await loginReferences(db, u.id)
+  console.log(
+    `     references: ${total > 0 ? hits.join('  ') : unchecked.length ? 'none found — but NOT all checked, see below' : 'NONE — safe to delete'}`,
+  )
+  if (unchecked.length) console.log(`     ⚠️ could not check: ${unchecked.join(', ')}`)
 
   // Is any roster row pointing at it?
   const pointedBy = []
