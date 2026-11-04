@@ -2,9 +2,11 @@
 // fix-duplicate-logins.mjs — delete duplicate `users` rows + their auth users
 // ============================================================================
 // Run READ-ONLY first (this is the default):
-//   npx tsx scripts/fix-duplicate-logins.mjs
+//   npx tsx scripts/fix-duplicate-logins.mjs --batch built-2026-11
 // Then, to actually delete:
-//   npx tsx scripts/fix-duplicate-logins.mjs --apply
+//   npx tsx scripts/fix-duplicate-logins.mjs --batch built-2026-11 --apply
+// (No --batch = the original kaylin-2026-09 batch, already applied — a
+// re-run just reports "already gone".)
 //
 // ⛔ EVERY DELETION IS RE-CHECKED AT RUN TIME, NOT TRUSTED FROM THE LIST.
 // A `users.id` is stamped on things people made — tasks they were assigned,
@@ -37,8 +39,11 @@ const env = Object.fromEntries(
 const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
 const APPLY = process.argv.includes('--apply')
 
-/** The rows to remove, with WHY — so a future reader can audit the decision. */
-const DOOMED = [
+/** The rows to remove, per batch, with WHY — so a future reader can audit
+ *  each decision. Batches are history: add a new one, never edit an old one. */
+const BATCHES = {
+  /** 2026-09-16 — Kaylin's five rows (applied; see STATE). */
+  'kaylin-2026-09': [
   {
     id: '9b4992d2-3293-413d-9243-5336fcbd5456',
     why: 'kaylin@placeholder.com · Watson cab shop · NO auth_user_id, can never be signed in to',
@@ -55,7 +60,33 @@ const DOOMED = [
     id: '251edd4e-8f35-4b0d-9862-bdfe92e76474',
     why: 'kaylinprice23@gmail.com · Built · live login, unlinked to any roster row (Andrew: delete)',
   },
-]
+],
+  /** 2026-11-04 — from inspect-logins on prod (STATE duplicate-login block).
+   *  "Test user" (andrewwatson@, admin, d864648d) is NOT here: Andrew's call. */
+  'built-2026-11': [
+    {
+      id: '09e416d9-3fd5-4694-8a8e-40032840d083',
+      why: 'evanotero90@gmail.com · Built · member "Evan_o" · Evan\'s second login (made 09-09 via /join, linked to no roster row); his real one is the Evan Otero admin login',
+    },
+    {
+      id: '224c0939-3fb2-42dc-b7dc-972a6410c8d7',
+      why: 'info@builtthings.com · Built · admin "Andrew" · Andrew\'s second manager login (the 09-12 family), linked to no roster row; last sign-in 09-17',
+    },
+    {
+      id: 'bb0f4961-35c8-4e40-bffd-99af58c41b98',
+      why: 'andrewwatson@builtthings.com · Built · member "Andrew" · auth account already deleted, never signed in',
+    },
+  ],
+}
+const batchName = (() => {
+  const i = process.argv.indexOf('--batch')
+  return i > 0 ? String(process.argv[i + 1] || '') : 'kaylin-2026-09'
+})()
+const DOOMED = BATCHES[batchName]
+if (!DOOMED) {
+  console.error(`No batch "${batchName}". Batches: ${Object.keys(BATCHES).join(', ')}`)
+  process.exit(2)
+}
 
 /** ⛔ KEEP. Named explicitly so no future edit can add it to the list above. */
 const KEEP = '40bc9046-6082-419f-9c65-12fdab562685'
@@ -80,7 +111,8 @@ function rosterLinks(userId) {
   return out
 }
 
-console.log(APPLY ? '\n⚠️  APPLYING — this deletes accounts.\n' : '\n(dry run — pass --apply to delete)\n')
+console.log(`\nbatch ${batchName} · ${DOOMED.length} row(s)`)
+console.log(APPLY ? '⚠️  APPLYING — this deletes accounts.\n' : '(dry run — pass --apply to delete)\n')
 
 let deleted = 0
 let refused = 0
@@ -118,7 +150,13 @@ for (const row of DOOMED) {
   }
 
   if (!APPLY) {
-    console.log('   would delete the users row' + (u.auth_user_id ? ' + its auth account' : ''))
+    let last = ''
+    if (u.auth_user_id) {
+      const { data: a } = await db.auth.admin.getUserById(u.auth_user_id)
+      last = a?.user ? ` (last sign-in ${a.user.last_sign_in_at ? String(a.user.last_sign_in_at).slice(0, 10) : 'never'})` : ' (auth account already gone)'
+    }
+    console.log('   ✓ nothing attached, not on the roster')
+    console.log('   would delete the users row' + (u.auth_user_id ? ` + its auth account${last}` : ''))
     continue
   }
 

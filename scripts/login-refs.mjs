@@ -7,22 +7,29 @@
 // `REFERENCES users(id)` in db/migrations and fails when one is missing.
 // (2026-11-04: task_comments was listed as author_id — the column is
 // author_user_id — and 124/125's six columns were absent.)
-// The FK-less ones (time_entries, co_docs, drawing_revisions, suggestions)
-// stay listed by hand: they hold users.id without a constraint.
+// The FK-less ones stay listed by hand: they hold users.id without a
+// constraint (each checked against its migration, 2026-11-04).
+//
+// ⚠️ NOT HERE ON PURPOSE: tasks.assignee_ids holds ROSTER ids
+// (team_members[].id — lib/tasks.ts), not login ids, so a login can't be
+// "assigned" anything; the roster link is what the report's roster line
+// covers. (The first run listed `tasks.assigned_to` and
+// `time_entries.created_by` — neither column exists — and
+// `drawing_revisions.uploaded_by`, which is `uploaded_by_user_id`.)
 // ============================================================================
 
 export const LOGIN_REFS = [
-  ['tasks', 'assigned_to'],
   ['tasks', 'created_by'],
+  ['tasks', 'completed_by'], // 114
   ['task_comments', 'author_user_id'],
   ['time_entries', 'user_id'],
-  ['time_entries', 'created_by'],
+  ['time_entries', 'edited_by'], // 117
   ['pto_requests', 'approved_by'],
   ['co_docs', 'accepted_by'],
   ['project_payments', 'created_by'],
   ['comments', 'author_id'],
   ['project_events', 'actor_user_id'],
-  ['drawing_revisions', 'uploaded_by'],
+  ['drawing_revisions', 'uploaded_by_user_id'], // 002
   ['suggestions', 'created_by'],
   ['invoices', 'entered_by'],
   ['invoices', 'edited_by'],
@@ -33,7 +40,9 @@ export const LOGIN_REFS = [
 ]
 
 /**
- * What's stamped on a users.id. `unchecked` = columns the read failed on —
+ * What's stamped on a users.id. Also checks the one jsonb LIST of login ids,
+ * orgs.payments_visible_to (115) — a deleted login left in it is harmless but
+ * should be taken out on /settings. `unchecked` = columns the read failed on —
  * a caller that DELETES must treat any unchecked column as a refusal.
  */
 export async function loginReferences(db, userId) {
@@ -49,6 +58,14 @@ export async function loginReferences(db, userId) {
     if ((count || 0) > 0) {
       hits.push(`${table}.${col}=${count}`)
       total += count || 0
+    }
+  }
+  {
+    const { data, error } = await db.from('orgs').select('name, payments_visible_to').contains('payments_visible_to', [userId])
+    if (error) unchecked.push(`orgs.payments_visible_to (${error.code || error.message})`)
+    else if (data?.length) {
+      hits.push(`orgs.payments_visible_to (${data.map((o) => o.name).join(', ')})`)
+      total += data.length
     }
   }
   return { hits, unchecked, total }

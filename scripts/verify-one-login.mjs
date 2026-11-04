@@ -150,11 +150,25 @@ ok('diagnostic script: --live hides orgs nobody can sign in to', /--live/.test(r
   }
   const refsSrc = read('scripts/login-refs.mjs')
   const missing = [...want].filter((tc) => { const [t, c] = tc.split('.'); return !refsSrc.includes(`['${t}', '${c}']`) })
+  // …and every FK-less login-id column the migrations DECLARE in comments
+  // (114 completed_by, 117 edited_by, 002 uploaded_by_user_id), plus no
+  // column that doesn't exist (the first prod run errored on three).
+  for (const tc of ['tasks.completed_by', 'time_entries.edited_by', 'drawing_revisions.uploaded_by_user_id', 'co_docs.accepted_by']) want.add(tc)
+  const ghost = ['tasks.assigned_to', 'time_entries.created_by', 'drawing_revisions.uploaded_by'].filter((tc) => { const [t, c] = tc.split('.'); return refsSrc.includes(`['${t}', '${c}']`) })
+  ok('login-refs lists no column that does not exist (assigned_to / created_by / uploaded_by)', ghost.length === 0, ghost)
+  ok('login-refs checks the payments allowlist (orgs.payments_visible_to, 115)', /payments_visible_to/.test(refsSrc))
   ok(`login-refs (inspect + fix-duplicate-logins) covers every users(id) reference in the migrations (${want.size})`, missing.length === 0, missing)
 }
 
 ok('fix-duplicate-logins fails closed on a column it could not read', /UNCHECKED/.test(read('scripts/fix-duplicate-logins.mjs')) && /loginReferences\(db, userId\)/.test(read('scripts/fix-duplicate-logins.mjs')))
 ok('both login scripts use the ONE shared list', /from '\.\/login-refs\.mjs'/.test(read('scripts/inspect-duplicate-logins.mjs')) && /from '\.\/login-refs\.mjs'/.test(read('scripts/fix-duplicate-logins.mjs')) && !/const REFS = \[/.test(read('scripts/inspect-duplicate-logins.mjs') + read('scripts/fix-duplicate-logins.mjs')))
+
+{
+  const fix = read('scripts/fix-duplicate-logins.mjs')
+  ok('fix-duplicate-logins: dry run by default, batches by name, unknown batch exits', /const APPLY = process\.argv\.includes\('--apply'\)/.test(fix) && /'built-2026-11': \[/.test(fix) && /No batch/.test(fix))
+  ok('fix-duplicate-logins: the Built batch leaves "Test user" (d864648d) out', !/id: 'd864648d/.test(fix))
+  ok('fix-duplicate-logins: still refuses rows on the roster or with history, users row before auth', /REFUSED — now linked to a roster row/.test(fix) && /REFUSED — now has references/.test(fix) && fix.indexOf(".from('users').delete()") < fix.indexOf('auth.admin.deleteUser('))
+}
 
 console.log(`\n${fail ? 'FAIL' : 'PASS'} — ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
