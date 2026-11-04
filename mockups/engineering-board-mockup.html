@@ -90,6 +90,23 @@
   .btn.primary { background:#2563EB; border-color:#2563EB; color:#fff; }
   .mnote { font-size:11px; color:#6B7280; line-height:1.55; max-width:360px; }
 
+  /* tracked band — what actually happened, in order, scaled to duration */
+  .tband { grid-column:2 / span 10; border-top:1px dashed #E5E7EB; display:grid; grid-template-columns:repeat(10,1fr); }
+  .tband .td { border-left:1px solid #F7F7F5; padding:4px 3px 6px; min-height:26px; display:flex; gap:2px; align-items:center; }
+  .tband .td:first-child { border-left:none; }
+  .tlbl { grid-column:1; font-size:8.5px; font-weight:700; letter-spacing:.07em; color:#C4C0B8; text-transform:uppercase; padding:6px 12px 0; }
+  .seg { height:12px; border-radius:4px; }
+  .seg.live { outline:2px solid #2563EB; outline-offset:1px; animation:pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity:.6; } }
+  .g1 { background:#93C5FD; } .g2 { background:#FCD34D; } .g3 { background:#F9A8D4; } .g4 { background:#6EE7B7; } .g5 { background:#C4B5FD; }
+
+  /* timer in the modal */
+  .timer { display:flex; align-items:center; gap:12px; background:#F0FDF4; border:1px solid #BBF7D0; border-radius:10px; padding:10px 12px; margin:12px 0 2px; }
+  .timer .dot { width:10px; height:10px; border-radius:99px; background:#059669; animation:pulse 1.6s infinite; }
+  .timer .el { font-family:ui-monospace,Menlo,monospace; font-size:16px; font-weight:700; color:#065F46; }
+  .timer .st { font-size:10.5px; color:#047857; }
+  .timer .stop { margin-left:auto; font-size:12px; font-weight:700; background:#111; color:#fff; border:none; border-radius:8px; padding:8px 14px; }
+
   .foot { margin-top:16px; font-size:11.5px; color:#9CA3AF; max-width:860px; line-height:1.6; }
 </style>
 </head>
@@ -127,6 +144,13 @@
       <div class="strip s1 thin" style="--start:2; --span:1"><b>Towers assist</b><small>3h left</small></div>
       <div class="strip s2 thin" style="--start:3; --span:2"><b>JW Marriott Ph 2</b><small>11h left of 14 · 3h in</small></div>
     </div>
+    <div class="tlbl">Tracked</div>
+    <div class="tband">
+      <div class="td"><span class="seg g5" style="width:38%"></span><span class="seg g1" style="width:13%"></span><span class="seg g5" style="width:49%" title="Kinser 3h · Towers 1h · Kinser 4h"></span></div>
+      <div class="td"><span class="seg g5" style="width:62%"></span><span class="seg g5 live" style="width:22%" title="Kinser · timer running"></span></div>
+      <div class="td"></div><div class="td"></div><div class="td"></div>
+      <div class="td"></div><div class="td"></div><div class="td"></div><div class="td"></div><div class="td"></div>
+    </div>
   </div>
 </div>
 
@@ -151,6 +175,13 @@
       <div class="strip s4" style="--start:3; --span:4"><b>Bonzer – 400 Central</b><small>16h left of 16 · divided 4h/day</small></div>
       <div class="strip s3 thin" style="--start:5; --span:4"><b>Schiller – A&amp;K</b><small>14h left · divided</small></div>
     </div>
+    <div class="tlbl">Tracked</div>
+    <div class="tband">
+      <div class="td"><span class="seg g1" style="width:48%"></span><span class="seg g4" style="width:24%"></span><span class="seg g1" style="width:24%" title="Towers 4h · Bonzer 2h · Towers 2h"></span></div>
+      <div class="td"><span class="seg g1" style="width:30%" title="Towers 2.5h this morning"></span></div>
+      <div class="td"></div><div class="td"></div><div class="td"></div>
+      <div class="td"></div><div class="td"></div><div class="td"></div><div class="td"></div><div class="td"></div>
+    </div>
   </div>
 </div>
 
@@ -159,6 +190,11 @@
   <div class="modal">
     <h3>Kinser · part 3 — Hunter</h3>
     <div class="meta">24h estimated · 8h tracked · <b>16h left</b></div>
+    <div class="timer">
+      <div class="dot"></div>
+      <div><div class="el">1:24:08</div><div class="st">Tracking Kinser · started 12:04 · Hunter</div></div>
+      <button class="stop">Stop</button>
+    </div>
     <div class="mrow"><span class="d">Tue Nov 3</span><input value="5.5"> h <span class="hint">2.5h open for other work</span></div>
     <div class="mrow"><span class="d">Wed Nov 4</span><input value="5.5"> h <span class="hint">2.5h open</span></div>
     <div class="mrow"><span class="d">Thu Nov 5</span><input value="5"> h <span class="hint">3h open</span></div>
@@ -166,14 +202,14 @@
     <div class="msum">5.5 + 5.5 + 5 = 16h ✓</div>
     <div class="mbtns"><button class="btn primary">Save</button><button class="btn">Even split</button><button class="btn">Cancel</button></div>
   </div>
-  <p class="mnote"><b>The modal is the only hand tool.</b> Tracked time shrinks strips automatically — this is just for
+  <p class="mnote"><b>The timer lives here too</b> — an engineer opens a strip and hits Start without visiting the time clock; starting a timer on another strip auto-stops this one (same open-entry rule as /me, so phone and board agree). The blue-ringed pulsing segment in the Tracked band is the live timer. <b>The modal is the only hand tool.</b> Tracked time shrinks strips automatically — this is just for
   deliberately spreading what's LEFT across more days so other projects fit beside it (the day headers above show each
   day's summed load and go red when a day is overbooked). "Even split" resets to daily capacity. The firm pin shows on
   the lane; if the pack can't make the date, the strip flags <b style="color:#B91C1C">at risk</b> instead of silently sliding.</p>
 </div>
 
 <p class="foot">
-  Per-engineer day headers (each lane has its own) carry that person's daily load — amber full, red over.
+  The <b>Tracked band</b> under each lane shows what actually happened each day, in order, segments scaled to duration and colored by project — the interruptions to the priority plan are visible at a glance (Hunter's Monday: Kinser · Towers · Kinser). Per-engineer day headers (each lane has its own) carry that person's daily load — amber full, red over.
   Drawings-by dates on the rail derive from each strip's end. One data layer with capacity and /schedule, as before;
   tracked engineering time is the same time clock the shop already runs.
 </p>
