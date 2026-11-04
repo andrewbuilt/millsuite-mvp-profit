@@ -21,12 +21,33 @@
 //
 // ⛔ NO LOCKS, NO FLOORS, NO PINS. Under v4 no forecast row has a payment
 // against it, so every row is freely editable and removable.
+//
+// RECORD A PAYMENT HERE (Andrew, 2026-11-04): "some pay app payments cover
+// multiple draws." Type what was received, TICK the draws it paid, Record:
+// the payment lands in the ledger and the ticked rows leave the forecast.
+// That is a human choosing, row by row — still never the machinery. Money
+// beyond the ticked draws is NOT applied: it shows as UNRESOLVED (forecast vs
+// remaining) until a human takes it off one draw or splits it evenly. Paying
+// LESS than the ticked draws leaves a "short" amount, same two tools.
 // ============================================================================
 
 import { useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { evenSplit, proportionalSplit, splitByWeights } from '@/lib/payment-forecast'
 import type { ForecastDraft } from '@/lib/payments'
+
+/** What the Record-a-payment panel hands back. */
+export interface RecordedPayment {
+  amount: number
+  paymentDate: string
+  label: string | null
+  method: string | null
+}
+
+function localToday(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 export type ForecastPurpose = 'setup' | 'edit' | 'redivide'
 
@@ -83,6 +104,7 @@ export default function ForecastModal({
   saving,
   onCancel,
   onSave,
+  onRecordPayment,
 }: {
   purpose: ForecastPurpose
   projectName: string
@@ -93,6 +115,9 @@ export default function ForecastModal({
   saving: boolean
   onCancel: () => void
   onSave: (rows: ForecastDraft[], via: 'editor' | 'redivide') => Promise<void>
+  /** Record a payment for the ticked draws: ledger row + the forecast WITHOUT
+   *  those rows (the rest of the draft as on screen). Absent = no panel. */
+  onRecordPayment?: (payment: RecordedPayment, keep: ForecastDraft[]) => Promise<void>
 }) {
   const remaining = round2(Math.max(0, contractTotal - received))
   const [purpose, setPurpose] = useState<ForecastPurpose>(initialPurpose)
@@ -106,9 +131,10 @@ export default function ForecastModal({
   let seq = 0
   const [rows, setRows] = useState<Draft[]>(() => {
     const src =
-      initialRows.length > 0
+      initialRows.length > 0 || initialPurpose !== 'setup'
         ? initialRows
         : // Setup with nothing yet: seed the first preset, spread over remaining.
+          // (Only SETUP — an edit whose last draws were just paid must open empty.)
           (() => {
             const p = PRESETS[0].rows
             const amts = splitByWeights(remaining, p.map((r) => r.pct))
@@ -125,6 +151,15 @@ export default function ForecastModal({
     }))
   })
   const [error, setError] = useState<string | null>(null)
+  // ── Record-a-payment panel ──
+  const [payOpen, setPayOpen] = useState(false)
+  const [payAmount, setPayAmount] = useState('')
+  const [payDate, setPayDate] = useState(localToday)
+  const [payMethod, setPayMethod] = useState('')
+  const [payLabel, setPayLabel] = useState('')
+  const [checked, setChecked] = useState<Set<string>>(() => new Set())
+  const [recording, setRecording] = useState(false)
+  const [moveTo, setMoveTo] = useState('')
 
   /** What each row is worth in dollars, from what's typed. */
   const amounts = useMemo(() => {
@@ -140,7 +175,49 @@ export default function ForecastModal({
   const total = round2(amounts.reduce((a, b) => a + b, 0))
   const off = round2(total - remaining)
   const foots = Math.abs(off) < 0.01
+  /** Under a dollar is rounding (Leonard: 69¢), not money to place — the same
+   *  threshold as the board's hint (HINT_EPS). The Redivide gate stays exact. */
+  const nearlyFoots = Math.abs(off) < 1
   const pctSum = rows.reduce((a, r) => a + (Number(r.input) || 0), 0)
+
+  const paid = round2(Number(payAmount) || 0)
+  const coveredIdx = rows.map((r, i) => (checked.has(r.key) ? i : -1)).filter((i) => i >= 0)
+  const covered = round2(coveredIdx.reduce((a, i) => a + amounts[i], 0))
+  /** + = received beyond the ticked draws (unresolved); − = short of them. */
+  const leftover = round2(paid - covered)
+  const autoLabel = coveredIdx.map((i) => rows[i].label.trim()).filter(Boolean).join(' + ')
+  const canRecord =
+    !!onRecordPayment && !recording && paid !== 0 && /^\d{4}-\d{2}-\d{2}$/.test(payDate) && rows.every((r) => r.label.trim())
+
+  async function recordPayment() {
+    if (!canRecord || !onRecordPayment) return
+    setRecording(true)
+    setError(null)
+    try {
+      await onRecordPayment(
+        { amount: paid, paymentDate: payDate, label: (payLabel.trim() || autoLabel) || null, method: payMethod || null },
+        rows.filter((r) => !checked.has(r.key)).map((r) => ({ id: r.id, label: r.label.trim(), amount: amounts[rows.indexOf(r)] })),
+      )
+      // The board re-mounts this modal with the fresh rows + received.
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not record that payment.')
+      setRecording(false)
+    }
+  }
+
+  /** UNRESOLVED = what the forecast expects beyond what's left (+), or short of it (−).
+   *  Placed only by hand: off ONE draw, or split evenly over all of them. */
+  const unresolved = round2(total - remaining)
+  function settleOnto(i: number) {
+    const next = amounts.map((a, j) => (j === i ? Math.max(0, round2(a - unresolved)) : a))
+    writeAmounts(next)
+  }
+  function settleEvenly() {
+    if (rows.length === 0) return
+    const share = splitByWeights(Math.abs(unresolved), rows.map(() => 1))
+    const sign = unresolved > 0 ? -1 : 1
+    writeAmounts(amounts.map((a, i) => Math.max(0, round2(a + sign * share[i]))))
+  }
 
   function writeAmounts(next: number[], keepRows = rows) {
     setRows(
@@ -261,6 +338,73 @@ export default function ForecastModal({
             </div>
           )}
 
+          {onRecordPayment && purpose !== 'setup' && rows.length > 0 && (
+            <div className={`mb-3 rounded-lg border ${payOpen ? 'border-[#A7F3D0] bg-[#F0FDF4]' : 'border-[#E5E7EB]'} px-3 py-2`}>
+              {!payOpen ? (
+                <button onClick={() => setPayOpen(true)} className="text-[12px] font-medium text-[#047857] hover:underline">
+                  + Record a payment against these draws
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#047857]">Received</span>
+                    <span className="text-[11px] text-[#9CA3AF]">$</span>
+                    <input
+                      autoFocus
+                      value={payAmount}
+                      onChange={(e) => setPayAmount(e.target.value.replace(/[^0-9.-]/g, ''))}
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      aria-label="Amount received"
+                      className={`${field} w-28 text-right font-mono bg-white`}
+                    />
+                    <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} aria-label="Date received" className={`${field} bg-white`} />
+                    <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)} aria-label="Method" className={`${field} bg-white`}>
+                      <option value="">Method</option>
+                      <option value="check">Check</option>
+                      <option value="ach">ACH</option>
+                      <option value="card">Card</option>
+                      <option value="cash">Cash</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <button onClick={() => { setPayOpen(false); setChecked(new Set()) }} className="ml-auto text-[11px] text-[#6B7280] hover:underline">
+                      Close
+                    </button>
+                  </div>
+                  <input
+                    value={payLabel}
+                    onChange={(e) => setPayLabel(e.target.value)}
+                    placeholder={autoLabel || 'Label — tick the draws it paid below'}
+                    aria-label="Payment label"
+                    className={`${field} w-full bg-white`}
+                  />
+                  <div className="text-[11.5px] text-[#374151] leading-snug">
+                    {coveredIdx.length === 0 ? (
+                      <>Tick the draws this payment covers. Nothing ticked = it&apos;s all unresolved.</>
+                    ) : (
+                      <>
+                        Covers {coveredIdx.length} draw{coveredIdx.length > 1 ? 's' : ''} · <span className="font-mono">{moneyCents(covered)}</span>
+                      </>
+                    )}
+                    {paid !== 0 && Math.abs(leftover) >= 0.01 && (
+                      <span className={leftover > 0 ? 'text-[#B45309]' : 'text-[#B91C1C]'}>
+                        {' '}· <span className="font-mono">{moneyCents(Math.abs(leftover))}</span>{' '}
+                        {leftover > 0 ? 'left over — stays unresolved, not applied' : 'short of the ticked draws — stays unresolved'}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => void recordPayment()}
+                    disabled={!canRecord}
+                    className="px-3 py-1.5 rounded-md bg-[#059669] text-white text-[12px] font-medium hover:bg-[#047857] disabled:opacity-50"
+                  >
+                    {recording ? 'Recording…' : coveredIdx.length ? `Record payment · remove ${coveredIdx.length} paid draw${coveredIdx.length > 1 ? 's' : ''}` : 'Record payment'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-1.5 mb-3 flex-wrap">
             <div className="inline-flex rounded border border-[#E5E7EB] overflow-hidden mr-1" role="group" aria-label="Enter amounts as">
               {(['dollars', 'percent'] as const).map((m) => (
@@ -316,6 +460,22 @@ export default function ForecastModal({
             )}
             {rows.map((r, i) => (
               <div key={r.key} className="flex items-center gap-1.5">
+                {payOpen && (
+                  <input
+                    type="checkbox"
+                    checked={checked.has(r.key)}
+                    onChange={(e) =>
+                      setChecked((prev) => {
+                        const next = new Set(prev)
+                        if (e.target.checked) next.add(r.key)
+                        else next.delete(r.key)
+                        return next
+                      })
+                    }
+                    aria-label={`Payment covers ${r.label}`}
+                    className="w-4 h-4 accent-[#059669] flex-shrink-0"
+                  />
+                )}
                 <input
                   value={r.label}
                   onChange={(e) => patch(i, { label: e.target.value })}
@@ -357,7 +517,7 @@ export default function ForecastModal({
             {/* ⛔ THE SUM GATE, against REMAINING. */}
             <div
               className={`text-[12px] font-mono tabular-nums ${
-                foots ? 'text-[#059669]' : needsFoot ? 'text-[#B91C1C]' : 'text-[#B45309]'
+                foots || (!needsFoot && nearlyFoots) ? 'text-[#059669]' : needsFoot ? 'text-[#B91C1C]' : 'text-[#B45309]'
               }`}
             >
               {moneyCents(total)} of {moneyCents(remaining)} remaining
@@ -368,7 +528,38 @@ export default function ForecastModal({
               )}
             </div>
           </div>
-          {!foots && purpose === 'edit' && (
+          {/* UNRESOLVED — placed by hand only. */}
+          {!nearlyFoots && contractTotal > 0 && rows.length > 0 && (
+            <div className="mt-2 px-2.5 py-2 rounded-md border border-[#FDE68A] bg-[#FFFBEB] text-[11.5px] text-[#92400E] flex items-center gap-2 flex-wrap">
+              <span>
+                <span className="font-mono font-semibold">{moneyCents(Math.abs(unresolved))}</span>{' '}
+                {unresolved > 0 ? 'unresolved (received, not applied to a draw)' : 'unresolved (short — not on any draw)'}
+              </span>
+              <select value={moveTo} onChange={(e) => setMoveTo(e.target.value)} aria-label="Draw to settle onto" className={`${field} bg-white text-[11.5px]`}>
+                <option value="">{unresolved > 0 ? 'Take it off…' : 'Add it to…'}</option>
+                {rows.map((r) => (
+                  <option key={r.key} value={r.key}>
+                    {r.label || 'Untitled'}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => {
+                  const i = rows.findIndex((r) => r.key === moveTo)
+                  if (i >= 0) settleOnto(i)
+                  setMoveTo('')
+                }}
+                disabled={!moveTo}
+                className="px-2 py-1 rounded border border-[#FDE68A] bg-white hover:border-[#D97706] disabled:opacity-40"
+              >
+                Apply
+              </button>
+              <button onClick={settleEvenly} className="px-2 py-1 rounded border border-[#FDE68A] bg-white hover:border-[#D97706]">
+                Split evenly
+              </button>
+            </div>
+          )}
+          {!nearlyFoots && purpose === 'edit' && (
             <div className="mt-2 text-[11px] text-[#6B7280] leading-snug">
               Saving a forecast that doesn&apos;t foot is fine — the board keeps a Redivide hint on this job
               until it does.{' '}

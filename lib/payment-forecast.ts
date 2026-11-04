@@ -18,7 +18,10 @@
 // Redivide" — and a human re-spreads it in the Redivide modal.
 //
 // ⛔ THERE IS NO CODE PATH THAT WRITES A FORECAST ROW EXCEPT THE EDITOR AND
-// THE REDIVIDE MODAL. Nothing in this file pairs a payment with a row. That
+// THE REDIVIDE MODAL. Nothing in this file pairs a payment with a row.
+// (The Edit forecast modal can record a payment and remove the draws a
+// PERSON ticks as paid — human-owned, never derived. Leftover money is left
+// unresolved for a human to place.) That
 // pairing — "settle the next draw", paid-draw locks, pinned amounts, the CO
 // re-spread, the waterfall — is what spawned the Leonard "App 5 · $18,217"
 // ghost: no row was ever created, the machinery just paired payments with

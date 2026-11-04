@@ -16,7 +16,9 @@
 // deleting a payment writes the ledger and nothing else. When a job's
 // forecast stops footing to what's left (contract − received), it gets ONE
 // quiet hint — "Forecast $X vs $Y remaining — Redivide" — and a human
-// re-spreads it. The only forecast writers are the ForecastModal (editor +
+// re-spreads it. (Exception, also human: the Edit forecast modal's "Record a
+// payment" — a person ticks the draws a payment covered; see ForecastModal.)
+// The only forecast writers are the ForecastModal (editor +
 // Redivide) and the month drag.
 //
 // Takes an injectable api so /dev/payments-v4 can mount it on a fixture.
@@ -139,6 +141,8 @@ export default function PaymentsBoard({
   const [payFor, setPayFor] = useState<PayTarget | null>(null)
   const [forecastFor, setForecastFor] = useState<ForecastTarget | null>(null)
   const [savingForecast, setSavingForecast] = useState(false)
+  /** Bumped after a payment is recorded in the modal, so it re-mounts on the fresh rows. */
+  const [modalNonce, setModalNonce] = useState(0)
   /** Optimistic dates while a drag saves. */
   const [moved, setMoved] = useState<Record<string, string>>({})
 
@@ -542,7 +546,7 @@ export default function PaymentsBoard({
 
       {forecastFor && fp && (
         <ForecastModal
-          key={`${forecastFor.projectId}:${forecastFor.purpose}`}
+          key={`${forecastFor.projectId}:${forecastFor.purpose}:${modalNonce}`}
           purpose={forecastFor.purpose}
           projectName={fp.projectName}
           contractTotal={fp.contractTotal}
@@ -550,6 +554,23 @@ export default function PaymentsBoard({
           rows={fp.rows.map((r) => ({ id: r.id, label: r.label, amount: r.amount }))}
           saving={savingForecast}
           onCancel={() => setForecastFor(null)}
+          onRecordPayment={async (payment, keep) => {
+            // Ledger first (the money is real), then the forecast as the
+            // human left it: every row except the ones they ticked as paid.
+            await api.logPayment({
+              projectId: fp.projectId,
+              amount: payment.amount,
+              paymentDate: payment.paymentDate,
+              label: payment.label,
+              method: payment.method,
+              reference: null,
+              notes: null,
+            })
+            await api.saveForecast(fp.projectId, keep, 'editor', fp.contractTotal)
+            await onChanged()
+            setForecastFor({ projectId: fp.projectId, purpose: 'edit' })
+            setModalNonce((n) => n + 1)
+          }}
           onSave={async (out, via) => {
             setSavingForecast(true)
             try {

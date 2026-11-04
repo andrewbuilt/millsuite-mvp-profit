@@ -223,8 +223,12 @@ for (const m of payments.matchAll(/export async function (\w+)\(/g)) {
 ok('G  lib/payments: forecast writers are exactly saveForecast + reschedulePayment', JSON.stringify(writers.sort()) === JSON.stringify(['reschedulePayment', 'saveForecast']), writers)
 const board = strip(read('components/payments/PaymentsBoard.tsx'))
 ok('G  the board imports no Supabase client (writes only through its api)', !/lib\/supabase|from '@\/lib\/payments'(?!.*type)/.test(board.replace(/import type[^\n]*\n/g, '')))
-ok('G  the board writes the forecast only via api.saveForecast + api.reschedule', !/saveForecast\(/.test(board.replace(/api\.saveForecast\(/g, '')) && (board.match(/api\.saveForecast\(/g) || []).length === 1)
-ok('G  saveForecast is called by the board from the ForecastModal onSave only', /<ForecastModal[\s\S]*api\.saveForecast\(/.test(board))
+ok('G  the board writes the forecast only via api.saveForecast + api.reschedule', !/saveForecast\(/.test(board.replace(/api\.saveForecast\(/g, '')))
+// Both forecast writes live inside the <ForecastModal …> element: its onSave
+// and its onRecordPayment (a human ticking the draws a payment covered).
+const modalJsx = board.slice(board.indexOf('<ForecastModal'), board.indexOf('/>', board.indexOf('onRecordPayment=')))
+ok('G  every api.saveForecast call is inside the ForecastModal (onSave + onRecordPayment)', (board.match(/api\.saveForecast\(/g) || []).length === 2 && (modalJsx.match(/api\.saveForecast\(/g) || []).length === 2)
+ok('G  the payment modal (PaymentModal) still never touches the forecast', !/saveForecast|reschedule/.test(board.slice(board.indexOf('function PaymentModal'))))
 const pf = strip(read('lib/payment-forecast.ts'))
 ok('G  payment-forecast is pure (no supabase import)', !/supabase/.test(pf))
 // The deleted machinery stays deleted.
