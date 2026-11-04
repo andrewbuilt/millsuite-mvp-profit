@@ -61,8 +61,15 @@ const BATCHES = {
     why: 'kaylinprice23@gmail.com · Built · live login, unlinked to any roster row (Andrew: delete)',
   },
 ],
-  /** 2026-11-04 — from inspect-logins on prod (STATE duplicate-login block).
-   *  "Test user" (andrewwatson@, admin, d864648d) is NOT here: Andrew's call. */
+  /** 2026-11-04 — Andrew: "all i want to do is fix evans login". Just Evan_o. */
+  'evan': [
+    {
+      id: '09e416d9-3fd5-4694-8a8e-40032840d083',
+      why: 'evanotero90@gmail.com · Built · member "Evan_o" · Evan\'s second login (made 09-09 via /join, linked to no roster row); his real one is the Evan Otero admin login',
+    },
+  ],
+  /** 2026-11-04 — the wider list from inspect-logins on prod. NOT requested;
+   *  parked. "Test user" (andrewwatson@, admin, d864648d) is NOT here. */
   'built-2026-11': [
     {
       id: '09e416d9-3fd5-4694-8a8e-40032840d083',
