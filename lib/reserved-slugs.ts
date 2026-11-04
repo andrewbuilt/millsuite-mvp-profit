@@ -34,6 +34,7 @@ export const RESERVED_SLUGS = new Set([
   'change-orders',
   'clients',
   'dashboard',
+  'engineering', // batch-2 D — the engineering board
   'estimates',
   'guides',
   'invoices',

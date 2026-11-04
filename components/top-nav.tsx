@@ -68,6 +68,9 @@ const NAV: GroupSpec[] = [
     tour: 'nav-projects',
     children: [
       { href: '/schedule', label: 'Schedule', feature: 'schedule' },
+      // The engineering bottleneck's own queue (batch-2 D) — same plan gate
+      // as /schedule, which it reads alongside.
+      { href: '/engineering', label: 'Engineering', feature: 'schedule' },
       { href: '/capacity', label: 'Capacity', feature: 'capacity' },
     ],
   },

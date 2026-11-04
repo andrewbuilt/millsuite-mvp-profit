@@ -45,7 +45,7 @@ qb_events rate_adjustment_proposals rate_book_carcass_materials
 rate_book_ext_materials rate_book_item_history rate_book_item_options
 rate_book_material_variants selection_history selections shop_labor_rates
 spec_library_items stripe_events team_compensation vendor_materials vendors
-project_comments project_comment_mentions employee_reviews employee_notes swt_features`
+project_comments project_comment_mentions employee_reviews employee_notes swt_features eng_assignments`
   .split(/\s+/)
   .filter(Boolean)
 

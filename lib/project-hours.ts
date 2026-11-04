@@ -159,15 +159,18 @@ export async function loadProjectDeptHours(
 }
 
 /**
- * Total estimated hours for MANY projects at once — the /projects board's
- * loader. Same math as loadProjectDeptHours (same rollup, same pricing
- * context, same quantity handling) but the org, the rate book, the subs and
- * the lines are each loaded ONCE instead of once per project; per-project it
- * re-loaded the whole rate book, which is what made the board slow.
+ * Total AND per-labor-dept estimated hours for MANY projects at once. Same
+ * math as loadProjectDeptHours (same rollup, same pricing context, same
+ * quantity handling) but the org, the rate book, the subs and the lines are
+ * each loaded ONCE. `byDept` is keyed by LaborDept ('eng', 'cnc', …) — the
+ * engineering board reads `.eng`, the same figure /capacity books.
  * Best-effort: failures leave a project at 0h.
  */
-export async function loadProjectsTotalHours(orgId: string, projectIds: string[]): Promise<Record<string, number>> {
-  const out: Record<string, number> = {}
+export async function loadProjectsLaborHours(
+  orgId: string,
+  projectIds: string[],
+): Promise<Record<string, { total: number; byDept: Record<LaborDept, number> }>> {
+  const out: Record<string, { total: number; byDept: Record<LaborDept, number> }> = {}
   if (!orgId || projectIds.length === 0) return out
   try {
     const [{ data: orgData }, { data: subsData }, rateBook] = await Promise.all([
@@ -187,10 +190,21 @@ export async function loadProjectsTotalHours(orgId: string, projectIds: string[]
         { shopRate, consumableMarkupPct: sub.consumable_markup_pct ?? orgConsumables, profitMarginPct: 0 },
         Number(sub.quantity) || 1,
       )
-      out[sub.project_id] = (out[sub.project_id] || 0) + rollup.totalHours
+      const cur = (out[sub.project_id] ||= { total: 0, byDept: { eng: 0, cnc: 0, assembly: 0, finish: 0, install: 0 } })
+      cur.total += rollup.totalHours
+      for (const key of LABOR_DEPTS) cur.byDept[key] += rollup.hoursByDept[key] || 0
     }
   } catch (err) {
-    console.error('loadProjectsTotalHours', err)
+    console.error('loadProjectsLaborHours', err)
   }
+  return out
+}
+
+/** Total estimated hours for MANY projects at once — the /projects board's
+ *  loader. A view over loadProjectsLaborHours (one rollup, one math). */
+export async function loadProjectsTotalHours(orgId: string, projectIds: string[]): Promise<Record<string, number>> {
+  const all = await loadProjectsLaborHours(orgId, projectIds)
+  const out: Record<string, number> = {}
+  for (const [id, v] of Object.entries(all)) out[id] = v.total
   return out
 }
