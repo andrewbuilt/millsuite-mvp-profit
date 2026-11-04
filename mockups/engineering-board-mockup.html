@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Engineering board — mockup</title>
+<!--
+  MOCKUP · Engineering board (November batch 2, item D — design checkpoint)
+  One data layer, three lenses: this board writes WHO + ORDER for a job's
+  engineering; capacity's dept rows and /schedule read the same hours.
+  Columns = engineers (+ Unassigned). Vertical order IS priority.
+  Load bar per engineer = queue hours vs hours/week. "Needed by" comes from
+  the job's scheduled month — engineering must land before production starts.
+  Dept switcher in the title: same board works for any bottleneck dept later.
+  Static except: cards show grab cursor; collapse on "Done this month".
+-->
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:#F9FAFB; color:#111; padding:28px 32px; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+
+  .pagehead { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:6px; }
+  h1 { font-size:22px; font-weight:600; letter-spacing:-.02em; }
+  h1 .dept { color:#1E40AF; }
+  h1 .caret { font-size:13px; color:#9CA3AF; }
+  .sub { font-size:13px; color:#6B7280; margin-top:3px; }
+
+  /* top strip */
+  .strip { display:flex; gap:12px; margin:16px 0 20px; }
+  .stat { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 16px; }
+  .stat .l { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#9CA3AF; font-weight:600; }
+  .stat .v { font-size:16px; font-weight:600; margin-top:2px; }
+  .stat .v small { font-size:12px; color:#6B7280; font-weight:400; }
+  .stat.warn .v { color:#B45309; }
+
+  .board { display:grid; grid-template-columns:260px repeat(3, 1fr); gap:14px; align-items:start; }
+
+  .col { background:#F3F4F6; border-radius:14px; padding:10px; }
+  .col.unassigned { background:#fff; border:1.5px dashed #D1D5DB; }
+  .colhead { padding:6px 8px 10px; }
+  .colhead .r1 { display:flex; align-items:baseline; justify-content:space-between; }
+  .colhead .name { font-size:14px; font-weight:600; }
+  .colhead .load { font-size:11.5px; color:#6B7280; }
+  .loadbar { height:5px; border-radius:99px; background:#E5E7EB; margin-top:7px; overflow:hidden; }
+  .loadbar i { display:block; height:100%; border-radius:99px; }
+  .ok i    { width:55%; background:#059669; }
+  .busy i  { width:86%; background:#F59E0B; }
+  .over i  { width:100%; background:#DC2626; }
+  .colhead .weeks { font-size:10.5px; color:#9CA3AF; margin-top:4px; }
+
+  .card { background:#fff; border:1px solid #E5E7EB; border-radius:11px; padding:10px 12px; margin-bottom:8px;
+          cursor:grab; box-shadow:0 1px 2px rgba(17,17,17,.04); position:relative; }
+  .card:hover { border-color:#93C5FD; }
+  .card .t { font-size:13px; font-weight:600; line-height:1.3; }
+  .card .s { font-size:11.5px; color:#6B7280; margin-top:2px; }
+  .card .meta { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .hrs { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; font-weight:600; background:#EFF6FF; color:#1E40AF;
+         padding:2px 7px; border-radius:6px; }
+  .due { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; padding:2px 7px; border-radius:6px; }
+  .due.soon { background:#FEF3C7; color:#92400E; }
+  .due.late { background:#FEE2E2; color:#B91C1C; }
+  .due.ok   { background:#F3F4F6; color:#6B7280; }
+  .prog { font-size:10.5px; color:#059669; font-weight:600; margin-left:auto; }
+  .grip { position:absolute; right:8px; top:9px; color:#D1D5DB; font-size:12px; letter-spacing:1px; }
+
+  .firstflag { font-size:9.5px; font-weight:700; letter-spacing:.06em; color:#1E40AF; margin:2px 8px 6px; text-transform:uppercase; }
+
+  .done { margin-top:4px; padding:8px; font-size:11.5px; color:#9CA3AF; cursor:pointer; }
+  .done:hover { color:#111; }
+
+  .foot { margin-top:18px; font-size:11.5px; color:#9CA3AF; max-width:760px; line-height:1.6; }
+</style>
+</head>
+<body>
+
+<div class="pagehead">
+  <div>
+    <h1><span class="dept">Engineering</span> <span class="caret">▾</span> board</h1>
+    <div class="sub">Drag between people to assign · drag up and down to set priority. Hours come from each job's engineering estimate.</div>
+  </div>
+</div>
+
+<div class="strip">
+  <div class="stat"><div class="l">In the queue</div><div class="v">214h <small>· 9 jobs</small></div></div>
+  <div class="stat"><div class="l">Dept capacity</div><div class="v">96h <small>/ week</small></div></div>
+  <div class="stat warn"><div class="l">Backlog</div><div class="v">~2.2 <small>weeks</small></div></div>
+  <div class="stat"><div class="l">Done this month</div><div class="v">11 <small>jobs · 146h</small></div></div>
+</div>
+
+<div class="board">
+
+  <div class="col unassigned">
+    <div class="colhead">
+      <div class="r1"><span class="name">Unassigned</span><span class="load">58h</span></div>
+      <div class="weeks">Drag onto a person to assign</div>
+    </div>
+    <div class="card">
+      <div class="t">Batia – Westminster Millwork</div>
+      <div class="s">Stone countertops · Pantry 217A</div>
+      <div class="meta"><span class="hrs">24h</span><span class="due soon">needed by Dec</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+    <div class="card">
+      <div class="t">SDI – 2700 – Day 2</div>
+      <div class="s">Wall slat dividers</div>
+      <div class="meta"><span class="hrs">18h</span><span class="due ok">needed by Jan</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+    <div class="card">
+      <div class="t">Custom hood · 2</div>
+      <div class="s">Ron Francis</div>
+      <div class="meta"><span class="hrs">16h</span><span class="due ok">no date</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="colhead">
+      <div class="r1"><span class="name">Hunter</span><span class="load">38h of 40h/wk</span></div>
+      <div class="loadbar busy"><i></i></div>
+      <div class="weeks">~1.0 week queued</div>
+    </div>
+    <div class="firstflag">▲ Next up</div>
+    <div class="card">
+      <div class="t">Murtagh Bar</div>
+      <div class="s">Bar top &amp; kneewall · in production</div>
+      <div class="meta"><span class="hrs">12h</span><span class="due late">needed now</span><span class="prog">7h in</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+    <div class="card">
+      <div class="t">Leonard – JW Marriott – Market Millwork Ph 2</div>
+      <div class="s">Drink rail shelving · condiment shelf</div>
+      <div class="meta"><span class="hrs">14h</span><span class="due soon">needed by Dec</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+    <div class="card">
+      <div class="t">Kinser</div>
+      <div class="s">Cabinetry &amp; millwork · part 3</div>
+      <div class="meta"><span class="hrs">12h</span><span class="due soon">needed by Dec</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="colhead">
+      <div class="r1"><span class="name">Evan</span><span class="load">52h of 40h/wk</span></div>
+      <div class="loadbar over"><i></i></div>
+      <div class="weeks">~1.3 weeks queued · over this week</div>
+    </div>
+    <div class="firstflag">▲ Next up</div>
+    <div class="card">
+      <div class="t">Towers – Wall paneling &amp; Reception desks</div>
+      <div class="s">Tower 1 wall paneling</div>
+      <div class="meta"><span class="hrs">20h</span><span class="due late">needed now</span><span class="prog">4h in</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+    <div class="card">
+      <div class="t">Bonzer – 400 Central PH44C</div>
+      <div class="s">Office vanity drawer/door fronts</div>
+      <div class="meta"><span class="hrs">18h</span><span class="due soon">needed by Dec</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+    <div class="card">
+      <div class="t">Schiller – Anderson &amp; Kiran</div>
+      <div class="s">Lounge cabinets and island</div>
+      <div class="meta"><span class="hrs">14h</span><span class="due ok">needed by Jan</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="colhead">
+      <div class="r1"><span class="name">Andrew</span><span class="load">26h of 16h/wk</span></div>
+      <div class="loadbar busy"><i></i></div>
+      <div class="weeks">~1.6 weeks queued (16h/wk on the board)</div>
+    </div>
+    <div class="firstflag">▲ Next up</div>
+    <div class="card">
+      <div class="t">Hunt – Pajot Millwork</div>
+      <div class="s">Kitchen island cabinets</div>
+      <div class="meta"><span class="hrs">16h</span><span class="due soon">needed by Dec</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+    <div class="card">
+      <div class="t">Killinger Dining Table</div>
+      <div class="s">Custom walnut table</div>
+      <div class="meta"><span class="hrs">10h</span><span class="due ok">needed by Jan</span></div>
+      <div class="grip">⋮⋮</div>
+    </div>
+    <div class="done">▸ Done this month · 11 jobs</div>
+  </div>
+
+</div>
+
+<p class="foot">
+  One data layer: this board writes <b>who</b> and <b>what order</b> — the hours are the same engineering
+  estimates capacity and the schedule already read, so the three views can't disagree. "Needed by" is the month
+  the job is scheduled to enter production; red means production is waiting on engineering. "Nh in" is tracked
+  engineering time against the estimate. The department switcher (top) makes this same board work for Assembly
+  the day it becomes the bottleneck.
+</p>
+
+</body>
+</html>
