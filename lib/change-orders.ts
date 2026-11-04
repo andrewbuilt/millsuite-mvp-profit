@@ -535,9 +535,10 @@ export async function approveCo(coId: string, note?: string): Promise<void> {
   // Step 5 — the DRAW SCHEDULE. The invoice above says what the client is
   // billed; this says when the cash is expected. Payments v2 keeps those two
   // separate on purpose, and until now only the invoice half moved on a CO —
-  // so the payments board silently grew the final draw instead. Since
-  // 2026-10-27 nothing is written: the open draws re-spread over whatever the
-  // contract owes on every read (reconcileProject).
+  // so the payments board silently grew the final draw instead. Payments v4
+  // (2026-11-05): NOTHING is written and nothing re-spreads. The CO moves the
+  // contract, so remaining moves, and the board shows its Redivide hint — a
+  // human decides where the money lands. This only records the timeline event.
   //
   // ⚠️ Its own try/catch, deliberately: a schedule write that fails must not
   // take down an approval that has already flipped state, applied the line and
@@ -548,7 +549,7 @@ export async function approveCo(coId: string, note?: string): Promise<void> {
       .select('*')
       .eq('id', coId)
       .maybeSingle()
-    // No schedule write — the open draws re-spread on read (2026-10-27).
+    // No forecast write (v4) — the board's hint does the asking.
     const co = coFull as ChangeOrder | null
     const { data: proj } = co
       ? await supabase.from('projects').select('org_id').eq('id', co.project_id).maybeSingle()
@@ -559,7 +560,7 @@ export async function approveCo(coId: string, note?: string): Promise<void> {
         projectId: co.project_id,
         delta: Number(co.client_price) || 0,
         key: `change_order:${co.id}`,
-        label: `CO-${String(co.co_number ?? 0).padStart(2, '0')} spread across the remaining draws`,
+        label: `CO-${String(co.co_number ?? 0).padStart(2, '0')} moved the contract — forecast unchanged (Redivide on /payments)`,
       })
     }
   } catch (err) {

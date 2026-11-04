@@ -2,7 +2,7 @@
 // lib/receivables.ts — AR aging, reconciled against the cash ledger.
 // ============================================================================
 // PURE. No supabase import, so `scripts/verify-receivables.mjs` can run it
-// without credentials. Same rule as lib/payment-ledger.
+// without credentials. Same rule as lib/payment-forecast.
 //
 // ⛔ WHY THIS EXISTS RATHER THAN THE OLD INLINE REDUCE. The dashboard's
 // Receivables card had three bugs, and the first one made it actively wrong

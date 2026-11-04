@@ -1089,14 +1089,14 @@ export async function acceptDoc(input: {
   let billing: CoBillingResult | null = null
   if (input.billToInvoice !== false) billing = await appendCoToPrimaryInvoice(doc.id)
   try {
-    // No schedule write (2026-10-27): the open draws re-spread over what the
-    // contract still owes on every read. This records it on the timeline.
+    // No forecast write (Payments v4): the CO moves the contract, the board's
+    // forecast-vs-remaining hint appears, a human redivides. Timeline only.
     await applyChangeToSchedule({
       orgId: doc.org_id,
       projectId: doc.project_id,
       delta: agreed,
       key: `co_doc:${doc.id}`,
-      label: `${coLabel(doc)} spread across the remaining draws`,
+      label: `${coLabel(doc)} moved the contract — forecast unchanged (Redivide on /payments)`,
       actorUserId: input.acceptedBy ?? null,
     })
   } catch (e) {

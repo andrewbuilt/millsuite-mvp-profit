@@ -67,14 +67,13 @@ import { fireDueReviewTasks } from '@/lib/employee-reviews'
 import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
 import { BUCKET_LABEL, TASK_TAG_COLORS, createTask, type Task } from '@/lib/tasks'
 import {
-  buildPaymentsView,
+  buildForecastView,
   currentMonth,
   loadOrgLedger,
   loadOrgPayments,
   monthLabel,
   parseLocalDate,
-  reconcileAll,
-  type DerivedDraw,
+  type PaymentRow,
 } from '@/lib/payments'
 
 function money(n: number): string {
@@ -522,7 +521,8 @@ function TodayCard() {
  */
 type PreviewKind = 'overdue' | 'month' | 'undated'
 interface PreviewRow {
-  draw: DerivedDraw
+  /** A forecast row (Payments v4 — the white cards on /payments). */
+  row: PaymentRow
   kind: PreviewKind
 }
 
@@ -597,19 +597,18 @@ function MoneyInCard({
           return
         }
         setLedgerMissing(led.missing)
-        const derived = reconcileAll(sched.rows, led.entries, sched.contractTotals)
-        const view = buildPaymentsView(derived, led.entries, [month], month)
+        const view = buildForecastView(sched.rows, led.entries, [month], month)
         const b = view.months[0]
-        const sum = (list: DerivedDraw[]) => list.reduce((s, d) => s + d.outstanding, 0)
+        const sum = (list: PaymentRow[]) => list.reduce((s, r) => s + r.amount, 0)
 
         // ⛔ KEPT SEPARATE, NOT SUMMED INTO ONE FIGURE. Folding past-due and
         // undated money into a number labelled "September" would make this card
         // disagree with /payments for the same month — and a summary that
         // quietly differs from the page it links to is worse than no summary.
-        setNeeded(b.needed)
+        setNeeded(b.scheduled)
         setReceived(b.receivedTotal)
         setPastDue(sum(view.overdue))
-        // ⛔ Undated draws are REAL money owed. buildPaymentsView routes them to
+        // ⛔ Undated rows are REAL money expected. buildForecastView routes them to
         // `unscheduled`, so reading only the month bucket drops them silently —
         // the exact failure that hid $426k of Leonard work from the payments
         // board. Counted and shown here.
@@ -617,9 +616,9 @@ function MoneyInCard({
 
         setPreview(
           [
-            ...view.overdue.map((d) => ({ draw: d, kind: 'overdue' as const })),
-            ...b.outstanding.map((d) => ({ draw: d, kind: 'month' as const })),
-            ...view.unscheduled.map((d) => ({ draw: d, kind: 'undated' as const })),
+            ...view.overdue.map((r) => ({ row: r, kind: 'overdue' as const })),
+            ...b.forecast.map((r) => ({ row: r, kind: 'month' as const })),
+            ...view.unscheduled.map((r) => ({ row: r, kind: 'undated' as const })),
           ].slice(0, PREVIEW_DRAWS),
         )
       } finally {
@@ -746,14 +745,14 @@ function MoneyInCard({
                 Nothing outstanding.
               </div>
             ) : (
-              preview.map(({ draw: d, kind }) => (
+              preview.map(({ row, kind }) => (
                 <Link
-                  key={d.row.id}
-                  href={`/projects/${d.row.projectId}`}
+                  key={row.id}
+                  href={`/projects/${row.projectId}`}
                   className="flex items-center gap-2 px-4 sm:px-5 py-2 border-b border-[#F9FAFB] last:border-b-0 hover:bg-[#F9FAFB] transition-colors"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-[12.5px] text-[#111] truncate">{d.row.projectName}</div>
+                    <div className="text-[12.5px] text-[#111] truncate">{row.projectName}</div>
                     <div
                       className={`text-[10.5px] truncate ${
                         kind === 'overdue'
@@ -770,9 +769,9 @@ function MoneyInCard({
                         : kind === 'undated'
                           ? 'No date · '
                           : ''}
-                      {d.row.label}
-                      {kind === 'month' && d.row.expectedDate
-                        ? ` · ${parseLocalDate(d.row.expectedDate)?.toLocaleString(undefined, {
+                      {row.label}
+                      {kind === 'month' && row.expectedDate
+                        ? ` · ${parseLocalDate(row.expectedDate)?.toLocaleString(undefined, {
                             month: 'short',
                             day: 'numeric',
                           })}`
@@ -780,7 +779,7 @@ function MoneyInCard({
                     </div>
                   </div>
                   <div className="text-[12.5px] font-semibold font-mono tabular-nums text-[#111] flex-shrink-0">
-                    {money(d.outstanding)}
+                    {money(row.amount)}
                   </div>
                 </Link>
               ))

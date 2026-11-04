@@ -28,7 +28,7 @@ import { randomBytes } from 'crypto'
 import { supabaseAdmin } from './supabase-admin'
 // Pure (no supabase import) — the SAME reconciliation the /payments board and
 // the project panel run, so the portal can't tell a different money story.
-import { reconcileProject, type LedgerEntry } from './payment-ledger'
+import { paymentLabel, type LedgerEntry } from './payment-forecast'
 
 // ── Phases ──────────────────────────────────────────────────────────────────
 // The seven client-facing phases from the design pass. These are NOT the
@@ -975,7 +975,7 @@ async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalP
   // this page shows exactly what the board and the project panel show.
   const { data: ms } = await supabaseAdmin
     .from('cash_flow_receivables')
-    .select('milestone_label, amount, amount_pinned, status, expected_date, received_date, notes, created_at')
+    .select('milestone_label, amount, status, expected_date, received_date, notes, created_at')
     .eq('project_id', p.id)
     .eq('type', 'receivable')
     .order('created_at', { ascending: true })
@@ -989,74 +989,56 @@ async function loadPayments(p: RawProject, sig: ProjectSignals): Promise<PortalP
           received_date: string | null
           notes: string | null
           created_at: string | null
-          amount_pinned?: boolean | null
         }[]
       | null) || []
   ).filter((m) => m.status !== 'cancelled')
 
   const { data: led } = await supabaseAdmin
     .from('project_payments')
-    .select('id, amount, payment_date')
+    .select('id, amount, payment_date, label')
     .eq('project_id', p.id)
-  const ledger: LedgerEntry[] = ((led as { id: string; amount: number | null; payment_date: string | null }[] | null) || [])
+  const ledger: LedgerEntry[] = ((led as { id: string; amount: number | null; payment_date: string | null; label?: string | null }[] | null) || [])
     .map((e) => ({
       id: e.id,
       projectId: p.id,
       amount: Number(e.amount) || 0,
       paymentDate: e.payment_date || '',
+      label: e.label ?? null,
       method: null,
       reference: null,
       notes: null,
     }))
+    .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate))
 
-  if (ledger.length > 0 && milestones.length > 0) {
-    // ── The board's own math, verbatim ──
-    // Same PaymentRow shaping and the same sort as reconcileAll (order:N from
-    // notes → created_at → label), then the same pure reconcileProject — so
-    // the portal cannot tell a different story than /payments about the same
-    // job. `scheduled` (post-balancing) is the amount to SHOW: it's what the
-    // final draw actually absorbs after COs and re-prices.
-    const draws = milestones
-      .map((m, i) => ({
-        id: String(i),
-        projectId: p.id,
-        projectName: '',
-        clientName: null,
-        stage: 'sold' as const,
-        label: m.milestone_label || 'Milestone',
-        amount: Number(m.amount) || 0,
-        pinned: !!m.amount_pinned,
-        status: (m.status as 'projected' | 'invoiced' | 'received') || 'projected',
-        expectedDate: m.expected_date,
-        receivedDate: m.received_date,
-        sortOrder: Number(/order:(\d+)/.exec(m.notes || '')?.[1] ?? Number.MAX_SAFE_INTEGER),
-        createdAt: m.created_at || '',
-      }))
-      .sort(
-        (a, b) =>
-          a.sortOrder - b.sortOrder ||
-          a.createdAt.localeCompare(b.createdAt) ||
-          a.label.localeCompare(b.label),
-      )
-    const recon = reconcileProject(draws, ledger, total)
-    for (const d of recon.draws) {
-      const paid = d.state === 'paid'
-      const lastPaid = d.applied.length > 0 ? d.applied[d.applied.length - 1].entry.paymentDate : null
+  if (ledger.length > 0) {
+    // ── Payments v4: the board's two lists, verbatim ──
+    // What came in = the LEDGER (each payment, at what was actually paid).
+    // What's coming = the FORECAST rows, as the shop last set them. Nothing
+    // pairs one with the other (lib/payment-forecast), so the portal can't
+    // tell a different story than /payments about the same job.
+    for (const e of ledger) {
       rows.push({
-        label: d.row.label,
-        sublabel: paid
-          ? `Paid${portalDate(lastPaid) ? ` ${portalDate(lastPaid)}` : ''}`
-          : d.state === 'partial'
-            ? `${money(d.covered)} in · ${money(d.outstanding)} to go`
-            : d.row.expectedDate
-              ? `Due ${portalDate(d.row.expectedDate)}`
-              : 'Due on schedule',
-        amount: d.scheduled,
-        paid,
-        due: !paid && !!d.row.expectedDate,
+        label: paymentLabel(e),
+        sublabel: `Paid${portalDate(e.paymentDate) ? ` ${portalDate(e.paymentDate)}` : ''}`,
+        amount: e.amount,
+        paid: true,
+        due: false,
       })
     }
-    return { total, paid: Math.max(recon.received, Number(sig.contractInvoice?.amount_received) || 0), rows }
+    const forecast = milestones
+      .map((m) => ({ m, order: Number(/order:(\d+)/.exec(m.notes || '')?.[1] ?? Number.MAX_SAFE_INTEGER) }))
+      .sort((a, b) => a.order - b.order || (a.m.created_at || '').localeCompare(b.m.created_at || ''))
+    for (const { m } of forecast) {
+      rows.push({
+        label: m.milestone_label || 'Milestone',
+        sublabel: m.expected_date ? `Due ${portalDate(m.expected_date)}` : 'Due on schedule',
+        amount: Number(m.amount) || 0,
+        paid: false,
+        due: !!m.expected_date,
+      })
+    }
+    const received = Math.round(ledger.reduce((s, e) => s + e.amount, 0) * 100) / 100
+    return { total, paid: Math.max(received, Number(sig.contractInvoice?.amount_received) || 0), rows }
   }
 
   milestones.forEach((m) => {

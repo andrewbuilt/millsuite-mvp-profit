@@ -3135,12 +3135,13 @@ export default function ProjectCoverPage() {
                   worthless after the sale… that can instead be a link to the
                   payments page, or show a timestamp of the payment we received
                   and the amount." */}
-              {/* ⛔ A SOLD JOB WITH NO SCHEDULE STILL NEEDS ONE. Locking the
-                  builder post-sale protects an agreed schedule — but when
-                  there ISN'T one there's nothing to protect, and hiding it
-                  left the job permanently untrackable with no way to fix it.
-                  Three Leonard jobs ($426k) were in exactly that state. */}
-              {!isPresold(project.stage) && (milestonesLoaded ? milestones.length > 0 : true) ? (
+              {/* ⛔ PAYMENTS V4 (2026-11-05): A SOLD JOB ALWAYS GETS THE
+                  PANEL, rows or no rows. A fully-paid job has no forecast rows
+                  left (the ledger holds what came in), and falling back to the
+                  pre-sale builder here would offer its "mark received" pill —
+                  a second, binding way to record money. The panel's own
+                  "Set up forecast" link covers a sold job with none. */}
+              {!isPresold(project.stage) ? (
                 <ProjectPaymentLedger
                   projectId={projectId}
                   // bid_total is the CONTRACT — the number the client signed.
@@ -3149,13 +3150,6 @@ export default function ProjectCoverPage() {
                 />
               ) : (
               <>
-              {!isPresold(project.stage) && (
-                <div className="mt-4 px-3 py-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-[11.5px] text-[#92400E]">
-                  This job is sold but has no payment schedule, so none of its
-                  value shows on the payments board. Set the draws up here —
-                  after that this section becomes a read-only ledger.
-                </div>
-              )}
               <MilestoneBuilder
                 milestones={milestones}
                 total={proj.priceTotal}

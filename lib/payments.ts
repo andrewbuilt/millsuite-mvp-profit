@@ -8,6 +8,12 @@
 //
 // ⛔ THE TABLE IS `cash_flow_receivables`, NOT `project_milestones`. Milestones
 // piggyback on the receivables table with `type='receivable'` (lib/milestones).
+//
+// ⛔ PAYMENTS V4 (2026-11-05): the receivables rows are the FORECAST and
+// `project_payments` is the LEDGER — two independent lists (lib/payment-forecast).
+// The ONLY writers of a forecast row here are `saveForecast` (the editor and
+// the Redivide modal) and `reschedulePayment` (dragging a card between
+// months). Nothing that records, edits or deletes a payment touches one.
 // ============================================================================
 
 import { loadTempProjectIds } from './temp-projects'
@@ -15,10 +21,10 @@ import { supabase } from './supabase'
 import { recordProjectEvent } from './project-events'
 import { POSTSOLD_STAGES, type ProjectStage } from './types'
 import { formatLocalDate, type PaymentRow } from './payment-schedule'
-import { type LedgerEntry } from './payment-ledger'
+import { type LedgerEntry } from './payment-forecast'
 
 export * from './payment-schedule'
-export * from './payment-ledger'
+export * from './payment-forecast'
 
 interface RawRow {
   id: string
@@ -30,7 +36,6 @@ interface RawRow {
   received_date: string | null
   notes: string | null
   created_at: string | null
-  amount_pinned?: boolean | null
   projects: {
     name: string | null
     client_name: string | null
@@ -64,7 +69,7 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
   const { data, error } = await supabase
     .from('cash_flow_receivables')
     .select(
-      'id, project_id, milestone_label, amount, amount_pinned, status, expected_date, received_date, ' +
+      'id, project_id, milestone_label, amount, status, expected_date, received_date, ' +
         'notes, created_at, projects!inner(name, client_name, stage, bid_total)',
     )
     .eq('org_id', orgId)
@@ -87,11 +92,8 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
     status: (r.status as PaymentRow['status']) || 'projected',
     expectedDate: r.expected_date,
     receivedDate: r.received_date,
-    pinned: !!r.amount_pinned,
     // `sort_order` has no column of its own — it's encoded in `notes` as
-    // `order:N` (see rowToMilestone in lib/milestones). A row without it sorts
-    // last rather than to the front, so an unlabelled row can't hijack the
-    // deposit position in the waterfall.
+    // `order:N` (see rowToMilestone in lib/milestones). Display order only.
     sortOrder: Number(/order:(\d+)/.exec(r.notes || '')?.[1] ?? Number.MAX_SAFE_INTEGER),
     createdAt: r.created_at,
   }))
@@ -103,27 +105,21 @@ export async function loadOrgPayments(orgId: string): Promise<PaymentsLoad> {
 }
 
 /**
- * One project's draw schedule as `PaymentRow`s, ready for `reconcileProject`.
+ * One project's forecast rows, in schedule order — the project page's view.
  *
  * ⛔ WHY THIS EXISTS. `loadOrgPayments` selects FROM `cash_flow_receivables`
  * with `projects!inner`, which is right for the board but wrong for a single
- * project page — and the project page had NO way to see its own schedule at
- * all after the sale. Andrew looked at a fully-paid Schiller, saw only
- * receipt cards, and reasonably concluded the schedule had been rewritten and
- * the deposit row deleted. It hadn't: `buildPaymentsView` hides draws with
- * nothing outstanding, so a completed schedule disappears everywhere.
+ * project page.
  */
-export async function loadProjectDraws(projectId: string): Promise<PaymentRow[]> {
+export async function loadProjectForecast(projectId: string): Promise<PaymentRow[]> {
   const { data, error } = await supabase
     .from('cash_flow_receivables')
-    .select(
-      'id, project_id, milestone_label, amount, amount_pinned, status, expected_date, received_date, notes, created_at',
-    )
+    .select('id, project_id, milestone_label, amount, status, expected_date, received_date, notes, created_at')
     .eq('project_id', projectId)
     .eq('type', 'receivable')
     .neq('status', 'cancelled')
   if (error) {
-    console.error('loadProjectDraws', error)
+    console.error('loadProjectForecast', error)
     return []
   }
   return (data || []).map((r: Record<string, unknown>) => ({
@@ -137,189 +133,98 @@ export async function loadProjectDraws(projectId: string): Promise<PaymentRow[]>
     status: (r.status as PaymentRow['status']) || 'projected',
     expectedDate: (r.expected_date as string) ?? null,
     receivedDate: (r.received_date as string) ?? null,
-    pinned: !!r.amount_pinned,
-    // Same `order:N` encoding the board relies on — a row without it sorts
-    // last rather than hijacking the deposit position in the waterfall.
     sortOrder: Number(/order:(\d+)/.exec(String(r.notes || ''))?.[1] ?? Number.MAX_SAFE_INTEGER),
     createdAt: String(r.created_at ?? ''),
   }))
 }
 
-/**
- * Create a project's draw schedule from percentages.
- *
- * ⛔ THE ESCAPE HATCH. The project-page route (tray → project → Compose →
- * preset → Save) dead-ended on imported jobs and Andrew had no reachable way
- * to add draws to a sold project. This writes the rows directly from the
- * board and depends on nothing but the contract total.
- *
- * ⛔ REFUSES IF DRAWS ALREADY EXIST. This creates; it never replaces. A
- * "define" that quietly wiped an existing schedule is the Schiller failure
- * mode, and once cash is recorded the allocation can't be reconstructed.
- */
-export async function createDrawSchedule(
-  orgId: string,
-  projectId: string,
-  rows: Array<{ label: string; pct: number; amount: number; note?: string; pinned?: boolean }>,
-): Promise<void> {
-  if (rows.length === 0) throw new Error('Nothing to create.')
-
-  const { data: existing, error: readErr } = await supabase
-    .from('cash_flow_receivables')
-    .select('id')
-    .eq('project_id', projectId)
-    .eq('type', 'receivable')
-    .neq('status', 'cancelled')
-    .limit(1)
-  if (readErr) throw new Error(readErr.message || 'Could not check the schedule.')
-  if (existing && existing.length > 0) {
-    throw new Error('This project already has draws. Edit them on the board instead.')
-  }
-
-  const { data, error } = await supabase
-    .from('cash_flow_receivables')
-    .insert(
-      rows.map((r, i) => ({
-        org_id: orgId,
-        project_id: projectId,
-        type: 'receivable' as const,
-        status: 'projected' as const,
-        description: r.label,
-        milestone_label: r.label,
-        milestone_pct: r.pct,
-        milestone_trigger: 'manual',
-        amount: r.amount,
-        amount_pinned: !!r.pinned,
-        // ⛔ NO DATE — THEY LAND IN "No date set" AND GET DRAGGED IN.
-        // Andrew: "just add them to the no-date bucket so I can drag them in."
-        // A fresh schedule used to be stamped one month apart from today,
-        // which dropped real money into months nobody had agreed to and made
-        // the forecast look decided. `defaultDrawDates` still exists and still
-        // documents why dates are never inferred from project stage — this is
-        // the same argument carried one step further.
-        expected_date: null,
-        // ⛔ `order:N` IS the sort order — there's no column. The waterfall
-        // credits payments in this order, so an unmarked row would sort last
-        // and soak up money belonging to earlier draws.
-        notes: r.note ? `order:${i} ${r.note}` : `order:${i}`,
-      })),
-    )
-    .select('id')
-  if (error) throw new Error(error.message || 'Could not create the draws.')
-  if (!data || data.length === 0) {
-    throw new Error('The draws did not reach the database. Reload and try again.')
-  }
+/** One row as the editor / Redivide modal hands it to `saveForecast`. */
+export interface ForecastDraft {
+  /** Existing row id, or null for a row being added. */
+  id: string | null
+  label: string
+  amount: number
 }
 
 /**
- * Rewrite a project's draw schedule in place.
+ * Write a project's forecast — ⛔ THE ONLY WRITER OF FORECAST ROWS besides the
+ * month drag. Called by exactly two surfaces: the forecast editor and the
+ * Redivide modal, both a human pressing Save.
  *
- * ⛔ WHY THIS IS NEEDED AT ALL. There was NO edit path — `DefineDrawsModal`
- * only ran on first setup, `createDrawSchedule` refuses when draws exist, and
- * `saveMilestones` (the old builder) now refuses outright on any project with
- * recorded cash. Andrew mis-set percentages and was stuck with them.
+ * The rows passed ARE the forecast afterwards: matched by id (label, amount,
+ * order rewritten; the expected date kept — dates move by dragging), new
+ * rows inserted with no date ("No date set" → drag them in), and every
+ * existing row NOT in the list deleted.
  *
- * ⛔ CASH VETOES A REWRITE OF THE ROW IT PAID. This is the Schiller guard, and
- * it is the reason this function takes a list of ids to KEEP rather than just
- * replacing everything: a draw with money against it keeps its amount, its
- * label and its id, because deleting it would orphan the payment that settled
- * it and re-authoring its amount would un-say something that already happened.
- * The caller (the modal) locks those rows in the UI; this enforces it.
- *
- * ⚠️ Rows are matched by id. Anything not in `rows` is DELETED — but only if
- * it has no cash against it, which the caller guarantees by locking.
+ * ⛔ NO CASH VETO, ON PURPOSE. Under v4 a forecast row has no payment against
+ * it — the ledger is a separate list — so there is nothing to orphan. (The
+ * v3 lock/floor rules that lived here are gone with the binding.)
  */
-export async function updateDrawSchedule(
+export async function saveForecast(
   orgId: string,
   projectId: string,
-  rows: Array<{
-    /** Existing row id, or null for a newly added draw. */
-    id: string | null
-    label: string
-    pct: number
-    amount: number
-    /** 123 — typed in DOLLARS; the settle-and-spread skips it. */
-    pinned?: boolean
-  }>,
-  /** Ids that are FULLY paid and must survive untouched. */
-  lockedIds: string[],
-  /** Cash already credited per PARTLY-paid id (2026-10-26). Such a draw may
-   *  change, but never below its floor, and may never be dropped. */
-  floors: Record<string, number> = {},
+  rows: ForecastDraft[],
+  /** Which surface saved — recorded on the project timeline. */
+  via: 'editor' | 'redivide',
+  /** `bid_total`, to keep `milestone_pct` meaningful for anything that still
+   *  reads it (the pre-sale composer). 0 = leave pct at 0. */
+  contractTotal = 0,
 ): Promise<void> {
-  if (rows.length === 0) throw new Error('A schedule needs at least one draw.')
+  for (const r of rows) {
+    if (!r.label.trim()) throw new Error('Every forecast row needs a label.')
+    if (!Number.isFinite(r.amount) || r.amount < 0) throw new Error(`"${r.label}" needs an amount.`)
+  }
 
   const { data: existing, error: readErr } = await supabase
     .from('cash_flow_receivables')
-    .select('id, notes, expected_date, amount, milestone_label, change_order_id')
+    .select('id, notes')
     .eq('project_id', projectId)
     .eq('type', 'receivable')
     .neq('status', 'cancelled')
-  if (readErr) throw new Error(readErr.message || 'Could not read the schedule.')
+  if (readErr) throw new Error(readErr.message || 'Could not read the forecast.')
 
-  const locked = new Set(lockedIds)
   const keep = new Set(rows.map((r) => r.id).filter(Boolean) as string[])
-
-  // ⛔ A LOCKED ROW MAY NOT BE DROPPED, whatever the caller sent. The UI
-  // disables them, but a stale tab is a real thing and this is money.
-  for (const r of rows) {
-    const f = r.id ? floors[r.id] || 0 : 0
-    if (r.id && !locked.has(r.id) && f > 0.005 && r.amount < f - 0.005) {
-      throw new Error(`"${r.label}" can't go below the $${Math.round(f).toLocaleString()} already received.`)
-    }
-  }
-  for (const id of [...locked, ...Object.keys(floors).filter((k) => (floors[k] || 0) > 0.005)]) {
-    if (!keep.has(id)) {
-      throw new Error(
-        'A draw with a recorded payment cannot be removed. Delete its payments first.',
-      )
-    }
-  }
-
   const byId = new Map((existing || []).map((e) => [e.id as string, e]))
+  const pctOf = (amount: number) =>
+    contractTotal > 0 ? Math.round((amount / contractTotal) * 10000) / 100 : 0
 
-  // 1. Delete the rows the operator removed. Cash-free by construction.
-  const toDelete = (existing || [])
-    .map((e) => e.id as string)
-    .filter((id) => !keep.has(id) && !locked.has(id))
+  // 1. Rows the human removed.
+  const toDelete = (existing || []).map((e) => e.id as string).filter((id) => !keep.has(id))
   if (toDelete.length > 0) {
     const { error } = await supabase
       .from('cash_flow_receivables')
       .delete()
       .in('id', toDelete)
       .select('id')
-    if (error) throw new Error(error.message || 'Could not remove the old draws.')
+    if (error) throw new Error(error.message || 'Could not remove forecast rows.')
   }
 
-  // 2. Update / insert, re-stamping `order:N` so the waterfall order matches
-  //    the order the operator is looking at.
+  // 2. Update / insert, re-stamping `order:N` to the order on screen.
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
     const prior = r.id ? byId.get(r.id) : null
-    // ⚠️ PRESERVE THE NOTE BODY. `order:N` shares the column with whatever the
-    // operator typed; rebuilding it from scratch would silently delete notes.
+    // ⚠️ PRESERVE THE NOTE BODY — `order:N` shares the column with it.
     const priorNote = String(prior?.notes || '').replace(/order:\d+\s*/, '').trim()
     const notes = priorNote ? `order:${i} ${priorNote}` : `order:${i}`
+    const label = r.label.trim()
+    const amount = Math.round(r.amount * 100) / 100
 
     if (r.id && prior) {
-      const patch: Record<string, unknown> = { notes }
-      // A locked row keeps its money and its name. Only its position moves.
-      if (!locked.has(r.id)) {
-        patch.amount = r.amount
-        patch.amount_pinned = !!r.pinned
-        patch.milestone_pct = r.pct
-        patch.milestone_label = r.label
-        patch.description = r.label
-      }
       const { data, error } = await supabase
         .from('cash_flow_receivables')
-        .update(patch)
+        .update({
+          notes,
+          amount,
+          milestone_pct: pctOf(amount),
+          milestone_label: label,
+          description: label,
+        })
         .eq('id', r.id)
         .select('id')
       // ⛔ .select() — a zero-row UPDATE returns { error: null }, so an RLS
       // refusal is otherwise indistinguishable from a successful save.
       if (error || !data || data.length === 0) {
-        throw new Error(error?.message || 'A draw did not save. Reload and check the schedule.')
+        throw new Error(error?.message || 'A forecast row did not save. Reload and check.')
       }
     } else {
       const { data, error } = await supabase
@@ -329,31 +234,29 @@ export async function updateDrawSchedule(
           project_id: projectId,
           type: 'receivable' as const,
           status: 'projected' as const,
-          description: r.label,
-          milestone_label: r.label,
-          milestone_pct: r.pct,
+          description: label,
+          milestone_label: label,
+          milestone_pct: pctOf(amount),
           milestone_trigger: 'manual',
-          amount: r.amount,
-          amount_pinned: !!r.pinned,
-          // Same rule as a fresh schedule: no invented date.
+          amount,
+          // ⛔ NO DATE — new rows land in "No date set" and get dragged in.
+          // Andrew: "just add them to the no-date bucket so I can drag them in."
           expected_date: null,
           notes,
         })
         .select('id')
       if (error || !data || data.length === 0) {
-        throw new Error(error?.message || 'A new draw did not save.')
+        throw new Error(error?.message || 'A new forecast row did not save.')
       }
     }
   }
 
-  // ⛔ LEAVE A TRACE. Oliveira's second "Deposit" (2026-09-23) took an
-  // investigation to explain because nothing recorded schedule edits.
   await recordProjectEvent({
     orgId,
     projectId,
-    eventType: 'draw_schedule_edited',
-    label: 'Draw schedule edited',
-    meta: { rows: rows.map((r) => ({ id: r.id, label: r.label, amount: r.amount })) },
+    eventType: via === 'redivide' ? 'forecast_redivided' : 'forecast_edited',
+    label: via === 'redivide' ? 'Payment forecast redivided' : 'Payment forecast edited',
+    meta: { rows: rows.map((r) => ({ id: r.id, label: r.label, amount: r.amount })), removed: toDelete },
   })
 }
 
@@ -400,7 +303,7 @@ export async function loadSoldProjects(orgId: string): Promise<SoldProjectRef[]>
 
 // ── The ledger (migration 099) ──────────────────────────────────────────────
 
-const LEDGER_COLUMNS = 'id, project_id, amount, payment_date, method, reference, notes'
+const LEDGER_COLUMNS = 'id, project_id, amount, payment_date, label, method, reference, notes'
 
 function toEntry(r: any): LedgerEntry {
   return {
@@ -408,6 +311,7 @@ function toEntry(r: any): LedgerEntry {
     projectId: r.project_id,
     amount: Number(r.amount) || 0,
     paymentDate: r.payment_date,
+    label: r.label ?? null,
     method: r.method ?? null,
     reference: r.reference ?? null,
     notes: r.notes ?? null,
@@ -464,19 +368,18 @@ export async function loadProjectLedger(projectId: string): Promise<LedgerLoad> 
 }
 
 /**
- * Record cash received.
+ * Record cash received — a ledger row, and NOTHING ELSE.
  *
- * ⛔ THIS IS THE ONLY THING THAT MAKES A DRAW "PAID", and it does not touch the
- * schedule at all. Paid-ness is derived by `reconcileProject`. There is no
- * "mark received" any more: a draw can't be flipped, because the old flag
- * could only ever record the PROJECTED amount, which is precisely why a
- * payment that differed from its projection had nowhere to go.
+ * ⛔ V4: THIS DOES NOT TOUCH THE FORECAST. No row is settled, locked, renamed,
+ * renumbered, re-spread or spawned. If the forecast no longer foots to what's
+ * left, the board shows the Redivide hint and a human decides.
  */
 export async function logPayment(input: {
   orgId: string
   projectId: string
   amount: number
   paymentDate: string
+  label?: string | null
   method?: string | null
   reference?: string | null
   notes?: string | null
@@ -496,6 +399,7 @@ export async function logPayment(input: {
       project_id: input.projectId,
       amount,
       payment_date: input.paymentDate,
+      label: input.label?.trim() || null,
       method: input.method || null,
       reference: input.reference?.trim() || null,
       notes: input.notes?.trim() || null,
@@ -506,11 +410,52 @@ export async function logPayment(input: {
   if (error || !data) {
     console.error('logPayment', error)
     if (isMissingRelation(error)) {
-      throw new Error('Recording payments needs migration 099. Run it, then reload.')
+      throw new Error('Recording payments needs migrations 099 and 130. Run them, then reload.')
     }
     throw new Error(error?.message || 'Could not record that payment.')
   }
   return toEntry(data)
+}
+
+/** Edit a ledger entry in place — a mis-keyed amount, date or label.
+ *  Like `logPayment`, it touches nothing but the ledger row. */
+export async function updatePayment(
+  id: string,
+  patch: {
+    amount: number
+    paymentDate: string
+    label?: string | null
+    method?: string | null
+    reference?: string | null
+    notes?: string | null
+  },
+  orgId?: string,
+): Promise<LedgerEntry> {
+  const amount = Number(patch.amount)
+  if (!Number.isFinite(amount) || amount === 0) {
+    throw new Error('Enter an amount. (A refund can be negative; zero can’t.)')
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(patch.paymentDate)) throw new Error('Pick a payment date.')
+  let q = supabase
+    .from('project_payments')
+    .update({
+      amount,
+      payment_date: patch.paymentDate,
+      label: patch.label?.trim() || null,
+      method: patch.method || null,
+      reference: patch.reference?.trim() || null,
+      notes: patch.notes?.trim() || null,
+    })
+    .eq('id', id)
+  if (orgId) q = q.eq('org_id', orgId)
+  const { data, error } = await q.select(LEDGER_COLUMNS)
+  if (error) {
+    console.error('updatePayment', error)
+    throw new Error(error.message || 'Could not save that payment.')
+  }
+  // ⛔ Zero rows is failure: PostgREST reports an RLS-blocked update as success.
+  if (!data || data.length === 0) throw new Error('Could not save that payment (no row updated).')
+  return toEntry(data[0])
 }
 
 /** Remove a ledger entry — a mis-keyed amount, a duplicate.
@@ -595,11 +540,10 @@ export function todayStamp(): string {
 }
 
 /**
- * What a change order does to the draw schedule: NOTHING is written
- * (2026-10-27). The open draws re-spread over whatever the contract still
- * owes every time it's read (lib/payment-ledger reconcileProject), so a CO
- * that moves bid_total moves them by itself. This only records the change on
- * the project timeline — once per CO (`key`), so schedule history reads.
+ * What a change order does to the forecast: NOTHING (v4). The CO moves the
+ * contract (`bid_total`), `remaining` moves with it, and the board's
+ * forecast-vs-remaining hint appears — a human redivides. Nothing auto-spreads.
+ * This only records the change on the project timeline — once per CO (`key`).
  */
 export async function applyChangeToSchedule(input: {
   orgId: string

@@ -12,7 +12,11 @@
 // shown here at all — it lives on /payments, which is the only place it
 // changes. This is a record of cash, plus a way to get there.
 //
-// ⛔ NOTHING HERE WRITES. Not the schedule, not the ledger. Editing a payment
+// v4 (2026-11-05): two independent lists — the FORECAST (what's still
+// coming) and the LEDGER (what came in) — plus the one hint when the forecast
+// doesn't foot to contract − received, deep-linking to the board's Redivide.
+//
+// ⛔ NOTHING HERE WRITES. Not the forecast, not the ledger. Editing a payment
 // means going to /payments. A read-only surface can't corrupt a contract, and
 // this codebase has twice shipped a screen that silently rewrote money it was
 // only supposed to display.
@@ -22,10 +26,10 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, CalendarClock } from 'lucide-react'
 import {
-  loadProjectDraws,
+  loadProjectForecast,
   loadProjectLedger,
-  DRIFT_EPS,
-  reconcileProject,
+  paymentLabel,
+  projectForecast,
   type LedgerEntry,
   type PaymentRow,
 } from '@/lib/payments'
@@ -57,10 +61,7 @@ export function ProjectPaymentLedger({
   const [entries, setEntries] = useState<LedgerEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [missing, setMissing] = useState(false)
-  /** ⛔ THE SCHEDULE, SHOWN. Without this the project page had no view of its
-   *  own draws at all post-sale, and `buildPaymentsView` hides a draw with
-   *  nothing outstanding — so a fully-paid job showed only receipts and read
-   *  as though its schedule had been deleted. */
+  /** The forecast rows (what's still coming). */
   const [draws, setDraws] = useState<PaymentRow[]>([])
 
   useEffect(() => {
@@ -68,7 +69,7 @@ export function ProjectPaymentLedger({
     void (async () => {
       const [res, rows] = await Promise.all([
         loadProjectLedger(projectId),
-        loadProjectDraws(projectId),
+        loadProjectForecast(projectId),
       ])
       if (!alive) return
       setEntries(res.entries)
@@ -82,11 +83,10 @@ export function ProjectPaymentLedger({
   }, [projectId])
 
   const received = useMemo(() => entries.reduce((s, e) => s + e.amount, 0), [entries])
-  // Same reconciliation the board runs, so the two can't tell different
-  // stories about the same job.
-  const recon = useMemo(
-    () => reconcileProject(draws, entries, contractTotal),
-    [draws, entries, contractTotal],
+  // The same pure summary the board runs, so the two can't disagree.
+  const fc = useMemo(
+    () => projectForecast(projectId, '', draws, entries, contractTotal),
+    [projectId, draws, entries, contractTotal],
   )
   const remaining = Math.max(0, contractTotal - received)
   const credit = Math.max(0, received - contractTotal)
@@ -104,14 +104,12 @@ export function ProjectPaymentLedger({
             drifts is the one that rewrites a draw money was credited against.
             So this DEEP-LINKS to the board's editor, prefilled for this job. */}
         <div className="flex items-center gap-2">
-          {draws.length > 0 && (
-            <Link
-              href={`/payments?edit=${projectId}`}
-              className="text-[11px] text-[#2563EB] hover:underline"
-            >
-              Edit draws
-            </Link>
-          )}
+          <Link
+            href={`/payments?edit=${projectId}`}
+            className="text-[11px] text-[#2563EB] hover:underline"
+          >
+            {draws.length > 0 ? 'Edit forecast' : 'Set up forecast'}
+          </Link>
           <Link
             href="/payments"
             className="inline-flex items-center gap-1 text-[11px] text-[#2563EB] hover:underline"
@@ -127,86 +125,55 @@ export function ProjectPaymentLedger({
         </div>
       ) : (
         <>
-          {/* ⛔ THE AGREED TERMS, ALWAYS VISIBLE — INCLUDING WHEN PAID.
-              The payments board deliberately drops a draw once it has nothing
-              outstanding, so a finished job showed nothing but receipts and
-              looked as if its schedule had been erased. This is the one place
-              that answers "what did we agree to?" after the sale. Read-only:
-              the schedule changes on /payments and nowhere else. */}
-          {draws.length > 0 && (
+          {/* THE FORECAST — what's still coming, as a human last set it.
+              Nothing here is "paid": paid money is the ledger below. */}
+          {fc.rows.length > 0 && (
             <div className="mb-3 rounded-lg border border-[#E5E7EB] overflow-hidden">
               <div className="px-2.5 py-1.5 bg-[#FAFAFA] border-b border-[#F3F4F6] flex items-center justify-between">
                 <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">
-                  Draw schedule
+                  Forecast
                 </span>
                 <span className="text-[10px] text-[#9CA3AF] font-mono tabular-nums">
-                  {recon.draws.filter((d) => d.state === 'paid').length} of {recon.draws.length} paid
+                  {money(fc.forecastTotal)}
                 </span>
               </div>
-              {recon.draws.map((d) => (
+              {fc.rows.map((r) => (
                 <div
-                  key={d.row.id}
+                  key={r.id}
                   className="px-2.5 py-1.5 flex items-center gap-2 border-b border-[#F3F4F6] last:border-b-0"
                 >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                      d.state === 'paid'
-                        ? 'bg-[#059669]'
-                        : d.state === 'partial'
-                          ? 'bg-[#D97706]'
-                          : 'bg-[#D1D5DB]'
-                    }`}
-                  />
-                  <span className="text-[11.5px] text-[#374151] truncate flex-1 min-w-0">
-                    {d.row.label}
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-[#D1D5DB]" />
+                  <span className="text-[11.5px] text-[#374151] truncate flex-1 min-w-0">{r.label}</span>
+                  <span className="text-[10.5px] text-[#9CA3AF] flex-shrink-0">
+                    {r.expectedDate ? dayLabel(r.expectedDate) : 'no date'}
                   </span>
-                  {/* ⚠️ `scheduled`, not `stored`: a change order or a shrunk
-                      contract rebalances the unpaid part, and showing the
-                      stale authored figure would disagree with the board. */}
                   <span className="text-[11.5px] font-mono tabular-nums text-[#111] flex-shrink-0">
-                    {money(d.scheduled)}
-                  </span>
-                  <span
-                    className={`text-[10px] text-right flex-shrink-0 ${
-                      d.state === 'paid' ? 'w-14 text-[#059669]' : d.state === 'partial' ? 'text-[#B45309]' : 'w-14 text-[#9CA3AF]'
-                    }`}
-                  >
-                    {d.state === 'paid'
-                      ? 'paid'
-                      : d.state === 'partial'
-                        ? `${money(d.covered)} of ${money(d.scheduled)} in`
-                        : 'open'}
+                    {money(r.amount)}
                   </span>
                 </div>
               ))}
-              {/* The stored rows not summing to the contract is how a phantom
-                  dollar starts. Say it rather than letting the final draw
-                  quietly absorb it.
-
-                  ⛔ TWO DIFFERENT MESSAGES, because they are two different
-                  problems. With no contract value recorded, `contractTotal` is
-                  0 (the loader coerces a missing `bid_total` with `|| 0`), so
-                  the subtraction makes drift equal the ENTIRE schedule and the
-                  old copy read "$27,425 over the contract" — blaming the
-                  schedule for a missing contract. UT - Public Arts is in
-                  exactly that state on prod today. */}
-              {contractTotal <= 0 ? (
-                <div className="px-2.5 py-1.5 bg-[#FFFBEB] text-[10.5px] text-[#92400E] leading-snug">
-                  This project has no contract value, so these draws can&apos;t be checked against
-                  anything. Set the project total to see whether the schedule adds up.
-                </div>
-              ) : Math.abs(recon.drift) >= DRIFT_EPS ? (
-                // Only possible with draws typed in DOLLARS (123): those are
-                // never re-spread, so a gap stays visible instead of moving them.
-                <div className="px-2.5 py-1.5 bg-[#FFFBEB] text-[10.5px] text-[#92400E] leading-snug">
-                  {recon.drift > 0
-                    ? `Draws total ${money(recon.drift)} MORE than the contract.`
-                    : `Draws total ${money(-recon.drift)} LESS than the contract.`}{' '}
-                  Draws typed in dollars aren&apos;t re-spread — adjust them in Edit draws.
-                </div>
-              ) : null}
             </div>
           )}
+          {/* ⛔ THE ONE HINT, same rule as the board. */}
+          {contractTotal <= 0 ? (
+            (draws.length > 0 || entries.length > 0) && (
+              <div className="mb-3 px-2.5 py-1.5 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-[10.5px] text-[#92400E] leading-snug">
+                This project has no contract value, so the forecast can&apos;t be checked against anything.
+              </div>
+            )
+          ) : fc.needsRedivide ? (
+            <div className="mb-3 px-2.5 py-1.5 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg text-[11px] text-[#6B7280] flex items-center gap-2">
+              <span className="font-mono tabular-nums">
+                Forecast {money(fc.forecastTotal)} vs {money(fc.remaining)} remaining
+              </span>
+              <Link
+                href={`/payments?redivide=${projectId}`}
+                className="ml-auto font-medium text-[#2563EB] hover:underline"
+              >
+                Redivide
+              </Link>
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-3 gap-2 mb-2">
             <Stat label="Contract" value={money(contractTotal)} />
@@ -248,10 +215,12 @@ export function ProjectPaymentLedger({
                 >
                   <CalendarClock className="w-3 h-3 text-[#9CA3AF] flex-shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <div className="text-[12px] text-[#111]">{dayLabel(e.paymentDate)}</div>
-                    {(e.method || e.reference || e.notes) && (
+                    <div className="text-[12px] text-[#111]">
+                      {paymentLabel(e)} · {dayLabel(e.paymentDate)}
+                    </div>
+                    {(e.method || e.reference || (e.label && e.notes)) && (
                       <div className="text-[10.5px] text-[#9CA3AF] truncate">
-                        {[e.method, e.reference, e.notes].filter(Boolean).join(' · ')}
+                        {[e.method, e.reference, e.label ? e.notes : null].filter(Boolean).join(' · ')}
                       </div>
                     )}
                   </div>

@@ -32,7 +32,6 @@ import {
   monthId,
   monthOf,
   rescheduleTo,
-  isOutstanding,
 } from '../lib/payment-schedule.ts'
 
 let bad = 0
@@ -123,7 +122,7 @@ for (const day of ['2026-01-29', '2026-01-30', '2026-01-31']) {
 }
 ck('every day/month combination lands in the target month', true, true)
 
-ck('outstanding statuses', ['projected', 'invoiced', 'received', 'cancelled'].map((s) => isOutstanding(row({ status: s }))), [true, true, false, false])
+// (v4, 2026-11-05: `isOutstanding` is gone — a forecast row's status is ignored.)
 
 console.log(bad ? `\n${bad} FAILING` : '\nall payment-date cases pass')
 process.exit(bad ? 1 : 0)

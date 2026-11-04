@@ -2,7 +2,7 @@
 // lib/sales-goal.ts — the monthly cash target.
 // ============================================================================
 // PURE. No supabase import, so scripts/verify-sales-goal.mjs runs it without
-// credentials. Same rule as lib/payment-ledger and lib/receivables.
+// credentials. Same rule as lib/payment-forecast and lib/receivables.
 //
 // Andrew's model, 2026-09-12. Every dollar received splits three ways —
 // overhead, material (COGS), profit — so the revenue that covers one month of
