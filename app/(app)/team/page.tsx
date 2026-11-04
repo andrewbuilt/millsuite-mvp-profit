@@ -699,6 +699,9 @@ function TeamContent() {
   ) {
     const json = await callAdminUsers({
       action: 'create_login',
+      // The server refuses a second login for this person (lib/login-dupes)
+      // — it needs to know WHICH roster row this is for.
+      member_id: member.id,
       email,
       name: member.name,
       password,
@@ -723,7 +726,7 @@ function TeamContent() {
    * task system silently meant "everyone" for them, everywhere.
    */
   async function linkLogin(member: TeamMember, userId: string) {
-    const json = await callAdminUsers({ action: 'link_login', user_id: userId })
+    const json = await callAdminUsers({ action: 'link_login', user_id: userId, member_id: member.id })
     if (json.user_id) {
       setRoles((prev) => ({ ...prev, [json.user_id]: json.role || 'member' }))
     }

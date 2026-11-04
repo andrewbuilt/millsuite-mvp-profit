@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getSeatStatus } from '@/lib/seats'
+import { conflictMessage, findLoginConflict, type LoginRow, type RosterRow } from '@/lib/login-dupes'
+
+/** This org's logins + roster, for the one-person-one-login checks. */
+async function loadLoginsAndRoster(orgId: string): Promise<{ logins: LoginRow[]; roster: RosterRow[] }> {
+  const [{ data: users }, { data: org }] = await Promise.all([
+    supabaseAdmin.from('users').select('id, org_id, name, email, role, auth_user_id').eq('org_id', orgId),
+    supabaseAdmin.from('orgs').select('team_members').eq('id', orgId).single(),
+  ])
+  return {
+    logins: (users || []) as LoginRow[],
+    roster: ((org?.team_members as RosterRow[] | null) || []).filter(Boolean),
+  }
+}
 
 // ============================================================================
 // /api/admin/users — login + role management (chunk A2, roles added item 5)
@@ -128,6 +141,23 @@ export async function POST(req: NextRequest) {
       return forbidden('Only the owner can create a manager login.')
     }
 
+    // ⛔ ONE PERSON, ONE LOGIN (2026-11-06 root fix — Andrew, Kaylin, Evan).
+    // Refuse BEFORE minting anything when this person already has a login,
+    // the email is taken, or an unlinked login looks like them; the message
+    // names the login that exists and what to do instead (Link existing /
+    // Reset password). lib/login-dupes holds the rules.
+    {
+      const { logins, roster } = await loadLoginsAndRoster(orgId)
+      const memberId = typeof body.member_id === 'string' ? body.member_id : null
+      const conflict = findLoginConflict({ email, name, memberId }, logins, roster)
+      if (conflict) {
+        return NextResponse.json(
+          { error: 'login_exists', kind: conflict.kind, message: conflictMessage(conflict, name || email), login_id: conflict.login.id },
+          { status: 409 },
+        )
+      }
+    }
+
     // A worker login consumes a seat, so honor the same limit as /join.
     const seatStatus = await getSeatStatus(orgId)
     if (seatStatus.atLimit) {
@@ -146,9 +176,18 @@ export async function POST(req: NextRequest) {
       email_confirm: true,
     })
     if (createErr || !created?.user) {
+      // The email has an auth account elsewhere (another shop, or a signup
+      // that never finished). Say so plainly — never "try another email",
+      // which is how a person ends up with two.
+      const taken = /already|registered|exists/i.test(createErr?.message || '')
       return NextResponse.json(
-        { error: createErr?.message || 'Could not create the login (is the email already in use?)' },
-        { status: 400 },
+        {
+          error: taken ? 'login_exists' : createErr?.message || 'Could not create the login',
+          message: taken
+            ? 'That email already has a MillSuite account (another shop, or an unfinished signup). Use Link existing if it is in this shop — otherwise ask us to move it rather than creating a second account with a different email.'
+            : createErr?.message || 'Could not create the login',
+        },
+        { status: taken ? 409 : 400 },
       )
     }
 
@@ -340,6 +379,20 @@ export async function POST(req: NextRequest) {
     // would block an admin from linking the owner, which is the main case.
     // The caller is already owner-or-admin in this org (requireOwnerOrAdmin),
     // and resolveOrgUser pins the target to the SAME org.
+    //
+    // ⛔ But one login, one roster row: linking a login another person's row
+    // already holds would make two people share it (2026-11-06).
+    {
+      const memberId = typeof body.member_id === 'string' ? body.member_id : null
+      const { roster } = await loadLoginsAndRoster(orgId)
+      const holder = roster.find((m) => m.user_id === target.id && m.id !== memberId)
+      if (holder) {
+        return NextResponse.json(
+          { error: 'login_linked', message: `That login is already linked to ${holder.name}. Unlink it there first — one login per person.` },
+          { status: 409 },
+        )
+      }
+    }
     return NextResponse.json({
       user_id: target.id,
       email: target.email ?? null,

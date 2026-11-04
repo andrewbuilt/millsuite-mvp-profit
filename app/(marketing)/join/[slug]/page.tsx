@@ -49,6 +49,19 @@ export default function JoinPage() {
     setLoading(true)
 
     try {
+      // 0. ⛔ One person, one login (2026-11-06): ask BEFORE creating an
+      // account whether this person already has one here. A refusal names
+      // the login to sign in with, and nothing has been created.
+      const pre = await fetch('/api/auth/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ precheck: true, email: email.trim().toLowerCase(), name: name.trim(), slug }),
+      })
+      if (!pre.ok) {
+        const p = await pre.json().catch(() => ({}))
+        throw new Error(p.message || p.error || 'Could not join')
+      }
+
       // 1. Create Supabase auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
@@ -77,7 +90,9 @@ export default function JoinPage() {
         // limit} when the org is full. Surface that message verbatim
         // (it already names the org and tells the user what to do)
         // instead of the generic catch-all.
-        if (result.error === 'no_seats_available') {
+        if (result.error === 'no_seats_available' || result.error === 'already_has_login') {
+          // The route deleted the account it just made; sign out of it.
+          await supabase.auth.signOut().catch(() => {})
           throw new Error(result.message)
         }
         throw new Error(result.error || 'Failed to join')
