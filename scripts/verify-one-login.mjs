@@ -106,6 +106,10 @@ ok('mask: public page shows only the domain', L.maskEmail('evan.otero@builtthing
   ok('diag: roster → a login in another org', has('roster_points_cross_org', /Cross/))
   ok('diag: roster → no users row', has('roster_points_at_missing', /Missing/))
   ok('diag: active roster row → a disabled login (Trent)', has('roster_points_at_disabled', /Trent/))
+  const hint = L.loginIssues({ id: ORG, name: 'Built', roster }, [...logins, login('u-mark', 'Mark McGee', 'pyromark@aol.com', 'member')], new Map([['a-u-mark', { id: 'a-u-mark', email: null, banned: false, lastSignIn: null }], ...logins.map((l) => [l.auth_user_id, { id: l.auth_user_id, email: l.email, banned: false, lastSignIn: null }])]))
+  ok('diag: an unlinked login with no roster match says "add them on /team"', hint.some((i) => i.kind === 'unlinked_login' && /no roster row matches/.test(i.detail)), hint)
+  const hint2 = L.loginIssues({ id: ORG, name: 'Built', roster: [...roster, { id: 'm-mark', name: 'Mark McGee', email: null, user_id: null }] }, [...logins, login('u-mark', 'Mark McGee', 'pyromark@aol.com', 'member')], new Map([['a-u-mark', { id: 'a-u-mark', email: null, banned: false, lastSignIn: null }], ...logins.map((l) => [l.auth_user_id, { id: l.auth_user_id, email: l.email, banned: false, lastSignIn: null }])]))
+  ok('diag: an unlinked login with a waiting roster row names it → Link existing', hint2.some((i) => i.kind === 'unlinked_login' && /"Mark McGee": \/team → Mark McGee → Link existing/.test(i.detail)), hint2)
   ok('diag: auth account with no profile anywhere', L.orphanAuthAccounts(all, auth).some((a) => a.id === 'a-stray'))
   const clean = L.loginIssues({ id: ORG, name: 'Built', roster }, logins, new Map(logins.map((l) => [l.auth_user_id, { id: l.auth_user_id, email: l.email, banned: false, lastSignIn: '2026-11-01' }])))
   ok('diag: a clean org reads clean', clean.length === 0, clean)
@@ -127,6 +131,8 @@ ok('/join route: a refused join deletes only a fresh, profile-less auth account'
 ok('/join route: an email matching an unlinked roster row links it', /rosterMatchForJoin\(email, roster\)/.test(join) && /user_id: user\.id/.test(join))
 const joinPage = read('app/(marketing)/join/[slug]/page.tsx')
 ok('/join page: precheck runs BEFORE supabase.auth.signUp', joinPage.indexOf('precheck: true') > 0 && joinPage.indexOf('precheck: true') < joinPage.indexOf('auth.signUp('))
+
+ok('diagnostic script: --live hides orgs nobody can sign in to', /--live/.test(read('scripts/inspect-logins.mjs')) && /liveOnly && !liveOrg\(o\.id\)/.test(read('scripts/inspect-logins.mjs')))
 
 console.log(`\n${fail ? 'FAIL' : 'PASS'} — ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

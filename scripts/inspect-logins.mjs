@@ -3,6 +3,9 @@
 // ============================================================================
 // Run:  npx tsx --env-file=.env.local scripts/inspect-logins.mjs            (every org)
 //       npx tsx --env-file=.env.local scripts/inspect-logins.mjs --org Built
+//       … --live     only orgs someone can still sign in to (hides abandoned
+//                    test signups and seeded demo shops — 2026-11-04 run:
+//                    152 issues, ~140 of them test/demo noise)
 // Exit 0 = clean, 1 = issues listed.
 //
 // THE STANDING DIAGNOSTIC (STATE 2026-11-06, duplicate-login root fix). Three
@@ -64,12 +67,17 @@ for (let page = 1; ; page++) {
   if (data.users.length < 1000) break
 }
 
+const liveOnly = process.argv.includes('--live')
+const liveOrg = (orgId) =>
+  users.some((u) => u.org_id === orgId && u.auth_user_id && auth.has(u.auth_user_id) && !auth.get(u.auth_user_id).banned)
+
 const issues = []
 for (const o of orgs) {
   if (orgFilter && !o.name.toLowerCase().includes(orgFilter)) continue
+  if (liveOnly && !liveOrg(o.id)) continue
   issues.push(...loginIssues({ id: o.id, name: o.name, roster: o.team_members || [] }, users, auth))
 }
-if (!orgFilter) {
+if (!orgFilter && !liveOnly) {
   for (const a of orphanAuthAccounts(users, auth)) {
     issues.push({ org: '—', kind: 'auth_without_profile', who: a.email || a.id, detail: `auth account, no users row · last sign-in ${a.lastSignIn?.slice(0, 10) || 'never'}` })
   }
@@ -78,7 +86,7 @@ if (!orgFilter) {
 const ORDER = ['manager_signs_in_as_worker', 'duplicate_person', 'duplicate_email', 'two_rows_one_login', 'roster_points_cross_org', 'roster_points_at_missing', 'roster_points_at_disabled', 'dead_auth_account', 'no_auth_account', 'unlinked_login', 'auth_without_profile']
 issues.sort((a, b) => a.org.localeCompare(b.org) || ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind))
 
-console.log(`\n${users.length} logins · ${orgs.length} orgs · ${auth.size} auth accounts${orgFilter ? ` · org filter "${orgFilter}"` : ''}\n`)
+console.log(`\n${users.length} logins · ${orgs.length} orgs · ${auth.size} auth accounts${orgFilter ? ` · org filter "${orgFilter}"` : ''}${liveOnly ? ' · live orgs only' : ''}\n`)
 if (issues.length === 0) {
   console.log('✅ CLEAN — every login is one person, linked once, with a live account.')
   process.exit(0)

@@ -229,7 +229,18 @@ export function loginIssues(
         const b = real?.auth_user_id ? auth.get(real.auth_user_id) : null
         push(kind, label(l), `looks like ${twin.name}, whose linked login is ${real ? label(real) : twin.user_id}. Last sign-in: this ${a?.lastSignIn?.slice(0, 10) || 'never'} vs linked ${b?.lastSignIn?.slice(0, 10) || 'never'}`)
       } else {
-        push('unlinked_login', label(l), 'linked to no roster row — /me and "Mine" can\'t find this person')
+        // Is there a roster row waiting for this person? (same email, or a
+        // name that looks alike, and no login of its own) → Link existing.
+        const waiting = roster.find(
+          (m) => !m.user_id && ((normEmail(m.email) && normEmail(m.email) === normEmail(l.email)) || namesLookAlike(m.name, l.name)),
+        )
+        push(
+          'unlinked_login',
+          label(l),
+          waiting
+            ? `linked to no roster row — the roster has an unlinked "${waiting.name}": /team → ${waiting.name} → Link existing`
+            : 'linked to no roster row, and no roster row matches — add them on /team and Link existing, or disable it',
+        )
       }
     }
   }
