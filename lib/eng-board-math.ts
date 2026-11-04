@@ -129,9 +129,16 @@ export function eatDivisions(
     .map((d) => ({ date: d.date, hours: Number(d.hours) || 0 }))
   const futureSum = future.reduce((s, d) => s + d.hours, 0)
   if (remaining >= futureSum - EPS) {
+    let roll = Math.max(0, remaining - futureSum)
+    // A sub-half-hour difference is the sum gate's rounding, not unworked
+    // time — it lands on the last day instead of growing a sliver of a day.
+    if (roll > EPS && roll < 0.26 && future.length && future[future.length - 1].date >= today) {
+      future[future.length - 1].hours += roll
+      roll = 0
+    }
     return {
       days: future,
-      rollForward: Math.max(0, remaining - futureSum),
+      rollForward: roll,
       after: future.length ? future[future.length - 1].date : null,
     }
   }
@@ -223,11 +230,16 @@ export function evenDivide(total: number, dates: string[]): Division[] {
   const halves = Math.round(total * 2)
   const base = Math.floor(halves / n)
   let extra = halves - base * n
-  return dates.map((date) => {
+  const rows = dates.map((date) => {
     const h = base + (extra > 0 ? 1 : 0)
     if (extra > 0) extra--
     return { date, hours: h / 2 }
   })
+  // Half-hours everywhere but the last row, which takes the exact remainder
+  // so the rows foot to the total (14.6h → 5 + 5 + 4.6, not 14.5).
+  const head = rows.slice(0, -1).reduce((s, r) => s + r.hours, 0)
+  rows[n - 1].hours = Math.round((total - head) * 100) / 100
+  return rows
 }
 
 /** The divide modal's sum gate: matches the remaining hours to the half-hour. */

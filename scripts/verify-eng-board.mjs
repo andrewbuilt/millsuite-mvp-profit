@@ -68,6 +68,9 @@ console.log('Divide')
   const r2 = packLane(lane(), [strip('x', 8, 0, { divisions: [{ date: MON, hours: 4 }, { date: TUE, hours: 4 }] })], TUE, H(TUE)).strips[0]
   ok(eq(r2.days, { [TUE]: 4, [WED]: 4 }), '…and lands after the last divided day')
   ok(divisionsMatch(div, 16) && !divisionsMatch(div, 17), 'sum gate')
+  ok(eq(evenDivide(14.6, [TUE, WED, THU]).map((d) => d.hours), [5, 5, 4.6]), 'even split foots exactly (14.6 → 5 / 5 / 4.6)')
+  const typed = packLane(lane(), [strip('x', 16.2, 0, { divisions: div })], TUE, H(TUE)).strips[0]
+  ok(eq(Object.fromEntries(Object.entries(typed.days).map(([k, v]) => [k, Math.round(v * 100) / 100])), { [TUE]: 5.5, [WED]: 5.5, [THU]: 5.2 }) && typed.end === THU, 'a sub-half-hour gate difference lands on the last day, no sliver')
 }
 
 console.log('Firm dates')
@@ -91,7 +94,7 @@ ok(read('lib/reserved-slugs.ts').includes("'engineering'"), "'engineering' reser
 ok(read('components/top-nav.tsx').includes("href: '/engineering'"), 'nav: Projects ▾ Engineering')
 ok(/loadProjectsLaborHours/.test(read('lib/eng-board.ts')) && /byDept\.eng/.test(read('lib/eng-board.ts')), 'est eng hours come from the estimate rollup')
 ok(read('scripts/rls-audit.mjs').includes('eng_assignments'), 'rls-audit covers eng_assignments')
-ok(/from '@\/lib\/schedule-style'/.test(read('app/(app)/schedule/page.tsx')) && /from '@\/lib\/schedule-style'/.test(page), 'both boards share lib/schedule-style tokens')
+ok(/from '@\/lib\/schedule-style'/.test(read('app/(app)/schedule/page.tsx')) && /from '@\/lib\/schedule-style'/.test(read('components/engineering/EngBoard.tsx')), 'both boards share lib/schedule-style tokens')
 const mig = read('db/migrations/129_eng_assignments.sql')
 ok(/IF NOT EXISTS/.test(mig) && /ENABLE ROW LEVEL SECURITY/.test(mig) && /NOTIFY pgrst/.test(mig), '129 idempotent + RLS + reload')
 
