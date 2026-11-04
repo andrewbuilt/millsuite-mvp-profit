@@ -3,179 +3,179 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Engineering board — day swimlane (v3)</title>
+<title>Engineering board — remaining-hours strips (v4)</title>
 <!--
-  MOCKUP v3 · Engineering board (Andrew 11-04: "make it look just like the current
-  schedule swimlane and break it up by day"). v1 columns / v2 week-lanes in git
-  history. Lanes = engineers · columns = DAYS · blocks stack within a day (small
-  jobs share a day) · the PRIORITY RAIL at top orders the queue and the board
-  packs each lane's days forward, which is what produces the "drawings by {date}"
-  promise on each job's last block. Dragging a block or reordering the rail
-  repacks and the dates move honestly. Visual language mirrors /schedule's
-  swimlane (same block style, week headers over day columns, utilization row).
+  MOCKUP v4 · Engineering board (Andrew 11-04): CONTINUOUS STRIPS, not day
+  segments. A strip is a project's REMAINING engineering hours laid across days
+  at that engineer's daily hours (24h job = 3 days). Tracked time EATS the strip
+  from the left — track 8h anywhere (even bouncing between jobs) and the strip
+  re-spans to 16h/2 days on its own; nobody edits the board when reality
+  interrupts. Click a strip -> the DIVIDE MODAL (capacity divide-block pattern):
+  re-spread the remaining hours across days (e.g. 16h over 3 days @ ~5h/day) so
+  other projects fit the same days; strips may overlap days, stacked in the lane.
+  FIRM deadline = a pinned end date with a flag; the pack warns when it won't
+  make it. EACH ENGINEER HAS THEIR OWN DAY HEADER showing that day's load,
+  red when overbooked. Priority rail still orders the pack and carries the
+  computed "drawings by" dates. v1-v3 in git history.
 -->
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:#fff; color:#111; padding:24px 28px; }
   .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
 
-  .pagehead { display:flex; align-items:center; gap:14px; }
   h1 { font-size:22px; font-weight:700; letter-spacing:-.02em; }
   .dept { color:#1E40AF; } .caret { font-size:13px; color:#9CA3AF; }
-  .sub { font-size:12.5px; color:#6B7280; margin:4px 0 14px; }
-  .sub b { color:#B91C1C; }
+  .sub { font-size:12.5px; color:#6B7280; margin:4px 0 14px; max-width:860px; }
 
-  /* priority rail */
-  .rail { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 10px; border:1px solid #E5E7EB; border-radius:11px; margin-bottom:14px; }
-  .rail .lbl { font-size:10.5px; font-weight:700; letter-spacing:.07em; color:#9CA3AF; text-transform:uppercase; margin-right:2px; }
+  .rail { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 10px; border:1px solid #E5E7EB; border-radius:11px; margin-bottom:16px; }
+  .rail .lbl { font-size:10.5px; font-weight:700; letter-spacing:.07em; color:#9CA3AF; text-transform:uppercase; }
   .pchip { display:inline-flex; align-items:center; gap:7px; border:1.5px solid; border-radius:99px; padding:4px 11px; font-size:12px; font-weight:600; cursor:grab; background:#fff; }
   .pchip .n { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; opacity:.65; }
-  .pchip .by { font-size:10.5px; font-weight:600; color:#059669; }
-  .pchip.c1 { border-color:#2563EB; color:#1D4ED8; } .pchip.c2 { border-color:#D97706; color:#B45309; }
-  .pchip.c3 { border-color:#DB2777; color:#BE185D; } .pchip.c4 { border-color:#059669; color:#047857; }
-  .pchip.c5 { border-color:#7C3AED; color:#6D28D9; }
-  .pchip.unq { border-style:dashed; color:#6B7280; border-color:#D1D5DB; }
+  .pchip .by { font-size:10.5px; color:#059669; }
+  .pchip .firm { font-size:10px; }
+  .c1 { border-color:#2563EB; color:#1D4ED8; } .c2 { border-color:#D97706; color:#B45309; }
+  .c3 { border-color:#DB2777; color:#BE185D; } .c4 { border-color:#059669; color:#047857; }
+  .c5 { border-color:#7C3AED; color:#6D28D9; }
 
-  /* grid */
-  .grid { border:1px solid #E5E7EB; border-radius:13px; overflow:hidden; }
-  .row { display:grid; grid-template-columns:170px repeat(10, 1fr); }
-  .row > * { border-left:1px solid #F3F4F6; }
-  .row > *:first-child { border-left:none; }
+  .lane { border:1px solid #E5E7EB; border-radius:13px; overflow:hidden; margin-bottom:14px; }
+  .lanegrid { display:grid; grid-template-columns:150px repeat(10,1fr); }
+  .lanegrid > * { border-left:1px solid #F3F4F6; } .lanegrid > *:first-child { border-left:none; }
 
-  .wkband { background:#FAFAF9; border-bottom:1px solid #E5E7EB; }
-  .wkband .wk { grid-column:span 5; text-align:center; font-size:10.5px; font-weight:700; letter-spacing:.08em; color:#6B7280; text-transform:uppercase; padding:7px 0; }
-  .wkband .wk.now { color:#1E40AF; }
-  .dayhead { background:#FAFAF9; border-bottom:1px solid #E5E7EB; }
-  .dayhead .d { text-align:center; font-size:10px; color:#9CA3AF; padding:4px 0 7px; }
-  .dayhead .d b { display:block; font-size:11px; color:#374151; }
-  .dayhead .d.today b { color:#1E40AF; }
-  .corner { padding:8px 12px; font-size:10px; font-weight:700; letter-spacing:.07em; color:#9CA3AF; text-transform:uppercase; }
+  .who { grid-row:1 / span 2; padding:10px 12px; border-right:1px solid #F3F4F6; }
+  .who .name { font-size:13.5px; font-weight:600; }
+  .who .load { font-size:10.5px; color:#6B7280; margin-top:2px; }
 
-  .lane { border-bottom:1px solid #F3F4F6; }
-  .lane:last-child { border-bottom:none; }
-  .who { padding:10px 12px; }
-  .who .name { font-size:13px; font-weight:600; }
-  .who .load { font-size:10.5px; color:#6B7280; margin-top:1px; }
-  .day { min-height:64px; padding:3px; position:relative; }
-  .day.over { background:#FEF2F2; }
-  .day .cap { position:absolute; bottom:2px; right:5px; font-size:8.5px; color:#C4C0B8; font-family:ui-monospace,Menlo,monospace; }
-  .day.over .cap { color:#DC2626; font-weight:700; }
+  .dh { background:#FAFAF9; border-bottom:1px solid #F3F4F6; text-align:center; font-size:9.5px; color:#9CA3AF; padding:4px 0; }
+  .dh b { display:block; font-size:10.5px; color:#374151; }
+  .dh .ld { display:block; font-family:ui-monospace,Menlo,monospace; font-size:9px; margin-top:1px; color:#9CA3AF; }
+  .dh.full .ld { color:#B45309; font-weight:700; }
+  .dh.over { background:#FEF2F2; } .dh.over .ld { color:#DC2626; font-weight:700; }
+  .dh.today b { color:#1E40AF; }
 
-  .blk { border-radius:6px; border:1px solid; padding:3px 6px; font-size:10.5px; font-weight:600; margin-bottom:3px; cursor:grab; position:relative; line-height:1.25; }
-  .blk small { display:block; font-weight:400; font-family:ui-monospace,Menlo,monospace; font-size:9.5px; opacity:.75; }
-  .blk.c1 { background:#EFF6FF; border-color:#BFDBFE; color:#1D4ED8; }
-  .blk.c2 { background:#FFFBEB; border-color:#FDE68A; color:#B45309; }
-  .blk.c3 { background:#FDF2F8; border-color:#FBCFE8; color:#BE185D; }
-  .blk.c4 { background:#ECFDF5; border-color:#A7F3D0; color:#047857; }
-  .blk.c5 { background:#F5F3FF; border-color:#DDD6FE; color:#6D28D9; }
-  .blk.done-edge::after { content:"✓"; position:absolute; right:4px; top:3px; font-size:9px; }
-  .duechip { display:inline-block; font-size:8.5px; font-weight:700; letter-spacing:.03em; background:#059669; color:#fff; border-radius:4px; padding:1px 4px; margin-top:2px; }
-  .duechip.late { background:#DC2626; }
+  /* strip canvas: rows of absolutely-widthed strips over a 10-day grid */
+  .canvas { grid-column:2 / span 10; position:relative; padding:8px 0 10px; min-height:84px; }
+  .gridlines { position:absolute; inset:0; display:grid; grid-template-columns:repeat(10,1fr); }
+  .gridlines i { border-left:1px solid #F7F7F5; } .gridlines i:first-child { border-left:none; }
 
-  .foot { margin-top:14px; font-size:11.5px; color:#9CA3AF; max-width:820px; line-height:1.6; }
+  .strip { position:relative; height:30px; border-radius:8px; border:1px solid; margin:3px 6px; display:flex; align-items:center; gap:8px;
+           padding:0 10px; font-size:11px; font-weight:600; cursor:pointer; width:calc(var(--span)*10% - 12px); margin-left:calc(var(--start)*10% + 6px); }
+  .strip small { font-weight:400; font-family:ui-monospace,Menlo,monospace; font-size:9.5px; opacity:.8; }
+  .strip .firmflag { margin-left:auto; font-size:9.5px; }
+  .s1 { background:#EFF6FF; border-color:#93C5FD; color:#1D4ED8; }
+  .s2 { background:#FFFBEB; border-color:#FCD34D; color:#B45309; }
+  .s3 { background:#FDF2F8; border-color:#F9A8D4; color:#BE185D; }
+  .s4 { background:#ECFDF5; border-color:#6EE7B7; color:#047857; }
+  .s5 { background:#F5F3FF; border-color:#C4B5FD; color:#6D28D9; }
+  .strip.thin { height:24px; font-size:10.5px; }
+  .strip.missfirm { box-shadow:0 0 0 2px #FECACA; }
+  .firmpin { position:absolute; top:0; bottom:0; width:2px; background:#DC2626; z-index:2; }
+  .firmpin span { position:absolute; top:-2px; left:4px; font-size:8.5px; color:#DC2626; font-weight:700; white-space:nowrap; }
+
+  /* modal */
+  .modalwrap { display:flex; gap:18px; align-items:flex-start; margin-top:20px; }
+  .modal { width:430px; background:#fff; border:1px solid #E5E7EB; border-radius:14px; box-shadow:0 18px 40px rgba(17,17,17,.14); padding:18px; }
+  .modal h3 { font-size:15px; font-weight:600; }
+  .modal .meta { font-size:11.5px; color:#6B7280; margin:3px 0 12px; }
+  .mrow { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid #F3F4F6; font-size:12.5px; }
+  .mrow:last-of-type { border-bottom:none; }
+  .mrow .d { width:90px; color:#374151; }
+  .mrow input { width:64px; border:1px solid #D1D5DB; border-radius:7px; padding:5px 8px; font-family:ui-monospace,Menlo,monospace; font-size:12px; text-align:right; }
+  .mrow .hint { font-size:10.5px; color:#9CA3AF; }
+  .firmrow { display:flex; align-items:center; gap:10px; margin:12px 0; font-size:12.5px; }
+  .firmrow .tog { width:34px; height:20px; border-radius:99px; background:#DC2626; position:relative; }
+  .firmrow .tog::after { content:""; position:absolute; right:2px; top:2px; width:16px; height:16px; border-radius:99px; background:#fff; }
+  .msum { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#059669; text-align:right; margin-top:8px; }
+  .mbtns { display:flex; gap:8px; margin-top:12px; }
+  .btn { font-size:12.5px; font-weight:600; border-radius:8px; padding:8px 14px; border:1px solid #E5E7EB; background:#fff; }
+  .btn.primary { background:#2563EB; border-color:#2563EB; color:#fff; }
+  .mnote { font-size:11px; color:#6B7280; line-height:1.55; max-width:360px; }
+
+  .foot { margin-top:16px; font-size:11.5px; color:#9CA3AF; max-width:860px; line-height:1.6; }
 </style>
 </head>
 <body>
 
-<div class="pagehead">
-  <h1><span class="dept">Engineering</span> <span class="caret">▾</span></h1>
-</div>
-<div class="sub">Priority order is the rail below — the board packs each engineer's days in that order, so every job gets a real <b style="color:#059669">drawings-by date</b>. Drag a chip to reprioritize, drag a block to another day or person — dates repack. Small jobs stack on one day.</div>
+<h1><span class="dept">Engineering</span> <span class="caret">▾</span></h1>
+<div class="sub">A strip is a project's <b>remaining</b> hours — tracked time eats it from the left automatically (a 24h job spans 3 days; track 8h and it spans 2). Bounce between jobs all day; the board redraws itself from the time clock. Click a strip to re-divide what's left.</div>
 
 <div class="rail">
   <span class="lbl">Priority</span>
-  <span class="pchip c1"><span class="n">1</span>Towers – Wall paneling <span class="by">drawings by Wed Nov 4</span></span>
-  <span class="pchip c2"><span class="n">2</span>Hunt – Pajot Millwork <span class="by">by Thu Nov 5</span></span>
-  <span class="pchip c3"><span class="n">3</span>Murtagh Bar <span class="by">by Tue Nov 3</span></span>
-  <span class="pchip c4"><span class="n">4</span>Bonzer – 400 Central <span class="by">by Mon Nov 9</span></span>
-  <span class="pchip c5"><span class="n">5</span>Kinser · part 3 <span class="by">by Wed Nov 11</span></span>
-  <span class="pchip unq">+ Batia · SDI · Custom hood — unassigned 58h</span>
+  <span class="pchip c1"><span class="n">1</span>Towers <span class="by">by Wed 4</span><span class="firm">📌 firm Thu 5</span></span>
+  <span class="pchip c5"><span class="n">2</span>Kinser · part 3 <span class="by">by Fri 6</span></span>
+  <span class="pchip c2"><span class="n">3</span>Hunt – Pajot <span class="by">by Thu 5</span></span>
+  <span class="pchip c4"><span class="n">4</span>Bonzer – 400 Central <span class="by">by Tue 10</span></span>
+  <span class="pchip c3"><span class="n">5</span>Schiller – A&amp;K <span class="by">by Thu 12</span></span>
 </div>
 
-<div class="grid">
-  <div class="row wkband">
-    <div class="corner">Engineer</div>
-    <div class="wk now">This week · Nov 2 – 6</div>
-    <div class="wk">Next week · Nov 9 – 13</div>
+<!-- HUNTER -->
+<div class="lane">
+  <div class="lanegrid">
+    <div class="who"><div class="name">Hunter</div><div class="load">8h/day · 30h left queued</div></div>
+    <div class="dh today"><b>Mon</b>2<span class="ld">8/8</span></div>
+    <div class="dh"><b>Tue</b>3<span class="ld">8/8</span></div>
+    <div class="dh over"><b>Wed</b>4<span class="ld">11/8</span></div>
+    <div class="dh full"><b>Thu</b>5<span class="ld">8/8</span></div>
+    <div class="dh"><b>Fri</b>6<span class="ld">3/8</span></div>
+    <div class="dh"><b>Mon</b>9<span class="ld">0/8</span></div>
+    <div class="dh"><b>Tue</b>10<span class="ld">0/8</span></div>
+    <div class="dh"><b>Wed</b>11<span class="ld">0/8</span></div>
+    <div class="dh"><b>Thu</b>12<span class="ld">0/8</span></div>
+    <div class="dh"><b>Fri</b>13<span class="ld">0/8</span></div>
+    <div class="canvas">
+      <div class="gridlines"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="strip s5" style="--start:0; --span:3"><b>Kinser · part 3</b><small>16h left of 24 · 8h in</small></div>
+      <div class="strip s1 thin" style="--start:2; --span:1"><b>Towers assist</b><small>3h left</small></div>
+      <div class="strip s2 thin" style="--start:3; --span:2"><b>JW Marriott Ph 2</b><small>11h left of 14 · 3h in</small></div>
+    </div>
   </div>
-  <div class="row dayhead">
-    <div></div>
-    <div class="d today"><b>Mon</b>2</div><div class="d"><b>Tue</b>3</div><div class="d"><b>Wed</b>4</div><div class="d"><b>Thu</b>5</div><div class="d"><b>Fri</b>6</div>
-    <div class="d"><b>Mon</b>9</div><div class="d"><b>Tue</b>10</div><div class="d"><b>Wed</b>11</div><div class="d"><b>Thu</b>12</div><div class="d"><b>Fri</b>13</div>
-  </div>
+</div>
 
-  <!-- Hunter -->
-  <div class="row lane">
-    <div class="who"><div class="name">Hunter</div><div class="load">38h queued · 8h/day</div></div>
-    <div class="day"><span class="cap">8/8</span>
-      <div class="blk c3"><b>Murtagh Bar</b><small>8h of 12 · 7h in</small></div>
+<!-- EVAN -->
+<div class="lane">
+  <div class="lanegrid">
+    <div class="who"><div class="name">Evan</div><div class="load">8h/day · 42h left queued</div></div>
+    <div class="dh today"><b>Mon</b>2<span class="ld">8/8</span></div>
+    <div class="dh full"><b>Tue</b>3<span class="ld">8/8</span></div>
+    <div class="dh full"><b>Wed</b>4<span class="ld">8/8</span></div>
+    <div class="dh"><b>Thu</b>5<span class="ld">6/8</span></div>
+    <div class="dh"><b>Fri</b>6<span class="ld">6/8</span></div>
+    <div class="dh"><b>Mon</b>9<span class="ld">6/8</span></div>
+    <div class="dh"><b>Tue</b>10<span class="ld">4/8</span></div>
+    <div class="dh"><b>Wed</b>11<span class="ld">0/8</span></div>
+    <div class="dh"><b>Thu</b>12<span class="ld">0/8</span></div>
+    <div class="dh"><b>Fri</b>13<span class="ld">0/8</span></div>
+    <div class="canvas">
+      <div class="gridlines"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="strip s1 missfirm" style="--start:0; --span:3"><b>Towers – Wall paneling</b><small>16h left of 20 · 4h in</small><span class="firmflag">📌 firm Thu 5 · at risk</span></div>
+      <div class="firmpin" style="left:40%"><span>FIRM · THU 5</span></div>
+      <div class="strip s4" style="--start:3; --span:4"><b>Bonzer – 400 Central</b><small>16h left of 16 · divided 4h/day</small></div>
+      <div class="strip s3 thin" style="--start:5; --span:4"><b>Schiller – A&amp;K</b><small>14h left · divided</small></div>
     </div>
-    <div class="day"><span class="cap">8/8</span>
-      <div class="blk c3 done-edge"><b>Murtagh Bar</b><small>last 4h</small><span class="duechip">DRAWINGS BY EOD</span></div>
-      <div class="blk c5"><b>Kinser · part 3</b><small>4h of 12</small></div>
-    </div>
-    <div class="day"><span class="cap">8/8</span><div class="blk c5"><b>Kinser · part 3</b><small>8h</small></div></div>
-    <div class="day"><span class="cap">6/8</span>
-      <div class="blk c5 done-edge"><b>Kinser</b><small>last 0h</small></div>
-      <div class="blk c2"><b>JW Marriott Ph 2</b><small>6h of 14</small></div>
-    </div>
-    <div class="day"><span class="cap">8/8</span><div class="blk c2 done-edge"><b>JW Marriott Ph 2</b><small>last 8h</small><span class="duechip">BY FRI 6</span></div></div>
-    <div class="day"><span class="cap">0/8</span></div>
-    <div class="day"><span class="cap">0/8</span></div>
-    <div class="day"><span class="cap">0/8</span></div>
-    <div class="day"><span class="cap">0/8</span></div>
-    <div class="day"><span class="cap">0/8</span></div>
   </div>
+</div>
 
-  <!-- Evan -->
-  <div class="row lane">
-    <div class="who"><div class="name">Evan</div><div class="load">52h queued · 8h/day</div></div>
-    <div class="day over"><span class="cap">10/8</span>
-      <div class="blk c1"><b>Towers – Wall paneling</b><small>8h of 20 · 4h in</small></div>
-      <div class="blk c4"><b>Bonzer rush detail</b><small>2h</small></div>
-    </div>
-    <div class="day"><span class="cap">8/8</span><div class="blk c1"><b>Towers</b><small>8h</small></div></div>
-    <div class="day"><span class="cap">8/8</span>
-      <div class="blk c1 done-edge"><b>Towers</b><small>last 4h</small><span class="duechip late">BY WED 4 · PROD WAITING</span></div>
-      <div class="blk c4"><b>Bonzer – 400 Central</b><small>4h of 16</small></div>
-    </div>
-    <div class="day"><span class="cap">8/8</span><div class="blk c4"><b>Bonzer – 400 Central</b><small>8h</small></div></div>
-    <div class="day"><span class="cap">8/8</span>
-      <div class="blk c4"><b>Bonzer</b><small>4h</small></div>
-      <div class="blk c3"><b>Schiller – A&amp;K</b><small>4h of 14</small></div>
-    </div>
-    <div class="day"><span class="cap">8/8</span>
-      <div class="blk c4 done-edge"><b>Bonzer</b><small>last 0h</small><span class="duechip">BY MON 9</span></div>
-      <div class="blk c3"><b>Schiller – A&amp;K</b><small>8h</small></div>
-    </div>
-    <div class="day"><span class="cap">2/8</span><div class="blk c3 done-edge"><b>Schiller – A&amp;K</b><small>last 2h</small><span class="duechip">BY TUE 10</span></div></div>
-    <div class="day"><span class="cap">0/8</span></div>
-    <div class="day"><span class="cap">0/8</span></div>
-    <div class="day"><span class="cap">0/8</span></div>
+<!-- the divide modal, shown as the design artifact -->
+<div class="modalwrap">
+  <div class="modal">
+    <h3>Kinser · part 3 — Hunter</h3>
+    <div class="meta">24h estimated · 8h tracked · <b>16h left</b></div>
+    <div class="mrow"><span class="d">Tue Nov 3</span><input value="5.5"> h <span class="hint">2.5h open for other work</span></div>
+    <div class="mrow"><span class="d">Wed Nov 4</span><input value="5.5"> h <span class="hint">2.5h open</span></div>
+    <div class="mrow"><span class="d">Thu Nov 5</span><input value="5"> h <span class="hint">3h open</span></div>
+    <div class="firmrow"><div class="tog"></div> Firm deadline <input style="width:110px;border:1px solid #D1D5DB;border-radius:7px;padding:5px 8px;font-size:12px" value="Thu Nov 5"></div>
+    <div class="msum">5.5 + 5.5 + 5 = 16h ✓</div>
+    <div class="mbtns"><button class="btn primary">Save</button><button class="btn">Even split</button><button class="btn">Cancel</button></div>
   </div>
-
-  <!-- Andrew -->
-  <div class="row lane">
-    <div class="who"><div class="name">Andrew</div><div class="load">26h queued · 4h/day on the board</div></div>
-    <div class="day"><span class="cap">4/4</span><div class="blk c2"><b>Hunt – Pajot</b><small>4h of 16</small></div></div>
-    <div class="day"><span class="cap">4/4</span><div class="blk c2"><b>Hunt – Pajot</b><small>4h</small></div></div>
-    <div class="day"><span class="cap">4/4</span><div class="blk c2"><b>Hunt – Pajot</b><small>4h</small></div></div>
-    <div class="day"><span class="cap">4/4</span><div class="blk c2 done-edge"><b>Hunt – Pajot</b><small>last 4h</small><span class="duechip">BY THU 5</span></div></div>
-    <div class="day"><span class="cap">0/4</span></div>
-    <div class="day"><span class="cap">2/4</span><div class="blk c4"><b>Killinger Table</b><small>2h of 10</small></div></div>
-    <div class="day"><span class="cap">4/4</span><div class="blk c4"><b>Killinger Table</b><small>4h</small></div></div>
-    <div class="day"><span class="cap">4/4</span><div class="blk c4 done-edge"><b>Killinger Table</b><small>last 4h</small><span class="duechip">BY WED 11</span></div></div>
-    <div class="day"><span class="cap">0/4</span></div>
-    <div class="day"><span class="cap">0/4</span></div>
-  </div>
+  <p class="mnote"><b>The modal is the only hand tool.</b> Tracked time shrinks strips automatically — this is just for
+  deliberately spreading what's LEFT across more days so other projects fit beside it (the day headers above show each
+  day's summed load and go red when a day is overbooked). "Even split" resets to daily capacity. The firm pin shows on
+  the lane; if the pack can't make the date, the strip flags <b style="color:#B91C1C">at risk</b> instead of silently sliding.</p>
 </div>
 
 <p class="foot">
-  Same visual language as the production swimlane, one level finer: columns are DAYS, blocks stack so small jobs
-  share a day, and the day cell tints red past its hours (Evan Monday, 10/8). The <b>priority rail</b> is the input —
-  reorder it and each lane repacks forward, which is where every job's <b style="color:#047857">drawings-by date</b>
-  comes from (the green chip rides the job's LAST block; red = production is already waiting). Hours per day per
-  person come from the roster; one data layer with capacity and /schedule, as before.
+  Per-engineer day headers (each lane has its own) carry that person's daily load — amber full, red over.
+  Drawings-by dates on the rail derive from each strip's end. One data layer with capacity and /schedule, as before;
+  tracked engineering time is the same time clock the shop already runs.
 </p>
 
 </body>
