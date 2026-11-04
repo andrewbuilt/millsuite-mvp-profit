@@ -96,6 +96,14 @@ let pays
   else pays = data
 }
 const projects = await sel('projects', 'id, org_id, name, stage, bid_total')
+// ⛔ ONE-TIME, PER PROJECT. After a project converts, its forecast rows are
+// human-owned and every payment is already a green card; pairing again would
+// retire LIVE forecast rows. Projects with a payments_v4_converted event are
+// skipped — found the hard way: the re-listing after the real run proposed
+// retiring Leonard's App 4 + App 7.
+const converted = new Set(
+  ((await db.from('project_events').select('project_id').eq('event_type', 'payments_v4_converted').in('org_id', orgIds)).data || []).map((e) => e.project_id),
+)
 const P = Object.fromEntries(projects.map((p) => [p.id, p]))
 
 const byProject = new Map()
@@ -114,6 +122,7 @@ const sections = []
 for (const [pid, g] of byProject) {
   const p = P[pid]
   if (!p) continue
+  if (converted.has(pid)) continue
   const contract = Number(p.bid_total) || 0
   const lines = []
   const flags = []
@@ -212,6 +221,7 @@ if (plan.ghosts.length === 0) {
   console.log('    none. (Leonard\'s "App 5 · $18,217" was never a row: v3 paired payments with rows')
   console.log('    in date order on every read and relabelled them. The pairing above fixes it.)')
 }
+if (converted.size) console.log(`\nskipped ${converted.size} project(s) already converted (payments_v4_converted event).`)
 console.log(`\nretire ${plan.retire.length} row(s) · label ${plan.label.length} payment(s) · create ${plan.insertLedger.length} ledger payment(s) from legacy received rows`)
 
 const canonical = JSON.stringify({
