@@ -51,8 +51,14 @@ function fixture(): PaymentsBoardData {
   const O = 'oliveira'
   const C = 'chancey'
   const K = 'kinser'
+  const B = 'bonzer'
+  const BN = 'Bonzer - 400 Central PH44C - Ceiling and Wall Paneling'
   return {
     rows: [
+      // Bonzer as on prod after the conversion (Andrew's 11-04 screenshot).
+      row(B, BN, '30% Draw 3-4 weeks after receipt of the initial deposit', 50427, '2026-12-01', 1),
+      row(B, BN, '30% Draw 2 weeks after receipt of the initial deposit', 50427, '2026-11-01', 2),
+      row(B, BN, '10% Prior to or on shipping, delivery & installation', 16809, '2026-12-01', 3),
       row(L, 'Leonard - JW Marriott - Lobby Bar Phase 1', 'App 4 - Draw', 31061.37, '2026-11-15', 3),
       row(L, 'Leonard - JW Marriott - Lobby Bar Phase 1', 'App 7 - Retainage', 18549.32, '2026-12-01', 6),
       row(O, 'Oliveira Residence', 'Production kickoff', 15319, '2026-11-01', 1),
@@ -69,6 +75,7 @@ function fixture(): PaymentsBoardData {
       pay(O, 17000, '2026-09-23', 'Deposit'),
       pay(C, 4833.5, '2026-10-14', 'Deposit'),
       pay(K, 40000, '2026-09-17', null),
+      pay(B, 51630, '2026-08-21', '30% Down payment due to start production'),
     ],
     contractTotals: {},
     soldProjects: [
@@ -76,6 +83,7 @@ function fixture(): PaymentsBoardData {
       { id: O, name: 'Oliveira Residence', clientName: null, contractTotal: 47529 },
       { id: C, name: 'Chancey - Stone dining table', clientName: null, contractTotal: 10667 },
       { id: K, name: 'Kinser', clientName: null, contractTotal: 188892 },
+      { id: B, name: BN, clientName: null, contractTotal: 158396 },
     ],
   }
 }

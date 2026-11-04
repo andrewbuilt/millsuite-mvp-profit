@@ -163,14 +163,13 @@ export function ProjectPaymentLedger({
             )
           ) : fc.needsRedivide ? (
             <div className="mb-3 px-2.5 py-1.5 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg text-[11px] text-[#6B7280] flex items-center gap-2">
-              <span className="font-mono tabular-nums">
-                Forecast {money(fc.forecastTotal)} vs {money(fc.remaining)} remaining
-              </span>
+              <span className="font-mono tabular-nums text-[#92400E]">{money(Math.abs(fc.gap))} unresolved</span>
+              <span>· paid + scheduled is {fc.gap > 0 ? 'over' : 'under'} the contract</span>
               <Link
-                href={`/payments?redivide=${projectId}`}
+                href={`/payments?edit=${projectId}`}
                 className="ml-auto font-medium text-[#2563EB] hover:underline"
               >
-                Redivide
+                Resolve
               </Link>
             </div>
           ) : null}

@@ -312,7 +312,7 @@ export default function PaymentsBoard({
           <div className="px-4 py-2 bg-[#F9FAFB] border-b border-[#F3F4F6] flex items-center gap-2">
             <Scale className="w-3.5 h-3.5 text-[#6B7280]" />
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280]">
-              Forecast vs remaining · {hints.length}
+              Unresolved · {hints.length}
             </span>
           </div>
           <div className="divide-y divide-[#F3F4F6]">
@@ -321,14 +321,19 @@ export default function PaymentsBoard({
                 <Link href={`/projects/${p.projectId}`} className="text-[12.5px] text-[#111] hover:underline truncate min-w-0">
                   {p.projectName}
                 </Link>
-                <span className="text-[11.5px] text-[#6B7280] font-mono tabular-nums">
-                  Forecast {money(p.forecastTotal)} vs {money(p.remaining)} remaining
+                {/* Andrew: "Forecast $X vs $Y remaining" didn't read. Unresolved =
+                    paid + scheduled ≠ contract; Resolve opens the forecast. */}
+                <span className="text-[11.5px] text-[#92400E] font-mono tabular-nums">
+                  {money(Math.abs(p.gap))} unresolved
+                </span>
+                <span className="text-[11px] text-[#9CA3AF]">
+                  paid + scheduled is {money(Math.abs(p.gap))} {p.gap > 0 ? 'over' : 'under'} the contract
                 </span>
                 <button
-                  onClick={() => setForecastFor({ projectId: p.projectId, purpose: 'redivide' })}
+                  onClick={() => setForecastFor({ projectId: p.projectId, purpose: 'edit' })}
                   className="ml-auto text-[11.5px] font-medium text-[#2563EB] hover:underline"
                 >
-                  Redivide
+                  Resolve
                 </button>
               </div>
             ))}
@@ -551,6 +556,7 @@ export default function PaymentsBoard({
           projectName={fp.projectName}
           contractTotal={fp.contractTotal}
           received={fp.received}
+          payments={ledger.filter((e) => e.projectId === fp.projectId)}
           rows={fp.rows.map((r) => ({ id: r.id, label: r.label, amount: r.amount }))}
           saving={savingForecast}
           onCancel={() => setForecastFor(null)}
@@ -900,8 +906,8 @@ function PaymentModal({
           </label>
 
           <p className="text-[10.5px] text-[#9CA3AF] leading-snug">
-            Whatever they actually paid. This records the payment only — the forecast stays as it is,
-            and if it no longer adds up to what&apos;s left, the board offers a Redivide.
+            Whatever they actually paid. This records the payment only — the draws stay as they are, and
+            any difference shows as unresolved until you resolve it in the job&apos;s forecast.
           </p>
 
           {err && (
