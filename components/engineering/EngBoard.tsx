@@ -839,8 +839,17 @@ function StripModal({
     setDirty(true)
   }
 
-  const memberUserId = eng?.member.user_id || null
-  const active = eng ? running.get(eng.member.id) || null : null
+  // WHO the timer runs for: the lane's engineer when assigned; otherwise a
+  // pick (Andrew: "track time on a project without having to pull it onto
+  // the calendar"). Defaults to whoever is already timing this project, else
+  // the first engineer with a login.
+  const [timerMemberId, setTimerMemberId] = useState<string>(() => {
+    const onThis = engineers.find((e) => running.get(e.member.id)?.project_id === project.id)
+    return (onThis || engineers.find((e) => e.member.user_id) || engineers[0])?.member.id || ''
+  })
+  const timerEng = eng || engineers.find((e) => e.member.id === timerMemberId) || null
+  const memberUserId = timerEng?.member.user_id || null
+  const active = timerEng ? running.get(timerEng.member.id) || null : null
   const activeHere = active && active.project_id === project.id && (!active.department_id || active.department_id === engDeptId)
 
   const canSave = !dirty || (matches && !dupDates && parsed.every((r) => r.date >= today))
@@ -861,7 +870,10 @@ function StripModal({
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(17,17,17,0.25)', zIndex: 100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 70 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto', background: '#FFF', borderRadius: 12, boxShadow: '0 20px 50px rgba(0,0,0,0.18)', border: '1px solid #E5E7EB' }}>
+      {/* The card clips (rounded corners); an INNER div scrolls — a scrolling
+          card drew its scrollbar over the right corners (Andrew, 11-04). */}
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 100px)', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#FFF', borderRadius: 12, boxShadow: '0 20px 50px rgba(0,0,0,0.18)', border: '1px solid #E5E7EB' }}>
+       <div style={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid #F3F4F6' }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>{project.name}{eng ? ` — ${eng.member.name}` : ''}</div>
@@ -917,18 +929,25 @@ function StripModal({
             </div>
           )}
 
-          {/* Timer — the same clock as /me */}
-          {eng && canTime && (
+          {/* Timer — the same clock as /me. Works unassigned too: tracking
+              doesn't need the project on a lane. */}
+          {timerEng && canTime && (
             memberUserId ? (
               activeHere ? (
-                <RunningTimer entry={active!} who={eng.member.name} name={project.name} onStop={() => onTimer('stop', memberUserId, null)} />
+                <RunningTimer entry={active!} who={timerEng.member.name} name={project.name} onStop={() => onTimer('stop', memberUserId, null)} />
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid #E5E7EB', borderRadius: 8, marginBottom: 14, background: '#F9FAFB' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
+                    {!eng && (
+                      <select value={timerMemberId} onChange={(e) => setTimerMemberId(e.target.value)} aria-label="Track time for"
+                        style={{ marginBottom: 4, fontSize: 11, padding: '2px 4px', border: '1px solid #E5E7EB', borderRadius: 4, maxWidth: '100%' }}>
+                        {engineers.map((e) => <option key={e.member.id} value={e.member.id}>Track time for {e.member.name}</option>)}
+                      </select>
+                    )}
                     <div style={{ fontSize: 11, color: '#374151' }}>
                       {active
-                        ? <>{eng.member.name} is on <b>{projectById.get(active.project_id)?.name || 'other work'}</b> — starting here stops that.</>
-                        : <>Track {eng.member.name}’s engineering time on this job.</>}
+                        ? <>{timerEng.member.name} is on <b>{projectById.get(active.project_id)?.name || 'other work'}</b> — starting here stops that.</>
+                        : <>Track {timerEng.member.name}’s engineering time on this job{eng ? '' : ' — no need to put it on a lane'}.</>}
                     </div>
                     {subs.length > 0 && (
                       <select value={subId} onChange={(e) => setSubId(e.target.value)} style={{ marginTop: 4, fontSize: 11, padding: '2px 4px', border: '1px solid #E5E7EB', borderRadius: 4, maxWidth: '100%' }}>
@@ -942,7 +961,13 @@ function StripModal({
               )
             ) : (
               <div style={{ fontSize: 11, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '6px 9px', marginBottom: 14 }}>
-                {eng.member.name} has no login, so the timer can’t run for them — link one on /team.
+                {!eng && engineers.length > 1 && (
+                  <select value={timerMemberId} onChange={(e) => setTimerMemberId(e.target.value)} aria-label="Track time for"
+                    style={{ display: 'block', marginBottom: 4, fontSize: 11, padding: '2px 4px', border: '1px solid #E5E7EB', borderRadius: 4 }}>
+                    {engineers.map((e) => <option key={e.member.id} value={e.member.id}>Track time for {e.member.name}</option>)}
+                  </select>
+                )}
+                {timerEng.member.name} has no login, so the timer can’t run for them — link one on /team.
               </div>
             )
           )}
@@ -1027,6 +1052,7 @@ function StripModal({
             )}
           </div>
         </div>
+       </div>
       </div>
     </div>
   )
