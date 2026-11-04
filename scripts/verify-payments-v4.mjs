@@ -224,11 +224,14 @@ ok('G  lib/payments: forecast writers are exactly saveForecast + reschedulePayme
 const board = strip(read('components/payments/PaymentsBoard.tsx'))
 ok('G  the board imports no Supabase client (writes only through its api)', !/lib\/supabase|from '@\/lib\/payments'(?!.*type)/.test(board.replace(/import type[^\n]*\n/g, '')))
 ok('G  the board writes the forecast only via api.saveForecast + api.reschedule', !/saveForecast\(/.test(board.replace(/api\.saveForecast\(/g, '')))
-// Both forecast writes live inside the <ForecastModal …> element: its onSave
-// and its onRecordPayment (a human ticking the draws a payment covered).
-const modalJsx = board.slice(board.indexOf('<ForecastModal'), board.indexOf('/>', board.indexOf('onRecordPayment=')))
-ok('G  every api.saveForecast call is inside the ForecastModal (onSave + onRecordPayment)', (board.match(/api\.saveForecast\(/g) || []).length === 2 && (modalJsx.match(/api\.saveForecast\(/g) || []).length === 2)
-ok('G  the payment modal (PaymentModal) still never touches the forecast', !/saveForecast|reschedule/.test(board.slice(board.indexOf('function PaymentModal'))))
+// ONE MODAL (2026-11-04): every write — ledger and forecast — lives inside the
+// <ForecastModal …> element's onSave (a person pressing Save). The month drag
+// (api.reschedule) is the only other writer. No separate payment modal.
+const modalJsx = board.slice(board.indexOf('<ForecastModal'), board.indexOf('/>\n      )}', board.indexOf('<ForecastModal')))
+ok('G  the one api.saveForecast call is inside the ForecastModal onSave', (board.match(/api\.saveForecast\(/g) || []).length === 1 && (modalJsx.match(/api\.saveForecast\(/g) || []).length === 1)
+ok('G  every ledger write (log / update / delete) is inside the ForecastModal onSave', ['logPayment', 'updatePayment', 'deletePayment'].every((f) => (board.match(new RegExp(`api\\.${f}\\(`, 'g')) || []).length === 1 && modalJsx.includes(`api.${f}(`)))
+ok('G  there is no separate payment modal on the board', !/function PaymentModal|<PaymentModal/.test(board))
+ok('G  cards carry no Edit / + Payment buttons (the whole card opens the modal)', !/>\s*Edit\s*</.test(board) && !/<Plus /.test(board))
 const pf = strip(read('lib/payment-forecast.ts'))
 ok('G  payment-forecast is pure (no supabase import)', !/supabase/.test(pf))
 // The deleted machinery stays deleted.

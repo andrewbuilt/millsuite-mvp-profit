@@ -6,7 +6,7 @@
 // Two independent lists, drawn side by side by month:
 //
 //   GREEN cards = LEDGER payments, in the month they landed. One card per
-//                 payment; click to edit, delete freely.
+//                 payment.
 //   WHITE cards = FORECAST rows, in the month they're expected. Drag between
 //                 months to move one (writes its date and nothing else).
 //
@@ -21,17 +21,21 @@
 // The only forecast writers are the ForecastModal (editor +
 // Redivide) and the month drag.
 //
+// ONE MODAL (Andrew, 2026-11-04): clicking ANY card — green or white — opens
+// that job's ForecastModal, where payments are recorded, edited and removed
+// alongside the draws. There is no separate payment modal and no Edit /
+// + Payment buttons on the cards; the project name stays a link.
+//
 // Takes an injectable api so /dev/payments-v4 can mount it on a fixture.
 // ============================================================================
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, CalendarClock, FileQuestion, Inbox, Plus, Scale, Trash2, X } from 'lucide-react'
+import { AlertTriangle, CalendarClock, FileQuestion, Inbox, Scale } from 'lucide-react'
 import ForecastModal, { type ForecastPurpose } from '@/components/payments/ForecastModal'
 // Pure modules only (no Supabase client), so the /dev fixture can mount this.
 import {
   addMonths,
-  formatLocalDate,
   monthId,
   monthLabel,
   monthLabelShort,
@@ -49,8 +53,6 @@ import {
   type ProjectForecast,
 } from '@/lib/payment-forecast'
 import type { SoldProjectRef } from '@/lib/payments'
-
-const todayStamp = () => formatLocalDate(new Date())
 
 /** How many months the board shows at once. */
 const VISIBLE_MONTHS = 3
@@ -96,17 +98,11 @@ function dayLabel(iso: string | null): string {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric' })
 }
 
-interface PayTarget {
-  /** Present = editing that ledger entry. */
-  entry?: LedgerEntry
-  projectId: string
-  amount: number
-  label: string
-}
-
 interface ForecastTarget {
   purpose: ForecastPurpose
   projectId: string
+  /** Open with Record a payment already open. */
+  record?: boolean
 }
 
 export default function PaymentsBoard({
@@ -138,11 +134,8 @@ export default function PaymentsBoard({
   const [dragOver, setDragOver] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [payFor, setPayFor] = useState<PayTarget | null>(null)
   const [forecastFor, setForecastFor] = useState<ForecastTarget | null>(null)
   const [savingForecast, setSavingForecast] = useState(false)
-  /** Bumped after a payment is recorded in the modal, so it re-mounts on the fresh rows. */
-  const [modalNonce, setModalNonce] = useState(0)
   /** Optimistic dates while a drag saves. */
   const [moved, setMoved] = useState<Record<string, string>>({})
 
@@ -251,6 +244,14 @@ export default function PaymentsBoard({
     })
   }, [initialEditProjectId, initialRedivideProjectId, byProject])
 
+  /** The one modal, for one job. A job with money left and nothing forecast
+   *  opens as setup; everything else as edit. */
+  function openProject(projectId: string, record = false) {
+    const p = byProject.get(projectId)
+    const setup = !!p && p.rows.length === 0 && p.remaining >= 1
+    setForecastFor({ projectId, purpose: setup ? 'setup' : 'edit', record })
+  }
+
   const pagerLabel =
     monthOffset === 0 ? null : monthOffset < 0 ? `${-monthOffset}m back` : `${monthOffset}m ahead`
 
@@ -265,8 +266,7 @@ export default function PaymentsBoard({
         setDragId(null)
         setDragOver(null)
       }}
-      onEdit={() => setForecastFor({ projectId: r.projectId, purpose: 'edit' })}
-      onLogPayment={() => setPayFor({ projectId: r.projectId, amount: r.amount, label: r.label })}
+      onOpen={() => openProject(r.projectId)}
     />
   )
 
@@ -277,12 +277,23 @@ export default function PaymentsBoard({
       <div className="flex items-center gap-3 mb-1 flex-wrap">
         <h1 className="text-[20px] font-semibold text-[#111]">Payments</h1>
         <div className="flex items-center gap-1 ml-auto">
-          <button
-            onClick={() => setPayFor({ projectId: '', amount: 0, label: '' })}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#059669] text-white text-[12px] font-medium hover:bg-[#047857]"
+          {/* Pick the job → its forecast modal, Record a payment open. */}
+          <select
+            value=""
+            aria-label="Log a payment for a project"
+            disabled={ledgerMissing}
+            onChange={(e) => {
+              if (e.target.value) openProject(e.target.value, true)
+            }}
+            className="px-3 py-1.5 rounded-md bg-[#059669] text-white text-[12px] font-medium hover:bg-[#047857] cursor-pointer disabled:opacity-50"
           >
-            <Plus className="w-3.5 h-3.5" /> Log a payment
-          </button>
+            <option value="">+ Log a payment…</option>
+            {projectOptions.map((p) => (
+              <option key={p.id} value={p.id} className="bg-white text-[#111]">
+                {p.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
       <p className="text-xs text-[#6B7280] mb-5">
@@ -532,8 +543,7 @@ export default function PaymentsBoard({
                         key={e.id}
                         entry={e}
                         projectName={projectNames[e.projectId] || byProject.get(e.projectId)?.projectName || 'Project'}
-                        busy={busyId === e.id}
-                        onOpen={() => setPayFor({ entry: e, projectId: e.projectId, amount: e.amount, label: e.label || '' })}
+                        onOpen={() => openProject(e.projectId)}
                       />
                     ))}
                   </>
@@ -551,65 +561,55 @@ export default function PaymentsBoard({
 
       {forecastFor && fp && (
         <ForecastModal
-          key={`${forecastFor.projectId}:${forecastFor.purpose}:${modalNonce}`}
+          key={`${forecastFor.projectId}:${forecastFor.purpose}`}
           purpose={forecastFor.purpose}
           projectName={fp.projectName}
           contractTotal={fp.contractTotal}
-          received={fp.received}
           payments={ledger.filter((e) => e.projectId === fp.projectId)}
           rows={fp.rows.map((r) => ({ id: r.id, label: r.label, amount: r.amount }))}
           saving={savingForecast}
+          startRecording={!!forecastFor.record}
           onCancel={() => setForecastFor(null)}
-          onRecordPayment={async (payment, keep) => {
-            // Ledger first (the money is real), then the forecast as the
-            // human left it: every row except the ones they ticked as paid.
-            await api.logPayment({
-              projectId: fp.projectId,
-              amount: payment.amount,
-              paymentDate: payment.paymentDate,
-              label: payment.label,
-              method: payment.method,
-              reference: null,
-              notes: null,
-            })
-            await api.saveForecast(fp.projectId, keep, 'editor', fp.contractTotal)
-            await onChanged()
-            setForecastFor({ projectId: fp.projectId, purpose: 'edit' })
-            setModalNonce((n) => n + 1)
-          }}
-          onSave={async (out, via) => {
+          onSave={async (out, via, changes) => {
             setSavingForecast(true)
             try {
+              // Ledger first (the money is real), then the forecast as the
+              // human left it. Every write here is a person pressing Save.
+              const byId = new Map(ledger.map((e) => [e.id, e]))
+              for (const id of changes.remove) await api.deletePayment(id)
+              for (const u of changes.update) {
+                const was = byId.get(u.id)
+                await api.updatePayment(u.id, {
+                  projectId: fp.projectId,
+                  amount: u.amount,
+                  paymentDate: u.paymentDate,
+                  label: u.label,
+                  method: was?.method ?? null,
+                  reference: was?.reference ?? null,
+                  notes: was?.notes ?? null,
+                })
+              }
+              for (const a of changes.add) {
+                await api.logPayment({
+                  projectId: fp.projectId,
+                  amount: a.amount,
+                  paymentDate: a.paymentDate,
+                  label: a.label,
+                  method: null,
+                  reference: null,
+                  notes: null,
+                })
+              }
               await api.saveForecast(fp.projectId, out, via, fp.contractTotal)
               setForecastFor(null)
               await onChanged()
+            } catch (e) {
+              await onChanged()
+              throw e
             } finally {
               setSavingForecast(false)
             }
           }}
-        />
-      )}
-
-      {payFor && (
-        <PaymentModal
-          target={payFor}
-          projects={projectOptions}
-          onClose={() => setPayFor(null)}
-          onSave={async (input) => {
-            if (payFor.entry) await api.updatePayment(payFor.entry.id, input)
-            else await api.logPayment(input)
-            setPayFor(null)
-            await onChanged()
-          }}
-          onDelete={
-            payFor.entry
-              ? async () => {
-                  const id = payFor.entry!.id
-                  setPayFor(null)
-                  await run(id, () => api.deletePayment(id))
-                }
-              : undefined
-          }
         />
       )}
     </>
@@ -623,20 +623,25 @@ function ForecastCard({
   dragging,
   onDragStart,
   onDragEnd,
-  onEdit,
-  onLogPayment,
+  onOpen,
 }: {
   row: PaymentRow
   busy: boolean
   dragging: boolean
   onDragStart: () => void
   onDragEnd: () => void
-  onEdit: () => void
-  onLogPayment: () => void
+  onOpen: () => void
 }) {
   return (
     <div
       draggable
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onOpen()
+      }}
+      title="Open this job's payments + forecast — drag to move the month"
       data-forecast-card={row.id}
       onDragStart={(e) => {
         e.dataTransfer.setData('text/plain', row.id)
@@ -663,17 +668,6 @@ function ForecastCard({
               {row.label}
               {row.clientName ? ` · ${row.clientName}` : ''}
             </span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onEdit()
-              }}
-              draggable={false}
-              title="Edit this job's forecast"
-              className="flex-shrink-0 text-[9.5px] text-[#9CA3AF] hover:text-[#2563EB] hover:underline"
-            >
-              Edit
-            </button>
           </div>
           <div className="text-[10px] text-[#9CA3AF] mt-0.5 flex items-center gap-1">
             <CalendarClock className="w-2.5 h-2.5" />
@@ -682,52 +676,50 @@ function ForecastCard({
         </div>
         <div className="text-right flex-shrink-0">
           <div className="text-[13px] font-semibold font-mono tabular-nums text-[#111]">{money(row.amount)}</div>
-          {/* Prefills the payment modal — and that is ALL it does. The row is
-              not settled, locked or removed by the payment. */}
-          <button
-            disabled={busy}
-            onClick={onLogPayment}
-            title="Log a payment on this job (the forecast row stays as it is)"
-            className="mt-1 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-[#E5E7EB] text-[#6B7280] hover:border-[#059669] hover:text-[#059669] hover:bg-[#ECFDF5] disabled:opacity-50"
-          >
-            <Plus className="w-2.5 h-2.5" /> Payment
-          </button>
         </div>
       </div>
     </div>
   )
 }
 
-/** A green card: one ledger payment, in the month it landed. Click to edit. */
+/** A green card: one ledger payment, in the month it landed. Click → the
+ *  job's modal (edit / remove it there). The project name is a link. */
 function PaymentCard({
   entry,
   projectName,
-  busy,
   onOpen,
 }: {
   entry: LedgerEntry
   projectName: string
-  busy: boolean
   onOpen: () => void
 }) {
   const refund = entry.amount < 0
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onOpen()
+      }}
       data-payment-card={entry.id}
-      title="Edit or delete this payment"
-      className={`w-full text-left rounded-lg border px-2.5 py-2 ${
+      title="Open this job's payments + forecast"
+      className={`w-full text-left rounded-lg border px-2.5 py-2 cursor-pointer ${
         refund ? 'border-[#FECACA] bg-[#FEF2F2]' : 'border-[#A7F3D0] bg-[#F0FDF4] hover:border-[#6EE7B7]'
-      } ${busy ? 'opacity-60' : ''}`}
+      }`}
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-[12.5px] font-medium text-[#111] truncate">{projectName}</div>
+          <Link
+            href={`/projects/${entry.projectId}`}
+            onClick={(e) => e.stopPropagation()}
+            className="text-[12.5px] font-medium text-[#111] hover:text-[#2563EB] hover:underline truncate block"
+          >
+            {projectName}
+          </Link>
           <div className="text-[11px] text-[#374151] mt-0.5 truncate">{paymentLabel(entry)}</div>
           <div className="text-[10px] text-[#6B7280] mt-0.5 truncate">
             {refund ? 'Refunded' : 'Received'} {dayLabel(entry.paymentDate)}
-            {entry.method ? ` · ${entry.method}` : ''}
             {entry.reference ? ` · ${entry.reference}` : ''}
           </div>
         </div>
@@ -739,215 +731,6 @@ function PaymentCard({
           {money(entry.amount)}
         </div>
       </div>
-    </button>
-  )
-}
-
-/** Log a payment, or edit / delete one. Writes the LEDGER and nothing else. */
-function PaymentModal({
-  target,
-  projects,
-  onClose,
-  onSave,
-  onDelete,
-}: {
-  target: PayTarget
-  projects: Array<{ id: string; name: string }>
-  onClose: () => void
-  onSave: (input: PaymentInput) => Promise<void>
-  onDelete?: () => Promise<void>
-}) {
-  const e = target.entry
-  const [projectId, setProjectId] = useState(target.projectId)
-  const [amount, setAmount] = useState(
-    e ? String(e.amount) : target.amount ? String(Math.round(target.amount * 100) / 100) : '',
-  )
-  const [paymentDate, setPaymentDate] = useState(e?.paymentDate || todayStamp())
-  const [label, setLabel] = useState(e ? e.label || '' : target.label)
-  const [method, setMethod] = useState<string>(e?.method || '')
-  const [reference, setReference] = useState(e?.reference || '')
-  const [notes, setNotes] = useState(e?.notes || '')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-
-  // ⚠️ A date more than a month ahead is almost always a typo (Leonard's
-  // deposit was keyed as 2027-06-30). Said, not blocked.
-  const farFuture = (() => {
-    const d = parseLocalDate(paymentDate)
-    if (!d) return false
-    const limit = new Date()
-    limit.setDate(limit.getDate() + 31)
-    return d > limit
-  })()
-
-  async function submit() {
-    const n = Number(amount)
-    if (!projectId) return setErr('Pick a project.')
-    if (!amount.trim() || !Number.isFinite(n) || n === 0) return setErr('Enter an amount. A refund can be negative; zero can’t.')
-    setBusy(true)
-    setErr(null)
-    try {
-      await onSave({
-        projectId,
-        amount: n,
-        paymentDate,
-        label: label.trim() || null,
-        method: method || null,
-        reference: reference || null,
-        notes: notes || null,
-      })
-    } catch (x) {
-      setErr(x instanceof Error ? x.message : 'Could not save that payment.')
-      setBusy(false)
-    }
-  }
-
-  const input =
-    'w-full mt-0.5 px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]'
-  const cap = 'text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]'
-
-  return (
-    <>
-      <div className="fixed inset-0 z-[70] bg-black/30" onClick={onClose} aria-hidden />
-      <div
-        role="dialog"
-        aria-label={e ? 'Edit payment' : 'Log a payment'}
-        className="fixed z-[71] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(420px,92vw)] bg-white border border-[#E5E7EB] rounded-xl shadow-xl p-4"
-      >
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-[15px] font-semibold text-[#111]">{e ? 'Edit payment' : 'Log a payment'}</h2>
-          <button onClick={onClose} aria-label="Close" className="p-1 text-[#9CA3AF] hover:text-[#111]">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="space-y-2.5">
-          <label className="block">
-            <span className={cap}>Project</span>
-            <select
-              value={projectId}
-              onChange={(x) => setProjectId(x.target.value)}
-              disabled={!!e}
-              className={`${input} bg-white disabled:bg-[#F9FAFB]`}
-            >
-              <option value="">Pick a project…</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className={cap}>Label</span>
-            <input
-              value={label}
-              onChange={(x) => setLabel(x.target.value)}
-              placeholder="App 3, Deposit…"
-              className={input}
-            />
-          </label>
-
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block">
-              <span className={cap}>Amount</span>
-              <input
-                autoFocus
-                value={amount}
-                onChange={(x) => setAmount(x.target.value)}
-                onKeyDown={(x) => {
-                  if (x.key === 'Enter') void submit()
-                }}
-                inputMode="decimal"
-                placeholder="0.00"
-                className={`${input} font-mono tabular-nums`}
-              />
-            </label>
-            <label className="block">
-              <span className={cap}>Date received</span>
-              <input type="date" value={paymentDate} onChange={(x) => setPaymentDate(x.target.value)} className={input} />
-            </label>
-          </div>
-          {farFuture && (
-            <div className="text-[11px] text-[#B45309]">That date is more than a month from now — typo?</div>
-          )}
-
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block">
-              <span className={cap}>Method</span>
-              <select value={method} onChange={(x) => setMethod(x.target.value)} className={`${input} bg-white`}>
-                <option value="">—</option>
-                <option value="check">Check</option>
-                <option value="ach">ACH</option>
-                <option value="card">Card</option>
-                <option value="cash">Cash</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
-            <label className="block">
-              <span className={cap}>Check / ref</span>
-              <input value={reference} onChange={(x) => setReference(x.target.value)} placeholder="1042" className={input} />
-            </label>
-          </div>
-
-          <label className="block">
-            <span className={cap}>Note</span>
-            <input
-              value={notes}
-              onChange={(x) => setNotes(x.target.value)}
-              onKeyDown={(x) => {
-                if (x.key === 'Enter') void submit()
-              }}
-              placeholder="Optional"
-              className={input}
-            />
-          </label>
-
-          <p className="text-[10.5px] text-[#9CA3AF] leading-snug">
-            Whatever they actually paid. This records the payment only — the draws stay as they are, and
-            any difference shows as unresolved until you resolve it in the job&apos;s forecast.
-          </p>
-
-          {err && (
-            <div className="text-[11.5px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-2 py-1.5">{err}</div>
-          )}
-
-          <div className="flex items-center gap-2 pt-0.5">
-            <button
-              disabled={busy}
-              onClick={() => void submit()}
-              className="px-3 py-1.5 rounded-md bg-[#059669] text-white text-[12px] font-medium hover:bg-[#047857] disabled:opacity-50"
-            >
-              {busy ? 'Saving…' : e ? 'Save payment' : 'Record payment'}
-            </button>
-            <button
-              onClick={onClose}
-              className="px-3 py-1.5 rounded-md border border-[#E5E7EB] text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
-            >
-              Cancel
-            </button>
-            {onDelete &&
-              (confirmDelete ? (
-                <button
-                  onClick={() => void onDelete()}
-                  className="ml-auto px-2.5 py-1.5 rounded-md bg-[#DC2626] text-white text-[12px] hover:bg-[#B91C1C]"
-                >
-                  Delete it
-                </button>
-              ) : (
-                <button
-                  onClick={() => setConfirmDelete(true)}
-                  title="Remove this payment"
-                  className="ml-auto inline-flex items-center gap-1 text-[12px] text-[#9CA3AF] hover:text-[#DC2626]"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Delete
-                </button>
-              ))}
-          </div>
-        </div>
-      </div>
-    </>
+    </div>
   )
 }

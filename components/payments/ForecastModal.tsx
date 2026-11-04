@@ -32,19 +32,56 @@
 // beyond the ticked draws is NOT applied: it shows as UNRESOLVED (forecast vs
 // remaining) until a human takes it off one draw or splits it evenly. Paying
 // LESS than the ticked draws leaves a "short" amount, same two tools.
+//
+// THE ONE MODAL (Andrew, 2026-11-04): every card on /payments opens this —
+// there is no separate payment modal. So the payments already made are
+// EDITABLE here (label, date, amount — "we recorded the wrong amount"), and
+// removing one puts it back as a draw of the same label and amount, so
+// paid + scheduled is unchanged by the undo (the Deposit came back missing
+// when a payment was deleted before). Everything is STAGED: recording,
+// editing and removing payments and draws all wait for Save, which writes the
+// ledger changes and then the forecast, together.
 // ============================================================================
 
 import { useMemo, useState } from 'react'
 import { X } from 'lucide-react'
-import { evenSplit, paymentLabel, proportionalSplit, splitByWeights, type LedgerEntry } from '@/lib/payment-forecast'
+import { evenSplit, proportionalSplit, splitByWeights, type LedgerEntry } from '@/lib/payment-forecast'
 import type { ForecastDraft } from '@/lib/payments'
 
-/** What the Record-a-payment panel hands back. */
+/** A payment recorded in the modal (staged until Save). */
 export interface RecordedPayment {
   amount: number
   paymentDate: string
   label: string | null
-  method: string | null
+}
+
+/** What Save hands back for the LEDGER, alongside the forecast rows. */
+export interface LedgerChanges {
+  add: RecordedPayment[]
+  update: Array<{ id: string; amount: number; paymentDate: string; label: string | null }>
+  remove: string[]
+}
+
+interface PaidDraft {
+  key: string
+  /** null = recorded in this modal, not saved yet. */
+  id: string | null
+  label: string
+  /** Typed dollars. */
+  amount: string
+  date: string
+}
+
+const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s)
+
+/** ⚠️ A date more than a month ahead is almost always a typo (Leonard's
+ *  deposit was keyed as 2027-06-30). Said, not blocked. */
+function farFuture(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (!m) return false
+  const limit = new Date()
+  limit.setDate(limit.getDate() + 31)
+  return new Date(+m[1], +m[2] - 1, +m[3]) > limit
 }
 
 function localToday(): string {
@@ -102,30 +139,38 @@ export default function ForecastModal({
   purpose: initialPurpose,
   projectName,
   contractTotal,
-  received,
   payments = [],
   rows: initialRows,
   saving,
+  startRecording = false,
   onCancel,
   onSave,
-  onRecordPayment,
 }: {
   purpose: ForecastPurpose
   projectName: string
   contractTotal: number
-  /** Σ ledger — shown so "remaining" is explained, never used to pair. */
-  received: number
-  /** The project's recorded payments, listed (read-only) above the draws so
-   *  the schedule reads as the whole contract. */
+  /** The project's recorded payments, listed (editable) above the draws so
+   *  the schedule reads as the whole contract. Σ = received. */
   payments?: LedgerEntry[]
   rows: ForecastModalRow[]
   saving: boolean
+  /** Open with the Record-a-payment panel already open. */
+  startRecording?: boolean
   onCancel: () => void
-  onSave: (rows: ForecastDraft[], via: 'editor' | 'redivide') => Promise<void>
-  /** Record a payment for the ticked draws: ledger row + the forecast WITHOUT
-   *  those rows (the rest of the draft as on screen). Absent = no panel. */
-  onRecordPayment?: (payment: RecordedPayment, keep: ForecastDraft[]) => Promise<void>
+  /** Writes the ledger changes, then the forecast rows. */
+  onSave: (rows: ForecastDraft[], via: 'editor' | 'redivide', ledger: LedgerChanges) => Promise<void>
 }) {
+  const [paidRows, setPaidRows] = useState<PaidDraft[]>(() =>
+    [...payments]
+      .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate))
+      .map((e) => ({ key: e.id, id: e.id, label: (e.label || '').trim() || (e.notes || '').trim(), amount: String(round2(e.amount)), date: e.paymentDate })),
+  )
+  const [removedIds, setRemovedIds] = useState<string[]>([])
+  /** Anything staged — the backdrop then won't throw it away. */
+  const [touched, setTouched] = useState(false)
+  const paidAmounts = paidRows.map((p) => round2(Number(p.amount) || 0))
+  /** Σ the payments as they stand in the modal (edits included). */
+  const received = round2(paidAmounts.reduce((a, b) => a + b, 0))
   const remaining = round2(Math.max(0, contractTotal - received))
   /** Percentages are of the CONTRACT (falls back to remaining with no contract). */
   const pctBase = contractTotal > 0 ? contractTotal : remaining
@@ -142,7 +187,7 @@ export default function ForecastModal({
   let seq = 0
   const [rows, setRows] = useState<Draft[]>(() => {
     const src =
-      initialRows.length > 0 || initialPurpose !== 'setup'
+      initialRows.length > 0 || initialPurpose !== 'setup' || remaining <= 0
         ? initialRows
         : // Setup with nothing yet: seed the first preset, spread over remaining.
           // (Only SETUP — an edit whose last draws were just paid must open empty.)
@@ -160,12 +205,11 @@ export default function ForecastModal({
   })
   const [error, setError] = useState<string | null>(null)
   // ── Record-a-payment panel ──
-  const [payOpen, setPayOpen] = useState(false)
+  const [payOpen, setPayOpen] = useState(startRecording)
   const [payAmount, setPayAmount] = useState('')
   const [payDate, setPayDate] = useState(localToday)
   const [payLabel, setPayLabel] = useState('')
   const [checked, setChecked] = useState<Set<string>>(() => new Set())
-  const [recording, setRecording] = useState(false)
   const [moveTo, setMoveTo] = useState('')
 
   /** What each row is worth in dollars, from what's typed. */
@@ -193,23 +237,52 @@ export default function ForecastModal({
   /** + = received beyond the ticked draws (unresolved); − = short of them. */
   const leftover = round2(paid - covered)
   const autoLabel = coveredIdx.map((i) => rows[i].label.trim()).filter(Boolean).join(' + ')
-  const canRecord =
-    !!onRecordPayment && !recording && paid !== 0 && /^\d{4}-\d{2}-\d{2}$/.test(payDate) && rows.every((r) => r.label.trim())
+  const canRecord = paid !== 0 && isDate(payDate)
 
-  async function recordPayment() {
-    if (!canRecord || !onRecordPayment) return
-    setRecording(true)
-    setError(null)
-    try {
-      await onRecordPayment(
-        { amount: paid, paymentDate: payDate, label: (payLabel.trim() || autoLabel) || null, method: null },
-        rows.filter((r) => !checked.has(r.key)).map((r) => ({ id: r.id, label: r.label.trim(), amount: amounts[rows.indexOf(r)] })),
-      )
-      // The board re-mounts this modal with the fresh rows + received.
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not record that payment.')
-      setRecording(false)
+  /** STAGED: the payment joins the paid list, the ticked draws leave the
+   *  forecast. Nothing is written until Save. */
+  function recordPayment() {
+    if (!canRecord) return
+    // Amounts of the draws that stay, frozen in dollars before the paid side
+    // moves (percent mode would otherwise re-read them against a new base).
+    const keep = rows.map((r, i) => ({ r, a: amounts[i] })).filter(({ r }) => !checked.has(r.key))
+    setPaidRows((prev) => [
+      ...prev,
+      { key: `paid-${Date.now()}`, id: null, label: payLabel.trim() || autoLabel, amount: String(paid), date: payDate },
+    ])
+    writeAmounts(keep.map((k) => k.a), keep.map((k) => k.r))
+    setChecked(new Set())
+    setPayAmount('')
+    setPayLabel('')
+    setPayOpen(false)
+    setTouched(true)
+  }
+
+  const patchPaid = (key: string, p: Partial<PaidDraft>) => {
+    setPaidRows((prev) => prev.map((x) => (x.key === key ? { ...x, ...p } : x)))
+    setTouched(true)
+  }
+  /** Remove a payment: it goes BACK to the draws at the same label + amount,
+   *  so paid + scheduled doesn't move. × the draw too if it shouldn't exist. */
+  function unpay(key: string) {
+    const p = paidRows.find((x) => x.key === key)
+    if (!p) return
+    const amt = round2(Number(p.amount) || 0)
+    setPaidRows((prev) => prev.filter((x) => x.key !== key))
+    if (p.id) setRemovedIds((prev) => [...prev, p.id!])
+    if (amt > 0) {
+      // To the TOP: what was paid came before what's still scheduled.
+      setRows((prev) => [
+        {
+          key: `unpaid-${Date.now()}`,
+          id: null,
+          label: p.label.trim() || 'Payment',
+          input: mode === 'percent' ? String(toPct(amt)) : String(amt),
+        },
+        ...prev,
+      ])
     }
+    setTouched(true)
   }
 
   /** UNRESOLVED = what the forecast expects beyond what's left (+), or short of it (−).
@@ -227,6 +300,7 @@ export default function ForecastModal({
   }
 
   function writeAmounts(next: number[], keepRows = rows) {
+    setTouched(true)
     setRows(
       keepRows.map((r, i) => ({
         ...r,
@@ -254,10 +328,16 @@ export default function ForecastModal({
     setModeState(next)
   }
 
-  const patch = (i: number, p: Partial<Draft>) =>
+  const patch = (i: number, p: Partial<Draft>) => {
+    setTouched(true)
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...p } : r)))
-  const remove = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i))
-  const add = () =>
+  }
+  const remove = (i: number) => {
+    setTouched(true)
+    setRows((prev) => prev.filter((_, idx) => idx !== i))
+  }
+  const add = () => {
+    setTouched(true)
     setRows((prev) => [
       ...prev,
       {
@@ -270,6 +350,7 @@ export default function ForecastModal({
             : String(Math.max(0, round2(-off))),
       },
     ])
+  }
 
   function usePreset(p: (typeof PRESETS)[number]) {
     const amts = splitByWeights(remaining, p.rows.map((r) => r.pct))
@@ -278,20 +359,36 @@ export default function ForecastModal({
   }
 
   const needsFoot = purpose !== 'edit'
+  const paidOk = paidRows.every((p, i) => paidAmounts[i] !== 0 && Number.isFinite(Number(p.amount)) && isDate(p.date))
   const canSave =
     !saving &&
     rows.every((r) => r.label.trim()) &&
     amounts.every((a) => a >= 0) &&
+    paidOk &&
     (needsFoot ? foots : true) &&
     (purpose !== 'setup' || rows.length > 0)
 
   async function handleSave() {
     if (!canSave) return
     setError(null)
+    const before = new Map(payments.map((e) => [e.id, e]))
+    const ledger: LedgerChanges = { add: [], update: [], remove: removedIds }
+    paidRows.forEach((p, i) => {
+      const label = p.label.trim() || null
+      if (!p.id) {
+        ledger.add.push({ amount: paidAmounts[i], paymentDate: p.date, label })
+        return
+      }
+      const was = before.get(p.id)
+      if (was && (round2(was.amount) !== paidAmounts[i] || was.paymentDate !== p.date || ((was.label || '').trim() || (was.notes || '').trim() || null) !== label)) {
+        ledger.update.push({ id: p.id, amount: paidAmounts[i], paymentDate: p.date, label })
+      }
+    })
     try {
       await onSave(
         rows.map((r, i) => ({ id: r.id, label: r.label.trim(), amount: amounts[i] })),
         purpose === 'redivide' ? 'redivide' : 'editor',
+        ledger,
       )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the forecast.')
@@ -306,7 +403,10 @@ export default function ForecastModal({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onClick={onCancel}
+      onClick={() => {
+        // Staged changes aren't thrown away by a stray click — Cancel / × do that.
+        if (!touched) onCancel()
+      }}
       className="fixed inset-0 z-[200] bg-black/45 flex items-start justify-center overflow-y-auto p-4 sm:p-16"
     >
       <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl w-full max-w-[560px] shadow-xl">
@@ -341,7 +441,7 @@ export default function ForecastModal({
             </div>
           )}
 
-          {onRecordPayment && purpose !== 'setup' && rows.length > 0 && (
+          {purpose !== 'redivide' && (
             <div className={`mb-3 rounded-lg border ${payOpen ? 'border-[#A7F3D0] bg-[#F0FDF4]' : 'border-[#E5E7EB]'} px-3 py-2`}>
               {!payOpen ? (
                 <button onClick={() => setPayOpen(true)} className="text-[12px] font-medium text-[#047857] hover:underline">
@@ -374,7 +474,9 @@ export default function ForecastModal({
                     className={`${field} w-full bg-white`}
                   />
                   <div className="text-[11.5px] text-[#374151] leading-snug">
-                    {coveredIdx.length === 0 ? (
+                    {rows.length === 0 ? (
+                      <>No draws to tick — the payment is recorded against the contract.</>
+                    ) : coveredIdx.length === 0 ? (
                       <>Tick the draws this payment covers. Nothing ticked = it&apos;s all unresolved.</>
                     ) : (
                       <>
@@ -388,12 +490,13 @@ export default function ForecastModal({
                       </span>
                     )}
                   </div>
+                  {farFuture(payDate) && <div className="text-[11px] text-[#B45309]">That date is more than a month from now — typo?</div>}
                   <button
-                    onClick={() => void recordPayment()}
+                    onClick={recordPayment}
                     disabled={!canRecord}
                     className="px-3 py-1.5 rounded-md bg-[#059669] text-white text-[12px] font-medium hover:bg-[#047857] disabled:opacity-50"
                   >
-                    {recording ? 'Recording…' : coveredIdx.length ? `Record payment · remove ${coveredIdx.length} paid draw${coveredIdx.length > 1 ? 's' : ''}` : 'Record payment'}
+                    {coveredIdx.length ? `Record payment · remove ${coveredIdx.length} paid draw${coveredIdx.length > 1 ? 's' : ''}` : 'Record payment'}
                   </button>
                 </div>
               )}
@@ -447,29 +550,54 @@ export default function ForecastModal({
             )}
           </div>
 
-          {/* WHAT'S BEEN PAID — the ledger, read-only, so the list is the whole
-              contract: these + the draws below = the contract. */}
-          {payments.length > 0 && (
+          {/* WHAT'S BEEN PAID — the ledger, EDITABLE, so the list is the whole
+              contract: these + the draws below = the contract. × puts a
+              payment back as a draw (same label + amount). */}
+          {paidRows.length > 0 && (
             <div className="mb-1.5 space-y-1">
-              {[...payments]
-                .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate))
-                .map((e) => (
-                  <div key={e.id} data-paid-row className="flex items-center gap-1.5 px-2 py-1 rounded border border-[#A7F3D0] bg-[#F0FDF4]">
-                    <span className="text-[#059669] text-[12px] w-4 text-center flex-shrink-0">✓</span>
-                    <span className="text-[12.5px] text-[#065F46] truncate flex-1 min-w-0">{paymentLabel(e)}</span>
-                    <span className="text-[11px] text-[#047857] flex-shrink-0">
-                      Paid {(() => {
-                        const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(e.paymentDate)
-                        return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : e.paymentDate
-                      })()}
-                    </span>
-                    <span className="text-[12.5px] font-mono tabular-nums text-[#065F46] w-28 text-right flex-shrink-0">{moneyCents(e.amount)}</span>
-                    <span className="text-[12px] font-mono tabular-nums w-20 text-right text-[#047857] flex-shrink-0">
-                      {pctBase > 0 ? `${((e.amount / pctBase) * 100).toFixed(1)}%` : ''}
-                    </span>
-                    <span className="w-3.5 flex-shrink-0" />
-                  </div>
-                ))}
+              {paidRows.map((p, i) => (
+                <div
+                  key={p.key}
+                  data-paid-row={p.id ?? 'new'}
+                  className="flex items-center gap-1.5 px-1.5 py-1 -mx-1.5 rounded border border-[#A7F3D0] bg-[#F0FDF4]"
+                >
+                  <span className="text-[#059669] text-[12px] w-4 text-center flex-shrink-0" title="Paid">✓</span>
+                  <input
+                    value={p.label}
+                    onChange={(e) => patchPaid(p.key, { label: e.target.value })}
+                    placeholder="Payment"
+                    aria-label="Payment label"
+                    className={`${field} flex-1 min-w-0 bg-white text-[#065F46]`}
+                  />
+                  <input
+                    type="date"
+                    value={p.date}
+                    onChange={(e) => patchPaid(p.key, { date: e.target.value })}
+                    aria-label="Date paid"
+                    title={farFuture(p.date) ? 'More than a month from now — typo?' : 'Date paid'}
+                    className={`${field} w-[124px] bg-white text-[11.5px] ${farFuture(p.date) ? 'border-[#F59E0B]' : ''}`}
+                  />
+                  <span className="text-[11px] text-[#9CA3AF]">$</span>
+                  <input
+                    value={p.amount}
+                    onChange={(e) => patchPaid(p.key, { amount: e.target.value.replace(/[^0-9.-]/g, '') })}
+                    inputMode="decimal"
+                    aria-label="Amount paid"
+                    className={`${field} w-24 text-right font-mono bg-white text-[#065F46]`}
+                  />
+                  <span className="text-[12px] font-mono tabular-nums w-14 text-right text-[#047857] flex-shrink-0">
+                    {pctBase > 0 ? `${((paidAmounts[i] / pctBase) * 100).toFixed(1)}%` : ''}
+                  </span>
+                  <button
+                    onClick={() => unpay(p.key)}
+                    title="Remove this payment — it goes back to the draws"
+                    aria-label="Remove payment"
+                    className="text-[#9CA3AF] hover:text-[#DC2626] flex-shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -481,6 +609,7 @@ export default function ForecastModal({
             )}
             {rows.map((r, i) => (
               <div key={r.key} className="flex items-center gap-1.5">
+                {!payOpen && paidRows.length > 0 && <span className="w-4 flex-shrink-0" />}
                 {payOpen && (
                   <input
                     type="checkbox"
@@ -510,9 +639,9 @@ export default function ForecastModal({
                   onChange={(e) => patch(i, { input: e.target.value.replace(/[^0-9.]/g, '') })}
                   inputMode="decimal"
                   aria-label={mode === 'dollars' ? 'Amount' : 'Percent of contract'}
-                  className={`${field} ${mode === 'dollars' ? 'w-28' : 'w-16'} text-right font-mono`}
+                  className={`${field} ${mode === 'dollars' ? 'w-24' : 'w-16'} text-right font-mono`}
                 />
-                <span className="text-[12px] font-mono tabular-nums w-20 text-right text-[#6B7280]">
+                <span className={`text-[12px] font-mono tabular-nums ${mode === 'dollars' ? 'w-14' : 'w-20'} text-right text-[#6B7280] flex-shrink-0`}>
                   {mode === 'dollars'
                     ? pctBase > 0
                       ? `${((amounts[i] / pctBase) * 100).toFixed(1)}%`
@@ -598,7 +727,7 @@ export default function ForecastModal({
               disabled={!canSave}
               className="px-3 py-1.5 rounded-lg bg-[#2563EB] text-white text-xs font-medium hover:bg-[#1D4ED8] disabled:opacity-50"
             >
-              {saving ? 'Saving…' : purpose === 'redivide' ? 'Save redivide' : purpose === 'setup' ? 'Create forecast' : 'Save forecast'}
+              {saving ? 'Saving…' : purpose === 'redivide' ? 'Save redivide' : purpose === 'setup' ? 'Create forecast' : 'Save'}
             </button>
             <button
               onClick={onCancel}
@@ -607,7 +736,9 @@ export default function ForecastModal({
               Cancel
             </button>
             <span className="text-[11px] text-[#9CA3AF] ml-auto text-right">
-              {rows.some((r) => !r.id)
+              {touched && (paidRows.some((p) => !p.id) || removedIds.length > 0)
+                ? 'Payments are written when you press Save.'
+                : rows.some((r) => !r.id)
                 ? 'New rows land in “No date set” — drag them into a month.'
                 : 'Dates stay put — drag cards to move them.'}
             </span>
