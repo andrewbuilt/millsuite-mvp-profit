@@ -25,7 +25,7 @@ import { X } from 'lucide-react'
 import { COLOR_PALETTE, MONO, UI_FONT, btnS, type PaletteColor } from '@/lib/schedule-style'
 import {
   entryMinutes, entryDay,
-  type AssignmentPatch, type BoardData, type BoardEntry, type EngAssignment, type BoardProject,
+  type AssignmentPatch, type BoardData, type BoardEntry, type EngAssignment, type BoardProject, type DayOff,
 } from '@/lib/eng-board'
 import {
   packLane, workdaysFrom, mondayOfKey, dateKey, parseKey, evenDivide, divisionsMatch,
@@ -34,6 +34,19 @@ import {
 } from '@/lib/eng-board-math'
 
 const DAY_W = 76
+
+/** Holidays + PTO, drawn on every lane (from /team → Holidays & PTO). A whole
+ *  day off is hatched; part-day PTO is tinted and its hours come off the cap. */
+const OFF_STYLE = {
+  holiday: { text: '#6D28D9', bg: '#F5F3FF', hatch: 'repeating-linear-gradient(135deg, #EDE9FE 0 6px, #F5F3FF 6px 12px)' },
+  pto: { text: '#B45309', bg: '#FFFBEB', hatch: 'repeating-linear-gradient(135deg, #FEF3C7 0 6px, #FFFBEB 6px 12px)' },
+}
+function offTag(o: DayOff, dailyHours: number): { short: string; full: string; whole: boolean } {
+  const whole = o.hours >= dailyHours - 0.05
+  if (o.holiday) return { short: o.label || 'Holiday', full: `Holiday${o.label ? ` — ${o.label}` : ''}`, whole: true }
+  const h = whole ? 'PTO' : `PTO ${fmtH(o.hours)}h`
+  return { short: h, full: `${whole ? 'PTO — all day' : `PTO — ${fmtH(o.hours)}h out`}${o.label ? ` (${o.label})` : ''}`, whole }
+}
 const LABEL_W = 170
 const STRIP_H = 24
 const STRIP_GAP = 6
@@ -393,6 +406,7 @@ export default function EngBoard({ api }: { api: BoardApi }) {
               <Lane key={eng.member.id}
                 name={eng.member.name}
                 dailyHours={eng.dailyHours}
+                offByDay={data?.offByMember?.[eng.member.id] || {}}
                 packed={packed}
                 viewDays={viewDays}
                 today={today}
@@ -534,11 +548,13 @@ function visibleStrips(packed: PackedLane, viewDays: string[]): PackedStrip[] {
 // LANE — own day header, strip canvas, tracked band
 // =====================================================
 function Lane({
-  name, dailyHours, packed, viewDays, today, projectById, colorOf, firmDates, entries, running, nowMs,
+  name, dailyHours, offByDay, packed, viewDays, today, projectById, colorOf, firmDates, entries, running, nowMs,
   isDrop, onDragOver, onDragLeave, onDrop, onStripDragStart, onStripDragEnd, onOpen,
 }: {
   name: string
   dailyHours: number
+  /** date → holiday / PTO on this engineer's day. */
+  offByDay: Record<string, DayOff>
   packed: PackedLane
   viewDays: string[]
   today: string
@@ -618,18 +634,29 @@ function Lane({
           const loadH = d < today ? tracked : planned + (d === today ? tracked : 0)
           const over = loadH > cap + 0.05
           const full = !over && cap > 0 && loadH >= cap - 0.05
-          const off = cap <= 0.01 && d >= today
+          const dayOff = offByDay[d]
+          const tag = dayOff ? offTag(dayOff, dailyHours) : null
+          const os = dayOff ? (dayOff.holiday ? OFF_STYLE.holiday : OFF_STYLE.pto) : null
+          const off = (cap <= 0.01 && d >= today) || !!tag?.whole
           const { wd, md } = dayLabel(d)
           return (
-            <div key={d} style={{
+            <div key={d} data-day-off={tag ? tag.full : undefined} title={tag?.full} style={{
               width: DAY_W, minWidth: DAY_W, flexShrink: 0, borderBottom: '1px solid #E5E7EB', borderRight: '1px solid #F3F4F6',
-              padding: '5px 0', textAlign: 'center', background: over ? '#FEF2F2' : i % 2 === 0 ? '#FFF' : '#FAFBFC',
+              padding: '5px 0', textAlign: 'center',
+              background: over ? '#FEF2F2' : os ? (tag!.whole ? os.hatch : os.bg) : i % 2 === 0 ? '#FFF' : '#FAFBFC',
             }}>
               <div style={{ fontSize: 9, fontWeight: 600, color: d === today ? '#1E40AF' : '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{d === today ? 'Today' : wd}</div>
               <div style={{ fontSize: 11, fontWeight: 500, color: d < today ? '#9CA3AF' : '#6B7280', marginTop: 1 }}>{md}</div>
-              <div style={{ fontSize: 9, fontFamily: MONO, marginTop: 2, fontWeight: over || full ? 700 : 500, color: over ? '#DC2626' : full ? '#B45309' : '#9CA3AF' }}>
-                {off ? 'off' : `${fmtH(loadH)}/${fmtH(cap)}`}
-              </div>
+              {tag && (
+                <div style={{ fontSize: 8.5, fontWeight: 700, color: os!.text, marginTop: 1, padding: '0 3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {tag.short}
+                </div>
+              )}
+              {(!tag || !tag.whole || over) && (
+                <div style={{ fontSize: 9, fontFamily: MONO, marginTop: tag ? 0 : 2, fontWeight: over || full ? 700 : 500, color: over ? '#DC2626' : full ? '#B45309' : '#9CA3AF' }}>
+                  {off && !over ? 'off' : `${fmtH(loadH)}/${fmtH(cap)}`}
+                </div>
+              )}
             </div>
           )
         })}
@@ -639,9 +666,17 @@ function Lane({
       <div style={{ display: 'flex' }}>
         <div style={{ width: LABEL_W, minWidth: LABEL_W, flexShrink: 0, borderRight: '1px solid #E5E7EB', background: '#FAFBFC', position: 'sticky', left: 0, zIndex: 5 }} />
         <div ref={canvasRef} style={{ position: 'relative', width: viewDays.length * DAY_W, height: canvasH }}>
-          {viewDays.map((d, i) => (
-            <div key={d} style={{ position: 'absolute', top: 0, bottom: 0, left: i * DAY_W, width: DAY_W, borderRight: '1px solid #F3F4F6', background: i % 2 === 0 ? '#FFF' : '#FAFBFC' }} />
-          ))}
+          {viewDays.map((d, i) => {
+            const o = offByDay[d]
+            const t = o ? offTag(o, dailyHours) : null
+            const os = o ? (o.holiday ? OFF_STYLE.holiday : OFF_STYLE.pto) : null
+            return (
+              <div key={d} title={t?.full} style={{
+                position: 'absolute', top: 0, bottom: 0, left: i * DAY_W, width: DAY_W, borderRight: '1px solid #F3F4F6',
+                background: os ? (t!.whole ? os.hatch : os.bg) : i % 2 === 0 ? '#FFF' : '#FAFBFC',
+              }} />
+            )
+          })}
           {visible.length === 0 && (
             <div style={{ position: 'absolute', left: 10, top: 10, fontSize: 11, color: '#C4C4C4' }}>
               {packed.strips.length ? 'Nothing planned in these days' : 'Drop a project here'}
@@ -717,7 +752,7 @@ function Lane({
           const total = sumDay(list, nowMs)
           const denom = Math.max(dailyHours, total) || 1
           return (
-            <div key={d} style={{ width: DAY_W, minWidth: DAY_W, flexShrink: 0, borderRight: '1px solid #F3F4F6', padding: '5px 3px', display: 'flex', gap: 1, alignItems: 'center', minHeight: 22, background: i % 2 === 0 ? '#FFF' : '#FAFBFC' }}>
+            <div key={d} style={{ width: DAY_W, minWidth: DAY_W, flexShrink: 0, borderRight: '1px solid #F3F4F6', padding: '5px 3px', display: 'flex', gap: 1, alignItems: 'center', minHeight: 22, background: offByDay[d] ? (offByDay[d].holiday ? OFF_STYLE.holiday.bg : OFF_STYLE.pto.bg) : i % 2 === 0 ? '#FFF' : '#FAFBFC' }}>
               {list.map((e) => {
                 const h = entryMinutes(e, nowMs) / 60
                 const c = colorOf(e.project_id)

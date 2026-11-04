@@ -54,6 +54,7 @@ function fixture(): BoardData {
   const proj = (id: string, name: string, est: number, isTemp = false) => ({ id, name, clientName: null, stage: 'production', isTemp, estHours: est + trackedFor(id) / 60, trackedMinutes: trackedFor(id) })
   // Firm date for Towers: two workdays out — the pack won't make it.
   const firm = workdaysFrom(today, 2)[1]
+  const hol = workdaysFrom(today, 9)[8]
   return {
     engDeptIds: [ENG],
     engineers: [
@@ -85,7 +86,18 @@ function fixture(): BoardData {
       { id: 'a7', org_id: 'o', project_id: 'chancey', member_id: 'm-h', dept: 'eng', priority: 7, divisions: null, firm_date: null, board_hours: null, start_date: null, done_at: null },
     ],
     entries,
-    outByMember: { 'm-e': {}, 'm-h': { [workdaysFrom(today, 6)[5]]: 8 }, 'm-t': {} },
+    // Holidays + PTO as /team writes them: a company holiday for everyone,
+    // Hunter's full-day PTO, Evan's half day.
+    outByMember: {
+      'm-e': { [hol]: 8, [workdaysFrom(today, 4)[3]]: 4 },
+      'm-h': { [hol]: 8, [workdaysFrom(today, 6)[5]]: 8 },
+      'm-t': { [hol]: 8 },
+    },
+    offByMember: {
+      'm-e': { [hol]: { holiday: true, label: 'Thanksgiving', hours: 8 }, [workdaysFrom(today, 4)[3]]: { holiday: false, label: 'Dentist', hours: 4 } },
+      'm-h': { [hol]: { holiday: true, label: 'Thanksgiving', hours: 8 }, [workdaysFrom(today, 6)[5]]: { holiday: false, label: '', hours: 8 } },
+      'm-t': { [hol]: { holiday: true, label: 'Thanksgiving', hours: 8 } },
+    },
     subsByProject: { kinser: [{ id: 's1', name: 'Kitchen' }, { id: 's2', name: 'Primary bath' }] },
     planError: null,
   }

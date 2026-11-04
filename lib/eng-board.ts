@@ -70,6 +70,15 @@ export interface BoardEntry {
   notes: string | null
 }
 
+/** A holiday or PTO on one engineer's day. */
+export interface DayOff {
+  holiday: boolean
+  /** The reason as typed on /team ("Thanksgiving"), or '' for none. */
+  label: string
+  /** Hours out that day (≥ the engineer's day = the whole day). */
+  hours: number
+}
+
 export interface BoardData {
   engDeptIds: string[]
   engineers: BoardEngineer[]
@@ -79,6 +88,10 @@ export interface BoardData {
   entries: BoardEntry[]
   /** member id → date → hours out (PTO / holidays). */
   outByMember: Record<string, Record<string, number>>
+  /** member id → date → what the day off IS, so the board can draw it
+   *  ("Thanksgiving", "PTO 4h"). Same rows as outByMember. Optional so an
+   *  older fixture still mounts. */
+  offByMember?: Record<string, Record<string, DayOff>>
   subsByProject: Record<string, Array<{ id: string; name: string }>>
   /** null = ok; otherwise why the plan can't be read (pre-129). */
   planError: string | null
@@ -204,18 +217,27 @@ export async function loadEngBoard(orgId: string, windowStart: string, horizonEn
   // engineering-dept holiday = the whole day; a member's own PTO row = its
   // hours (0 → the whole day). "Reassigned to …" rows move people, skip.
   const outByMember: Record<string, Record<string, number>> = {}
-  for (const eng of engineers) outByMember[eng.member.id] = {}
+  const offByMember: Record<string, Record<string, DayOff>> = {}
+  for (const eng of engineers) {
+    outByMember[eng.member.id] = {}
+    offByMember[eng.member.id] = {}
+  }
   for (const ov of (overridesRes.data || []) as Array<{ override_date: string; team_member_id: string | null; department_id: string | null; reason: string | null; hours_reduction: number | null }>) {
     if (ov.reason?.startsWith('Reassigned to')) continue
     for (const eng of engineers) {
       const map = outByMember[eng.member.id]
       const day = ov.override_date
+      const offs = offByMember[eng.member.id]
+      const label = (ov.reason || '').trim()
       if (ov.team_member_id) {
         if (ov.team_member_id !== eng.member.id) continue
         const raw = Number(ov.hours_reduction) || 0
         map[day] = Math.min(eng.dailyHours, (map[day] || 0) + (raw > 0 ? raw : eng.dailyHours))
+        // A holiday on the same day wins the label; PTO only adds hours.
+        if (!offs[day]?.holiday) offs[day] = { holiday: false, label: offs[day]?.label || label, hours: map[day] }
       } else if (!ov.department_id || engSet.has(ov.department_id)) {
         map[day] = eng.dailyHours
+        offs[day] = { holiday: true, label, hours: eng.dailyHours }
       }
     }
   }
@@ -225,7 +247,7 @@ export async function loadEngBoard(orgId: string, windowStart: string, horizonEn
     ;(subsByProject[s.project_id] ||= []).push({ id: s.id, name: s.name })
   }
 
-  return { engDeptIds, engineers, projects, assignments, entries, outByMember, subsByProject, planError }
+  return { engDeptIds, engineers, projects, assignments, entries, outByMember, offByMember, subsByProject, planError }
 }
 
 /** Local-day key of an entry (started_at, else created_at). */
