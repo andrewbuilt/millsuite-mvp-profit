@@ -95,6 +95,8 @@ export interface ForecastModalRow {
   id: string | null
   label: string
   amount: number
+  /** The stored expected date (YYYY-MM-DD), null = "No date set". */
+  expectedDate?: string | null
 }
 
 type InputMode = 'dollars' | 'percent'
@@ -131,6 +133,41 @@ interface Draft {
   label: string
   /** The typed text in the current mode. */
   input: string
+  /** The month dropdown: 'YYYY-MM', or '' = No date set. */
+  month: string
+  /** The stored date the row opened with — kept as-is unless the month changes. */
+  date: string | null
+}
+
+/** 'YYYY-MM' of a stored date, '' for none. */
+const monthOfDate = (d: string | null | undefined) => (d && /^\d{4}-\d{2}/.test(d) ? d.slice(0, 7) : '')
+
+/** The date to save for a row: unchanged month → the stored date untouched
+ *  (undefined); No date → null; a new month → the same day of the month as
+ *  before (clamped, like a drag), or the 1st. */
+function dateForSave(r: Draft): string | null | undefined {
+  if (r.month === monthOfDate(r.date)) return r.id ? undefined : r.month ? `${r.month}-01` : null
+  if (!r.month) return null
+  const [y, m] = r.month.split('-').map(Number)
+  const day = r.date ? Number(r.date.slice(8, 10)) || 1 : 1
+  const last = new Date(y, m, 0).getDate()
+  return `${r.month}-${String(Math.min(day, last)).padStart(2, '0')}`
+}
+
+/** The dropdown's months: 3 back through 18 ahead of today, plus any month a
+ *  row already sits in outside that window. */
+function monthChoices(extra: string[]): Array<{ value: string; label: string }> {
+  const now = new Date()
+  const set = new Set<string>()
+  for (let i = -3; i <= 18; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+    set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+  for (const m of extra) if (m) set.add(m)
+  return [...set].sort().map((value) => {
+    const [y, mo] = value.split('-').map(Number)
+    return { value, label: new Date(y, mo - 1, 1).toLocaleString(undefined, { month: 'short', year: 'numeric' }) }
+  })
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -194,13 +231,15 @@ export default function ForecastModal({
           (() => {
             const p = PRESETS[0].rows
             const amts = splitByWeights(remaining, p.map((r) => r.pct))
-            return p.map((r, i) => ({ id: null, label: r.label, amount: amts[i] }))
+            return p.map((r, i) => ({ id: null, label: r.label, amount: amts[i], expectedDate: null as string | null }))
           })()
     return src.map((r) => ({
       key: r.id ?? `new-${seq++}`,
       id: r.id,
       label: r.label,
       input: mode === 'percent' && pctBase > 0 ? String(toPct(r.amount)) : String(round2(r.amount)),
+      month: monthOfDate(r.expectedDate),
+      date: r.expectedDate ?? null,
     }))
   })
   const [error, setError] = useState<string | null>(null)
@@ -278,6 +317,9 @@ export default function ForecastModal({
           id: null,
           label: p.label.trim() || 'Payment',
           input: mode === 'percent' ? String(toPct(amt)) : String(amt),
+          // Back in the month it was paid.
+          month: monthOfDate(p.date),
+          date: null,
         },
         ...prev,
       ])
@@ -344,6 +386,8 @@ export default function ForecastModal({
         key: `new-${Date.now()}`,
         id: null,
         label: `Draw ${prev.length + 1}`,
+        month: '',
+        date: null,
         input:
           mode === 'percent'
             ? String(Math.max(0, round2(100 - paidPct - pctSum)))
@@ -354,9 +398,11 @@ export default function ForecastModal({
 
   function usePreset(p: (typeof PRESETS)[number]) {
     const amts = splitByWeights(remaining, p.rows.map((r) => r.pct))
-    const next = p.rows.map((r, i) => ({ key: `preset-${Date.now()}-${i}`, id: null, label: r.label, input: '' }))
+    const next = p.rows.map((r, i) => ({ key: `preset-${Date.now()}-${i}`, id: null, label: r.label, input: '', month: '', date: null }))
     writeAmounts(amts, next)
   }
+
+  const months = useMemo(() => monthChoices(rows.map((r) => r.month)), [rows])
 
   const needsFoot = purpose !== 'edit'
   const paidOk = paidRows.every((p, i) => paidAmounts[i] !== 0 && Number.isFinite(Number(p.amount)) && isDate(p.date))
@@ -386,7 +432,7 @@ export default function ForecastModal({
     })
     try {
       await onSave(
-        rows.map((r, i) => ({ id: r.id, label: r.label.trim(), amount: amounts[i] })),
+        rows.map((r, i) => ({ id: r.id, label: r.label.trim(), amount: amounts[i], expectedDate: dateForSave(r) })),
         purpose === 'redivide' ? 'redivide' : 'editor',
         ledger,
       )
@@ -633,6 +679,20 @@ export default function ForecastModal({
                   aria-label="Label"
                   className={`${field} flex-1 min-w-0`}
                 />
+                <select
+                  value={r.month}
+                  onChange={(e) => patch(i, { month: e.target.value })}
+                  aria-label={`Month expected for ${r.label || 'this row'}`}
+                  title="The month this payment is expected"
+                  className={`${field} w-[104px] flex-shrink-0 bg-white text-[11.5px] ${r.month ? 'text-[#111]' : 'text-[#9CA3AF]'}`}
+                >
+                  <option value="">No date</option>
+                  {months.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
                 {mode === 'dollars' && <span className="text-[11px] text-[#9CA3AF]">$</span>}
                 <input
                   value={r.input}
@@ -738,9 +798,9 @@ export default function ForecastModal({
             <span className="text-[11px] text-[#9CA3AF] ml-auto text-right">
               {touched && (paidRows.some((p) => !p.id) || removedIds.length > 0)
                 ? 'Payments are written when you press Save.'
-                : rows.some((r) => !r.id)
-                ? 'New rows land in “No date set” — drag them into a month.'
-                : 'Dates stay put — drag cards to move them.'}
+                : rows.some((r) => !r.month)
+                ? 'Rows with no month land in “No date set”.'
+                : 'Pick each row’s month here, or drag cards on the board.'}
             </span>
           </div>
         </div>

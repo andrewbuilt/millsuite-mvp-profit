@@ -118,8 +118,8 @@ export default function PaymentsV4Fixture() {
         const next = rows.map((r, i) => {
           const was = r.id ? prior.get(r.id) : null
           return was
-            ? { ...was, label: r.label, amount: r.amount, sortOrder: i }
-            : row(projectId, name, r.label, r.amount, null, i)
+            ? { ...was, label: r.label, amount: r.amount, sortOrder: i, ...(r.expectedDate !== undefined ? { expectedDate: r.expectedDate } : {}) }
+            : row(projectId, name, r.label, r.amount, r.expectedDate ?? null, i)
         })
         return { ...d, rows: [...d.rows.filter((r) => r.projectId !== projectId), ...next] }
       })

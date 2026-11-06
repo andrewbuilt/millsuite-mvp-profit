@@ -144,6 +144,9 @@ export interface ForecastDraft {
   id: string | null
   label: string
   amount: number
+  /** The month dropdown (2026-11-06): a date to write, null = "No date set",
+   *  undefined = leave the stored date alone. */
+  expectedDate?: string | null
 }
 
 /**
@@ -152,8 +155,9 @@ export interface ForecastDraft {
  * Redivide modal, both a human pressing Save.
  *
  * The rows passed ARE the forecast afterwards: matched by id (label, amount,
- * order rewritten; the expected date kept — dates move by dragging), new
- * rows inserted with no date ("No date set" → drag them in), and every
+ * order rewritten; the expected date kept unless the row's month dropdown
+ * changed it — dates also move by dragging), new rows inserted with the month
+ * picked or no date ("No date set" → drag them in), and every
  * existing row NOT in the list deleted.
  *
  * ⛔ NO CASH VETO, ON PURPOSE. Under v4 a forecast row has no payment against
@@ -218,6 +222,8 @@ export async function saveForecast(
           milestone_pct: pctOf(amount),
           milestone_label: label,
           description: label,
+          // Only when the month dropdown changed it.
+          ...(r.expectedDate !== undefined ? { expected_date: r.expectedDate } : {}),
         })
         .eq('id', r.id)
         .select('id')
@@ -239,9 +245,10 @@ export async function saveForecast(
           milestone_pct: pctOf(amount),
           milestone_trigger: 'manual',
           amount,
-          // ⛔ NO DATE — new rows land in "No date set" and get dragged in.
-          // Andrew: "just add them to the no-date bucket so I can drag them in."
-          expected_date: null,
+          // The month picked in the modal, else NO DATE — "No date set" and
+          // dragged in. Andrew: "just add them to the no-date bucket so I can
+          // drag them in."
+          expected_date: r.expectedDate ?? null,
           notes,
         })
         .select('id')

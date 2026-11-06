@@ -232,6 +232,16 @@ ok('G  the one api.saveForecast call is inside the ForecastModal onSave', (board
 ok('G  every ledger write (log / update / delete) is inside the ForecastModal onSave', ['logPayment', 'updatePayment', 'deletePayment'].every((f) => (board.match(new RegExp(`api\\.${f}\\(`, 'g')) || []).length === 1 && modalJsx.includes(`api.${f}(`)))
 ok('G  there is no separate payment modal on the board', !/function PaymentModal|<PaymentModal/.test(board))
 ok('G  cards carry no Edit / + Payment buttons (the whole card opens the modal)', !/>\s*Edit\s*</.test(board) && !/<Plus /.test(board))
+// Month dropdown (2026-11-06): each draw row picks its month in the modal.
+{
+  const fm = read('components/payments/ForecastModal.tsx')
+  const lp = read('lib/payments.ts')
+  ok('G  every draw row has a month <select> with a "No date" choice', /<select[\s\S]{0,120}value=\{r\.month\}/.test(fm) && /<option value="">No date<\/option>/.test(fm))
+  ok('G  the modal sends each row\'s expectedDate to onSave', /expectedDate: dateForSave\(r\)/.test(fm))
+  ok('G  the board passes each row\'s stored date into the modal', /expectedDate: r\.expectedDate \}\)\)/.test(board))
+  ok('G  saveForecast writes expected_date on update only when the month changed', /r\.expectedDate !== undefined \? \{ expected_date: r\.expectedDate \}/.test(lp))
+  ok('G  saveForecast inserts the picked month (else null)', /expected_date: r\.expectedDate \?\? null/.test(lp))
+}
 const pf = strip(read('lib/payment-forecast.ts'))
 ok('G  payment-forecast is pure (no supabase import)', !/supabase/.test(pf))
 // The deleted machinery stays deleted.

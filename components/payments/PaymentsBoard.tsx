@@ -74,7 +74,7 @@ export interface PaymentsBoardApi {
   deletePayment: (id: string) => Promise<void>
   saveForecast: (
     projectId: string,
-    rows: Array<{ id: string | null; label: string; amount: number }>,
+    rows: Array<{ id: string | null; label: string; amount: number; expectedDate?: string | null }>,
     via: 'editor' | 'redivide',
     contractTotal: number,
   ) => Promise<void>
@@ -566,7 +566,7 @@ export default function PaymentsBoard({
           projectName={fp.projectName}
           contractTotal={fp.contractTotal}
           payments={ledger.filter((e) => e.projectId === fp.projectId)}
-          rows={fp.rows.map((r) => ({ id: r.id, label: r.label, amount: r.amount }))}
+          rows={fp.rows.map((r) => ({ id: r.id, label: r.label, amount: r.amount, expectedDate: r.expectedDate }))}
           saving={savingForecast}
           startRecording={!!forecastFor.record}
           onCancel={() => setForecastFor(null)}
