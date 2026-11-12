@@ -6,7 +6,7 @@
 
 **Last updated:** 2026-11-04 · **Branch:** `main`
 
-**Left off (2026-11-12, TASKS GET REAL TIME — built, committed `4b2d284`, ⛔ push held for migration `132`):** need-by dates replace buckets; detail in the ✅ line atop the tasks block. Next: run 132 on prod → push → Andrew's live check.
+**Left off (2026-11-12, TASKS GET REAL TIME — LIVE):** need-by dates replace buckets; migration `132` ✅ on prod (68 open tasks backfilled: 37 today→11-12 · 13 this week→Fri 11-13 · 15 next week→Fri 11-20 · 3 someday→none) and pushed. Detail in the ✅ line atop the tasks block. Next: Andrew's live check.
 
 **Before that — Left off (2026-11-12, PTO APPROVE — FIXED):** a stray prod FK (capacity_overrides.team_member_id → users) had rejected every approval since PTO shipped. Migration `129` ✅ on prod, `verify-pto-approve-live` PASS, error banners now show the database's real reason (`d6ca3ea`). ✅ **Live: Andrew approved 3** (Kaylin 11-23 · Matt 12-21→23 · Matt 03-04→05) — every day has its capacity row (8h/24h/16h). /capacity doesn't move for these: both are non-billable MGMT (correct). **Evan approves the other 6** (Austin 11-23→25 · Trent 11-25 · Elijah 12-21→23 · Kaleigh 12-23→29 · Trent 12-23→01-04 · Kaylin 12-23) — that doubles as the Evan login test; if it fails, the banner now shows the real reason (login track). Then check /capacity drops on those dates (they're production people).
 
@@ -56,11 +56,11 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
-**✅ 2026-11-12: TASKS GET REAL TIME — BUILT, COMMITTED `4b2d284`, ⛔ NOT PUSHED — run migration `132_tasks_need_by.sql` on prod first (130/131 were taken by other sessions).** tsc + `next build` clean; `verify-task-dates` 72 (fake clock: a Next-week task reads Next week → This week Monday → Today Friday → Overdue Saturday; every drop lands in its group; the SQL backfill = the app's picks on all 7 weekdays). Replaces `verify-task-past-due` (retired clock).
+**✅ 2026-11-12: TASKS GET REAL TIME — LIVE (`4b2d284`; migration `132` ✅ on prod, backfill read back: 37/13/15/3).** tsc + `next build` clean; `verify-task-dates` 72 (fake clock: a Next-week task reads Next week → This week Monday → Today Friday → Overdue Saturday; every drop lands in its group; the SQL backfill = the app's picks on all 7 weekdays). Replaces `verify-task-past-due` (retired clock).
 - **Model (`lib/tasks.ts`):** `need_by` (local YYYY-MM-DD, null = Someday). `taskGroup()` computes Overdue · Today · This week · Next week · Later · Someday vs today (weeks Mon→Sun); `groupTasks()` is the one grouping, sorted need_by asc then manual order. `pastDueDays` = days past need_by (chip now says "Overdue · Nd"). The legacy `bucket` is still WRITTEN, derived, so its NOT NULL/CHECK stays valid — nothing reads it; retire in a later migration.
 - **Picks (`components/tasks/NeedByPicker`, shared by every create + the row editor):** Today · This week · Next week · In 2 weeks · Pick a date · Someday. ⚠️ Veto-able edge: "This week" = this Friday while it's AHEAD; on Fri/Sat it stamps Sunday (so it still reads This week, not Today); on Sunday it's today.
 - **Surfaces:** panel + /tasks group by the computed view; Overdue and Later only appear when non-empty; Overdue isn't a drop target; adding inside a /tasks column stamps that column's date; a row shows its date chip (except in Today). /pm "Today" = mine ∩ (due today + overdue), overdue first. Auto-tasks (sold/PTO/review reminders) default need_by = today.
-- **After 132 + push, Andrew's live check:** stale Today tasks from before now read Overdue (expected — they wore past-due chips) · make a task "Next week" and see the Fri date chip · drag Today → Later → chip reads In 2 weeks.
+- **Andrew's live check (132 on, pushed):** stale Today tasks from before now read Overdue (expected — they wore past-due chips) · make a task "Next week" and see the Fri date chip · drag Today → Later → chip reads In 2 weeks.
 **(spec, as scoped:)** **NEW 2026-11-12 (Cowork pass with Andrew): TASKS GET REAL TIME — need-by dates replace stored buckets. Migration (next number): `tasks.need_by` date NULL.**
 **⛔ This deliberately REVERSES the 093 'buckets never auto-roll' rule — Andrew's call** ("a next-week task is always next week, so it's never due"). Don't restore the old behavior later; this paragraph is the record of why.
 - **Creating/moving a task keeps the quick-pick feel, but every pick stamps a DATE:** Today (today) · This week (this Friday) · Next week (next Friday) · In 2 weeks (+14d) · Pick a date · Someday (null). The chips are shortcuts, not storage.
