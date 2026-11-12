@@ -24,6 +24,7 @@ export default function ProjectTaskButton({ projectId }: { projectId: string }) 
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [needBy, setNeedBy] = useState<string | null>(() => localISO())
+  const [critical, setCritical] = useState(false)
   const [assignees, setAssignees] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -54,10 +55,13 @@ export default function ProjectTaskButton({ projectId }: { projectId: string }) 
         orgId: user.org_id,
         title: t,
         needBy,
+        critical,
         projectId,
         assigneeIds: assignees,
         createdBy: user.id,
+        seenBy: ctx!.myAssigneeId ? [ctx!.myAssigneeId] : [],
       })
+      setCritical(false)
       await ctx!.refresh()
       setTitle('')
       setAssignees([])
@@ -110,7 +114,14 @@ export default function ProjectTaskButton({ projectId }: { projectId: string }) 
             className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
           />
           <div className="mt-2">
-            <NeedByPicker value={needBy} onChange={setNeedBy} />
+            <NeedByPicker
+              value={needBy}
+              critical={critical}
+              onChange={(d, c) => {
+                setNeedBy(d)
+                setCritical(c)
+              }}
+            />
           </div>
           {pickable.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap mt-2">

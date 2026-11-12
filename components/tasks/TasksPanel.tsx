@@ -86,6 +86,7 @@ export default function TasksPanel() {
   const [adding, setAdding] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newNeedBy, setNewNeedBy] = useState<string | null>(() => localISO())
+  const [newCritical, setNewCritical] = useState(false)
   const [newAssignees, setNewAssignees] = useState<string[]>([])
   /** Project chosen while typing the task. Seeded from `projectFilter` so a
    *  task started from a project's "Tasks · N" still lands on that project
@@ -205,12 +206,15 @@ export default function TasksPanel() {
         orgId: user.org_id,
         title,
         needBy: newNeedBy,
+        critical: newCritical,
         projectId: newProjectId || null,
         assigneeIds: newAssignees,
         createdBy: user.id,
+        seenBy: myAssigneeId ? [myAssigneeId] : [],
       })
       setNewTitle('')
       setNewNeedBy(localISO())
+      setNewCritical(false)
       setNewAssignees([])
       setNewProjectId(projectFilter ?? '')
       setAdding(false)
@@ -379,7 +383,14 @@ export default function TasksPanel() {
                 placeholder="What needs doing?"
                 className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
               />
-              <NeedByPicker value={newNeedBy} onChange={setNewNeedBy} />
+              <NeedByPicker
+                value={newNeedBy}
+                critical={newCritical}
+                onChange={(d, c) => {
+                  setNewNeedBy(d)
+                  setNewCritical(c)
+                }}
+              />
               {/* Project, AT CREATE TIME. Same gap as assignment had: it only
                   existed inside an expanded row, so linking a task to a job
                   meant adding it, saving, reopening it and picking. */}

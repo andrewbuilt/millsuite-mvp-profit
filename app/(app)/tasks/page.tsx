@@ -155,6 +155,7 @@ export default function TasksPage() {
         projectId: newProjectId || null,
         assigneeIds: newAssignees,
         createdBy: user.id,
+        seenBy: myAssigneeId ? [myAssigneeId] : [],
       })
       setNewTitle('')
       setNewAssignees([])

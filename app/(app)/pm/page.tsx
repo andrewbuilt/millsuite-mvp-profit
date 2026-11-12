@@ -65,7 +65,7 @@ import CompletedForYou from '@/components/tasks/CompletedForYou'
 import { MentionsStrip } from '@/components/project/MentionsStrip'
 import { fireDueReviewTasks } from '@/lib/employee-reviews'
 import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
-import { GROUP_LABEL, TASK_TAG_COLORS, createTask, localISO, taskGroup, type Task } from '@/lib/tasks'
+import { GROUP_LABEL, TASK_TAG_COLORS, comparePriority, createTask, localISO, taskGroup, type Task } from '@/lib/tasks'
 import {
   buildForecastView,
   currentMonth,
@@ -281,13 +281,14 @@ function TodayCard() {
     [myAssigneeId],
   )
 
-  // 132: "Today" on /pm = due today + OVERDUE (overdue first, oldest need_by
-  // first) — time moves tasks in here on their own now.
+  // 132/133: "Today" on /pm = Critical (any date) + due today + OVERDUE, in
+  // priority order — Critical on top, then oldest need_by first, so the top
+  // is what to do now and the bottom is farthest out (Andrew, 2026-11-12).
   const today = useMemo(() => {
     const d = localISO()
     return tasks
-      .filter((t) => mine(t) && ['overdue', 'today'].includes(taskGroup(t.need_by, d)))
-      .sort((a, b) => (a.need_by || '').localeCompare(b.need_by || '') || a.sort_order - b.sort_order)
+      .filter((t) => mine(t) && (t.critical || ['overdue', 'today'].includes(taskGroup(t.need_by, d))))
+      .sort(comparePriority)
   }, [tasks, mine])
   const weekCount = useMemo(() => {
     const d = localISO()
@@ -328,6 +329,7 @@ function TodayCard() {
         projectId: newProjectId || null,
         assigneeIds: newAssignees,
         createdBy: user.id,
+        seenBy: myAssigneeId ? [myAssigneeId] : [],
       })
       setAdding(false)
       setNewTitle('')

@@ -59,6 +59,11 @@ export const GROUP_LABEL: Record<TaskGroup, string> = {
 
 /** The quick picks when creating/moving — each stamps a date (or null). */
 export const TASK_PICKS = ['today', 'this_week', 'next_week', 'two_weeks', 'someday'] as const
+/** The chips the pickers OFFER (133, Andrew 2026-11-12): Critical · Today ·
+ *  This week · Next week · Pick a date. "In 2 weeks" and "Someday" were
+ *  dropped from the pickers; they stay in TASK_PICKS because a Later drop
+ *  still stamps +14 and old undated tasks still read Someday. */
+export const OFFERED_PICKS = ['today', 'this_week', 'next_week'] as const
 export type TaskPick = (typeof TASK_PICKS)[number]
 export const PICK_LABEL: Record<TaskPick, string> = {
   today: 'Today',
@@ -142,16 +147,28 @@ export function formatNeedBy(needBy: string | null | undefined): string {
   return parseISO(needBy).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-/** Open tasks into the computed groups, each sorted need_by ascending
- *  (Someday by manual order). Pure — every surface groups through this. */
-export function groupTasks<T extends Pick<Task, 'need_by' | 'sort_order'>>(
+/** Priority order (133): Critical first, then oldest need_by first (so
+ *  overdue → today → farther out reads top → bottom), undated last, then
+ *  manual order. Pure — every list sorts through this. */
+export function comparePriority(
+  a: Pick<Task, 'need_by' | 'sort_order' | 'critical'>,
+  b: Pick<Task, 'need_by' | 'sort_order' | 'critical'>,
+): number {
+  if (!!a.critical !== !!b.critical) return a.critical ? -1 : 1
+  const an = a.need_by || '9999-12-31'
+  const bn = b.need_by || '9999-12-31'
+  return an.localeCompare(bn) || a.sort_order - b.sort_order
+}
+
+/** Open tasks into the computed groups, each sorted by `comparePriority`.
+ *  Pure — every surface groups through this. */
+export function groupTasks<T extends Pick<Task, 'need_by' | 'sort_order' | 'critical'>>(
   tasks: T[],
   today = localISO(),
 ): Record<TaskGroup, T[]> {
   const out = Object.fromEntries(TASK_GROUPS.map((g) => [g, [] as T[]])) as unknown as Record<TaskGroup, T[]>
   for (const t of tasks) out[taskGroup(t.need_by, today)].push(t)
-  for (const g of TASK_GROUPS)
-    out[g].sort((a, b) => (a.need_by || '').localeCompare(b.need_by || '') || a.sort_order - b.sort_order)
+  for (const g of TASK_GROUPS) out[g].sort(comparePriority)
   return out
 }
 
@@ -236,6 +253,17 @@ export interface Task {
   /** Migration 114. The creator's "seen it" on a task someone else finished.
    *  Null + foreign completed_by = sits in the "Completed for you" strip. */
   acknowledged_at: string | null
+  /** Migration 133. Red nav badge + top of every list while open. */
+  critical: boolean
+  /** Migration 133. ROSTER ids (assignee_ids' id space) of assignees who've
+   *  opened the detail. Mine-and-not-in-here = the blue nav badge. */
+  seen_by: string[]
+}
+
+/** Assigned to me, open, and I haven't opened it yet (133). */
+export function isUnseenBy(task: Pick<Task, 'assignee_ids' | 'seen_by' | 'done_at'>, rosterId: string | null): boolean {
+  if (!rosterId || task.done_at) return false
+  return task.assignee_ids.includes(rosterId) && !task.seen_by.includes(rosterId)
 }
 
 export interface TaskComment {
@@ -286,8 +314,9 @@ const TASK_COLUMNS_BASE =
   'id, org_id, project_id, title, bucket, assignee_ids, done_at, created_by, sort_order, created_at, updated_at'
 const TASK_COLUMNS_098 = `${TASK_COLUMNS_BASE}, links, tags`
 const TASK_COLUMNS_112 = `${TASK_COLUMNS_098}, bucket_changed_at`
-// ⛔ 132's need_by rides the top rung — 132 must be on prod before deploy.
-const TASK_COLUMNS_114 = `${TASK_COLUMNS_112}, completed_by, acknowledged_at, need_by`
+// ⛔ 132's need_by and 133's critical/seen_by ride the top rung — both
+// migrations must be on prod before deploy.
+const TASK_COLUMNS_114 = `${TASK_COLUMNS_112}, completed_by, acknowledged_at, need_by, critical, seen_by`
 
 /** null = not probed yet, true = 098 present, false = pre-098. */
 let extras: boolean | null = null
@@ -437,6 +466,8 @@ function normalizeTask(r: any): Task {
     // Absent pre-114 — null keeps the task out of the close-the-loop strip.
     completed_by: r.completed_by ?? null,
     acknowledged_at: r.acknowledged_at ?? null,
+    critical: r.critical === true,
+    seen_by: Array.isArray(r.seen_by) ? r.seen_by.filter((x: unknown) => typeof x === 'string') : [],
   }
 }
 
@@ -711,6 +742,11 @@ export async function createTask(input: {
   assigneeIds?: string[]
   tags?: string[]
   createdBy?: string | null
+  /** 133. Critical stamps need_by today unless one is given. */
+  critical?: boolean
+  /** 133. ROSTER ids that have already "seen" it — the creator, when they
+   *  assign themselves, so their own new task doesn't light their badge. */
+  seenBy?: string[]
 }): Promise<Task> {
   const title = input.title.trim()
   if (!title) throw new Error('A task needs a title.')
@@ -722,6 +758,8 @@ export async function createTask(input: {
     project_id: input.projectId ?? null,
     assignee_ids: input.assigneeIds ?? [],
     created_by: input.createdBy ?? null,
+    critical: input.critical === true,
+    seen_by: (input.seenBy ?? []).filter((id) => (input.assigneeIds ?? []).includes(id)),
     // New rows sort to the top of their bucket — a task you just typed is
     // the one you're thinking about.
     sort_order: -Date.now(),
@@ -766,13 +804,13 @@ export async function updateTask(
   patch: Partial<
     Pick<
       Task,
-      'title' | 'need_by' | 'project_id' | 'assignee_ids' | 'sort_order' | 'done_at' | 'links' | 'tags'
+      'title' | 'need_by' | 'project_id' | 'assignee_ids' | 'sort_order' | 'done_at' | 'links' | 'tags' | 'critical'
     >
   >,
   orgId?: string,
 ): Promise<void> {
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  for (const k of ['title', 'need_by', 'project_id', 'assignee_ids', 'sort_order', 'done_at'] as const) {
+  for (const k of ['title', 'need_by', 'project_id', 'assignee_ids', 'sort_order', 'done_at', 'critical'] as const) {
     if (patch[k] !== undefined) update[k] = patch[k]
   }
   // The legacy NOT NULL column follows the date (never read).
@@ -794,6 +832,9 @@ export async function updateTask(
   const { data, error } = await attempt()
   if (error) {
     console.error('updateTask', error)
+    if (isUnknownColumn(error) && patch.critical !== undefined) {
+      throw new Error('Critical tasks need migration 133. Run it, then reload.')
+    }
     if (isUnknownColumn(error) && patch.need_by !== undefined) {
       throw new Error('Task dates need migration 132. Run it, then reload.')
     }
@@ -804,6 +845,32 @@ export async function updateTask(
     throw new Error(error.message || 'Could not save the task.')
   }
   if (!data || data.length === 0) throw new Error('Could not save the task.')
+}
+
+/**
+ * "I opened it" (133): add my ROSTER id to seen_by. Re-reads the row first so
+ * a teammate's seen-stamp landing at the same moment isn't overwritten.
+ * Best-effort — a failure just leaves the badge lit; it never throws at the
+ * person who only wanted to read a task.
+ */
+export async function markTaskSeen(taskId: string, rosterId: string, orgId?: string): Promise<boolean> {
+  let read = supabase.from('tasks').select('seen_by').eq('id', taskId)
+  if (orgId) read = read.eq('org_id', orgId)
+  const { data: row, error: readErr } = await read.maybeSingle()
+  if (readErr || !row) {
+    if (readErr) console.warn('markTaskSeen read', readErr)
+    return false
+  }
+  const cur: string[] = Array.isArray((row as any).seen_by) ? (row as any).seen_by : []
+  if (cur.includes(rosterId)) return true
+  let q = supabase.from('tasks').update({ seen_by: [...cur, rosterId] }).eq('id', taskId)
+  if (orgId) q = q.eq('org_id', orgId)
+  const { data, error } = await q.select('id')
+  if (error || !data || data.length === 0) {
+    console.warn('markTaskSeen', error)
+    return false
+  }
+  return true
 }
 
 /**

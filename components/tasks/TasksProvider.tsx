@@ -29,6 +29,8 @@ import { loadArchivedProjectIds } from '@/lib/project-archive'
 import {
   closeOutTask,
   extrasReady,
+  isUnseenBy,
+  markTaskSeen,
   listArchivedTasks,
   listAssignees,
   listCompletedForMe,
@@ -70,6 +72,15 @@ interface TasksContextValue {
   /** MY open tasks — the nav badge. See the note where it's computed: this is
    *  deliberately not the org-wide count. */
   openCount: number
+  /** 133 — the nav badge. MY open tasks I haven't opened yet (plus
+   *  completions waiting on my close-out, which are also "not seen"). */
+  unseenCount: number
+  /** 133 — MY open Critical tasks. Any > 0 lights the red badge. */
+  criticalCount: number
+  /** Stamp "I opened this" — called when a task's detail opens. No-op when
+   *  it isn't mine or is already seen. Updates locally first so the badge
+   *  drops the instant the modal opens. */
+  markSeen: (task: Task) => void
   /** The signed-in user's ROSTER id (`orgs.team_members[].id`), or null if
    *  their login isn't linked to a roster row. Computed once here because the
    *  badge, the panel and /tasks all need it and three copies would drift. */
@@ -355,6 +366,29 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     return open.filter((t) => t.assignee_ids.includes(myAssigneeId)).length
   }, [tasks, myAssigneeId])
 
+  const unseenCount = useMemo(
+    () => tasks.filter((t) => isUnseenBy(t, myAssigneeId)).length + completedForMe.length,
+    [tasks, myAssigneeId, completedForMe.length],
+  )
+
+  const criticalCount = useMemo(
+    () =>
+      myAssigneeId
+        ? tasks.filter((t) => !t.done_at && t.critical && t.assignee_ids.includes(myAssigneeId)).length
+        : 0,
+    [tasks, myAssigneeId],
+  )
+
+  const markSeen = useCallback(
+    (task: Task) => {
+      if (!myAssigneeId || !orgId || !isUnseenBy(task, myAssigneeId)) return
+      const me = myAssigneeId
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, seen_by: [...t.seen_by, me] } : t)))
+      void markTaskSeen(task.id, me, orgId)
+    },
+    [myAssigneeId, orgId],
+  )
+
   const openPanel = useCallback((opts?: { projectId?: string | null }) => {
     if (opts && 'projectId' in opts) setProjectFilter(opts.projectId ?? null)
     setPanelOpen(true)
@@ -374,6 +408,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       refresh,
       openCountByProject,
       openCount,
+      unseenCount,
+      criticalCount,
+      markSeen,
       myAssigneeId,
       nameByUserId,
       archive,
@@ -404,6 +441,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       refresh,
       openCountByProject,
       openCount,
+      unseenCount,
+      criticalCount,
+      markSeen,
       myAssigneeId,
       nameByUserId,
       archive,
