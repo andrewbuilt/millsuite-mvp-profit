@@ -52,6 +52,14 @@
 
 ## ⛔ CURRENT FOCUS — read this first (updated 2026-10-22)
 
+**⛔ 2026-11-12 (Andrew): PTO APPROVE IS BROKEN FOR EVERYONE — INCLUDING THE OWNER. The login theory is DEAD for this bug; fix this first.** Andrew himself gets "Could not approve that request." on /team (screenshot, 9 pending). New evidence narrows it:
+- That text is the UI's GENERIC fallback (`team/page.tsx` ~240 shows `e.message` only for Error instances) → the thrown value was NOT an Error → the one raw `throw error` in the path is **the `capacity_overrides` INSERT** in `approvePtoRequest` (PostgREST errors are plain objects). The clear-overrides delete and the zero-row update both throw worded Errors — they'd have shown their text.
+- **Step 0 (do first, 5 minutes): stop swallowing the message.** Normalize non-Error throws so the real PostgREST message/code reaches the banner — this bug stayed hidden for weeks behind the fallback.
+- **Then reproduce as the owner on prod data and read the real error.** Suspects, in order: a NOT NULL/constraint violation on the insert (`hours_reduction` null — the member object's shape changed in the lifecycle/dept-split refactors; `memberDailyHours(member, orgHrsPerWeek)` may get a roster row it no longer understands) · a `capacity_overrides` policy/column change from a recent migration · the reason field. The LIST renders and deletes elsewhere work, so 045's org policy almost certainly passes — it's the row content.
+- Fix the root, then **approve the real backlog live: all 9 pending requests** (Kaylin, Austin, Trent, Elijah, Matt, Kaleigh) and confirm /capacity drops for each. Then re-test Kaylin and Evan specifically — if they STILL fail after the org-wide fix, the login work resumes; don't conflate the two again.
+- The duplicate-login root fix + diagnostic sweep stays scoped and valuable — it's just not THIS bug.
+
+
 **⛔ NEW 2026-11-06: DUPLICATE-LOGIN ROOT FIX — this is the THIRD person (Andrew 09-12, Kaylin 10-16, Evan now, each burned differently: 'Mine' meant everyone / dead approve button / locked out of /engineering). The 10-16 note said fix the root before a third cleanup — that bill is due.**
 - **Evan's immediate fix is OPERATIONAL, Andrew is doing it:** /team → Evan's row → Change login → his manager account (create one if none), disable the duplicate worker login, fresh sign-in, approve a PTO request. No code.
 - **Root fix (code):** find and close every path that can create a SECOND `users` row / auth account for a person who already has one — suspects: worker-login creation on /team for an email that already has an account, the /join seat flow, and any signup path that doesn't check existing auth emails. The create paths REFUSE with a pointer to "Link existing" instead of silently minting a duplicate.
