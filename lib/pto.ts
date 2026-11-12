@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { errorText } from './error-text'
 import { memberDailyHours, type TeamMember } from './shop-rate-setup'
 import { fireAutoTask, formatDateRange } from './auto-tasks'
 import { listAssignees } from './tasks'
@@ -167,13 +168,13 @@ export async function loadOrCreateDefaultPolicy(orgId: string): Promise<PtoPolic
     .insert({ org_id: orgId, name: 'Standard', is_default: true, rules: defaultBands() })
     .select('*')
     .single()
-  if (error) throw error
+  if (error) throw new Error(`Could not create the PTO policy: ${errorText(error)}`)
   return created as PtoPolicy
 }
 
 export async function savePolicyRules(policyId: string, rules: PtoBand[]): Promise<void> {
   const { error } = await supabase.from('pto_policies').update({ rules }).eq('id', policyId)
-  if (error) throw error
+  if (error) throw new Error(`Could not save the PTO bands: ${errorText(error)}`)
 }
 
 export async function createPtoRequest(args: {
@@ -193,7 +194,7 @@ export async function createPtoRequest(args: {
     status: 'pending',
     notes: args.notes ?? null,
   })
-  if (error) throw error
+  if (error) throw new Error(`Could not send the request: ${errorText(error)}`)
 
   // Auto-task (October batch item 2): the PTO coordinator gets a Today task.
   // Best-effort and not awaited by the requester's success — fireAutoTask
@@ -223,7 +224,7 @@ async function clearOverridesFor(req: PtoRequest): Promise<void> {
     .eq('team_member_id', req.team_member_id)
     .in('override_date', days)
   if (error) {
-    throw new Error(`Could not clear the old time-off days: ${error.message}`)
+    throw new Error(`Could not clear the old time-off days: ${errorText(error)}`)
   }
 }
 
@@ -249,7 +250,9 @@ export async function approvePtoRequest(
       is_full_day: true,
     }))
     const { error } = await supabase.from('capacity_overrides').insert(rows)
-    if (error) throw error
+    // Worded, with the database's own reason + code (2026-11-12: this was a
+    // raw throw, so the banner only ever said "Could not approve").
+    if (error) throw new Error(`Could not write the time-off days to capacity: ${errorText(error)}`)
   }
   // ⛔ `.select()` IS THE WHOLE POINT. A zero-row UPDATE returns
   // `{ error: null }`, so an RLS refusal is indistinguishable from success —
@@ -260,7 +263,7 @@ export async function approvePtoRequest(
     .update({ status: 'approved', approved_by: approvedByUserId, approved_at: new Date().toISOString() })
     .eq('id', req.id)
     .select('id')
-  if (updErr) throw updErr
+  if (updErr) throw new Error(`Could not mark the request approved: ${errorText(updErr)}`)
   if (!updated || updated.length === 0) {
     throw new Error(
       'The request was not updated — the database refused the write. ' +
@@ -278,7 +281,7 @@ export async function denyPtoRequest(req: PtoRequest, approvedByUserId: string):
     .update({ status: 'denied', approved_by: approvedByUserId, approved_at: new Date().toISOString() })
     .eq('id', req.id)
     .select('id')
-  if (error) throw error
+  if (error) throw new Error(`Could not mark the request denied: ${errorText(error)}`)
   if (!data || data.length === 0) {
     throw new Error('The request was not updated — the database refused the write.')
   }
@@ -291,7 +294,7 @@ export async function deletePtoRequest(req: PtoRequest): Promise<void> {
     .delete()
     .eq('id', req.id)
     .select('id')
-  if (error) throw error
+  if (error) throw new Error(`Could not delete the request: ${errorText(error)}`)
   if (!data || data.length === 0) {
     throw new Error('The request was not deleted — the database refused the write.')
   }

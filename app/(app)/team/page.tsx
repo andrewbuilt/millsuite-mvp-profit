@@ -27,6 +27,7 @@ import ReviewsAndNotes from '@/components/team/ReviewsAndNotes'
 import UpcomingReviews from '@/components/team/UpcomingReviews'
 import LifecycleControls from '@/components/team/LifecycleControls'
 import { isActiveMember } from '@/lib/team-lifecycle'
+import { errorText } from '@/lib/error-text'
 import { fireDueReviewTasks } from '@/lib/employee-reviews'
 import { useAutosave } from '@/hooks/use-autosave'
 import { awaitPendingOrgWrites } from '@/lib/org-write'
@@ -254,7 +255,7 @@ function TeamContent() {
       await reloadPto()
     } catch (e) {
       console.error('approve PTO', e)
-      setPtoError(e instanceof Error ? e.message : 'Could not approve that request.')
+      setPtoError(errorText(e, 'Could not approve that request.'))
     } finally {
       setPtoBusy(null)
     }
@@ -272,7 +273,7 @@ function TeamContent() {
       await reloadPto()
     } catch (e) {
       console.error('deny PTO', e)
-      setPtoError(e instanceof Error ? e.message : 'Could not deny that request.')
+      setPtoError(errorText(e, 'Could not deny that request.'))
     } finally {
       setPtoBusy(null)
     }
@@ -1811,7 +1812,7 @@ function RequestMyTimeOff({
       setOpen(false)
       await onRequested()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not submit')
+      setErr(errorText(e, 'Could not submit'))
     } finally {
       setBusy(false)
     }
