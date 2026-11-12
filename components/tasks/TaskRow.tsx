@@ -22,7 +22,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, CalendarDays, Check, ExternalLink, GripVertical, Link2, Plus, Trash2, X } from 'lucide-react'
+import { AlertTriangle, AlignLeft, CalendarDays, Check, ExternalLink, GripVertical, Link2, Plus, Trash2, X } from 'lucide-react'
 import {
   addComment,
   deleteTask,
@@ -124,6 +124,16 @@ export function TaskRow({
   isDragging: boolean
 }) {
   const [title, setTitle] = useState(task.title)
+  const [description, setDescription] = useState(task.description ?? '')
+  useEffect(() => setDescription(task.description ?? ''), [task.description])
+  const descRef = useRef<HTMLTextAreaElement>(null)
+  // Autogrow, same as the title.
+  useLayoutEffect(() => {
+    const el = descRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.max(el.scrollHeight, 72)}px`
+  }, [description, expanded])
   const ctx = useTasksOptional()
   const myAssigneeId = ctx?.myAssigneeId ?? null
   const markSeen = ctx?.markSeen
@@ -366,6 +376,11 @@ export function TaskRow({
             {task.tags.map((t) => (
               <TaskTagChip key={t} name={t} registry={taskTags} size="xs" />
             ))}
+            {task.description && (
+              <span className="inline-flex text-[#9CA3AF]" title="Has a description">
+                <AlignLeft className="w-3 h-3" />
+              </span>
+            )}
             {task.links.length > 0 && (
               <span
                 className="inline-flex items-center gap-0.5 text-[10px] text-[#9CA3AF]"
@@ -408,7 +423,6 @@ export function TaskRow({
               aria-label={task.title}
               className="relative w-full sm:max-w-[680px] h-full sm:h-auto sm:max-h-[88vh] bg-white sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
             >
-              {task.critical && <div className="h-1 bg-[#DC2626] flex-shrink-0" />}
 
               {/* Header — complete, title, close */}
               <div className="flex items-start gap-3 px-5 sm:px-6 pt-5 pb-3 flex-shrink-0">
@@ -481,6 +495,23 @@ export function TaskRow({
 
               {/* Body */}
               <div className="flex-1 overflow-y-auto px-5 sm:px-6 pb-5 space-y-5 border-t border-[#F3F4F6] pt-4">
+                {/* Description (134) — free text, saved on blur. */}
+                <div>
+                  <div className={`${sectionLabel} mb-1.5`}>Description</div>
+                  <textarea
+                    ref={descRef}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    onBlur={() => {
+                      if ((description.trim() || null) !== (task.description?.trim() || null)) {
+                        void onRun(() => updateTask(task.id, { description }, orgId))
+                      }
+                    }}
+                    placeholder="Add details, specs, who to call…"
+                    className="w-full px-3 py-2 text-[13.5px] leading-relaxed text-[#111] border border-[#E5E7EB] rounded-lg resize-none overflow-hidden whitespace-pre-wrap [overflow-wrap:anywhere] placeholder:text-[#9CA3AF] focus:outline-none focus:border-[#2563EB]"
+                  />
+                </div>
+
                 <div className="grid sm:grid-cols-[110px_1fr] gap-x-4 gap-y-4 items-start">
                   <span className={`${sectionLabel} sm:pt-1.5`}>Needed by</span>
                   <NeedByPicker

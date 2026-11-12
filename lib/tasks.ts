@@ -258,6 +258,8 @@ export interface Task {
   /** Migration 133. ROSTER ids (assignee_ids' id space) of assignees who've
    *  opened the detail. Mine-and-not-in-here = the blue nav badge. */
   seen_by: string[]
+  /** Migration 134. Free-text detail; null = none. */
+  description: string | null
 }
 
 /** Assigned to me, open, and I haven't opened it yet (133). */
@@ -314,9 +316,9 @@ const TASK_COLUMNS_BASE =
   'id, org_id, project_id, title, bucket, assignee_ids, done_at, created_by, sort_order, created_at, updated_at'
 const TASK_COLUMNS_098 = `${TASK_COLUMNS_BASE}, links, tags`
 const TASK_COLUMNS_112 = `${TASK_COLUMNS_098}, bucket_changed_at`
-// ⛔ 132's need_by and 133's critical/seen_by ride the top rung — both
-// migrations must be on prod before deploy.
-const TASK_COLUMNS_114 = `${TASK_COLUMNS_112}, completed_by, acknowledged_at, need_by, critical, seen_by`
+// ⛔ 132's need_by, 133's critical/seen_by and 134's description ride the
+// top rung — those migrations must be on prod before deploy.
+const TASK_COLUMNS_114 = `${TASK_COLUMNS_112}, completed_by, acknowledged_at, need_by, critical, seen_by, description`
 
 /** null = not probed yet, true = 098 present, false = pre-098. */
 let extras: boolean | null = null
@@ -468,6 +470,7 @@ function normalizeTask(r: any): Task {
     acknowledged_at: r.acknowledged_at ?? null,
     critical: r.critical === true,
     seen_by: Array.isArray(r.seen_by) ? r.seen_by.filter((x: unknown) => typeof x === 'string') : [],
+    description: typeof r.description === 'string' && r.description.trim() ? r.description : null,
   }
 }
 
@@ -804,7 +807,7 @@ export async function updateTask(
   patch: Partial<
     Pick<
       Task,
-      'title' | 'need_by' | 'project_id' | 'assignee_ids' | 'sort_order' | 'done_at' | 'links' | 'tags' | 'critical'
+      'title' | 'need_by' | 'project_id' | 'assignee_ids' | 'sort_order' | 'done_at' | 'links' | 'tags' | 'critical' | 'description'
     >
   >,
   orgId?: string,
@@ -815,6 +818,7 @@ export async function updateTask(
   }
   // The legacy NOT NULL column follows the date (never read).
   if (patch.need_by !== undefined) update.bucket = legacyBucketFor(patch.need_by)
+  if (patch.description !== undefined) update.description = patch.description?.trim() ? patch.description.trim() : null
   if (patch.links !== undefined) update.links = normalizeLinks(patch.links)
   if (patch.tags !== undefined) update.tags = normalizeTags(patch.tags)
   if (typeof update.title === 'string') {
@@ -832,6 +836,9 @@ export async function updateTask(
   const { data, error } = await attempt()
   if (error) {
     console.error('updateTask', error)
+    if (isUnknownColumn(error) && patch.description !== undefined) {
+      throw new Error('Task descriptions need migration 134. Run it, then reload.')
+    }
     if (isUnknownColumn(error) && patch.critical !== undefined) {
       throw new Error('Critical tasks need migration 133. Run it, then reload.')
     }

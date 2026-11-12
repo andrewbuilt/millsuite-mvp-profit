@@ -42,7 +42,7 @@ ok(/t\.critical \|\| \['overdue', 'today'\]/.test(pm) && /\.sort\(comparePriorit
 for (const f of ['components/tasks/TasksPanel.tsx', 'components/tasks/ProjectTaskButton.tsx', 'app/(app)/tasks/page.tsx', 'app/(app)/pm/page.tsx'])
   ok(/seenBy: /.test(read(f)), `${f}: creator's own new task starts seen`)
 const lib = read('lib/tasks.ts')
-ok(/need_by, critical, seen_by`/.test(lib), 'critical + seen_by ride the top column rung')
+ok(/need_by, critical, seen_by(, description)?`/.test(lib), 'critical + seen_by ride the top column rung')
 const mig = read('db/migrations/133_tasks_critical_seen.sql')
 ok(/ADD COLUMN critical boolean NOT NULL DEFAULT false/.test(mig) && /ADD COLUMN seen_by jsonb/.test(mig), '133 adds both columns')
 ok(/UPDATE public\.tasks SET seen_by = COALESCE\(assignee_ids/.test(mig), '133 backfills existing tasks as seen (no badge flood)')
