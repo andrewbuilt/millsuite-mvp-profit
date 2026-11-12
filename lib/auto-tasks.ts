@@ -72,7 +72,7 @@ export async function fireAutoTask(
     await createTask({
       orgId,
       title: task.title,
-      bucket: 'today',
+      // need_by defaults to today (132).
       projectId: task.projectId ?? null,
       assigneeIds: [assignee],
       // No creator: an automation has no one to "close the loop" back to,

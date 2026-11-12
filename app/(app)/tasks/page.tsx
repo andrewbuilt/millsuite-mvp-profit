@@ -24,14 +24,17 @@ import { TaskTagChip } from '@/components/tasks/TaskTagChip'
 import { TagManager } from '@/components/tasks/TagManager'
 import { matchesTagFilter } from '@/components/tasks/use-tag-filter'
 import {
-  BUCKET_LABEL,
-  TASK_BUCKETS,
+  GROUP_LABEL,
+  TASK_GROUPS,
   TASK_TAG_COLORS,
+  groupDropDate,
+  groupTasks,
+  localISO,
   createTask,
   setTaskDone,
   updateTask,
   type Task,
-  type TaskBucket,
+  type TaskGroup,
 } from '@/lib/tasks'
 import { Plus, Settings2 } from 'lucide-react'
 
@@ -63,7 +66,7 @@ export default function TasksPage() {
   // the login has no roster row — see the panel's `visible` for why.
   const [filter, setFilter] = useState<string>('mine')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [addingIn, setAddingIn] = useState<TaskBucket | null>(null)
+  const [addingIn, setAddingIn] = useState<TaskGroup | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [newAssignees, setNewAssignees] = useState<string[]>([])
   /** Project chosen while typing. Same gap the drawer had: linking a task to a
@@ -72,7 +75,7 @@ export default function TasksPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
-  const [dragOver, setDragOver] = useState<TaskBucket | null>(null)
+  const [dragOver, setDragOver] = useState<TaskGroup | null>(null)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [managingTags, setManagingTags] = useState(false)
   const tagGearRef = useRef<HTMLButtonElement>(null)
@@ -122,17 +125,10 @@ export default function TasksPage() {
     [taskTags, saveTags],
   )
 
-  const byBucket = useMemo(() => {
-    const out: Record<TaskBucket, Task[]> = {
-      today: [],
-      this_week: [],
-      next_week: [],
-      someday: [],
-    }
-    // `tasks` holds only open rows now — completed work lives in the archive.
-    for (const t of visible) out[t.bucket].push(t)
-    return out
-  }, [visible])
+  // Computed from need_by vs today (132) — time moves, the task doesn't.
+  const byBucket = useMemo(() => groupTasks(visible, localISO()), [visible])
+  // Overdue and Later only take a column when they hold something.
+  const shownGroups = TASK_GROUPS.filter((g) => (g !== 'overdue' && g !== 'later') || byBucket[g].length > 0)
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true)
@@ -147,14 +143,15 @@ export default function TasksPage() {
     }
   }
 
-  async function handleCreate(bucket: TaskBucket) {
+  // Adding in a column stamps that column's date.
+  async function handleCreate(bucket: Exclude<TaskGroup, 'overdue'>) {
     const title = newTitle.trim()
     if (!title || !user) return
     await run(async () => {
       await createTask({
         orgId: user.org_id,
         title,
-        bucket,
+        needBy: groupDropDate(bucket),
         projectId: newProjectId || null,
         assigneeIds: newAssignees,
         createdBy: user.id,
@@ -166,14 +163,15 @@ export default function TasksPage() {
     })
   }
 
-  async function handleDropInto(bucket: TaskBucket) {
+  /** Drop = restamp to the column's date (Overdue isn't a target). */
+  async function handleDropInto(bucket: TaskGroup) {
     const id = dragId
     setDragId(null)
     setDragOver(null)
-    if (!id) return
+    if (!id || bucket === 'overdue') return
     const t = tasks.find((x) => x.id === id)
-    if (!t || t.bucket === bucket) return
-    await run(() => updateTask(id, { bucket, sort_order: -Date.now() }, user?.org_id))
+    if (!t || byBucket[bucket].some((x) => x.id === id)) return
+    await run(() => updateTask(id, { need_by: groupDropDate(bucket), sort_order: -Date.now() }, user?.org_id))
   }
 
   if (!enabled) {
@@ -277,11 +275,12 @@ export default function TasksPage() {
           {loading ? (
             <div className="text-sm text-[#9CA3AF] py-16 text-center">Loading tasks…</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
-              {TASK_BUCKETS.map((b) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-4 items-start">
+              {shownGroups.map((b) => (
                 <section
                   key={b}
                   onDragOver={(e) => {
+                    if (b === 'overdue') return
                     e.preventDefault()
                     setDragOver(b)
                   }}
@@ -292,8 +291,12 @@ export default function TasksPage() {
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2 px-0.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#6B7280]">
-                      {BUCKET_LABEL[b]}
+                    <span
+                      className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                        b === 'overdue' ? 'text-[#B91C1C]' : 'text-[#6B7280]'
+                      }`}
+                    >
+                      {GROUP_LABEL[b]}
                     </span>
                     <span className="text-[10px] text-[#9CA3AF]">{byBucket[b].length}</span>
                   </div>
@@ -327,7 +330,7 @@ export default function TasksPage() {
                     />
                   ))}
 
-                  {addingIn === b ? (
+                  {b === 'overdue' ? null : addingIn === b ? (
                     <div className="mt-2 border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-2 space-y-2">
                       <TitleTextarea
                         autoFocus

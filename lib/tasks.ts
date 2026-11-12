@@ -4,10 +4,16 @@
 // Replaces the "BUILT Master Action List" sheet. Read the migration header for
 // why the shape is what it is; the short version:
 //
-//   · Buckets are a CURATED list, not a calendar. Nothing in here ages a task
-//     automatically — a stale Today item stays in Today until someone moves
-//     it. That daily pass is the process, and quietly rolling items would take
-//     it away from them.
+//   · ⛔ TASKS HAVE REAL TIME NOW (2026-11-12, migration 132 — Andrew's call,
+//     DELIBERATELY REVERSING 093's "buckets never auto-roll": "a next-week
+//     task is always next week, so it's never due"). Every task carries a
+//     `need_by` date (null = Someday). The groups — Overdue · Today · This
+//     week · Next week · Later · Someday — are COMPUTED from need_by vs today
+//     (`taskGroup`), so a task stamped next Friday walks into This week, then
+//     Today, then Overdue on its own. The quick-pick chips are shortcuts that
+//     stamp a date (`needByForPick`), not storage. Don't restore buckets.
+//   · The legacy `bucket` column is still WRITTEN (derived, `legacyBucketFor`)
+//     so the NOT NULL column stays valid; nothing reads it.
 //   · One shared list. Any manager/owner edits anything, same as the sheet.
 //   · Tasks may have no project (the sheet's plain TASK rows).
 //
@@ -31,14 +37,130 @@
 import { supabase } from './supabase'
 import { updateOrgChecked } from './org-write'
 
-export const TASK_BUCKETS = ['today', 'this_week', 'next_week', 'someday'] as const
-export type TaskBucket = (typeof TASK_BUCKETS)[number]
+/** The retired stored bucket — written (derived) for the NOT NULL column,
+ *  never read. */
+type LegacyBucket = 'today' | 'this_week' | 'next_week' | 'someday'
 
-export const BUCKET_LABEL: Record<TaskBucket, string> = {
+// ── Real time (migration 132) ──────────────────────────────────────────────
+// All dates are LOCAL calendar days as YYYY-MM-DD — the shop's day, not
+// UTC's. Weeks run Monday → Sunday.
+
+/** The computed groups, in display order. */
+export const TASK_GROUPS = ['overdue', 'today', 'this_week', 'next_week', 'later', 'someday'] as const
+export type TaskGroup = (typeof TASK_GROUPS)[number]
+export const GROUP_LABEL: Record<TaskGroup, string> = {
+  overdue: 'Overdue',
   today: 'Today',
   this_week: 'This week',
   next_week: 'Next week',
+  later: 'Later',
   someday: 'Someday',
+}
+
+/** The quick picks when creating/moving — each stamps a date (or null). */
+export const TASK_PICKS = ['today', 'this_week', 'next_week', 'two_weeks', 'someday'] as const
+export type TaskPick = (typeof TASK_PICKS)[number]
+export const PICK_LABEL: Record<TaskPick, string> = {
+  today: 'Today',
+  this_week: 'This week',
+  next_week: 'Next week',
+  two_weeks: 'In 2 weeks',
+  someday: 'Someday',
+}
+
+export function localISO(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function parseISO(iso: string): Date {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+export function addDaysISO(iso: string, n: number): string {
+  const d = parseISO(iso)
+  return localISO(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n))
+}
+
+/** Monday of the week containing `iso`. */
+function mondayOfISO(iso: string): string {
+  const dow = parseISO(iso).getDay() // 0 Sun … 6 Sat
+  return addDaysISO(iso, dow === 0 ? -6 : 1 - dow)
+}
+
+/** The date a quick pick stamps. Pure.
+ *  This week = this Friday while it's still AHEAD; on Friday/Saturday =
+ *  this Sunday, so it still reads This week (not Today). On Sunday the week
+ *  has no later day — it's today. Next week = next Friday. In 2 weeks = +14d. */
+export function needByForPick(pick: TaskPick, today = localISO()): string | null {
+  const mon = mondayOfISO(today)
+  switch (pick) {
+    case 'today':
+      return today
+    case 'this_week': {
+      const fri = addDaysISO(mon, 4)
+      if (fri > today) return fri
+      const sun = addDaysISO(mon, 6)
+      return sun > today ? sun : today
+    }
+    case 'next_week':
+      return addDaysISO(mon, 11)
+    case 'two_weeks':
+      return addDaysISO(today, 14)
+    case 'someday':
+      return null
+  }
+}
+
+/** Which group a need_by date reads as, today. Pure. */
+export function taskGroup(needBy: string | null | undefined, today = localISO()): TaskGroup {
+  if (!needBy) return 'someday'
+  const d = needBy.slice(0, 10)
+  if (d < today) return 'overdue'
+  if (d === today) return 'today'
+  const mon = mondayOfISO(today)
+  if (d <= addDaysISO(mon, 6)) return 'this_week'
+  if (d <= addDaysISO(mon, 13)) return 'next_week'
+  return 'later'
+}
+
+/** The date a drop onto a group stamps (Overdue isn't a drop target). Pure. */
+export function groupDropDate(group: Exclude<TaskGroup, 'overdue'>, today = localISO()): string | null {
+  if (group === 'later') return needByForPick('two_weeks', today)
+  return needByForPick(group, today)
+}
+
+/** Which pick (if any) a date matches — lights the right chip. Pure. */
+export function pickForNeedBy(needBy: string | null | undefined, today = localISO()): TaskPick | null {
+  for (const p of TASK_PICKS) if ((needByForPick(p, today) ?? null) === (needBy ? needBy.slice(0, 10) : null)) return p
+  return null
+}
+
+/** "Fri Nov 14" — the need-by chip. */
+export function formatNeedBy(needBy: string | null | undefined): string {
+  if (!needBy) return 'Someday'
+  return parseISO(needBy).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+/** Open tasks into the computed groups, each sorted need_by ascending
+ *  (Someday by manual order). Pure — every surface groups through this. */
+export function groupTasks<T extends Pick<Task, 'need_by' | 'sort_order'>>(
+  tasks: T[],
+  today = localISO(),
+): Record<TaskGroup, T[]> {
+  const out = Object.fromEntries(TASK_GROUPS.map((g) => [g, [] as T[]])) as unknown as Record<TaskGroup, T[]>
+  for (const t of tasks) out[taskGroup(t.need_by, today)].push(t)
+  for (const g of TASK_GROUPS)
+    out[g].sort((a, b) => (a.need_by || '').localeCompare(b.need_by || '') || a.sort_order - b.sort_order)
+  return out
+}
+
+/** The NOT NULL legacy column, derived. */
+function legacyBucketFor(needBy: string | null, today = localISO()): LegacyBucket {
+  const g = taskGroup(needBy, today)
+  if (g === 'overdue' || g === 'today') return 'today'
+  if (g === 'later') return 'next_week'
+  return g
 }
 
 /**
@@ -64,30 +186,15 @@ export function formatDoneAt(iso: string | null, now = new Date()): string {
 }
 
 /**
- * How many calendar days a not-done TODAY task has sat since it entered the
- * bucket — 0 means "no chip".
- *
- * "Past due" can't mean a missed date, because buckets have no dates (the 093
- * design: a curated list, nothing auto-rolls). It means the daily pass hasn't
- * touched this row: it entered Today on a PREVIOUS day and is still open. The
- * count is CALENDAR days in local time — entered yesterday = 1d even at
- * 12:01am, because "how many mornings has this survived" is the question, not
- * elapsed hours. Math.round, not floor: a DST day is 23 or 25 hours and floor
- * would miscount it.
- *
- * A null stamp (pre-112, or a hand-inserted row) → 0. A guessed chip is worse
- * than none. Completed tasks are 0 by the done_at guard.
+ * Calendar days past need_by — 0 means "no chip". One truth (132): overdue =
+ * need_by < today. Retires the 112 bucket_changed_at clock. Math.round, not
+ * floor: a DST day is 23 or 25 hours.
  */
-export function pastDueDays(
-  task: Pick<Task, 'bucket' | 'done_at' | 'bucket_changed_at'>,
-  now = new Date(),
-): number {
-  if (task.bucket !== 'today' || task.done_at || !task.bucket_changed_at) return 0
-  const then = new Date(task.bucket_changed_at)
-  if (Number.isNaN(then.getTime())) return 0
-  const dayStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-  const days = Math.round((dayStart(now) - dayStart(then)) / 86400000)
-  return days > 0 ? days : 0
+export function pastDueDays(task: Pick<Task, 'need_by' | 'done_at'>, today = localISO()): number {
+  if (task.done_at || !task.need_by) return 0
+  const d = task.need_by.slice(0, 10)
+  if (d >= today) return 0
+  return Math.round((parseISO(today).getTime() - parseISO(d).getTime()) / 86400000)
 }
 
 /** "September 2026" — the Archive's month group headings. */
@@ -111,7 +218,8 @@ export interface Task {
   org_id: string
   project_id: string | null
   title: string
-  bucket: TaskBucket
+  /** Migration 132. Local YYYY-MM-DD; null = Someday. Groups derive from it. */
+  need_by: string | null
   assignee_ids: string[]
   done_at: string | null
   created_by: string | null
@@ -122,9 +230,6 @@ export interface Task {
   links: TaskLink[]
   /** Migration 098. Tag NAMES, not ids — see the registry note below. */
   tags: string[]
-  /** Migration 112. When the task last changed bucket — drives the "Past due"
-   *  chip on stale Today tasks. Null = unknown (pre-112): no chip. */
-  bucket_changed_at: string | null
   /** Migration 114. LOGIN id (users.id — created_by's id space, NOT the
    *  roster's) of whoever completed it. Null pre-114 or pre-completion. */
   completed_by: string | null
@@ -181,7 +286,8 @@ const TASK_COLUMNS_BASE =
   'id, org_id, project_id, title, bucket, assignee_ids, done_at, created_by, sort_order, created_at, updated_at'
 const TASK_COLUMNS_098 = `${TASK_COLUMNS_BASE}, links, tags`
 const TASK_COLUMNS_112 = `${TASK_COLUMNS_098}, bucket_changed_at`
-const TASK_COLUMNS_114 = `${TASK_COLUMNS_112}, completed_by, acknowledged_at`
+// ⛔ 132's need_by rides the top rung — 132 must be on prod before deploy.
+const TASK_COLUMNS_114 = `${TASK_COLUMNS_112}, completed_by, acknowledged_at, need_by`
 
 /** null = not probed yet, true = 098 present, false = pre-098. */
 let extras: boolean | null = null
@@ -315,9 +421,7 @@ function normalizeTask(r: any): Task {
     org_id: r.org_id,
     project_id: r.project_id ?? null,
     title: r.title ?? '',
-    bucket: (TASK_BUCKETS as readonly string[]).includes(r.bucket)
-      ? (r.bucket as TaskBucket)
-      : 'today',
+    need_by: typeof r.need_by === 'string' && r.need_by ? r.need_by.slice(0, 10) : null,
     // jsonb comes back as a real array, but a hand-edited row could be
     // anything — coerce rather than trusting it.
     assignee_ids: Array.isArray(r.assignee_ids) ? r.assignee_ids.filter((x: unknown) => typeof x === 'string') : [],
@@ -330,8 +434,6 @@ function normalizeTask(r: any): Task {
     // exactly right and needs no special case anywhere downstream.
     links: normalizeLinks(r.links),
     tags: normalizeTags(r.tags),
-    // Absent pre-112 — null means "unknown", and pastDueDays shows no chip.
-    bucket_changed_at: r.bucket_changed_at ?? null,
     // Absent pre-114 — null keeps the task out of the close-the-loop strip.
     completed_by: r.completed_by ?? null,
     acknowledged_at: r.acknowledged_at ?? null,
@@ -603,7 +705,8 @@ export async function listComments(taskId: string): Promise<TaskComment[]> {
 export async function createTask(input: {
   orgId: string
   title: string
-  bucket?: TaskBucket
+  /** Local YYYY-MM-DD, null = Someday. Omitted → today. */
+  needBy?: string | null
   projectId?: string | null
   assigneeIds?: string[]
   tags?: string[]
@@ -614,7 +717,8 @@ export async function createTask(input: {
   const row: Record<string, unknown> = {
     org_id: input.orgId,
     title,
-    bucket: input.bucket ?? 'today',
+    need_by: input.needBy === undefined ? localISO() : input.needBy,
+    bucket: legacyBucketFor(input.needBy === undefined ? localISO() : input.needBy),
     project_id: input.projectId ?? null,
     assignee_ids: input.assigneeIds ?? [],
     created_by: input.createdBy ?? null,
@@ -662,15 +766,17 @@ export async function updateTask(
   patch: Partial<
     Pick<
       Task,
-      'title' | 'bucket' | 'project_id' | 'assignee_ids' | 'sort_order' | 'done_at' | 'links' | 'tags'
+      'title' | 'need_by' | 'project_id' | 'assignee_ids' | 'sort_order' | 'done_at' | 'links' | 'tags'
     >
   >,
   orgId?: string,
 ): Promise<void> {
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  for (const k of ['title', 'bucket', 'project_id', 'assignee_ids', 'sort_order', 'done_at'] as const) {
+  for (const k of ['title', 'need_by', 'project_id', 'assignee_ids', 'sort_order', 'done_at'] as const) {
     if (patch[k] !== undefined) update[k] = patch[k]
   }
+  // The legacy NOT NULL column follows the date (never read).
+  if (patch.need_by !== undefined) update.bucket = legacyBucketFor(patch.need_by)
   if (patch.links !== undefined) update.links = normalizeLinks(patch.links)
   if (patch.tags !== undefined) update.tags = normalizeTags(patch.tags)
   if (typeof update.title === 'string') {
@@ -678,28 +784,19 @@ export async function updateTask(
     if (!t) throw new Error('A task needs a title.')
     update.title = t
   }
-  // ⛔ THE PAST-DUE STAMP RIDES EVERY BUCKET WRITE, HERE, NOT AT THE CALL
-  // SITES. Drag on both surfaces and the row editor's bucket buttons all
-  // funnel through this function (verified 2026-09-18: nothing else writes
-  // tasks.bucket), so one line covers them all and a future quick-move can't
-  // forget it. Pre-112 the retry below strips it back out — the bucket still
-  // moves, only the past-due clock is unavailable.
-  if (patch.bucket !== undefined && stamped !== false) {
-    update.bucket_changed_at = new Date().toISOString()
-  }
+  // (The 112 bucket_changed_at past-due clock is retired — overdue is
+  // need_by < today now. The column stays; nothing writes or reads it.)
   const attempt = () => {
     let q = supabase.from('tasks').update(update).eq('id', taskId)
     if (orgId) q = q.eq('org_id', orgId)
     return q.select('id')
   }
-  let { data, error } = await attempt()
-  if (error && isUnknownColumn(error) && update.bucket_changed_at !== undefined) {
-    stamped = false
-    delete update.bucket_changed_at
-    ;({ data, error } = await attempt())
-  }
+  const { data, error } = await attempt()
   if (error) {
     console.error('updateTask', error)
+    if (isUnknownColumn(error) && patch.need_by !== undefined) {
+      throw new Error('Task dates need migration 132. Run it, then reload.')
+    }
     if (isUnknownColumn(error) && (patch.links !== undefined || patch.tags !== undefined)) {
       extras = false
       throw new Error('Links and tags need migration 098. Run it, then reload.')

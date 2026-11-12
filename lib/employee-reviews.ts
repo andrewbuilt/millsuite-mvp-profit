@@ -259,7 +259,7 @@ export async function fireDueReviewTasks(orgId: string): Promise<number> {
             : (r.scheduled_at as string) < today
               ? `Review overdue · ${who} · ${formatDateRange(r.scheduled_at as string)}`
               : `Review today · ${who}`,
-        bucket: 'today',
+        // need_by defaults to today (132).
         assigneeIds: [String(author.id)],
         createdBy: null,
       })

@@ -65,7 +65,7 @@ import CompletedForYou from '@/components/tasks/CompletedForYou'
 import { MentionsStrip } from '@/components/project/MentionsStrip'
 import { fireDueReviewTasks } from '@/lib/employee-reviews'
 import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
-import { BUCKET_LABEL, TASK_TAG_COLORS, createTask, type Task } from '@/lib/tasks'
+import { GROUP_LABEL, TASK_TAG_COLORS, createTask, localISO, taskGroup, type Task } from '@/lib/tasks'
 import {
   buildForecastView,
   currentMonth,
@@ -281,14 +281,18 @@ function TodayCard() {
     [myAssigneeId],
   )
 
-  const today = useMemo(
-    () => tasks.filter((t) => t.bucket === 'today' && mine(t)),
-    [tasks, mine],
-  )
-  const weekCount = useMemo(
-    () => tasks.filter((t) => t.bucket === 'this_week' && mine(t)).length,
-    [tasks, mine],
-  )
+  // 132: "Today" on /pm = due today + OVERDUE (overdue first, oldest need_by
+  // first) — time moves tasks in here on their own now.
+  const today = useMemo(() => {
+    const d = localISO()
+    return tasks
+      .filter((t) => mine(t) && ['overdue', 'today'].includes(taskGroup(t.need_by, d)))
+      .sort((a, b) => (a.need_by || '').localeCompare(b.need_by || '') || a.sort_order - b.sort_order)
+  }, [tasks, mine])
+  const weekCount = useMemo(() => {
+    const d = localISO()
+    return tasks.filter((t) => mine(t) && taskGroup(t.need_by, d) === 'this_week').length
+  }, [tasks, mine])
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true)
@@ -320,7 +324,7 @@ function TodayCard() {
       await createTask({
         orgId: user.org_id,
         title,
-        bucket: 'today',
+        needBy: localISO(),
         projectId: newProjectId || null,
         assigneeIds: newAssignees,
         createdBy: user.id,
@@ -352,7 +356,7 @@ function TodayCard() {
         <div className="flex items-center gap-2 min-w-0">
           <CheckCircle2 className="w-4 h-4 text-[#2563EB] flex-shrink-0" />
           <span className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">
-            {BUCKET_LABEL.today}
+            {GROUP_LABEL.today}
           </span>
           <span className="text-xs text-[#D1D5DB]">{today.length}</span>
           {showUnlinkedNotice && (
@@ -503,7 +507,7 @@ function TodayCard() {
 
       {today.length > 0 && weekCount > 0 && (
         <div className="px-4 sm:px-5 py-2.5 border-t border-[#F3F4F6] text-[11px] text-[#9CA3AF]">
-          {weekCount} more in {BUCKET_LABEL.this_week.toLowerCase()}.
+          {weekCount} more in {GROUP_LABEL.this_week.toLowerCase()}.
         </div>
       )}
     </section>

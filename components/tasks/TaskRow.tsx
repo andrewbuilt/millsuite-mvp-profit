@@ -23,12 +23,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ExternalLink, GripVertical, Link2, Plus, Trash2, X } from 'lucide-react'
 import {
-  BUCKET_LABEL,
-  TASK_BUCKETS,
   addComment,
   deleteTask,
   formatDoneAt,
+  formatNeedBy,
   listComments,
+  localISO,
+  taskGroup,
   pastDueDays,
   setTaskDone,
   updateTask,
@@ -38,6 +39,7 @@ import {
   type TaskTag,
 } from '@/lib/tasks'
 import { linkDisplayText, linkifyParts, normalizeLinkUrl } from '@/lib/task-links'
+import NeedByPicker from './NeedByPicker'
 import { pickableProjects, type TaskProjectRef } from './TasksProvider'
 import { TaskTagChip } from './TaskTagChip'
 
@@ -280,18 +282,21 @@ export function TaskRow({
             {task.title}
           </div>
           <div className="flex items-center gap-1.5 flex-wrap mt-1">
-            {pastDue > 0 && (
+            {/* Overdue = need_by < today; the count is days past it (132 —
+                one truth, the old bucket clock is retired). Otherwise the
+                date chip, except in the groups whose name already says it. */}
+            {pastDue > 0 ? (
               <span
-                title={
-                  task.bucket_changed_at
-                    ? `In Today since ${new Date(task.bucket_changed_at).toLocaleDateString()}`
-                    : undefined
-                }
+                title={`Needed by ${formatNeedBy(task.need_by)}`}
                 className="text-[10px] px-1.5 py-0.5 rounded bg-[#FEF2F2] text-[#B91C1C] font-medium whitespace-nowrap"
               >
-                Past due · {pastDue}d
+                Overdue · {pastDue}d
               </span>
-            )}
+            ) : task.need_by && !['today'].includes(taskGroup(task.need_by, localISO())) ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#4B5563] whitespace-nowrap">
+                {formatNeedBy(task.need_by)}
+              </span>
+            ) : null}
             {project ? (
               <Link
                 href={`/projects/${project.id}`}
@@ -372,20 +377,14 @@ export function TaskRow({
             </div>
           )}
 
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {TASK_BUCKETS.map((b) => (
-              <button
-                key={b}
-                onClick={() => void onRun(() => updateTask(task.id, { bucket: b }, orgId))}
-                className={`text-[11px] px-2 py-0.5 rounded-md border transition-colors ${
-                  task.bucket === b
-                    ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                    : 'bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]'
-                }`}
-              >
-                {BUCKET_LABEL[b]}
-              </button>
-            ))}
+          <div>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Needed by</span>
+            <div className="mt-0.5">
+              <NeedByPicker
+                value={task.need_by}
+                onChange={(d) => void onRun(() => updateTask(task.id, { need_by: d }, orgId))}
+              />
+            </div>
           </div>
 
           <label className="block">

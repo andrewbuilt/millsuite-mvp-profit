@@ -14,7 +14,8 @@ import { useEffect, useRef, useState } from 'react'
 import TitleTextarea from '@/components/tasks/TitleTextarea'
 import { ListChecks, Plus } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
-import { BUCKET_LABEL, TASK_BUCKETS, createTask, type TaskBucket } from '@/lib/tasks'
+import { createTask, localISO } from '@/lib/tasks'
+import NeedByPicker from './NeedByPicker'
 import { useTasksOptional } from './TasksProvider'
 
 export default function ProjectTaskButton({ projectId }: { projectId: string }) {
@@ -22,7 +23,7 @@ export default function ProjectTaskButton({ projectId }: { projectId: string }) 
   const ctx = useTasksOptional()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
-  const [bucket, setBucket] = useState<TaskBucket>('today')
+  const [needBy, setNeedBy] = useState<string | null>(() => localISO())
   const [assignees, setAssignees] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -52,7 +53,7 @@ export default function ProjectTaskButton({ projectId }: { projectId: string }) 
       await createTask({
         orgId: user.org_id,
         title: t,
-        bucket,
+        needBy,
         projectId,
         assigneeIds: assignees,
         createdBy: user.id,
@@ -108,20 +109,8 @@ export default function ProjectTaskButton({ projectId }: { projectId: string }) 
             placeholder="What needs doing?"
             className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
           />
-          <div className="flex items-center gap-1 flex-wrap mt-2">
-            {TASK_BUCKETS.map((b) => (
-              <button
-                key={b}
-                onClick={() => setBucket(b)}
-                className={`text-[11px] px-2 py-0.5 rounded-md border transition-colors ${
-                  bucket === b
-                    ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                    : 'bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]'
-                }`}
-              >
-                {BUCKET_LABEL[b]}
-              </button>
-            ))}
+          <div className="mt-2">
+            <NeedByPicker value={needBy} onChange={setNeedBy} />
           </div>
           {pickable.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap mt-2">

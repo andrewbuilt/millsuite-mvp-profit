@@ -22,16 +22,20 @@ import Link from 'next/link'
 import { Plus, Settings2, X } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import {
-  BUCKET_LABEL,
-  TASK_BUCKETS,
+  GROUP_LABEL,
+  TASK_GROUPS,
+  groupDropDate,
+  groupTasks,
+  localISO,
   TASK_TAG_COLORS,
   createTask,
   setTaskDone,
   updateTask,
   type Task,
-  type TaskBucket,
+  type TaskGroup,
 } from '@/lib/tasks'
 import { pickableProjects, useTasks, type TaskProjectRef } from './TasksProvider'
+import NeedByPicker from './NeedByPicker'
 import { TaskRow, taskFirstName as firstName } from './TaskRow'
 import { TaskArchive } from './TaskArchive'
 import CompletedForYou from './CompletedForYou'
@@ -81,7 +85,7 @@ export default function TasksPanel() {
   const tagGearRef = useRef<HTMLButtonElement>(null)
   const [adding, setAdding] = useState(false)
   const [newTitle, setNewTitle] = useState('')
-  const [newBucket, setNewBucket] = useState<TaskBucket>('today')
+  const [newNeedBy, setNewNeedBy] = useState<string | null>(() => localISO())
   const [newAssignees, setNewAssignees] = useState<string[]>([])
   /** Project chosen while typing the task. Seeded from `projectFilter` so a
    *  task started from a project's "Tasks · N" still lands on that project
@@ -90,7 +94,7 @@ export default function TasksPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
-  const [dragOver, setDragOver] = useState<TaskBucket | null>(null)
+  const [dragOver, setDragOver] = useState<TaskGroup | null>(null)
 
   // Remember the filter choice, but only read it once on mount — writing it
   // back on every render would fight the user mid-click.
@@ -162,17 +166,9 @@ export default function TasksPanel() {
   const visible = useMemo(() => tasks.filter(matches), [tasks, matches])
   const visibleArchive = useMemo(() => archive.filter(matches), [archive, matches])
 
-  const byBucket = useMemo(() => {
-    const out: Record<TaskBucket, Task[]> = {
-      today: [],
-      this_week: [],
-      next_week: [],
-      someday: [],
-    }
-    // `tasks` holds only open rows now — completed work lives in the archive.
-    for (const t of visible) out[t.bucket].push(t)
-    return out
-  }, [visible])
+  // Computed from need_by vs today (132) — time moves, the task doesn't.
+  // `tasks` holds only open rows — completed work lives in the archive.
+  const byBucket = useMemo(() => groupTasks(visible, localISO()), [visible])
 
   /** Register a tag on the org and make it available everywhere. */
   const addTag = useCallback(
@@ -208,28 +204,29 @@ export default function TasksPanel() {
       await createTask({
         orgId: user.org_id,
         title,
-        bucket: newBucket,
+        needBy: newNeedBy,
         projectId: newProjectId || null,
         assigneeIds: newAssignees,
         createdBy: user.id,
       })
       setNewTitle('')
+      setNewNeedBy(localISO())
       setNewAssignees([])
       setNewProjectId(projectFilter ?? '')
       setAdding(false)
     })
   }
 
-  /** Drop a dragged task into a bucket. Only fires when the bucket actually
-   *  changes, so a drag that lands where it started is a no-op. */
-  async function handleDropInto(bucket: TaskBucket) {
+  /** Drop a dragged task onto a group = restamp to that group's date
+   *  (Overdue isn't a target). A drop where it started is a no-op. */
+  async function handleDropInto(group: TaskGroup) {
     const id = dragId
     setDragId(null)
     setDragOver(null)
-    if (!id) return
+    if (!id || group === 'overdue') return
     const t = tasks.find((x) => x.id === id)
-    if (!t || t.bucket === bucket) return
-    await run(() => updateTask(id, { bucket, sort_order: -Date.now() }, user?.org_id))
+    if (!t || byBucket[group].some((x) => x.id === id)) return
+    await run(() => updateTask(id, { need_by: groupDropDate(group), sort_order: -Date.now() }, user?.org_id))
   }
 
   if (!enabled || !panelOpen) return null
@@ -382,21 +379,7 @@ export default function TasksPanel() {
                 placeholder="What needs doing?"
                 className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
               />
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {TASK_BUCKETS.map((b) => (
-                  <button
-                    key={b}
-                    onClick={() => setNewBucket(b)}
-                    className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
-                      newBucket === b
-                        ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                        : 'bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]'
-                    }`}
-                  >
-                    {BUCKET_LABEL[b]}
-                  </button>
-                ))}
-              </div>
+              <NeedByPicker value={newNeedBy} onChange={setNewNeedBy} />
               {/* Project, AT CREATE TIME. Same gap as assignment had: it only
                   existed inside an expanded row, so linking a task to a job
                   meant adding it, saving, reopening it and picking. */}
@@ -485,10 +468,11 @@ export default function TasksPanel() {
             <div className="text-[12px] text-[#9CA3AF] italic py-4">Loading tasks…</div>
           ) : (
             <>
-              {TASK_BUCKETS.map((b) => (
+              {TASK_GROUPS.filter((b) => (b !== 'overdue' && b !== 'later') || byBucket[b].length > 0).map((b) => (
                 <section
                   key={b}
                   onDragOver={(e) => {
+                    if (b === 'overdue') return
                     e.preventDefault()
                     setDragOver(b)
                   }}
@@ -499,8 +483,12 @@ export default function TasksPanel() {
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1.5 px-0.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9CA3AF]">
-                      {BUCKET_LABEL[b]}
+                    <span
+                      className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                        b === 'overdue' ? 'text-[#B91C1C]' : 'text-[#9CA3AF]'
+                      }`}
+                    >
+                      {GROUP_LABEL[b]}
                     </span>
                     <span className="text-[10px] text-[#D1D5DB]">{byBucket[b].length}</span>
                   </div>
