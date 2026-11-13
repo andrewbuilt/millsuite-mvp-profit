@@ -4,7 +4,15 @@
 > Rewrite this at the end of every session (see ritual in `CLAUDE.md`). Keep it lean —
 > delete finished items, don't archive them here.
 
-**Last updated:** 2026-11-04 · **Branch:** `main`
+**Last updated:** 2026-11-13 · **Branch:** `main`
+
+**SCOPED 2026-11-13 — HANDOFF POC FROM CONTACTS (ready for Code):** Pull existing contacts into the pre-production handoff POC — and save typed POCs back (Andrew picked two-way).
+
+- **Where:** `components/project/HandoffCard.tsx`, POC section only. Address/deadline untouched. The gate logic (`lib/handoff.ts handoffMissing`) does NOT change — POC stays three denormalized text columns on `projects` (`poc_name/poc_phone/poc_email`), copied, not linked. No migration.
+- **Pull in:** when the project has a `client_id`, show a small "Pick from contacts ▾" next to the POC fields. Options = the client record itself (clients.name/phone/email, labelled "Client") + that client's `contacts` rows (name · role · phone/email; `is_primary` first). Picking one copies name/phone/email into the three fields and saves via the existing `saveHandoffField` path (all three; empty source field → clears that field). Fields stay editable after — it's a copy. No `client_id` → no picker (plain fields as today). Zero contacts + no client phone/email → picker still offers the bare client row if it has a name? No — only offer rows that would actually fill something (name + phone-or-email, same bar the gate sets).
+- **Save back:** when the typed POC (name + phone-or-email) doesn't match any existing contact of that client (case-insensitive name match), show a one-line "Save to <client>'s contacts" link under the fields. Clicking inserts via the existing `lib/clients.ts` contact-insert helper (client_id, org_id, name, phone, email; role empty) and the link flips to "Saved ✓". Never automatic, never a modal. No client linked → no link.
+- **RLS note:** `contacts`/`clients` reads + the insert happen from the browser — same pattern /clients already uses, so it works; but `.select()` back on the insert and treat zero rows as failure (the standing rule).
+- **Prove:** grep that HandoffCard is the only POC writer; exercise on a project with a linked client + contacts, one with a client but no contacts, one with no client. tsc + `next build`.
 
 **Left off (2026-11-12, TASK DESCRIPTION — LIVE `5f42731`; migration `134` ✅ on prod, column reads back; pushed):** the task modal gets a Description box above Needed by (autogrow, saves on blur; collapsed row shows a note icon when set); the red strip atop Critical tasks' modal is removed. Migration `134` = `tasks.description`. Next: Andrew's live check (type a description, click away, reopen).
 
