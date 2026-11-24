@@ -14,8 +14,10 @@
 
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, Clock, Send, RotateCcw, Link2, Lock, ChevronDown, ChevronUp, Pencil, Trash2, Plus } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { CheckCircle2, Clock, Send, RotateCcw, Link2, Lock, ChevronDown, ChevronUp, Pencil, Trash2, Plus, ExternalLink, X } from 'lucide-react'
+import { ITEM_KINDS, KIND_LABEL, groupByKind, guessItemKind, normalizeItemKind, safeHttpUrl, shortLinkLabel, type ItemKind } from '@/lib/approval-kind'
+import { deleteApprovalPhoto, listApprovalPhotos, uploadApprovalPhoto, type ApprovalPhoto } from '@/lib/preapproval-admin'
 import { useConfirm } from '@/components/confirm-dialog'
 import { announce, type TourEvent } from '@/lib/tour-events'
 import {
@@ -152,6 +154,8 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
       label: v.label.trim(),
       material: v.material.trim(),
       finish: v.finish.trim() || null,
+      item_kind: v.kind,
+      link_url: v.link.trim() || null,
     })
     if (!created) return setFormErr('Could not add the callout.')
     setAdding(false)
@@ -171,7 +175,11 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
       if (!ok) return
     }
     try {
-      await updateApprovalCallout(item, { label: v.label, material: v.material, finish: v.finish }, actorUserId)
+      await updateApprovalCallout(
+        item,
+        { label: v.label, material: v.material, finish: v.finish, item_kind: v.kind, link_url: v.link.trim() || null },
+        actorUserId,
+      )
       setEditingId(null)
       await reload()
       onChange?.()
@@ -238,7 +246,14 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
           spec-CO modal (parent decides). When the spec lands as
           approved, any draft CO targeting it auto-finalizes (see
           lib/change-orders.finalizeSpecCosOnApproval). */}
-      {items.map((item) => {
+      {/* 135 — grouped by TYPE (Finishes / Hardware / Drawings / Other), the
+          same hierarchy, in the same order, the client's portal shows. */}
+      {groupByKind(items).map((group) => (
+        <div key={group.kind} data-kind-group={group.kind} className="space-y-3">
+          <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.08em] px-1.5 pt-1">
+            {group.label}
+          </div>
+      {group.rows.map((item) => {
         const slotKey = slotKeyForApprovalLabel(item.label)
         // Spec-CO is only meaningful when:
         //   1. The parent wired onCreateSpecCo (pre-prod page does;
@@ -251,7 +266,13 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
           return (
             <CalloutForm
               key={item.id}
-              initial={{ label: item.label, material: item.material || '', finish: item.finish || '' }}
+              initial={{
+                label: item.label,
+                material: item.material || '',
+                finish: item.finish || '',
+                kind: normalizeItemKind(item.item_kind),
+                link: item.link_url || '',
+              }}
               submitLabel="Save"
               error={formErr}
               onCancel={() => {
@@ -283,12 +304,14 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
           />
         )
       })}
+        </div>
+      ))}
 
       {/* + Add callout — manual and derived callouts share this list and gate
           identically (slots_total / slots_approved count both). */}
       {adding ? (
         <CalloutForm
-          initial={{ label: '', material: '', finish: '' }}
+          initial={{ label: '', material: '', finish: '', kind: null, link: '' }}
           submitLabel="Add callout"
           error={formErr}
           onCancel={() => {
@@ -317,9 +340,14 @@ interface CalloutValues {
   label: string
   material: string
   finish: string
+  kind: ItemKind
+  link: string
 }
 
-/** Plain-text callout editor — label · material · finish. */
+/** Plain-text callout editor — type · label · material · finish (+ a product
+ *  link for hardware). `kind: null` on a new callout means "not picked yet":
+ *  the picker follows the words as they're typed until someone clicks a type,
+ *  after which it stays where they put it. */
 function CalloutForm({
   initial,
   submitLabel,
@@ -327,20 +355,45 @@ function CalloutForm({
   onCancel,
   onSubmit,
 }: {
-  initial: CalloutValues
+  initial: Omit<CalloutValues, 'kind'> & { kind: ItemKind | null }
   submitLabel: string
   error: string | null
   onCancel: () => void
   onSubmit: (v: CalloutValues) => void | Promise<void>
 }) {
-  const [v, setV] = useState<CalloutValues>(initial)
+  const [text, setV] = useState({ label: initial.label, material: initial.material, finish: initial.finish, link: initial.link })
+  const [picked, setPicked] = useState<ItemKind | null>(initial.kind)
+  const kind: ItemKind = picked ?? guessItemKind(text)
+  const v: CalloutValues = { ...text, kind }
   const [busy, setBusy] = useState(false)
   const field = 'w-full px-2 py-1.5 text-sm border border-neutral-300 rounded focus:outline-none focus:border-[#2563EB]'
   return (
     <div className="rounded-[10px] border border-[#BFDBFE] bg-[#F8FAFF] p-3 space-y-2">
+      {/* TYPE picker (135) — writes approval_items.item_kind. */}
+      <div className="flex items-center gap-1.5 flex-wrap" role="radiogroup" aria-label="Type">
+        <span className="text-[11px] text-neutral-500 mr-0.5">Type</span>
+        {ITEM_KINDS.map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="radio"
+            aria-checked={kind === k}
+            data-kind={k}
+            onClick={() => setPicked(k)}
+            className={
+              'text-xs px-2.5 py-1 rounded-full border transition-colors ' +
+              (kind === k
+                ? 'bg-[#2563EB] border-[#2563EB] text-white'
+                : 'bg-white border-neutral-300 text-neutral-700 hover:border-[#93C5FD]')
+            }
+          >
+            {KIND_LABEL[k]}
+          </button>
+        ))}
+      </div>
       <input
         value={v.label}
-        onChange={(e) => setV({ ...v, label: e.target.value })}
+        onChange={(e) => setV({ ...text, label: e.target.value })}
         placeholder="What it is — e.g. Countertop, Cabinet paint, Pulls"
         className={field}
         autoFocus
@@ -348,17 +401,28 @@ function CalloutForm({
       <div className="grid grid-cols-2 gap-2">
         <input
           value={v.material}
-          onChange={(e) => setV({ ...v, material: e.target.value })}
+          onChange={(e) => setV({ ...text, material: e.target.value })}
           placeholder="Material — e.g. Calacatta quartz"
           className={field}
         />
         <input
           value={v.finish}
-          onChange={(e) => setV({ ...v, finish: e.target.value })}
+          onChange={(e) => setV({ ...text, finish: e.target.value })}
           placeholder="Finish (optional)"
           className={field}
         />
       </div>
+      {/* Product link — offered for hardware (and kept visible if one is
+          already set, so re-filing a callout never hides its link). */}
+      {(kind === 'hardware' || v.link.trim()) && (
+        <input
+          value={v.link}
+          onChange={(e) => setV({ ...text, link: e.target.value })}
+          placeholder="Product link (optional) — the client can open it"
+          inputMode="url"
+          className={field}
+        />
+      )}
       {error && <div className="text-xs text-red-700">{error}</div>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="text-xs px-2 py-1 rounded text-neutral-700 hover:bg-neutral-100">
@@ -467,6 +531,21 @@ function SlotCard(p: SlotCardProps) {
             <KV label="Finish" value={item.finish || '—'} />
           </div>
 
+          {safeHttpUrl(item.link_url) && (
+            <a
+              href={safeHttpUrl(item.link_url)!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 text-xs inline-flex items-center gap-1 text-[#2563EB] hover:underline"
+            >
+              <ExternalLink className="w-3 h-3" />
+              {shortLinkLabel(safeHttpUrl(item.link_url)!)}
+            </a>
+          )}
+
+          {/* Photos (135) — same private bucket the client's portal shows. */}
+          <SlotPhotos itemId={item.id} />
+
           {/* Custom-slot baseline visibility per D7 */}
           {item.is_custom && (
             <CustomBaselineSummary item={item} />
@@ -493,6 +572,7 @@ function SlotCard(p: SlotCardProps) {
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-neutral-400 mt-1.5" />
                     <div>
                       <span className="text-neutral-800">{actionLabel(r.action)}</span>
+                      {r.actor_name && <span className="text-neutral-800"> by {r.actor_name} (portal)</span>}
                       {r.note && <span className="text-neutral-500"> — {r.note}</span>}
                       <span className="text-neutral-400 ml-1">{fmtTimestamp(r.occurred_at)}</span>
                     </div>
@@ -529,6 +609,91 @@ function SlotCard(p: SlotCardProps) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Photo strip for one callout. Uploads and reads go through the shop's
+ *  authenticated route (the bucket is private) — the client sees the same
+ *  photos on the portal, and can add their own there. */
+function SlotPhotos({ itemId }: { itemId: string }) {
+  const [photos, setPhotos] = useState<ApprovalPhoto[]>([])
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let live = true
+    void listApprovalPhotos(itemId).then((p) => live && setPhotos(p))
+    return () => {
+      live = false
+    }
+  }, [itemId])
+
+  async function run(fn: () => Promise<ApprovalPhoto[]>) {
+    setBusy(true)
+    setErr(null)
+    try {
+      setPhotos(await fn())
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Something went wrong.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-3" data-slot-photos>
+      <div className="text-xs font-medium text-neutral-700 mb-1">
+        Photos <span className="font-normal text-neutral-400">· the client sees these on the portal</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {photos.map((p) => (
+          <div key={p.id} className="relative group">
+            <a href={p.url} target="_blank" rel="noopener noreferrer" title={p.fromClient ? `From ${p.addedBy || 'the client'}` : p.addedBy || ''}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.url} alt={p.caption || 'Finish photo'} className="w-14 h-14 rounded-lg object-cover border border-neutral-200" />
+            </a>
+            {p.fromClient && (
+              <span className="absolute bottom-0.5 left-0.5 text-[9px] px-1 rounded bg-amber-500 text-white">client</span>
+            )}
+            <button
+              onClick={() => void run(() => deleteApprovalPhoto(p.id))}
+              disabled={busy}
+              aria-label="Remove photo"
+              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-neutral-800 text-white hidden group-hover:flex items-center justify-center"
+            >
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          className="w-14 h-14 rounded-lg border border-dashed border-neutral-300 text-neutral-400 hover:border-[#2563EB] hover:text-[#2563EB] flex items-center justify-center disabled:opacity-40"
+          aria-label="Add a photo"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = Array.from(e.target.files || [])
+            e.target.value = ''
+            if (files.length === 0) return
+            void run(async () => {
+              let last: ApprovalPhoto[] = photos
+              for (const f of files) last = await uploadApprovalPhoto(itemId, f)
+              return last
+            })
+          }}
+        />
+      </div>
+      {err && <div className="text-xs text-red-700 mt-1">{err}</div>}
     </div>
   )
 }

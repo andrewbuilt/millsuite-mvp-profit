@@ -10,6 +10,7 @@
 import { supabase } from './supabase'
 import { recordProjectEvent } from './project-events'
 import { PREFINISHED_FINISH_ID, type ComposerRateBook, type ComposerSlots } from './composer'
+import { guessItemKind, normalizeItemKind, safeHttpUrl, type ItemKind } from './approval-kind'
 
 // ── Types ──
 
@@ -28,6 +29,8 @@ export interface ItemRevision {
   action: ItemRevisionAction
   note: string | null
   actor_user_id: string | null
+  /** Migration 135: the name a client typed in the approval portal. */
+  actor_name?: string | null
   occurred_at: string
 }
 
@@ -57,6 +60,11 @@ export interface ApprovalItem {
    *  slot (post-sale dogfood pass). Replaces the prior submitted-count
    *  derivation, which under-reported the second case. */
   revision: number
+  /** Migration 135: Finish / Hardware / Drawing / Other — the group this
+   *  callout sits in here AND on the client's approval portal. */
+  item_kind?: ItemKind | null
+  /** Migration 135: a product link (hardware, mostly) the client can open. */
+  link_url?: string | null
   created_at: string
   updated_at: string
   // Populated by loadApprovalItemsForSubproject
@@ -307,6 +315,9 @@ export async function createCustomSlot(
     label: string
     material: string
     finish: string | null
+    /** 135 — the type picked in the add form. Omitted → guessed from the words. */
+    item_kind?: ItemKind
+    link_url?: string | null
     baseline?: {
       material_cost_per_lf: number
       labor_hours_eng: number
@@ -327,6 +338,8 @@ export async function createCustomSlot(
     state: 'pending' as ApprovalState,
     last_state_change_at: now,
     ball_in_court: 'shop' as BallInCourt,
+    item_kind: input.item_kind ? normalizeItemKind(input.item_kind) : guessItemKind(input),
+    link_url: safeHttpUrl(input.link_url),
   }
   if (input.baseline) {
     row.custom_material_cost_per_lf = input.baseline.material_cost_per_lf
@@ -777,6 +790,9 @@ export async function createApprovalItemsFromProposals(
     label: p.label,
     state: 'pending' as ApprovalState,
     ball_in_court: (p.owner === 'client' ? 'client' : 'shop') as BallInCourt,
+    // 135 — same rule the migration's backfill ran, so a callout seeded after
+    // it lands in the same group one seeded before it would have.
+    item_kind: guessItemKind(p),
   }))
 
   if (toInsert.length === 0) return 0
@@ -947,7 +963,7 @@ async function projectOfSubproject(subprojectId: string): Promise<{ projectId: s
  */
 export async function updateApprovalCallout(
   item: ApprovalItem,
-  next: { label: string; material: string; finish: string | null },
+  next: { label: string; material: string; finish: string | null; item_kind?: ItemKind; link_url?: string | null },
   actorUserId?: string | null,
 ): Promise<void> {
   const label = next.label.trim()
@@ -958,13 +974,17 @@ export async function updateApprovalCallout(
   const reopen = specChanged && item.state !== 'pending'
   const now = new Date().toISOString()
   const patch: Record<string, unknown> = { label, material, finish, updated_at: now }
+  // 135 — re-filing a callout or fixing its link never re-opens an approval:
+  // neither changes WHAT the client approved.
+  if (next.item_kind !== undefined) patch.item_kind = normalizeItemKind(next.item_kind)
+  if (next.link_url !== undefined) patch.link_url = safeHttpUrl(next.link_url)
   if (reopen) {
     patch.state = 'pending'
     patch.ball_in_court = 'shop'
     patch.last_state_change_at = now
   }
   const { data, error } = await supabase.from('approval_items').update(patch).eq('id', item.id).select('id')
-  if (error) throw new Error(error.message)
+  if (error) throw new Error(/item_kind|link_url/.test(error.message) ? 'Run migration 135 first.' : error.message)
   if (!data || data.length === 0) throw new Error('The callout could not be updated.')
   const where = await projectOfSubproject(item.subproject_id)
   if (where && (reopen || item.state !== 'pending')) {

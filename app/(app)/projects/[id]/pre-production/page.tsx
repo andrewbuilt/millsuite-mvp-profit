@@ -42,6 +42,7 @@ import { isDepositReceived, isReadyForProduction, startProduction } from '@/lib/
 import { HANDOFF_GAP_LABEL, handoffMissing } from '@/lib/handoff'
 import HandoffCard from '@/components/project/HandoffCard'
 import ProjectNotes from '@/components/project/ProjectNotes'
+import PortalAdminCard from '@/components/preapproval/PortalAdminCard'
 import {
   loadApprovalItemsForSubproject,
   seedApprovalItemsFromEstimate,
@@ -156,6 +157,9 @@ export default function PreProductionPage() {
   /** Slot the punch list asked to open, handed to ApprovalSlots so clicking a
    *  sidebar row expands the card rather than just scrolling near it. */
   const [focusItemId, setFocusItemId] = useState<string | null>(null)
+  /** Bumped on every reload so the client-portal card (135) re-reads its
+   *  "updates to send" queue when an approval or a drawing moves. */
+  const [portalRefresh, setPortalRefresh] = useState(0)
 
   const reload = useCallback(async () => {
     if (!projectId || !org?.id) return
@@ -195,6 +199,7 @@ export default function PreProductionPage() {
     setStatusMap(statuses)
     setAllItems(flatItems)
     setLoading(false)
+    setPortalRefresh((n) => n + 1)
 
     // Gates last — they're independent reads, and the page is useful without
     // them. Errors here must not blank a page full of approvals.
@@ -611,6 +616,10 @@ export default function PreProductionPage() {
               void isReadyForProduction(projectId).then(setReadyForProduction)
             }}
           />
+
+          {/* Client approval portal (135) — link, lead time, the notify-first
+              queue and the client's questions. */}
+          <PortalAdminCard projectId={projectId} orgId={org?.id} userId={user?.id} refreshKey={portalRefresh} />
 
           {subs.length === 0 && (
             <div className="p-6 bg-white border border-[#E5E7EB] rounded-xl text-center text-sm text-[#9CA3AF]">
