@@ -13,7 +13,23 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react'
-import { handoffMissing, saveHandoffField, type HandoffField, type HandoffFields } from '@/lib/handoff'
+import { Plus, X } from 'lucide-react'
+import {
+  handoffMissing,
+  loadHandoffContacts,
+  saveHandoffContacts,
+  saveHandoffField,
+  type HandoffField,
+  type HandoffFields,
+} from '@/lib/handoff'
+import {
+  CONTACT_CATEGORIES,
+  CONTACT_CATEGORY_LABEL,
+  MAX_HANDOFF_CONTACTS,
+  newContactId,
+  type ContactCategory,
+  type HandoffContact,
+} from '@/lib/handoff-contacts'
 
 const ROWS: Array<{
   field: HandoffField
@@ -91,7 +107,127 @@ export default function HandoffCard({
         Contact (a name and a phone or email), jobsite address and deadline are required to start
         production.
       </div>
+      <OtherContacts projectId={projectId} />
     </section>
+  )
+}
+
+/**
+ * The job's OTHER contacts (136) — GC, designer, architect… each filed under a
+ * category. The point of contact above is still the one that gates; these are
+ * reference, and they show on the client's approval portal too.
+ *
+ * Loads its own list (an isolated read — see lib/handoff loadHandoffContacts).
+ * A row saves when you leave a field or change its category; a row with no
+ * name yet stays on screen but isn't stored.
+ */
+function OtherContacts({ projectId }: { projectId: string }) {
+  const [rows, setRows] = useState<HandoffContact[]>([])
+  const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    let live = true
+    void loadHandoffContacts(projectId).then((c) => live && setRows(c))
+    return () => {
+      live = false
+    }
+  }, [projectId])
+
+  async function persist(next: HandoffContact[]) {
+    setState('saving')
+    setErr(null)
+    try {
+      await saveHandoffContacts(projectId, next)
+      setState('saved')
+      setTimeout(() => setState('idle'), 1500)
+    } catch (e) {
+      setState('idle')
+      setErr(e instanceof Error ? e.message : 'Could not save.')
+    }
+  }
+
+  const patch = (id: string, p: Partial<HandoffContact>) => rows.map((r) => (r.id === id ? { ...r, ...p } : r))
+  const field =
+    'w-full px-2.5 py-1.5 text-[13px] rounded-lg border border-[#E5E7EB] bg-white text-[#111] placeholder:text-[#C4C8CE] focus:outline-none focus:border-[#2563EB]'
+
+  return (
+    <div className="px-[18px] py-3 border-t border-[#F3F4F6]" data-other-contacts>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] text-[#6B7280]">
+          Other contacts <span className="text-[#9CA3AF]">· GC, designer, architect… shown to the client on the portal</span>
+        </div>
+        <span className="text-[10.5px] text-[#9CA3AF]">{state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : ''}</span>
+      </div>
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div key={r.id} data-contact-row className="grid grid-cols-1 sm:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-center">
+            <select
+              value={r.category}
+              aria-label="Contact category"
+              onChange={(e) => {
+                const next = patch(r.id, { category: e.target.value as ContactCategory })
+                setRows(next)
+                void persist(next)
+              }}
+              className={field + ' pr-6'}
+            >
+              {CONTACT_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {CONTACT_CATEGORY_LABEL[c]}
+                </option>
+              ))}
+            </select>
+            <input
+              value={r.name}
+              placeholder="Name"
+              aria-label="Contact name"
+              onChange={(e) => setRows(patch(r.id, { name: e.target.value }))}
+              onBlur={() => void persist(rows)}
+              className={field}
+            />
+            <input
+              value={r.phone ?? ''}
+              placeholder="Phone"
+              type="tel"
+              aria-label="Contact phone"
+              onChange={(e) => setRows(patch(r.id, { phone: e.target.value || null }))}
+              onBlur={() => void persist(rows)}
+              className={field}
+            />
+            <input
+              value={r.email ?? ''}
+              placeholder="Email"
+              type="email"
+              aria-label="Contact email"
+              onChange={(e) => setRows(patch(r.id, { email: e.target.value || null }))}
+              onBlur={() => void persist(rows)}
+              className={field}
+            />
+            <button
+              aria-label={`Remove ${r.name || 'contact'}`}
+              onClick={() => {
+                const next = rows.filter((x) => x.id !== r.id)
+                setRows(next)
+                void persist(next)
+              }}
+              className="w-7 h-7 rounded-lg text-[#9CA3AF] hover:text-[#B91C1C] hover:bg-[#FEF2F2] flex items-center justify-center"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      {rows.length < MAX_HANDOFF_CONTACTS && (
+        <button
+          onClick={() => setRows([...rows, { id: newContactId(), category: 'gc', name: '', phone: null, email: null }])}
+          className="mt-2 text-xs inline-flex items-center gap-1 text-[#2563EB] hover:underline"
+        >
+          <Plus className="w-3 h-3" /> Add contact
+        </button>
+      )}
+      {err && <div className="mt-1 text-[11px] text-[#B91C1C]">{err}</div>}
+    </div>
   )
 }
 

@@ -20,6 +20,7 @@
 // ============================================================================
 
 import { ITEM_KINDS, KIND_GROUP_LABEL, normalizeItemKind, safeHttpUrl, type ItemKind } from './approval-kind'
+import { CONTACT_CATEGORY_SHORT, normalizeHandoffContacts, type ContactCategory } from './handoff-contacts'
 
 // ── Raw rows (what the server loader hands in) ──────────────────────────────
 
@@ -35,6 +36,8 @@ export interface RawPortalProject {
   poc_phone: string | null
   delivery_address: string | null
   client_deadline: string | null
+  /** 136 — the job's other contacts (GC, designer, …), as stored (jsonb). */
+  handoff_contacts?: unknown
 }
 
 export interface RawPortalSub {
@@ -215,6 +218,15 @@ export interface PreapprovalPortal {
     pocPhone: string | null
     jobsite: string | null
     deadline: string | null
+    /** 136 — GC, designer, etc. The point of contact is the fields above. */
+    contacts: Array<{
+      id: string
+      category: ContactCategory
+      categoryLabel: string
+      name: string
+      phone: string | null
+      email: string | null
+    }>
   }
   status: {
     approved: number
@@ -460,7 +472,8 @@ export function buildActivity(input: RawPortalInput): PortalActivityEntry[] {
     if (!(PORTAL_EVENT_TYPES as readonly string[]).includes(e.event_type)) continue
     if (e.event_type === 'portal_contact_edit') {
       // The label is written by the contact route as "<who> updated the <field>".
-      const m = /^(.*?) (updated the .*)$/.exec(e.label)
+      // … or "<who> added a <category> contact" (136).
+      const m = /^(.*?) ((?:updated the|added an?) .*)$/.exec(e.label)
       out.push({
         key: `ev-${e.id}`,
         at: e.created_at,
@@ -666,6 +679,14 @@ export function buildPortalView(input: RawPortalInput, now: Date = new Date()): 
       pocPhone: p.poc_phone?.trim() || null,
       jobsite: p.delivery_address?.trim() || null,
       deadline: p.client_deadline?.trim() || null,
+      contacts: normalizeHandoffContacts(p.handoff_contacts).map((c) => ({
+        id: c.id,
+        category: c.category,
+        categoryLabel: CONTACT_CATEGORY_SHORT[c.category],
+        name: c.name,
+        phone: c.phone,
+        email: c.email,
+      })),
     },
     status: {
       approved: everything.filter((v) => v.pill === 'approved').length,

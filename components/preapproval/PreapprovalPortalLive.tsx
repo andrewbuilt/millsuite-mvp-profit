@@ -39,7 +39,7 @@ export function PreapprovalPortalLive({ token, p }: { token: string; p: Preappro
       approve: (type, id, name) => send('approve', json({ type, id, name })),
       requestChange: (type, id, name, note) => send('request-change', json({ type, id, name, note })),
       ask: (name, body) => send('question', json({ name, body })),
-      saveContact: (fields) => send('contact', json({ fields })),
+      saveContact: (fields, contacts) => send('contact', json({ fields, contacts })),
       addPhoto: (itemId, name, file) => {
         const form = new FormData()
         form.append('itemId', itemId)

@@ -22,6 +22,7 @@
 import { useMemo, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { PreapprovalPortalView, type PortalActions } from '@/components/preapproval/PreapprovalPortalView'
+import { contactChangeText, mergeClientContacts } from '@/lib/handoff-contacts'
 import {
   buildPortalView,
   contactChanges,
@@ -60,6 +61,9 @@ function seed(): RawPortalInput {
       poc_phone: '(813) 555-0177',
       delivery_address: 'Hunt Office Building, 601 E Kennedy Blvd, Tampa',
       client_deadline: 'Occupied by March 1',
+      handoff_contacts: [
+        { id: 'c1', category: 'gc', name: 'David Andrukaitis', phone: '1-941-555-0111', email: 'build@example.com' },
+      ],
       ...poison,
     } as RawPortalInput['project'],
     subs: [
@@ -184,11 +188,14 @@ export default function PreapprovalPortalFixture() {
         }))
         return null
       },
-      async saveContact(fields) {
+      async saveContact(fields, contacts) {
+        let err: string | null = null
         setRaw((r) => {
           const changes = contactChanges(r.project, fields)
-          if (changes.length === 0) return r
-          const project = { ...r.project }
+          const merged = mergeClientContacts(r.project.handoff_contacts, contacts)
+          if (merged.error) return (err = merged.error), r
+          if (changes.length === 0 && merged.changes.length === 0) return r
+          const project = { ...r.project, handoff_contacts: merged.contacts }
           for (const c of changes) project[c.field] = c.value
           const who = project.poc_name || 'Client'
           return {
@@ -197,10 +204,11 @@ export default function PreapprovalPortalFixture() {
             events: [
               ...r.events,
               ...changes.map((c) => ({ id: nid('e'), event_type: 'portal_contact_edit', label: `${who} updated the ${PORTAL_CONTACT_FIELDS[c.field].label}`, created_at: now() })),
+              ...merged.changes.map((c) => ({ id: nid('e'), event_type: 'portal_contact_edit', label: `${who} ${contactChangeText(c)}`, created_at: now() })),
             ],
           }
         })
-        return null
+        return err
       },
       async addPhoto(itemId, name, file) {
         const url = URL.createObjectURL(file)

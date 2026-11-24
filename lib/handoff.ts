@@ -25,6 +25,7 @@
 // ============================================================================
 
 import { supabase } from './supabase'
+import { normalizeHandoffContacts, type HandoffContact } from './handoff-contacts'
 
 export interface HandoffFields {
   poc_name?: string | null
@@ -99,4 +100,31 @@ export async function saveHandoffField(projectId: string, field: HandoffField, v
     .select('id')
   if (error) throw new Error(/column/.test(error.message) ? 'Run migration 125 first.' : error.message)
   if (!data || data.length === 0) throw new Error('The project could not be updated.')
+}
+
+// ── Other contacts: GC, designer, … (136) ───────────────────────────────────
+// Reference only — `handoffMissing` above never looks at these; the gate is
+// still the point of contact in poc_name / poc_phone / poc_email.
+
+/** Isolated select on purpose: folding `handoff_contacts` into the page's main
+ *  project read would 42703 that whole read on a pre-136 database. Pre-136
+ *  reads as "no other contacts". */
+export async function loadHandoffContacts(projectId: string): Promise<HandoffContact[]> {
+  const { data, error } = await supabase.from('projects').select('handoff_contacts').eq('id', projectId).maybeSingle()
+  if (error) return []
+  return normalizeHandoffContacts((data as { handoff_contacts?: unknown } | null)?.handoff_contacts)
+}
+
+/** Replace the list. Selects back; zero rows = a refused write. Returns what
+ *  was stored (nameless rows dropped, ids settled). */
+export async function saveHandoffContacts(projectId: string, contacts: HandoffContact[]): Promise<HandoffContact[]> {
+  const clean = normalizeHandoffContacts(contacts)
+  const { data, error } = await supabase
+    .from('projects')
+    .update({ handoff_contacts: clean })
+    .eq('id', projectId)
+    .select('id')
+  if (error) throw new Error(/handoff_contacts/.test(error.message) ? 'Run migration 136 first.' : error.message)
+  if (!data || data.length === 0) throw new Error('The project could not be updated.')
+  return clean
 }

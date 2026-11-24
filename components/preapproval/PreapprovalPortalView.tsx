@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { shortLinkLabel } from '@/lib/approval-kind'
+import { CONTACT_CATEGORIES, CONTACT_CATEGORY_LABEL, MAX_HANDOFF_CONTACTS } from '@/lib/handoff-contacts'
 import { weeksLabel, type PortalItemView, type PortalSubView, type PreapprovalPortal } from '@/lib/preapproval-view'
 
 /** Each returns an error message, or null when it worked. */
@@ -26,7 +27,10 @@ export interface PortalActions {
   approve(type: 'item' | 'drawing', id: string, name: string): Promise<string | null>
   requestChange(type: 'item' | 'drawing', id: string, name: string, note: string): Promise<string | null>
   ask(name: string, body: string): Promise<string | null>
-  saveContact(fields: Record<string, string>): Promise<string | null>
+  saveContact(
+    fields: Record<string, string>,
+    contacts: Array<{ id?: string; category: string; name: string; phone: string; email: string }>,
+  ): Promise<string | null>
   addPhoto(itemId: string, name: string, file: File): Promise<string | null>
 }
 
@@ -58,6 +62,9 @@ const CSS = `
 .pap .c-input{width:100%;margin-top:4px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;color:var(--ink);font-family:inherit;background:#fff}
 .pap .c-input:focus{outline:none;border-color:var(--blue)}
 .pap .c-save{display:flex;gap:8px;margin-top:8px}
+.pap .c-other{margin-top:10px;padding-top:10px;border-top:1px solid var(--soft)}
+.pap .c-tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);background:var(--soft);border-radius:999px;padding:2px 8px;margin-right:8px;vertical-align:1px}
+.pap .c-row{margin-top:10px;padding-top:6px;border-top:1px solid var(--soft)}
 .pap .statusgrid{display:flex;border-bottom:1px solid var(--soft)}
 .pap .statusgrid .cell{flex:1;padding:20px 24px;border-right:1px solid var(--soft)}
 .pap .statusgrid .cell:last-child{border-right:none}
@@ -328,11 +335,18 @@ function ContactsCard({ p, actions }: { p: PreapprovalPortal; actions: PortalAct
   const [v, setV] = useState(initial)
   const set = (k: keyof ReturnType<typeof initial>) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setV({ ...v, [k]: e.target.value })
+  // The job's other contacts (GC, designer…). `id` is absent on a row the
+  // client is adding. They can add and correct here; removing is the shop's.
+  type Row = { id?: string; category: string; name: string; phone: string; email: string }
+  const initialRows = (): Row[] =>
+    p.you.contacts.map((c) => ({ id: c.id, category: c.category, name: c.name, phone: c.phone || '', email: c.email || '' }))
+  const [rows, setRows] = useState<Row[]>(initialRows)
+  const setRow = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
 
   async function save() {
     setBusy(true)
     setErr(null)
-    const e = await actions.saveContact(v)
+    const e = await actions.saveContact(v, rows)
     setBusy(false)
     if (e) return setErr(e)
     setEditing(false)
@@ -371,6 +385,7 @@ function ContactsCard({ p, actions }: { p: PreapprovalPortal; actions: PortalAct
                 className="edit"
                 onClick={() => {
                   setV(initial())
+                  setRows(initialRows())
                   setErr(null)
                   setEditing(true)
                 }}
@@ -391,6 +406,15 @@ function ContactsCard({ p, actions }: { p: PreapprovalPortal; actions: PortalAct
                 Jobsite: {p.you.jobsite || <i>not on file — tap Edit to add it</i>}
               </div>
               <div className="c-line">Deadline: {p.you.deadline || <i>not on file — tap Edit to add it</i>}</div>
+              {p.you.contacts.map((c) => (
+                <div className="c-other" key={c.id} data-testid="portal-other-contact">
+                  <div className="c-name">
+                    <span className="c-tag">{c.categoryLabel}</span>
+                    {c.name}
+                  </div>
+                  {(c.email || c.phone) && <div className="c-line">{[c.email, c.phone].filter(Boolean).join(' · ')}</div>}
+                </div>
+              ))}
             </>
           ) : (
             <>
@@ -409,6 +433,35 @@ function ContactsCard({ p, actions }: { p: PreapprovalPortal; actions: PortalAct
                 onChange={set('client_deadline')}
                 placeholder="A date, or “ASAP”"
               />
+              {rows.map((r, i) => (
+                <div className="c-row" key={r.id ?? `new-${i}`}>
+                  <label className="c-lbl">{r.id ? 'Other contact' : 'New contact'}</label>
+                  <select
+                    className="c-input"
+                    value={r.category}
+                    aria-label="Contact type"
+                    onChange={(e) => setRow(i, { category: e.target.value })}
+                  >
+                    {CONTACT_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {CONTACT_CATEGORY_LABEL[c]}
+                      </option>
+                    ))}
+                  </select>
+                  <input className="c-input" placeholder="Name" value={r.name} onChange={(e) => setRow(i, { name: e.target.value })} />
+                  <input className="c-input" type="email" placeholder="Email" value={r.email} onChange={(e) => setRow(i, { email: e.target.value })} />
+                  <input className="c-input" type="tel" placeholder="Phone" value={r.phone} onChange={(e) => setRow(i, { phone: e.target.value })} />
+                </div>
+              ))}
+              {rows.length < MAX_HANDOFF_CONTACTS && (
+                <button
+                  className="edit"
+                  style={{ marginTop: 10, padding: 0 }}
+                  onClick={() => setRows([...rows, { category: 'gc', name: '', phone: '', email: '' }])}
+                >
+                  + Add another contact (GC, designer…)
+                </button>
+              )}
               {err && <div className="err">{err}</div>}
               <div className="c-save">
                 <button className="btn blue" disabled={busy} onClick={save}>

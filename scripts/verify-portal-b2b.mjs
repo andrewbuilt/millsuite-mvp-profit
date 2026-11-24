@@ -101,6 +101,11 @@ const raw = {
     // Columns a real loader never selects — proving the model copies by name.
     bid_total: 184250, labor_margin_pct: 38, locked_shop_rate: 95, site_access_notes: 'SECRET-GATE-CODE',
     portal_token: 'tok_INTERNAL', internal_notes: 'INTERNAL slow payer',
+    handoff_contacts: [
+      { id: 'c1', category: 'gc', name: 'David A', phone: '941-555-0111', email: 'gc@x.test', margin_note: 'INTERNAL gc is slow' },
+      { id: 'c2', category: 'nonsense', name: 'Dana D', phone: null, email: null },
+      { id: 'c3', category: 'designer', name: '   ', phone: '555', email: null },
+    ],
   },
   subs: [
     { id: 's2', name: 'Conference', sort_order: 2 },
@@ -195,6 +200,34 @@ const payloadBlock = /export interface PreapprovalPortal \{[\s\S]*?\n\}/.exec(pa
 ok(!/bid|margin|cost|price|payment|deposit|internal|notes\b|siteAccess/i.test(payloadBlock), 'PreapprovalPortal has no field for money or internal notes')
 ok(!/\.\.\.(item|p|q|ph|d|r|e|input\.project|project)\b/.test(typeSrc), 'the read model never spreads a raw row (it copies by name)')
 
+console.log('PURE — other contacts (136)')
+const hc = await import('../lib/handoff-contacts.ts')
+ok(eq(v.you.contacts.map((c) => [c.categoryLabel, c.name]), [['GC', 'David A'], ['Other', 'Dana D']]), 'the portal lists the job’s other contacts with their category; nameless rows dropped, unknown category → Other')
+ok(eq(Object.keys(v.you.contacts[0]).sort(), ['category', 'categoryLabel', 'email', 'id', 'name', 'phone']), 'a contact is copied by name — six fields, nothing else rides along')
+const base = [{ id: 'c1', category: 'gc', name: 'David A', phone: '941-555-0111', email: 'gc@x.test' }]
+let m = hc.mergeClientContacts(base, [{ id: 'c1', category: 'gc', name: 'David Andrukaitis', phone: '', email: '' }, { category: 'designer', name: 'Dana Design', phone: '555-0199', email: 'dana@x.test' }])
+ok(m.contacts.length === 2 && m.contacts[0].name === 'David Andrukaitis' && m.contacts[0].phone === '941-555-0111', 'a client can correct a contact; an emptied phone/email is left as it was')
+ok(eq(m.changes.map((c) => hc.contactChangeText(c)), ['updated the GC contact', 'added a Designer contact']), 'each change reads as one activity line')
+m = hc.mergeClientContacts(base, [])
+ok(m.contacts.length === 1 && m.changes.length === 0, '⛔ leaving a contact out does NOT remove it — a client can never delete')
+m = hc.mergeClientContacts(base, [{ id: 'c1', category: 'gc', name: '', phone: '', email: '' }])
+ok(m.contacts[0].name === 'David A' && m.changes.length === 0, '⛔ blanking a contact’s name does not delete or change it')
+m = hc.mergeClientContacts(base, [{ id: 'c1', category: 'gc', name: 'David A', phone: '941-555-0111', email: 'gc@x.test' }])
+ok(m.changes.length === 0, 'an unchanged contact is not a change')
+m = hc.mergeClientContacts(base, [{ category: 'owner', name: 'O', email: 'not-an-email' }])
+ok(m.error && m.changes.length === 0, 'a bad email is refused')
+const full = Array.from({ length: hc.MAX_HANDOFF_CONTACTS }, (_, i) => ({ id: `x${i}`, category: 'other', name: `P${i}`, phone: null, email: null }))
+ok(hc.mergeClientContacts(full, [{ category: 'gc', name: 'One more' }]).error, 'the list is capped — a public link can’t grow it without bound')
+ok(hc.mergeClientContacts(base, 'junk').contacts.length === 1 && hc.mergeClientContacts(null, null).contacts.length === 0, 'junk input changes nothing')
+ok(hc.contactChangeText({ kind: 'added', category: 'owner' }) === 'added an Owner contact', '“an Owner”, not “a Owner”')
+ok(hc.normalizeHandoffContacts([{ name: 'A', id: 'd' }, { name: 'B', id: 'd' }]).map((c) => c.id).filter((x, i, a) => a.indexOf(x) === i).length === 2, 'duplicate ids are settled')
+ok(view.buildActivity({ ...raw, events: [{ id: 'e9', event_type: 'portal_contact_edit', label: 'Dave Pajot added a Designer contact', created_at: '2026-11-22T10:00:00Z' }] }).some((a) => a.who === 'Dave Pajot' && a.text === 'added a Designer contact'), 'an added contact shows in the activity')
+const handoffSrc = read('lib/handoff.ts')
+ok(/update\(\{ handoff_contacts: clean \}\)\s*\.eq\('id', projectId\)\s*\.select\('id'\)/.test(handoffSrc) && /if \(!data \|\| data\.length === 0\) throw new Error\('The project could not be updated\.'\)/.test(handoffSrc), 'the shop’s save selects back; zero rows = failure')
+ok(!/handoff_contacts/.test(handoffSrc.slice(handoffSrc.indexOf('export function handoffMissing'), handoffSrc.indexOf('export function handoffMissingPhrase'))), 'the production gate still reads only the point of contact')
+ok(/<OtherContacts projectId=\{projectId\} \/>/.test(read('components/project/HandoffCard.tsx')) && /CONTACT_CATEGORIES\.map/.test(read('components/project/HandoffCard.tsx')), 'the Handoff card has the contacts list with a category picker')
+ok(/mergeClientContacts\(\(cur as \{ handoff_contacts\?: unknown \} \| null\)\?\.handoff_contacts, body\?\.contacts\)/.test(read('lib/preapproval-portal.ts')), 'the portal’s contact write goes through the add-and-correct-only merge')
+
 console.log('PURE — contact edits, names, notify queue')
 const cur = { poc_name: 'Dave', delivery_address: '601 E Kennedy', client_deadline: 'March 1' }
 ok(eq(view.contactChanges(cur, { client_deadline: 'Feb 15' }), [{ field: 'client_deadline', value: 'Feb 15' }]), 'a changed field is a change')
@@ -250,7 +283,10 @@ ok(/CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_portal_token[\s\S]*?WHERE por
 ok(/approval_item_id uuid NOT NULL REFERENCES public\.approval_items\(id\) ON DELETE CASCADE/.test(sql) && /project_id\s+uuid NOT NULL REFERENCES public\.projects\(id\) ON DELETE CASCADE/.test(sql), 'both new tables cascade from their parent')
 ok(/COMMIT;\s*NOTIFY pgrst, 'reload schema';\s*$/.test(sql.trim() + '\n'.trim()) || /NOTIFY pgrst, 'reload schema';\s*$/.test(sql.trim()), '135 ends with NOTIFY pgrst')
 const migs = fs.readdirSync('db/migrations').filter((f) => /^\d+_.*\.sql$/.test(f)).sort()
-ok(migs[migs.length - 1] === '135_preapproval_portal.sql', '135 is the highest migration')
+ok(migs.includes('135_preapproval_portal.sql') && migs[migs.length - 1] === '136_handoff_contacts.sql', '135 is there; 136 (contacts) is the highest migration')
+const sql136 = stripSqlComments(read('db/migrations/136_handoff_contacts.sql'))
+ok(/ADD COLUMN IF NOT EXISTS handoff_contacts jsonb NOT NULL DEFAULT '\[\]'::jsonb/.test(sql136) && /NOTIFY pgrst, 'reload schema';\s*$/.test(sql136.trim()), '136 adds handoff_contacts idempotently and ends with NOTIFY')
+ok(!/\banon\b|GRANT\b|POLICY\b/i.test(sql136), '136 grants nothing and adds no policy (rides the projects policy)')
 
 const routeDir = 'app/api/p/[token]'
 const routes = fs.readdirSync(routeDir).map((d) => path.join(routeDir, d, 'route.ts'))

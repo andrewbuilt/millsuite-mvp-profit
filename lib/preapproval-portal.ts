@@ -25,6 +25,7 @@
 import { randomBytes, randomUUID } from 'crypto'
 import { supabaseAdmin } from './supabase-admin'
 import { draftCoItemIds } from './client-portal'
+import { contactChangeText, mergeClientContacts } from './handoff-contacts'
 import {
   buildPortalView,
   cleanPortalName,
@@ -184,7 +185,7 @@ export async function resolvePortalPm(orgId: string): Promise<ResolvedPm> {
 // ── Read ────────────────────────────────────────────────────────────────────
 
 const PROJECT_COLS =
-  'id, name, client_name, sold_at, lead_time_weeks, portal_token_issued_at, poc_name, poc_email, poc_phone, delivery_address, client_deadline'
+  'id, name, client_name, sold_at, lead_time_weeks, portal_token_issued_at, poc_name, poc_email, poc_phone, delivery_address, client_deadline, handoff_contacts'
 const SUB_COLS = 'id, name, sort_order'
 const ITEM_COLS =
   'id, subproject_id, label, material, finish, state, ball_in_court, last_state_change_at, item_kind, link_url, created_at'
@@ -592,32 +593,36 @@ export async function portalAskQuestion(
  */
 export async function portalEditContact(
   token: string,
-  body: { fields?: unknown } | null,
+  body: { fields?: unknown; contacts?: unknown } | null,
 ): Promise<PortalWriteResult> {
   const id = await resolveProjectPortalToken(token)
   if (!id) return NOT_FOUND
   const { data: cur } = await supabaseAdmin
     .from('projects')
-    .select('poc_name, poc_email, poc_phone, delivery_address, client_deadline, client_name')
+    .select('poc_name, poc_email, poc_phone, delivery_address, client_deadline, client_name, handoff_contacts')
     .eq('id', id.projectId)
     .maybeSingle()
   const current = (cur || {}) as Record<string, string | null>
   const changes = contactChanges(current, body?.fields)
-  if (changes.length === 0) return { status: 200, body: { ok: true, changed: 0 } }
+  // 136 — the job's other contacts. A client can add and correct, never remove.
+  const merged = mergeClientContacts((cur as { handoff_contacts?: unknown } | null)?.handoff_contacts, body?.contacts)
+  if (merged.error) return bad(merged.error)
+  if (changes.length === 0 && merged.changes.length === 0) return { status: 200, body: { ok: true, changed: 0 } }
 
   const emailChange = changes.find((c) => c.field === 'poc_email')
   if (emailChange && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailChange.value)) return bad('That email doesn’t look right')
 
-  const patch: Record<string, string> = { updated_at: new Date().toISOString() }
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const c of changes) patch[c.field] = c.value
+  if (merged.changes.length > 0) patch.handoff_contacts = merged.contacts
   const { data: updated, error } = await supabaseAdmin.from('projects').update(patch).eq('id', id.projectId).select('id')
   if (error) return failed(error.message)
   if (!updated || updated.length === 0) return failed('Nothing was updated')
 
   const who =
     (changes.find((c) => c.field === 'poc_name')?.value || current.poc_name || current.client_name || 'Client').trim()
-  await supabaseAdmin.from('project_events').insert(
-    changes.map((c) => ({
+  await supabaseAdmin.from('project_events').insert([
+    ...changes.map((c) => ({
       org_id: id.orgId,
       project_id: id.projectId,
       event_type: 'portal_contact_edit',
@@ -625,8 +630,16 @@ export async function portalEditContact(
       meta: { field: c.field, from: current[c.field] ?? null, to: c.value, source: 'portal' },
       actor_user_id: null,
     })),
-  )
-  return { status: 200, body: { ok: true, changed: changes.length } }
+    ...merged.changes.map((c) => ({
+      org_id: id.orgId,
+      project_id: id.projectId,
+      event_type: 'portal_contact_edit',
+      label: `${who} ${contactChangeText(c)}`,
+      meta: { field: 'handoff_contacts', kind: c.kind, category: c.category, name: c.name, source: 'portal' },
+      actor_user_id: null,
+    })),
+  ])
+  return { status: 200, body: { ok: true, changed: changes.length + merged.changes.length } }
 }
 
 /** Upload one photo's bytes + its row together; the row is inserted only

@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase'
 import { ConfirmProvider } from '@/components/confirm-dialog'
 import ApprovalSlots from '@/components/approval-slots'
 import PortalAdminCard from '@/components/preapproval/PortalAdminCard'
+import HandoffCard from '@/components/project/HandoffCard'
 import { buildNotifyEmail, type PortalActivityEntry } from '@/lib/preapproval-view'
 
 type Row = Record<string, any>
@@ -45,7 +46,7 @@ function seed() {
     { id: 'r1', approval_item_id: 'a2', action: 'approved', note: 'Approved in the portal', actor_user_id: null, actor_name: 'Dave Pajot', occurred_at: ago(30) },
   ]
   db.subprojects = [{ id: 's1', project_id: 'p1', org_id: 'org1', name: 'Reception Desk' }]
-  db.projects = [{ id: 'p1', lead_time_weeks: null }]
+  db.projects = [{ id: 'p1', lead_time_weeks: null, handoff_contacts: [{ id: 'c1', category: 'gc', name: 'David Andrukaitis', phone: '1-941-555-0111', email: 'build@example.com' }] }]
   db.tasks = [{ id: 't1', org_id: 'org1', title: 'Portal question — Hunt', done_at: null }]
   db.portal_questions = [
     { id: 'q1', project_id: 'p1', body: 'Is the desk shipped assembled?', author_name: 'Dave Pajot', created_at: ago(5), answer: null, answered_by: null, answered_at: null, task_id: 't1' },
@@ -181,6 +182,11 @@ export default function PreapprovalPreproFixture() {
           <div className="text-xs text-[#9CA3AF] mb-3">
             DEV fixture · pre-production side of the approval portal (migration 135) · in-memory, nothing saved
           </div>
+          <HandoffCard
+            projectId="p1"
+            values={{ poc_name: 'Bryan Hunt', poc_phone: '555-0100', poc_email: 'bryan@example.com', delivery_address: '7981 2nd Ave S', client_deadline: 'End of February' }}
+            onSaved={() => {}}
+          />
           <PortalAdminCard projectId="p1" orgId="org1" userId="u1" refreshKey={refresh} />
           <section className="bg-white border border-[#E5E7EB] rounded-2xl overflow-hidden">
             <div className="px-[18px] py-3.5 border-b border-[#F3F4F6] text-[15px] font-semibold text-[#111]">
