@@ -394,6 +394,8 @@ export function buildActivity(input: RawPortalInput): PortalActivityEntry[] {
       // A shop-recorded approval of a rev logged in the same instant ("accepted
       // with no revision logged") is one event, not two.
       if (!fromClient && d.state === 'approved' && d.responded_at === d.submitted_at) continue
+      // The shop pulling its own revision back is shop housekeeping, not news.
+      if (!fromClient && d.state === 'pending') continue
       out.push({
         key: `dr-re-${d.id}`,
         at: d.responded_at,
@@ -401,7 +403,7 @@ export function buildActivity(input: RawPortalInput): PortalActivityEntry[] {
         text:
           d.state === 'approved'
             ? `${fromClient ? 'approved' : 'recorded approval of'} ${sub} drawings Rev ${d.revision_number}`
-            : `${fromClient ? 'requested a change on' : 'reopened'} ${sub} drawings Rev ${d.revision_number}`,
+            : `requested a change on ${sub} drawings Rev ${d.revision_number}`,
         kind: 'state',
         fromClient,
       })
