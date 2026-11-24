@@ -105,6 +105,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // /{shop}/portal (the worker login) and cannot collide with it: 'portal' is
     // in RESERVED_SLUGS, so no org can hold that first segment.
     pathname.startsWith('/portal/') ||
+    // 135 — the B2B pre-approval portal, /p/{token}. Same deal: the link is
+    // the key. ('p' is reserved, so being a real route would otherwise bounce
+    // a logged-out client to /login.)
+    pathname.startsWith('/p/') ||
     isShopLoginPath
 
   const loadUserData = useCallback(async (authId: string) => {

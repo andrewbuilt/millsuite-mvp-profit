@@ -49,6 +49,9 @@ export const RESERVED_SLUGS = new Set([
   // untidy into load-bearing. ⚠️ NEW APP ROUTE ⇒ ADD IT HERE.
   'payments',
   'pm',
+  // 135 — /p/{token} is the B2B pre-approval portal (public by link). Reserved
+  // so no shop can be handed the slug "p" and shadow every client's link.
+  'p',
   'projects',
   'qb-reconciliation',
   'rate-book',
