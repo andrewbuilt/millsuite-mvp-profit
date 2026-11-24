@@ -365,7 +365,7 @@ function ContactsCard({ p, actions }: { p: PreapprovalPortal; actions: PortalAct
         </div>
         <div className="col">
           <div className="c-head">
-            <span className="c-title">Your info — keep it current</span>
+            <span className="c-title">Your info</span>
             {!editing && (
               <button
                 className="edit"
@@ -439,8 +439,9 @@ interface Shared {
 }
 
 function SubCard({ sub, ...shared }: { sub: PortalSubView } & Shared) {
-  // All-approved subprojects start collapsed; anything with work in it is open.
-  const [open, setOpen] = useState(!sub.allApproved)
+  // Every subproject starts collapsed (Andrew, 2026-11-24): the page opens as
+  // a short list of headers with their "N of M approved" counts.
+  const [open, setOpen] = useState(false)
   return (
     <div className={`sub ${open ? 'open' : 'closed'}`} data-testid={`portal-sub-${sub.id}`}>
       <button className="sub-head" onClick={() => setOpen(!open)} aria-expanded={open}>

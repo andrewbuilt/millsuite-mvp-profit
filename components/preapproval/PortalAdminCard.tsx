@@ -154,7 +154,7 @@ export default function PortalAdminCard({
       </div>
 
       {/* 1 · the link  +  2 · lead time */}
-      <div className="px-[18px] py-3 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-x-6 gap-y-3 items-end border-b border-[#F3F4F6]">
+      <div className="px-[18px] py-3 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-3 items-end border-b border-[#F3F4F6]">
         <div className="min-w-0">
           <div className="text-[11px] text-[#6B7280] mb-1">Portal link</div>
           {state?.link ? (

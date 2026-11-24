@@ -604,8 +604,12 @@ export default function PreProductionPage() {
       </div>
 
       {/* Main grid — cards beside the sticky punch list */}
-      <div className="max-w-[1240px] mx-auto px-8 pt-6 pb-16 grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5 items-start">
-        <div>
+      {/* minmax(0,1fr) + min-w-0, not a bare 1fr: a bare 1fr can't shrink below
+          its widest unbreakable child (one long truncated line is enough), and
+          when that happened the cards grew and pushed "What's left" off the
+          right edge of the screen. */}
+      <div className="max-w-[1240px] mx-auto px-8 pt-6 pb-16 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
+        <div className="min-w-0">
           <HandoffCard
             projectId={projectId}
             values={project}
@@ -666,8 +670,8 @@ export default function PreProductionPage() {
                     Drawings gets 320px and only splits at xl. Its buttons
                     (Submit Rev N · Accepted, Nov batch 2) wrap on one row
                     instead of overlapping. Below xl the tracks stack. */}
-                <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px]">
-                  <div className="xl:border-r border-[#F3F4F6] border-b xl:border-b-0 pb-3">
+                <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="min-w-0 xl:border-r border-[#F3F4F6] border-b xl:border-b-0 pb-3">
                     <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-[0.08em] px-[18px] pt-3 pb-1.5">
                       Approvals
                     </div>
@@ -736,7 +740,7 @@ export default function PreProductionPage() {
         </div>
 
         {/* Sticky punch list. Stacks below the cards under lg. */}
-        <div className="lg:sticky lg:top-[64px]">
+        <div className="min-w-0 lg:sticky lg:top-[64px]">
           <div className="bg-white border border-[#E5E7EB] rounded-2xl px-[18px] py-4">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9CA3AF] mb-3">
               What's left
