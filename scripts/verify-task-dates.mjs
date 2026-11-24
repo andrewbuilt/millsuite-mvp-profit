@@ -79,7 +79,8 @@ ok(readers.length === 0, `nothing outside lib/tasks reads the stored bucket${rea
 const lib = fs.readFileSync('lib/tasks.ts', 'utf8')
 ok(/update\.bucket = legacyBucketFor\(patch\.need_by\)/.test(lib) && /bucket: legacyBucketFor\(/.test(lib), 'the NOT NULL bucket is still written (derived) on create + update')
 for (const f of ['components/tasks/TasksPanel.tsx', 'app/(app)/tasks/page.tsx', 'components/tasks/ProjectTaskButton.tsx', 'components/tasks/TaskRow.tsx'])
-  ok(/NeedByPicker|groupTasks|groupDropDate/.test(fs.readFileSync(f, 'utf8')), `${f} uses the date model`)
+  // (2026-11-24: ProjectTaskButton creates through NewTaskModal, which carries the NeedByPicker.)
+  ok(/NeedByPicker|groupTasks|groupDropDate|NewTaskModal/.test(fs.readFileSync(f, 'utf8')), `${f} uses the date model`)
 ok(/\['overdue', 'today'\]\.includes\(taskGroup/.test(fs.readFileSync('app/(app)/pm/page.tsx', 'utf8')), "/pm Today = due today + overdue")
 
 console.log(bad ? `\nFAIL — ${bad} of ${n}` : `\nPASS — ${n} checks`)

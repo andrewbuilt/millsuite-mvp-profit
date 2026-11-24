@@ -17,7 +17,6 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import TitleTextarea from '@/components/tasks/TitleTextarea'
 import Link from 'next/link'
 import { Plus, Settings2, X } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
@@ -28,15 +27,13 @@ import {
   groupTasks,
   localISO,
   TASK_TAG_COLORS,
-  createTask,
   setTaskDone,
   updateTask,
   type Task,
   type TaskGroup,
 } from '@/lib/tasks'
-import { pickableProjects, useTasks, type TaskProjectRef } from './TasksProvider'
-import NeedByPicker from './NeedByPicker'
-import { TaskRow, taskFirstName as firstName } from './TaskRow'
+import { useTasks, type TaskProjectRef } from './TasksProvider'
+import { NewTaskModal, TaskRow, taskFirstName as firstName } from './TaskRow'
 import { TaskArchive } from './TaskArchive'
 import CompletedForYou from './CompletedForYou'
 import { TaskTagChip } from './TaskTagChip'
@@ -83,15 +80,8 @@ export default function TasksPanel() {
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [managingTags, setManagingTags] = useState(false)
   const tagGearRef = useRef<HTMLButtonElement>(null)
-  const [adding, setAdding] = useState(false)
-  const [newTitle, setNewTitle] = useState('')
-  const [newNeedBy, setNewNeedBy] = useState<string | null>(() => localISO())
-  const [newCritical, setNewCritical] = useState(false)
-  const [newAssignees, setNewAssignees] = useState<string[]>([])
-  /** Project chosen while typing the task. Seeded from `projectFilter` so a
-   *  task started from a project's "Tasks · N" still lands on that project
-   *  without the operator re-picking it. */
-  const [newProjectId, setNewProjectId] = useState<string>('')
+  /** "New task" opens the task modal in create mode (no inline form). */
+  const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -114,13 +104,6 @@ export default function TasksPanel() {
       /* ignore */
     }
   }, [filter])
-
-  // Follow the drawer's project filter: opening it from a project should
-  // pre-select that project, and clearing the filter shouldn't strand a
-  // selection the operator can no longer see.
-  useEffect(() => {
-    setNewProjectId(projectFilter ?? '')
-  }, [projectFilter])
 
   const projectById = useMemo(() => {
     const m = new Map<string, TaskProjectRef>()
@@ -196,29 +179,6 @@ export default function TasksPanel() {
     } finally {
       setBusy(false)
     }
-  }
-
-  async function handleCreate() {
-    const title = newTitle.trim()
-    if (!title || !user) return
-    await run(async () => {
-      await createTask({
-        orgId: user.org_id,
-        title,
-        needBy: newNeedBy,
-        critical: newCritical,
-        projectId: newProjectId || null,
-        assigneeIds: newAssignees,
-        createdBy: user.id,
-        seenBy: myAssigneeId ? [myAssigneeId] : [],
-      })
-      setNewTitle('')
-      setNewNeedBy(localISO())
-      setNewCritical(false)
-      setNewAssignees([])
-      setNewProjectId(projectFilter ?? '')
-      setAdding(false)
-    })
   }
 
   /** Drop a dragged task onto a group = restamp to that group's date
@@ -367,110 +327,14 @@ export default function TasksPanel() {
 
         {/* New task */}
         <div className="px-4 py-2.5 border-b border-[#F3F4F6]">
-          {adding ? (
-            <div className="space-y-2">
-              <TitleTextarea
-                autoFocus
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleCreate()
-                  if (e.key === 'Escape') {
-                    setAdding(false)
-                    setNewTitle('')
-                  }
-                }}
-                placeholder="What needs doing?"
-                className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
-              />
-              <NeedByPicker
-                value={newNeedBy}
-                critical={newCritical}
-                onChange={(d, c) => {
-                  setNewNeedBy(d)
-                  setNewCritical(c)
-                }}
-              />
-              {/* Project, AT CREATE TIME. Same gap as assignment had: it only
-                  existed inside an expanded row, so linking a task to a job
-                  meant adding it, saving, reopening it and picking. */}
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1">
-                  Project
-                </div>
-                <select
-                  value={newProjectId}
-                  onChange={(e) => setNewProjectId(e.target.value)}
-                  className="w-full px-2 py-1.5 text-[12.5px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
-                >
-                  <option value="">No project</option>
-                  {pickableProjects(projects, newProjectId).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {/* Who it's for, AT CREATE TIME. This was the whole gap in the
-                  first cut: assignment only existed inside an expanded row, so
-                  from the drawer there was no way to hand a task to anyone. */}
-              {pickable.length > 0 && (
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1">
-                    Who's doing it
-                  </div>
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {pickable.map((a) => {
-                      const on = newAssignees.includes(a.id)
-                      return (
-                        <button
-                          key={a.id}
-                          onClick={() =>
-                            setNewAssignees((prev) =>
-                              on ? prev.filter((x) => x !== a.id) : [...prev, a.id],
-                            )
-                          }
-                          className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
-                            on
-                              ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                              : 'bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]'
-                          }`}
-                        >
-                          {firstName(a.name)}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <button
-                  disabled={busy || !newTitle.trim()}
-                  onClick={() => void handleCreate()}
-                  className="px-3 py-1.5 rounded-md bg-[#2563EB] text-white text-[12px] font-medium hover:bg-[#1D4ED8] disabled:opacity-50"
-                >
-                  Add task
-                </button>
-                <button
-                  onClick={() => {
-                    setAdding(false)
-                    setNewTitle('')
-                    setNewProjectId(projectFilter ?? '')
-                  }}
-                  className="px-3 py-1.5 rounded-md border border-[#E5E7EB] text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setAdding(true)}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-dashed border-[#D1D5DB] text-[#6B7280] text-[12px] hover:border-[#2563EB] hover:text-[#2563EB] transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" /> New task
-            </button>
-          )}
+          {/* Opened from a project's "Tasks · N", the new task starts on that
+              project. */}
+          <button
+            onClick={() => setCreating(true)}
+            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-dashed border-[#D1D5DB] text-[#6B7280] text-[12px] hover:border-[#2563EB] hover:text-[#2563EB] transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> New task
+          </button>
         </div>
 
         {/* Buckets */}
@@ -560,6 +424,15 @@ export default function TasksPanel() {
           )}
         </div>
       </aside>
+
+      {creating && (
+        <NewTaskModal
+          preset={{ needBy: localISO(), projectId: projectFilter }}
+          orgId={user?.org_id}
+          userId={user?.id ?? null}
+          onClose={() => setCreating(false)}
+        />
+      )}
     </>
   )
 }

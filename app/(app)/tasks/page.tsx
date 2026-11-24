@@ -13,12 +13,11 @@
 // ============================================================================
 
 import { useCallback, useMemo, useRef, useState } from 'react'
-import TitleTextarea from '@/components/tasks/TitleTextarea'
 import Link from 'next/link'
 import PlanGate from '@/components/plan-gate'
 import { useAuth } from '@/lib/auth-context'
-import { pickableProjects, useTasks } from '@/components/tasks/TasksProvider'
-import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
+import { useTasks } from '@/components/tasks/TasksProvider'
+import { NewTaskModal, TaskRow, taskFirstName, type NewTaskPreset } from '@/components/tasks/TaskRow'
 import { TaskArchive } from '@/components/tasks/TaskArchive'
 import { TaskTagChip } from '@/components/tasks/TaskTagChip'
 import { TagManager } from '@/components/tasks/TagManager'
@@ -30,7 +29,6 @@ import {
   groupDropDate,
   groupTasks,
   localISO,
-  createTask,
   setTaskDone,
   updateTask,
   type Task,
@@ -66,12 +64,9 @@ export default function TasksPage() {
   // the login has no roster row — see the panel's `visible` for why.
   const [filter, setFilter] = useState<string>('mine')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [addingIn, setAddingIn] = useState<TaskGroup | null>(null)
-  const [newTitle, setNewTitle] = useState('')
-  const [newAssignees, setNewAssignees] = useState<string[]>([])
-  /** Project chosen while typing. Same gap the drawer had: linking a task to a
-   *  job used to mean add → save → reopen → pick. */
-  const [newProjectId, setNewProjectId] = useState<string>('')
+  /** "+ Add" under a column opens the task modal in create mode, with that
+   *  column's date preset. No inline form — see NewTaskModal. */
+  const [creating, setCreating] = useState<NewTaskPreset | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -141,27 +136,6 @@ export default function TasksPage() {
     } finally {
       setBusy(false)
     }
-  }
-
-  // Adding in a column stamps that column's date.
-  async function handleCreate(bucket: Exclude<TaskGroup, 'overdue'>) {
-    const title = newTitle.trim()
-    if (!title || !user) return
-    await run(async () => {
-      await createTask({
-        orgId: user.org_id,
-        title,
-        needBy: groupDropDate(bucket),
-        projectId: newProjectId || null,
-        assigneeIds: newAssignees,
-        createdBy: user.id,
-        seenBy: myAssigneeId ? [myAssigneeId] : [],
-      })
-      setNewTitle('')
-      setNewAssignees([])
-      setNewProjectId('')
-      setAddingIn(null)
-    })
   }
 
   /** Drop = restamp to the column's date (Overdue isn't a target). */
@@ -331,84 +305,10 @@ export default function TasksPage() {
                     />
                   ))}
 
-                  {b === 'overdue' ? null : addingIn === b ? (
-                    <div className="mt-2 border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-2 space-y-2">
-                      <TitleTextarea
-                        autoFocus
-                        value={newTitle}
-                        onChange={(e) => setNewTitle(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void handleCreate(b)
-                          if (e.key === 'Escape') {
-                            setAddingIn(null)
-                            setNewTitle('')
-                          }
-                        }}
-                        placeholder="What needs doing?"
-                        className="w-full px-2 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md focus:outline-none focus:border-[#2563EB]"
-                      />
-                      <select
-                        value={newProjectId}
-                        onChange={(e) => setNewProjectId(e.target.value)}
-                        className="w-full px-2 py-1.5 text-[12px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
-                      >
-                        <option value="">No project</option>
-                        {pickableProjects(projects, newProjectId).map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {pickable.map((a) => {
-                          const on = newAssignees.includes(a.id)
-                          return (
-                            <button
-                              key={a.id}
-                              onClick={() =>
-                                setNewAssignees((prev) =>
-                                  on ? prev.filter((x) => x !== a.id) : [...prev, a.id],
-                                )
-                              }
-                              className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
-                                on
-                                  ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                                  : 'bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]'
-                              }`}
-                            >
-                              {taskFirstName(a.name)}
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          disabled={busy || !newTitle.trim()}
-                          onClick={() => void handleCreate(b)}
-                          className="px-2.5 py-1 rounded-md bg-[#2563EB] text-white text-[12px] font-medium hover:bg-[#1D4ED8] disabled:opacity-50"
-                        >
-                          Add
-                        </button>
-                        <button
-                          onClick={() => {
-                            setAddingIn(null)
-                            setNewTitle('')
-                            setNewProjectId('')
-                          }}
-                          className="px-2.5 py-1 rounded-md border border-[#E5E7EB] text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
+                  {b === 'overdue' ? null : (
                     <button
-                      onClick={() => {
-                        setAddingIn(b)
-                        setNewTitle('')
-                        setNewAssignees([])
-                        setNewProjectId('')
-                      }}
+                      // The column clicked presets the date (Someday → none).
+                      onClick={() => setCreating({ needBy: groupDropDate(b) })}
                       className="w-full mt-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border border-dashed border-[#E5E7EB] text-[#9CA3AF] text-[11.5px] hover:border-[#2563EB] hover:text-[#2563EB] transition-colors"
                     >
                       <Plus className="w-3 h-3" /> Add
@@ -435,6 +335,15 @@ export default function TasksPage() {
             taskTags={taskTags}
           />
         </div>
+
+        {creating && (
+          <NewTaskModal
+            preset={creating}
+            orgId={user?.org_id}
+            userId={user?.id ?? null}
+            onClose={() => setCreating(null)}
+          />
+        )}
       </div>
     </PlanGate>
   )

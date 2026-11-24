@@ -202,6 +202,99 @@ export function formatDoneAt(iso: string | null, now = new Date()): string {
   })
 }
 
+/** "Nov 24, 2:41 PM" — when an update was posted. No seconds; the year
+ *  only when it isn't this one (same rule as formatDoneAt). */
+export function formatCommentAt(iso: string | null, now = new Date()): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+// ── @mentions (task updates round, 2026-11-24) ─────────────────────────────
+// No new columns: a mention is just `@Name` text in the comment body, matched
+// against the roster when it's posted (to assign) and when it's drawn (to
+// style). ROSTER ids throughout — the assignee id space.
+
+export interface MentionPerson {
+  id: string
+  name: string
+}
+
+const firstWord = (name: string) => (name || '').trim().split(/\s+/)[0] || ''
+const WORD_CHAR = /[\p{L}\p{N}_]/u
+
+/** What the picker inserts after the @: the first name, or the FULL name when
+ *  two people on the roster share that first name. Pure. */
+export function mentionHandle(person: MentionPerson, roster: MentionPerson[]): string {
+  const first = firstWord(person.name)
+  const shared = roster.some((r) => r.id !== person.id && firstWord(r.name).toLowerCase() === first.toLowerCase())
+  return shared || !first ? person.name.trim() : first
+}
+
+/**
+ * Every `@Name` in `body` that resolves to someone on the roster, in order.
+ * A full name always matches; a bare first name matches only when it's
+ * unambiguous. The @ must start a word (so an email address isn't a mention)
+ * and the name must end one (so @Matt doesn't fire inside @Matthew). Pure.
+ */
+export function findMentions(
+  body: string,
+  roster: MentionPerson[],
+): { start: number; end: number; id: string }[] {
+  const handles: { text: string; id: string }[] = []
+  for (const p of roster) {
+    const full = p.name.trim()
+    if (!full) continue
+    handles.push({ text: full.toLowerCase(), id: p.id })
+    const h = mentionHandle(p, roster)
+    if (h.toLowerCase() !== full.toLowerCase()) handles.push({ text: h.toLowerCase(), id: p.id })
+  }
+  // Longest first, so "@Hunter Smith" isn't cut short at "@Hunter".
+  handles.sort((a, b) => b.text.length - a.text.length)
+  const lower = body.toLowerCase()
+  const out: { start: number; end: number; id: string }[] = []
+  let i = 0
+  while (i < body.length) {
+    if (body[i] !== '@' || (i > 0 && (WORD_CHAR.test(body[i - 1]) || body[i - 1] === '@'))) {
+      i++
+      continue
+    }
+    const hit = handles.find((h) => {
+      const end = i + 1 + h.text.length
+      return lower.startsWith(h.text, i + 1) && (end >= body.length || !WORD_CHAR.test(body[end]))
+    })
+    if (!hit) {
+      i++
+      continue
+    }
+    out.push({ start: i, end: i + 1 + hit.text.length, id: hit.id })
+    i += 1 + hit.text.length
+  }
+  return out
+}
+
+/**
+ * What posting an update does to the task (pure): anyone @mentioned who isn't
+ * on it yet is ADDED to assignee_ids (Andrew's call), and seen_by collapses to
+ * just the poster — so every other assignee's blue badge (133) lights again.
+ */
+export function taskAfterPost(
+  task: Pick<Task, 'assignee_ids' | 'seen_by'>,
+  posterRosterId: string | null,
+  mentionedIds: string[],
+): { assignee_ids: string[]; seen_by: string[] } {
+  const assignee_ids = [...task.assignee_ids]
+  for (const id of mentionedIds) if (id && !assignee_ids.includes(id)) assignee_ids.push(id)
+  return { assignee_ids, seen_by: posterRosterId ? [posterRosterId] : [] }
+}
+
 /**
  * Calendar days past need_by — 0 means "no chip". One truth (132): overdue =
  * need_by < today. Retires the 112 bucket_changed_at clock. Math.round, not
@@ -750,6 +843,10 @@ export async function createTask(input: {
   /** 133. ROSTER ids that have already "seen" it — the creator, when they
    *  assign themselves, so their own new task doesn't light their badge. */
   seenBy?: string[]
+  /** 134. Free text; blank = none. */
+  description?: string | null
+  /** 098. Reference links (create-mode modal). */
+  links?: TaskLink[]
 }): Promise<Task> {
   const title = input.title.trim()
   if (!title) throw new Error('A task needs a title.')
@@ -769,6 +866,9 @@ export async function createTask(input: {
   }
   // Only name 098's columns when they exist, or the insert itself 42703s.
   if (extrasReady() && input.tags?.length) row.tags = normalizeTags(input.tags)
+  if (extrasReady() && input.links?.length) row.links = normalizeLinks(input.links)
+  // Named only when there IS one, so a blank description never touches 134.
+  if (input.description?.trim()) row.description = input.description.trim()
 
   // ⚠️ The RETURNING clause names the 098 columns too, so a create can fail on
   // a pre-098 database even when the INSERT itself is fine. This had no
@@ -789,7 +889,7 @@ export async function createTask(input: {
     if (!next) break
     cols = next
     if (cols === TASK_COLUMNS_BASE) {
-      const { tags: _dropped, ...base } = body
+      const { tags: _dropped, links: _droppedLinks, ...base } = body
       body = base
     }
     ;({ data, error } = await attempt(cols, body))
@@ -1003,4 +1103,58 @@ export async function addComment(input: {
     throw new Error(error?.message || 'Could not add the comment.')
   }
   return data as TaskComment
+}
+
+/**
+ * Post an update AND re-alert the task (task updates round, 2026-11-24).
+ *
+ * The comment insert is `addComment`, unchanged. Then, same read-modify-write
+ * as `markTaskSeen` (re-read the row first so a teammate's change landing at
+ * the same moment isn't overwritten): @mentioned people who aren't on the
+ * task are added to assignee_ids, and seen_by collapses to just the poster —
+ * `taskAfterPost`.
+ *
+ * ⚠️ Two writes, and the comment is the one that matters: if the re-alert
+ * fails the comment is still posted, so this returns `alerted: false` rather
+ * than throwing — throwing would make the composer restore the text and the
+ * person would post it twice.
+ */
+export async function postTaskUpdate(input: {
+  orgId: string
+  taskId: string
+  body: string
+  authorUserId?: string | null
+  /** The poster's ROSTER id (null when their login isn't linked). */
+  posterRosterId: string | null
+  /** ROSTER ids @mentioned in the body. */
+  mentionedIds: string[]
+}): Promise<{ comment: TaskComment; alerted: boolean }> {
+  const comment = await addComment(input)
+  const { data: row, error: readErr } = await supabase
+    .from('tasks')
+    .select('assignee_ids, seen_by')
+    .eq('id', input.taskId)
+    .eq('org_id', input.orgId)
+    .maybeSingle()
+  if (readErr || !row) {
+    console.warn('postTaskUpdate read', readErr)
+    return { comment, alerted: false }
+  }
+  const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  const next = taskAfterPost(
+    { assignee_ids: strs((row as any).assignee_ids), seen_by: strs((row as any).seen_by) },
+    input.posterRosterId,
+    input.mentionedIds,
+  )
+  const { data, error } = await supabase
+    .from('tasks')
+    .update({ ...next, updated_at: new Date().toISOString() })
+    .eq('id', input.taskId)
+    .eq('org_id', input.orgId)
+    .select('id')
+  if (error || !data || data.length === 0) {
+    console.warn('postTaskUpdate re-alert', error)
+    return { comment, alerted: false }
+  }
+  return { comment, alerted: true }
 }

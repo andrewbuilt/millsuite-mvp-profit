@@ -38,7 +38,6 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import TitleTextarea from '@/components/tasks/TitleTextarea'
 import Link from 'next/link'
 import { ArrowUpRight, CheckCircle2, Plus, Receipt } from 'lucide-react'
 import PlanGate from '@/components/plan-gate'
@@ -60,12 +59,12 @@ import {
   sumOverheadAnnual,
   sumTeamAnnualComp,
 } from '@/lib/shop-rate-setup'
-import { pickableProjects, useTasks } from '@/components/tasks/TasksProvider'
+import { useTasks } from '@/components/tasks/TasksProvider'
 import CompletedForYou from '@/components/tasks/CompletedForYou'
 import { MentionsStrip } from '@/components/project/MentionsStrip'
 import { fireDueReviewTasks } from '@/lib/employee-reviews'
-import { TaskRow, taskFirstName } from '@/components/tasks/TaskRow'
-import { GROUP_LABEL, TASK_TAG_COLORS, comparePriority, createTask, localISO, taskGroup, type Task } from '@/lib/tasks'
+import { NewTaskModal, TaskRow } from '@/components/tasks/TaskRow'
+import { GROUP_LABEL, TASK_TAG_COLORS, comparePriority, localISO, taskGroup, type Task } from '@/lib/tasks'
 import {
   buildForecastView,
   currentMonth,
@@ -231,14 +230,11 @@ function TodayCard() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Quick-create, right on the dashboard (Andrew, 2026-09-23) — capturing a
-  // task shouldn't mean leaving the page you noticed it on. Bucket is FIXED
-  // to Today: this card IS Today, and a picker here would let you create a
-  // task that instantly vanishes from the card you're looking at.
-  const [adding, setAdding] = useState(false)
-  const [newTitle, setNewTitle] = useState('')
-  const [newProjectId, setNewProjectId] = useState('')
-  const [newAssignees, setNewAssignees] = useState<string[]>([])
+  // "New task" right on the dashboard (Andrew, 2026-09-23) — capturing a task
+  // shouldn't mean leaving the page you noticed it on. Opens the task modal
+  // in create mode, preset to Today and to the viewer: a task typed on YOUR
+  // day page is usually yours, due today.
+  const [creating, setCreating] = useState(false)
 
   const pickable = useMemo(() => assignees.filter((a) => a.tasksEnabled), [assignees])
   const nameById = useMemo(() => {
@@ -308,36 +304,6 @@ function TodayCard() {
     }
   }
 
-  /** Opens the form with the viewer pre-picked — "assignee = viewer" is the
-   *  default because a task typed on YOUR day page is usually yours. Cleared
-   *  chips stay cleared; this only seeds the open. */
-  function openAdd() {
-    setNewTitle('')
-    setNewProjectId('')
-    setNewAssignees(myAssigneeId ? [myAssigneeId] : [])
-    setAdding(true)
-  }
-
-  async function handleCreate() {
-    const title = newTitle.trim()
-    if (!title || !user) return
-    await run(async () => {
-      await createTask({
-        orgId: user.org_id,
-        title,
-        needBy: localISO(),
-        projectId: newProjectId || null,
-        assigneeIds: newAssignees,
-        createdBy: user.id,
-        seenBy: myAssigneeId ? [myAssigneeId] : [],
-      })
-      setAdding(false)
-      setNewTitle('')
-      setNewProjectId('')
-      setNewAssignees([])
-    })
-  }
-
   /** ⚠️ Must match TasksPanel and /tasks: the registry is ORG-WIDE, so a tag
    *  created here with a hardcoded colour would be gray everywhere, forever. */
   const addTag = useCallback(
@@ -369,7 +335,7 @@ function TodayCard() {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
-            onClick={() => (adding ? setAdding(false) : openAdd())}
+            onClick={() => setCreating(true)}
             className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-dashed border-[#D1D5DB] text-[#6B7280] hover:border-[#2563EB] hover:text-[#2563EB] transition-colors whitespace-nowrap"
           >
             <Plus className="w-3 h-3" /> New task
@@ -380,71 +346,13 @@ function TodayCard() {
         </div>
       </div>
 
-      {adding && (
-        <div className="mx-4 mt-3 border border-[#BFDBFE] bg-[#EFF6FF] rounded-lg p-2.5 space-y-2">
-          <TitleTextarea
-            autoFocus
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleCreate()
-              if (e.key === 'Escape') setAdding(false)
-            }}
-            placeholder="What needs doing today?"
-            className="w-full px-2.5 py-1.5 text-[13px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
-          />
-          <select
-            value={newProjectId}
-            onChange={(e) => setNewProjectId(e.target.value)}
-            className="w-full px-2 py-1.5 text-[12px] border border-[#E5E7EB] rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
-          >
-            <option value="">No project</option>
-            {pickableProjects(projects, newProjectId).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          {pickable.length > 0 && (
-            <div className="flex items-center gap-1 flex-wrap">
-              {pickable.map((a) => {
-                const on = newAssignees.includes(a.id)
-                return (
-                  <button
-                    key={a.id}
-                    onClick={() =>
-                      setNewAssignees((prev) =>
-                        on ? prev.filter((x) => x !== a.id) : [...prev, a.id],
-                      )
-                    }
-                    className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
-                      on
-                        ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                        : 'bg-white text-[#4B5563] border-[#E5E7EB] hover:bg-[#F9FAFB]'
-                    }`}
-                  >
-                    {taskFirstName(a.name)}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <button
-              disabled={busy || !newTitle.trim()}
-              onClick={() => void handleCreate()}
-              className="px-2.5 py-1 rounded-md bg-[#2563EB] text-white text-[12px] font-medium hover:bg-[#1D4ED8] disabled:opacity-50"
-            >
-              Add to Today
-            </button>
-            <button
-              onClick={() => setAdding(false)}
-              className="px-2.5 py-1 rounded-md border border-[#E5E7EB] bg-white text-[#374151] text-[12px] hover:bg-[#F9FAFB]"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+      {creating && (
+        <NewTaskModal
+          preset={{ needBy: localISO(), assigneeIds: myAssigneeId ? [myAssigneeId] : [] }}
+          orgId={user?.org_id}
+          userId={user?.id ?? null}
+          onClose={() => setCreating(false)}
+        />
       )}
 
       {/* ⛔ Never let the fallback pass for "your tasks". */}

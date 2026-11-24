@@ -20,7 +20,9 @@ ok(/departments\.map\(\(d\) => \{\s*const cap = m\.deptCapacity\[d\.id\]/.test(c
 ok(/tracked \{Math\.round\(m\.trackedHours\)\} of booked/.test(cap), 'collapsed header keeps tracked vs booked')
 ok(/if \(seq !== loadSeq\.current\) return/.test(cap) && /const \[tracked, mixMinutes\] = await Promise\.all\(\[\s*loadTrackedByMonth\(practice\)/.test(cap), 'one batched load, stale loads dropped (no partial paint)')
 ok(/\{m\.effectiveWorkingDays\}d/.test(cap), 'working days on the header')
+// 2026-11-24: the four inline create forms (and TitleTextarea) are gone — every
+// create is the task modal, whose title is the autogrow textarea.
 for (const f of ['app/(app)/pm/page.tsx', 'app/(app)/tasks/page.tsx', 'components/tasks/ProjectTaskButton.tsx', 'components/tasks/TasksPanel.tsx'])
-  ok(/<TitleTextarea[\s\S]{0,900}?What needs doing/.test(read(f)), `new-task field autogrows: ${f}`)
+  ok(/<NewTaskModal/.test(read(f)) && /ref=\{titleRef\}\s+rows=\{1\}[\s\S]{0,120}What needs doing/.test(read('components/tasks/TaskRow.tsx')), `new-task field autogrows (the modal's title): ${f}`)
 console.log(bad ? `FAIL — ${bad} of ${n}` : `PASS — ${n} checks`)
 process.exit(bad ? 1 : 0)
