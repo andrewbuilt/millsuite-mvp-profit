@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pre-Approval Portal — B2B mockup v2</title>
+<style>
+  :root{
+    --ink:#111827; --body:#374151; --mut:#6B7280; --faint:#9CA3AF;
+    --line:#E5E7EB; --soft:#F3F4F6; --bg:#F9FAFB;
+    --blue:#2563EB; --blue-bg:#EFF6FF;
+    --green:#059669; --green-bg:#ECFDF5;
+    --amber:#B45309; --amber-bg:#FFFBEB;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--body);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .page{max-width:880px;margin:0 auto;padding:0 24px 80px}
+
+  .topbar{background:#fff;border-bottom:1px solid var(--line)}
+  .topbar-in{max-width:880px;margin:0 auto;padding:18px 24px;display:flex;align-items:center;justify-content:space-between}
+  .wordmark{font-weight:800;letter-spacing:.12em;font-size:15px;color:var(--ink)}
+  .topbar .mut{font-size:12.5px;color:var(--faint)}
+
+  .head{padding:40px 0 8px}
+  .eyebrow{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  h1{font-size:27px;font-weight:700;color:var(--ink);letter-spacing:-.01em;margin-top:6px}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;margin-top:20px;overflow:hidden}
+  .card-pad{padding:22px 24px}
+  .card h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700}
+
+  /* ── Contacts (top, editable) ── */
+  .contacts{display:grid;grid-template-columns:1fr 1fr;gap:0}
+  .contacts .col{padding:18px 24px}
+  .contacts .col+.col{border-left:1px solid var(--soft)}
+  .c-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .c-title{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700}
+  .edit{font-size:12px;color:var(--blue);text-decoration:none;font-weight:600;cursor:pointer}
+  .c-name{font-size:14.5px;font-weight:600;color:var(--ink)}
+  .c-line{font-size:13.5px;color:var(--mut);margin-top:2px}
+  .c-line a{color:var(--blue);text-decoration:none}
+  /* one field shown mid-edit */
+  .c-input{width:100%;margin-top:4px;padding:7px 10px;border:1px solid var(--blue);border-radius:8px;font-size:13.5px;color:var(--ink)}
+  .c-save{display:flex;gap:8px;margin-top:8px}
+
+  /* ── Status + lead ── */
+  .statusgrid{display:flex;border-bottom:1px solid var(--soft)}
+  .statusgrid .cell{flex:1;padding:20px 24px;border-right:1px solid var(--soft)}
+  .statusgrid .cell:last-child{border-right:none}
+  .big{font-size:24px;font-weight:700;color:var(--ink)}
+  .big .dim{color:var(--faint);font-weight:600}
+  .lbl{font-size:12px;color:var(--mut);margin-top:2px}
+  .bar{height:6px;background:var(--soft);border-radius:3px;overflow:hidden;margin:18px 24px 0}
+  .bar i{display:block;height:100%;width:67%;background:var(--green);border-radius:3px}
+  .barnote{padding:8px 24px 18px;font-size:13px;color:var(--mut)}
+  .barnote b{color:var(--ink);font-weight:600}
+
+  .lead{background:var(--blue-bg);border:1px solid #DBEAFE;border-radius:14px;margin-top:20px;padding:20px 24px;display:flex;gap:16px;align-items:flex-start}
+  .lead .num{font-size:30px;font-weight:800;color:var(--blue);line-height:1.1;white-space:nowrap}
+  .lead .num small{display:block;font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#60A5FA}
+  .lead p{font-size:14px;color:#1E3A8A}
+  .lead .clock{font-size:12.5px;color:#3B82F6;margin-top:6px}
+
+  /* ── Subprojects ── */
+  .sub{border:1px solid var(--line);border-radius:14px;margin-top:20px;background:#fff;overflow:hidden}
+  .sub-head{display:flex;align-items:center;gap:12px;padding:16px 20px;cursor:pointer;background:#fff}
+  .caret{width:0;height:0;border-left:6px solid var(--faint);border-top:5px solid transparent;border-bottom:5px solid transparent;transition:transform .1s}
+  .sub.open .caret{transform:rotate(90deg)}
+  .sub-title{font-size:16px;font-weight:700;color:var(--ink);flex:1}
+  .sub-count{font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:999px}
+  .sub-count.part{background:var(--amber-bg);color:var(--amber)}
+  .sub-count.done{background:var(--green-bg);color:var(--green)}
+  .sub-body{border-top:1px solid var(--soft)}
+  .sub.closed .sub-body{display:none}
+
+  .group{padding:4px 0 10px}
+  .group-h{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700;padding:14px 20px 4px}
+
+  .item{display:flex;gap:14px;padding:12px 20px;align-items:flex-start;border-top:1px solid var(--soft)}
+  .group .item:first-of-type{border-top:none}
+  .dot{width:9px;height:9px;border-radius:50%;margin-top:7px;flex-shrink:0}
+  .dot.g{background:var(--green)} .dot.a{background:#F59E0B} .dot.b{background:var(--blue)}
+  .mid{flex:1;min-width:0}
+  .name{font-size:14.5px;font-weight:600;color:var(--ink)}
+  .meta{font-size:12.5px;color:var(--mut);margin-top:1px}
+  .meta .ts{color:var(--faint)}
+  .meta a{color:var(--blue);text-decoration:none}
+  .pill{display:inline-block;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap}
+  .pill.approved{background:var(--green-bg);color:var(--green)}
+  .pill.waiting{background:var(--amber-bg);color:var(--amber)}
+  .pill.shop{background:var(--soft);color:var(--mut)}
+  .act{display:flex;gap:8px;margin-top:8px}
+  .btn{font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--body);cursor:pointer}
+  .btn.primary{background:var(--green);border-color:var(--green);color:#fff}
+  .btn.q{color:var(--blue)}
+
+  /* finish images */
+  .thumbs{display:flex;gap:8px;margin-top:8px}
+  .thumb{width:64px;height:64px;border-radius:8px;border:1px solid var(--line);background:linear-gradient(135deg,#E7D8C2,#C9A97C);position:relative}
+  .thumb.t2{background:linear-gradient(135deg,#F4F4F2,#DADAD6)}
+  .thumb small{position:absolute;bottom:2px;left:4px;font-size:9px;color:rgba(0,0,0,.45)}
+  .thumb.add{background:#fff;border:1.5px dashed var(--line);display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:20px;cursor:pointer}
+  .thumb-ts{font-size:11px;color:var(--faint);margin-top:4px}
+
+  .foot{margin-top:40px;text-align:center;font-size:12px;color:var(--faint)}
+  .foot b{letter-spacing:.1em;color:var(--mut)}
+
+  /* questions + activity (unchanged from v1, condensed) */
+  .qa{padding:0 24px 22px}
+  .q-row{border-top:1px solid var(--soft);padding:14px 0}
+  .q-row:first-child{border-top:none}
+  .q-q{font-size:14px;color:var(--ink)}
+  .q-meta{font-size:12px;color:var(--faint);margin-top:2px}
+  .q-a{margin-top:10px;margin-left:16px;padding:10px 14px;background:var(--bg);border-radius:10px;font-size:13.5px}
+  .ask{display:flex;gap:8px;margin-top:6px;padding-top:16px;border-top:1px solid var(--soft)}
+  .ask textarea{flex:1;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13.5px;font-family:inherit;resize:none;height:42px}
+  .tl{padding:6px 24px 20px}
+  .tl-row{display:flex;gap:14px;padding:10px 0;border-top:1px solid var(--soft);font-size:13.5px}
+  .tl-row:first-child{border-top:none}
+  .tl-ts{width:148px;flex-shrink:0;color:var(--faint);font-size:12.5px}
+  .tl-row .who{font-weight:600;color:var(--ink)}
+  @media(max-width:640px){.statusgrid{flex-wrap:wrap}.statusgrid .cell{min-width:50%}.contacts{grid-template-columns:1fr}.contacts .col+.col{border-left:none;border-top:1px solid var(--soft)}.tl-ts{width:110px}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="wordmark">BUILT</div>
+    <div class="mut">Project approval portal · updated Nov 24, 2026, 8:12 AM</div>
+  </div>
+</div>
+
+<div class="page">
+
+  <div class="head">
+    <div class="eyebrow">Prepared for Pajot Millwork</div>
+    <h1>Hunt — Reception &amp; Casework Package</h1>
+  </div>
+
+  <!-- CONTACTS — moved to top, editable -->
+  <div class="card">
+    <div class="contacts">
+      <div class="col">
+        <div class="c-head"><span class="c-title">Your team at BUILT</span></div>
+        <div class="c-name">Kaylin — Project Manager</div>
+        <div class="c-line"><a href="#">kaylin@builtthings.com</a> · (813) 555-0142</div>
+        <div class="c-line" style="margin-top:8px">Shop: 4902 N Hale Ave, Tampa, FL 33614</div>
+      </div>
+      <div class="col">
+        <div class="c-head"><span class="c-title">Your info — keep it current</span><a class="edit">Edit</a></div>
+        <div class="c-name">Dave Pajot · Pajot Millwork</div>
+        <div class="c-line">dave@pajotmillwork.com · (813) 555-0177</div>
+        <div class="c-line" style="margin-top:8px">Jobsite: Hunt Office Building, 601 E Kennedy Blvd, Tampa</div>
+        <!-- deadline field shown mid-edit so the editable state is visible -->
+        <input class="c-input" value="Occupied by March 1">
+        <div class="c-save">
+          <button class="btn primary" style="background:var(--blue);border-color:var(--blue)">Save</button>
+          <button class="btn">Cancel</button>
+        </div>
+        <div class="c-line" style="margin-top:6px;font-size:11.5px;color:var(--faint)">Edits are time-stamped and we’re notified.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATUS -->
+  <div class="card">
+    <div class="statusgrid">
+      <div class="cell"><div class="big">6 <span class="dim">of 9</span></div><div class="lbl">items approved</div></div>
+      <div class="cell"><div class="big" style="color:var(--amber)">2</div><div class="lbl">waiting on you</div></div>
+      <div class="cell"><div class="big" style="color:var(--mut)">1</div><div class="lbl">in our court</div></div>
+      <div class="cell"><div class="big">12 <span class="dim">days</span></div><div class="lbl">in pre-production</div></div>
+    </div>
+    <div class="bar"><i></i></div>
+    <div class="barnote"><b>3 items</b> stand between this project and the production schedule — 2 are waiting on your approval below.</div>
+  </div>
+
+  <!-- LEAD TIME -->
+  <div class="lead">
+    <div class="num"><small>Lead time</small>8 wks</div>
+    <div>
+      <p><b>Our current lead time is 8 weeks, and it begins when the last item below is approved</b> — not from the order date. Approvals release this project to the production schedule.</p>
+      <div class="clock">Everything approved today → estimated completion week of <b>Jan 19, 2027</b>.</div>
+    </div>
+  </div>
+
+  <!-- ══ SUBPROJECT: Reception Desk (open, partial) ══ -->
+  <div class="sub open">
+    <div class="sub-head">
+      <span class="caret"></span>
+      <span class="sub-title">Reception Desk</span>
+      <span class="sub-count part">3 of 5 approved</span>
+    </div>
+    <div class="sub-body">
+
+      <div class="group">
+        <div class="group-h">Finishes</div>
+        <div class="item">
+          <div class="dot a"></div>
+          <div class="mid">
+            <div class="name">White Oak — natural clear</div>
+            <div class="meta">Physical sample #S-118 delivered <span class="ts">Nov 19, 11:30 AM</span></div>
+            <div class="thumbs">
+              <div class="thumb"><small>sample</small></div>
+              <div class="thumb t2"><small>in situ</small></div>
+              <div class="thumb add" title="Add a photo">+</div>
+            </div>
+            <div class="thumb-ts">Photos added by BUILT · Nov 19, 11:42 AM</div>
+            <div class="act">
+              <button class="btn primary">Approve</button>
+              <button class="btn q">Request a change</button>
+            </div>
+          </div>
+          <span class="pill waiting">Waiting on you</span>
+        </div>
+        <div class="item">
+          <div class="dot g"></div>
+          <div class="mid">
+            <div class="name">PLAM — Formica 949 White</div>
+            <div class="meta">Approved by Dave Pajot · <span class="ts">Nov 17, 2:14 PM</span></div>
+          </div>
+          <span class="pill approved">Approved</span>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-h">Hardware</div>
+        <div class="item">
+          <div class="dot g"></div>
+          <div class="mid">
+            <div class="name">Blum soft-close hinges · satin nickel pulls</div>
+            <div class="meta"><a href="#">richelieu.com/BP98765-195 ↗</a> · approved by Dave Pajot · <span class="ts">Nov 17, 2:16 PM</span></div>
+          </div>
+          <span class="pill approved">Approved</span>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-h">Drawings</div>
+        <div class="item">
+          <div class="dot a"></div>
+          <div class="mid">
+            <div class="name">Shop drawings — Reception desk</div>
+            <div class="meta">Rev 3 · uploaded <span class="ts">Nov 21, 3:47 PM</span> · <a href="#">View PDF</a></div>
+            <div class="meta" style="margin-top:4px;color:var(--faint)">Rev 2: changes requested by Dave Pajot · Nov 18, 9:02 AM — “extend the transaction top 4&quot; past the gable”</div>
+            <div class="act">
+              <button class="btn primary">Approve</button>
+              <button class="btn q">Request a change</button>
+            </div>
+          </div>
+          <span class="pill waiting">Waiting on you</span>
+        </div>
+        <div class="item">
+          <div class="dot g"></div>
+          <div class="mid">
+            <div class="name">Countertop — Quartz, Caesarstone 4141</div>
+            <div class="meta">Approved by vendor sample · <span class="ts">Nov 14, 4:50 PM</span></div>
+          </div>
+          <span class="pill approved">Approved</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ SUBPROJECT: Conference Casework (open, shop's court) ══ -->
+  <div class="sub open">
+    <div class="sub-head">
+      <span class="caret"></span>
+      <span class="sub-title">Conference Casework</span>
+      <span class="sub-count part">0 of 1 approved</span>
+    </div>
+    <div class="sub-body">
+      <div class="group">
+        <div class="group-h">Drawings</div>
+        <div class="item">
+          <div class="dot b"></div>
+          <div class="mid">
+            <div class="name">Shop drawings — Conference casework</div>
+            <div class="meta">Rev 1 in progress · expected <span class="ts">Nov 26</span></div>
+          </div>
+          <span class="pill shop">In our court</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SUBPROJECT: Mailroom (collapsed, all approved) ══ -->
+  <div class="sub closed">
+    <div class="sub-head">
+      <span class="caret"></span>
+      <span class="sub-title">Mailroom</span>
+      <span class="sub-count done">✓ All approved</span>
+    </div>
+    <div class="sub-body"></div>
+  </div>
+
+  <!-- QUESTIONS -->
+  <div class="card">
+    <div class="card-pad" style="padding-bottom:10px"><h2>Questions</h2></div>
+    <div class="qa">
+      <div class="q-row">
+        <div class="q-q">Can the mailroom uppers go to the deck instead of 42&quot;?</div>
+        <div class="q-meta">Dave Pajot · Nov 18, 8:40 AM</div>
+        <div class="q-a">
+          Yes — no price change, we’ll pick it up on Rev 2 of the mailroom drawings.
+          <div class="q-meta">Kaylin · BUILT · Nov 18, 10:02 AM</div>
+        </div>
+      </div>
+      <div class="ask">
+        <textarea placeholder="Ask us anything about this project…"></textarea>
+        <button class="btn primary" style="background:var(--blue);border-color:var(--blue);align-self:flex-end">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACTIVITY -->
+  <div class="card">
+    <div class="card-pad" style="padding-bottom:6px"><h2>Activity — everything, time-stamped</h2></div>
+    <div class="tl">
+      <div class="tl-row"><div class="tl-ts">Nov 21, 3:47 PM</div><div><span class="who">BUILT</span> uploaded Rev 3 of the reception desk drawings</div></div>
+      <div class="tl-row"><div class="tl-ts">Nov 19, 11:42 AM</div><div><span class="who">BUILT</span> added 2 photos to White Oak — natural clear</div></div>
+      <div class="tl-row"><div class="tl-ts">Nov 18, 10:02 AM</div><div><span class="who">Kaylin</span> answered a question about the mailroom uppers</div></div>
+      <div class="tl-row"><div class="tl-ts">Nov 18, 9:02 AM</div><div><span class="who">Dave Pajot</span> requested a change on reception desk Rev 2</div></div>
+      <div class="tl-row"><div class="tl-ts">Nov 17, 2:14 PM</div><div><span class="who">Dave Pajot</span> approved PLAM — Formica 949 White</div></div>
+      <div class="tl-row"><div class="tl-ts">Nov 15, 8:51 AM</div><div><span class="who">Dave Pajot</span> updated the jobsite deadline</div></div>
+      <div class="tl-row"><div class="tl-ts">Nov 12, 1:22 PM</div><div><span class="who">BUILT</span> opened this portal and sent the link</div></div>
+    </div>
+  </div>
+
+  <div class="foot">Fabricated by <b>BUILT</b> · Tampa, FL · This page is live — bookmark it; it updates as the project moves.</div>
+</div>
+
+<script>
+  document.querySelectorAll('.sub-head').forEach(h=>h.addEventListener('click',()=>{
+    const s=h.parentElement;s.classList.toggle('closed');s.classList.toggle('open');
+  }));
+</script>
+</body>
+</html>
