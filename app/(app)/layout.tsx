@@ -8,6 +8,7 @@ import UpdateBanner from '@/components/update-banner'
 import TourProvider from '@/components/walkthroughs/TourProvider'
 import { TasksProvider } from '@/components/tasks/TasksProvider'
 import TasksPanel from '@/components/tasks/TasksPanel'
+import EngDueCheck from '@/components/engineering/EngDueCheck'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -43,6 +44,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <UpdateBanner />
             {/* Right-hand slide-out; renders nothing until opened. */}
             <TasksPanel />
+            {/* End-of-day engineering check (138): engineers with a job due
+                today get a prompt at 3:30 PM they must answer. Renders nothing
+                for everyone else. */}
+            <EngDueCheck />
             </TasksProvider>
           </TourProvider>
         </BillingGate>
