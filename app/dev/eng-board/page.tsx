@@ -100,6 +100,7 @@ function fixture(): BoardData {
     },
     subsByProject: { kinser: [{ id: 's1', name: 'Kitchen' }, { id: 's2', name: 'Primary bath' }] },
     planError: null,
+    poolOrder: [],
   }
 }
 
@@ -151,8 +152,9 @@ export default function EngBoardFixture() {
         }
         await tick()
       },
+      savePoolOrder: async (ids) => { s().poolOrder = ids; await tick() },
       canTime: true,
     }
   }, [])
-  return <EngBoard api={api} />
+  return <EngBoard api={api} meUserId="u-h" />
 }

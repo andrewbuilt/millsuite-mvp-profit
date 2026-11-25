@@ -95,6 +95,10 @@ export interface BoardData {
   subsByProject: Record<string, Array<{ id: string; name: string }>>
   /** null = ok; otherwise why the plan can't be read (pre-129). */
   planError: string | null
+  /** 137 — the shared "Needs an engineer" order (project ids, top first).
+   *  null = the table isn't there yet (pre-137): the board keeps the order in
+   *  that browser only. Optional so an older fixture still mounts. */
+  poolOrder?: string[] | null
 }
 
 /** Same name heuristic lib/project-hours maps the 'eng' labor key with. */
@@ -124,7 +128,7 @@ async function fetchAllRows(
 }
 
 export async function loadEngBoard(orgId: string, windowStart: string, horizonEnd: string): Promise<BoardData> {
-  const [{ data: depts }, { data: projs }, setup, practice, archived, temp, planRes] = await Promise.all([
+  const [{ data: depts }, { data: projs }, setup, practice, archived, temp, planRes, poolRes] = await Promise.all([
     supabase.from('departments').select('id, name, active').eq('org_id', orgId),
     supabase.from('projects').select('id, name, client_name, stage').eq('org_id', orgId).in('stage', BOARD_STAGES),
     loadShopRateSetup(orgId),
@@ -132,6 +136,7 @@ export async function loadEngBoard(orgId: string, windowStart: string, horizonEn
     loadArchivedProjectIds(orgId),
     loadTempProjectIds(orgId),
     supabase.from('eng_assignments').select('*').eq('org_id', orgId).eq('dept', ENG_DEPT),
+    supabase.from('eng_pool_order').select('project_id, priority').eq('org_id', orgId).order('priority'),
   ])
 
   const engDeptIds = ((depts || []) as Array<{ id: string; name: string; active: boolean | null }>)
@@ -247,7 +252,12 @@ export async function loadEngBoard(orgId: string, windowStart: string, horizonEn
     ;(subsByProject[s.project_id] ||= []).push({ id: s.id, name: s.name })
   }
 
-  return { engDeptIds, engineers, projects, assignments, entries, outByMember, offByMember, subsByProject, planError }
+  // Pre-137 the read errors (no table) → null, and the board falls back.
+  const poolOrder = poolRes.error
+    ? null
+    : ((poolRes.data || []) as Array<{ project_id: string }>).map((r) => r.project_id)
+
+  return { engDeptIds, engineers, projects, assignments, entries, outByMember, offByMember, subsByProject, planError, poolOrder }
 }
 
 /** Local-day key of an entry (started_at, else created_at). */
@@ -304,6 +314,19 @@ export async function setEngineeringDone(args: { orgId: string; assignmentId: st
     label: args.done ? 'Engineering done' : 'Engineering reopened',
     meta: { tracked_hours: Math.round(args.trackedHours * 10) / 10 },
   })
+}
+
+/** 137 — save the "Needs an engineer" order (top first). One upsert; rows for
+ *  projects no longer in the list are left alone (the board ignores them). */
+export async function savePoolOrder(orgId: string, projectIds: string[]): Promise<void> {
+  if (!projectIds.length) return
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('eng_pool_order')
+    .upsert(projectIds.map((project_id, i) => ({ org_id: orgId, project_id, priority: i + 1, updated_at: now })), { onConflict: 'org_id,project_id' })
+    .select('project_id')
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('The list order didn’t save.')
 }
 
 export async function unassignProject(id: string): Promise<void> {

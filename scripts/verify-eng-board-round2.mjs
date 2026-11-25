@@ -101,7 +101,12 @@ ok('131: no backfill / UPDATE (null = v1, nothing moves)', !/\bUPDATE\b/i.test(m
 const board = read('components/engineering/EngBoard.tsx')
 ok('board: done assignments are off the lanes (!a.done_at)', /filter\(\(a\) => !a\.done_at && engineerIds/.test(board))
 ok('board: strips no longer leave at 0h (no "✓ done" on a zero-remaining chip)', !/s\.remaining <= 0\.05/.test(board))
-ok('board: a strip drop carries row + day column (both axes)', /onDrop\(posAt\(e\.clientX, e\.clientY\)\)/.test(board) && /patch\.priority = priorityBetween/.test(board) && /patch\.start_date =/.test(board))
+// 2026-11-25 redesign: no sideways strip drag. Rows drag to reorder (priority
+// between the new neighbours); hand-picked days / a pinned start are kept and
+// can be released from the side panel.
+ok('board: a list drop lands between its new neighbours', /function placeOnList/.test(board) && /priorityBetween\(at > 0 \? rows\[at - 1\]\.priority/.test(board))
+ok('board: "Automatic" clears picked days AND a pinned start', /patch\.divisions = null; patch\.start_date = null/.test(board))
+ok('board: Needs-an-engineer order saves through api.savePoolOrder (137)', /api\.savePoolOrder!\(ids\)/.test(board) && /eng_pool_order/.test(read('lib/eng-board.ts')))
 ok('board: Engineering done button wired to api.setDone', /Engineering done/.test(board) && /api\.setDone\(/.test(board))
 const lib = read('lib/eng-board.ts')
 ok('lib: setEngineeringDone logs a project_events row', /eventType: args\.done \? 'engineering_done'/.test(lib))

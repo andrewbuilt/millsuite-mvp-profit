@@ -7,7 +7,7 @@ import { useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import PlanGate from '@/components/plan-gate'
 import EngBoard, { type BoardApi } from '@/components/engineering/EngBoard'
-import { loadEngBoard, assignProject, updateAssignment, unassignProject, setEngineeringDone } from '@/lib/eng-board'
+import { loadEngBoard, assignProject, updateAssignment, unassignProject, setEngineeringDone, savePoolOrder } from '@/lib/eng-board'
 import { clockIn, clockOut, type TimeEntry } from '@/lib/worker-time'
 
 export default function EngineeringPage() {
@@ -26,13 +26,14 @@ export default function EngineeringPage() {
         await clockIn({ orgId, userId, projectId, subprojectId, departmentId })
       },
       stopTimer: (entry) => clockOut(entry as unknown as TimeEntry),
+      savePoolOrder: (ids) => savePoolOrder(orgId, ids),
       canTime: !!user,
     }
   }, [orgId, user])
 
   return (
     <PlanGate requires="schedule">
-      {api ? <EngBoard api={api} /> : null}
+      {api ? <EngBoard api={api} meUserId={user?.id || null} /> : null}
     </PlanGate>
   )
 }
