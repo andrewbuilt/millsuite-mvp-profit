@@ -32,18 +32,18 @@ export default function TasksNavButton() {
       onClick={() => openPanel()}
       title={label ? `Tasks — ${label}` : 'Tasks'}
       aria-label={label ? `Tasks, ${label}` : 'Tasks'}
-      className={`relative p-1.5 rounded-lg transition-colors ${
+      className={`relative p-1.5 rounded-lg transition-colors flex items-center justify-center ${
         panelOpen ? 'bg-[#F3F4F6] text-[#111]' : 'text-[#6B7280] hover:text-[#111] hover:bg-[#F9FAFB]'
       }`}
     >
-      <ListChecks className="w-[18px] h-[18px]" />
+      <ListChecks className="w-6 h-6" />
       {criticalCount > 0 && (
-        <span className="absolute -bottom-1 -right-1 w-[13px] h-[13px] rounded-full bg-[#DC2626] text-white text-[9px] font-bold leading-[13px] text-center ring-2 ring-white">
+        <span className="absolute -bottom-1 -right-1 w-[17px] h-[17px] rounded-full bg-[#DC2626] text-white text-[11px] font-bold leading-[17px] text-center ring-2 ring-white">
           !
         </span>
       )}
       {unseenCount > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-[#2563EB] text-white text-[9px] font-semibold leading-[15px] text-center ring-2 ring-white">
+        <span className="absolute -top-1 -right-1 min-w-[19px] h-[19px] px-1 rounded-full bg-[#2563EB] text-white text-[11px] font-semibold leading-[19px] text-center ring-2 ring-white">
           {unseenCount > 99 ? '99+' : unseenCount}
         </span>
       )}
