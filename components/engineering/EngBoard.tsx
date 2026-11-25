@@ -457,7 +457,6 @@ export default function EngBoard({ api, meUserId = null }: { api: BoardApi; meUs
                 <>
                   {/* Summary */}
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    <Pill>{fmtH(selLane?.queued || 0)}h of engineering left</Pill>
                     <Pill muted>{last ? `Booked through ${shortDay(last)}` : 'Nothing booked'}</Pill>
                     {late > 0 && <Pill warn>{late} late {late === 1 ? 'job' : 'jobs'}</Pill>}
                     {overDays > 0 && <Pill warn>Over {fmtH(selEng.dailyHours)}h on {overDays} {overDays === 1 ? 'day' : 'days'}</Pill>}
@@ -1061,12 +1060,6 @@ function JobPanel({
               </div>
             )}
           </div>
-          {assignment && (
-            <div style={{ marginTop: -12, fontSize: 13, color: FAINT, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {due ? <span>If the schedule can’t make this date, the job is flagged.</span> : <span>No due date.</span>}
-              {due && <button onClick={() => setDue('')} style={link}>Clear</button>}
-            </div>
-          )}
 
           {/* Scheduled hours (break part of the estimate out) */}
           <div>

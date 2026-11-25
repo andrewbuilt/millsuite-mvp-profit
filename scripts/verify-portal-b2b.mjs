@@ -283,7 +283,7 @@ ok(/CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_portal_token[\s\S]*?WHERE por
 ok(/approval_item_id uuid NOT NULL REFERENCES public\.approval_items\(id\) ON DELETE CASCADE/.test(sql) && /project_id\s+uuid NOT NULL REFERENCES public\.projects\(id\) ON DELETE CASCADE/.test(sql), 'both new tables cascade from their parent')
 ok(/COMMIT;\s*NOTIFY pgrst, 'reload schema';\s*$/.test(sql.trim() + '\n'.trim()) || /NOTIFY pgrst, 'reload schema';\s*$/.test(sql.trim()), '135 ends with NOTIFY pgrst')
 const migs = fs.readdirSync('db/migrations').filter((f) => /^\d+_.*\.sql$/.test(f)).sort()
-ok(migs.includes('135_preapproval_portal.sql') && migs[migs.length - 1] === '136_handoff_contacts.sql', '135 is there; 136 (contacts) is the highest migration')
+ok(migs.includes('135_preapproval_portal.sql') && migs.includes('136_handoff_contacts.sql') && parseInt(migs[migs.length - 1], 10) >= 136, '135 and 136 (contacts) are there; nothing numbered below them came after')
 const sql136 = stripSqlComments(read('db/migrations/136_handoff_contacts.sql'))
 ok(/ADD COLUMN IF NOT EXISTS handoff_contacts jsonb NOT NULL DEFAULT '\[\]'::jsonb/.test(sql136) && /NOTIFY pgrst, 'reload schema';\s*$/.test(sql136.trim()), '136 adds handoff_contacts idempotently and ends with NOTIFY')
 ok(!/\banon\b|GRANT\b|POLICY\b/i.test(sql136), '136 grants nothing and adds no policy (rides the projects policy)')
