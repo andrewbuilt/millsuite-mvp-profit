@@ -226,6 +226,26 @@ export async function approve(
 }
 
 /**
+ * approved → in_review: undo an approval marked by mistake. Logged as a
+ * 'submitted' row with a note (the revision-action enum has no 'unapproved'
+ * value, and adding one would need a migration). Ball goes back to the
+ * client — the item is waiting on their approval again.
+ * ⚠ It does NOT undo a spec change order that approve() auto-finalized.
+ */
+export async function unapprove(
+  itemId: string,
+  args: TransitionArgs = {}
+): Promise<void> {
+  await applyTransition(itemId, {
+    newState: 'in_review',
+    action: 'submitted',
+    newBallInCourt: 'client',
+    note: 'Approval undone — marked by mistake',
+    ...args,
+  })
+}
+
+/**
  * approved → pending via 'material_changed'. Used when a CO triggers a
  * material swap that invalidates the prior approval. Ball flips to shop
  * (new sample round).

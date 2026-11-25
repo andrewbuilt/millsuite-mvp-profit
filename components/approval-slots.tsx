@@ -25,6 +25,7 @@ import {
   ApprovalState,
   BallInCourt,
   approve,
+  unapprove,
   ballChipTone,
   createCustomSlot,
   daysSinceStateChange,
@@ -299,6 +300,7 @@ export default function ApprovalSlots({ subprojectId, actorUserId, onChange, onC
             onToggleExpanded={() => toggleExpanded(item.id)}
             onSubmit={() => runTransition(submitSample, item.id, 'ms:spec-submitted')}
             onApprove={() => runTransition(approve, item.id, 'ms:spec-approved')}
+            onUnapprove={() => runTransition(unapprove, item.id)}
             onRequestChange={() => runTransition(requestChange, item.id)}
             onCreateCo={() => onCreateSpecCo?.(item.id)}
           />
@@ -459,6 +461,8 @@ interface SlotCardProps {
   onToggleExpanded: () => void
   onSubmit: () => void
   onApprove: () => void
+  /** Undo an approval marked by mistake (approved → in review). */
+  onUnapprove: () => void
   onRequestChange: () => void
   onCreateCo: () => void
   onEdit: () => void
@@ -589,6 +593,7 @@ function SlotCard(p: SlotCardProps) {
               isBusy={p.isBusy}
               onSubmit={p.onSubmit}
               onApprove={p.onApprove}
+              onUnapprove={p.onUnapprove}
               onRequestChange={p.onRequestChange}
             />
             <span className="flex-1" />
@@ -703,12 +708,14 @@ function SlotActions({
   isBusy,
   onSubmit,
   onApprove,
+  onUnapprove,
   onRequestChange,
 }: {
   state: ApprovalState
   isBusy: boolean
   onSubmit: () => void
   onApprove: () => void
+  onUnapprove: () => void
   onRequestChange: () => void
 }) {
   if (state === 'pending') {
@@ -745,10 +752,19 @@ function SlotActions({
       </>
     )
   }
-  // approved — terminal state. Content edits go through a CO authored on
-  // the line in the subproject editor; the previous "Material changed —
-  // reopen" button was a content mutation and has been removed.
-  return null
+  // approved — content edits still go through a CO. The one way back is
+  // "Undo approval" for an approval clicked by mistake: it returns the
+  // item to In review (logged in the sample history).
+  return (
+    <button
+      onClick={onUnapprove}
+      disabled={isBusy}
+      className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-neutral-300 hover:border-neutral-500 text-neutral-700 disabled:opacity-40"
+    >
+      <RotateCcw className="w-3 h-3" />
+      Undo approval
+    </button>
+  )
 }
 
 // ── Sub-components ──
